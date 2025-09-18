@@ -356,8 +356,8 @@ pub const RunIterator = struct {
         // If this is a grapheme, we need to find a font that supports
         // all of the codepoints in the grapheme.
         const cps = self.opts.row.grapheme(cell) orelse return primary;
-        var candidates = try std.ArrayList(font.Collection.Index).initCapacity(alloc, cps.len + 1);
-        defer candidates.deinit();
+        var candidates: std.ArrayList(font.Collection.Index) = try .initCapacity(alloc, cps.len + 1);
+        defer candidates.deinit(alloc);
         candidates.appendAssumeCapacity(primary);
 
         for (cps) |cp| {

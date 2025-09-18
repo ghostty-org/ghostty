@@ -188,9 +188,9 @@ pub const GlobalShortcuts = extern struct {
                 // If there isn't space to translate the trigger, then our
                 // buffer might be too small (but 1024 is insane!). In any case
                 // we don't want to stop registering globals.
-                error.NoSpaceLeft => {
+                error.WriteFailed => {
                     log.warn(
-                        "buffer too small to translate trigger, ignoring={}",
+                        "buffer too small to translate trigger, ignoring={f}",
                         .{entry.key_ptr.*},
                     );
                     continue;
@@ -257,7 +257,7 @@ pub const GlobalShortcuts = extern struct {
                         const trigger = entry.key_ptr.*.ptr;
                         const action = std.fmt.bufPrintZ(
                             &action_buf,
-                            "{}",
+                            "{f}",
                             .{entry.value_ptr.*},
                         ) catch continue;
 

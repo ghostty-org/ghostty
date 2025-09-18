@@ -41,6 +41,8 @@ pub const ScreenType = enum {
     alternate,
 };
 
+alloc: Allocator,
+
 /// Screen is the current screen state. The "active_screen" field says what
 /// the current screen is. The backup screen is the opposite of the active
 /// screen.
@@ -209,7 +211,8 @@ pub fn init(
 ) !Terminal {
     const cols = opts.cols;
     const rows = opts.rows;
-    return Terminal{
+    return .{
+        .alloc = alloc,
         .cols = cols,
         .rows = rows,
         .active_screen = .primary,
@@ -222,7 +225,7 @@ pub fn init(
             .left = 0,
             .right = cols - 1,
         },
-        .pwd = std.ArrayList(u8).init(alloc),
+        .pwd = .empty,
         .modes = .{
             .values = opts.default_modes,
             .default = opts.default_modes,
@@ -234,7 +237,7 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screen.deinit();
     self.secondary_screen.deinit();
-    self.pwd.deinit();
+    self.pwd.deinit(alloc);
     self.* = undefined;
 }
 
@@ -2343,8 +2346,7 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 /// Boolean attributes are printed first, followed by foreground color, then
 /// background color. Each attribute is separated by a semicolon.
 pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
+    var writer: std.Io.Writer = .fixed(buf);
 
     // The SGR response always starts with a 0. See https://vt100.net/docs/vt510-rm/DECRPSS
     try writer.writeByte('0');
@@ -2419,7 +2421,7 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
         .rgb => |rgb| try writer.print(";48:2::{[r]}:{[g]}:{[b]}", rgb),
     }
 
-    return stream.getWritten();
+    return writer.buffered();
 }
 
 /// The modes for DECCOLM.
@@ -2518,7 +2520,7 @@ pub fn resize(
 /// Set the pwd for the terminal.
 pub fn setPwd(self: *Terminal, pwd: []const u8) !void {
     self.pwd.clearRetainingCapacity();
-    try self.pwd.appendSlice(pwd);
+    try self.pwd.appendSlice(self.alloc, pwd);
 }
 
 /// Returns the pwd for the terminal, if any. The memory is owned by the

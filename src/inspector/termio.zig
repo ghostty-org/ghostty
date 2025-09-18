@@ -43,9 +43,10 @@ pub const VTEvent = struct {
     ) !VTEvent {
         var md = Metadata.init(alloc);
         errdefer md.deinit();
-        var buf = std.ArrayList(u8).init(alloc);
+
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
-        try encodeAction(alloc, buf.writer(), &md, action);
+        try encodeAction(alloc, &buf.writer, &md, action);
         const str = try buf.toOwnedSliceSentinel(0);
         errdefer alloc.free(str);
 
@@ -115,7 +116,7 @@ pub const VTEvent = struct {
     /// Encode a parser action as a string that we show in the logs.
     fn encodeAction(
         alloc: Allocator,
-        writer: anytype,
+        writer: *std.Io.Writer,
         md: *Metadata,
         action: terminal.Parser.Action,
     ) !void {
@@ -125,16 +126,16 @@ pub const VTEvent = struct {
             .csi_dispatch => |v| try encodeCSI(writer, v),
             .esc_dispatch => |v| try encodeEsc(writer, v),
             .osc_dispatch => |v| try encodeOSC(alloc, writer, md, v),
-            else => try writer.print("{}", .{action}),
+            else => try writer.print("{f}", .{action}),
         }
     }
 
-    fn encodePrint(writer: anytype, action: terminal.Parser.Action) !void {
+    fn encodePrint(writer: *std.Io.Writer, action: terminal.Parser.Action) !void {
         const ch = action.print;
         try writer.print("'{u}' (U+{X})", .{ ch, ch });
     }
 
-    fn encodeExecute(writer: anytype, action: terminal.Parser.Action) !void {
+    fn encodeExecute(writer: *std.Io.Writer, action: terminal.Parser.Action) !void {
         const ch = action.execute;
         switch (ch) {
             0x00 => try writer.writeAll("NUL"),
@@ -158,7 +159,7 @@ pub const VTEvent = struct {
         try writer.print(" (0x{X})", .{ch});
     }
 
-    fn encodeCSI(writer: anytype, csi: terminal.Parser.Action.CSI) !void {
+    fn encodeCSI(writer: *std.Io.Writer, csi: terminal.Parser.Action.CSI) !void {
         for (csi.intermediates) |v| try writer.print("{c} ", .{v});
         for (csi.params, 0..) |v, i| {
             if (i != 0) try writer.writeByte(';');
@@ -168,19 +169,19 @@ pub const VTEvent = struct {
         try writer.writeByte(csi.final);
     }
 
-    fn encodeEsc(writer: anytype, esc: terminal.Parser.Action.ESC) !void {
+    fn encodeEsc(writer: *std.Io.Writer, esc: terminal.Parser.Action.ESC) !void {
         for (esc.intermediates) |v| try writer.print("{c} ", .{v});
         try writer.writeByte(esc.final);
     }
 
     fn encodeOSC(
         alloc: Allocator,
-        writer: anytype,
+        writer: *std.Io.Writer,
         md: *Metadata,
         osc: terminal.osc.Command,
     ) !void {
         // The description is just the tag
-        try writer.print("{s} ", .{@tagName(osc)});
+        try writer.print("{t} ", .{osc});
 
         // Add additional fields to metadata
         switch (osc) {
@@ -263,9 +264,10 @@ pub const VTEvent = struct {
                         const s = if (field.type == void)
                             try alloc.dupeZ(u8, tag_name)
                         else
-                            try std.fmt.allocPrintZ(alloc, "{s}={}", .{
+                            try std.fmt.allocPrintSentinel(alloc, "{s}={}", .{
                                 tag_name,
                                 @field(value, field.name),
+                                0,
                             });
 
                         try md.put(key, s);
@@ -281,7 +283,7 @@ pub const VTEvent = struct {
             else => switch (Value) {
                 u8, u16 => try md.put(
                     key,
-                    try std.fmt.allocPrintZ(alloc, "{}", .{value}),
+                    try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
                 ),
 
                 []const u8 => try md.put(key, try alloc.dupeZ(u8, value)),

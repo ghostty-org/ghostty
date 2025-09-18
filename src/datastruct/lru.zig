@@ -33,8 +33,8 @@ pub fn HashMap(
 ) type {
     return struct {
         const Self = @This();
-        const Map = std.HashMapUnmanaged(K, *Queue.Node, Context, max_load_percentage);
-        const Queue = std.DoublyLinkedList(KV);
+        const Map = std.HashMapUnmanaged(K, *Node, Context, max_load_percentage);
+        const Queue = std.DoublyLinkedList;
 
         /// Map to maintain our entries.
         map: Map,
@@ -49,6 +49,15 @@ pub fn HashMap(
         pub const KV = struct {
             key: K,
             value: V,
+        };
+
+        const Node = struct {
+            data: KV,
+            qnode: Queue.Node,
+
+            fn fromQnode(node: *Queue.Node) *Node {
+                return @fieldParentPtr("qnode", node);
+            }
         };
 
         /// The result of a getOrPut operation.
@@ -82,7 +91,7 @@ pub fn HashMap(
             var it = self.queue.first;
             while (it) |node| {
                 it = node.next;
-                alloc.destroy(node);
+                alloc.destroy(Node.fromQnode(node));
             }
 
             self.map.deinit(alloc);
@@ -108,10 +117,10 @@ pub fn HashMap(
             const map_gop = try self.map.getOrPutContext(alloc, key, ctx);
             if (map_gop.found_existing) {
                 // Move to end to mark as most recently used
-                self.queue.remove(map_gop.value_ptr.*);
-                self.queue.append(map_gop.value_ptr.*);
+                self.queue.remove(&map_gop.value_ptr.*.qnode);
+                self.queue.append(&map_gop.value_ptr.*.qnode);
 
-                return GetOrPutResult{
+                return .{
                     .found_existing = true,
                     .value_ptr = &map_gop.value_ptr.*.data.value,
                     .evicted = null,
@@ -125,17 +134,14 @@ pub fn HashMap(
             // Get our node. If we're not evicting then we allocate a new
             // node. If we are evicting then we avoid allocation by just
             // reusing the node we would've evicted.
-            var node = if (!evict) try alloc.create(Queue.Node) else node: {
+            const node = if (!evict) try alloc.create(Node) else node: {
                 // Our first node is the least recently used.
-                const least_used = self.queue.first.?;
-
                 // Move our least recently used to the end to make
                 // it the most recently used.
-                self.queue.remove(least_used);
+                const least_used: *Node = .fromQnode(self.queue.popFirst().?);
 
                 // Remove the least used from the map
                 _ = self.map.remove(least_used.data.key);
-
                 break :node least_used;
             };
             errdefer if (!evict) alloc.destroy(node);
@@ -144,12 +150,12 @@ pub fn HashMap(
             map_gop.value_ptr.* = node;
 
             // Mark the node as most recently used
-            self.queue.append(node);
+            self.queue.append(&node.qnode);
 
             // Set our key
             node.data.key = key;
 
-            return GetOrPutResult{
+            return .{
                 .found_existing = map_gop.found_existing,
                 .value_ptr = &node.data.value,
                 .evicted = if (!evict) null else node.data,
@@ -193,9 +199,9 @@ pub fn HashMap(
 
             var i: Map.Size = 0;
             while (i < delta) : (i += 1) {
-                const node = self.queue.first.?;
+                const qnode = self.queue.popFirst().?;
+                const node: *Node = .fromQnode(qnode);
                 evicted[i] = node.data.value;
-                self.queue.remove(node);
                 _ = self.map.remove(node.data.key);
                 alloc.destroy(node);
             }

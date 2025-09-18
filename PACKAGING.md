@@ -60,7 +60,7 @@ To find the version of Zig required to build Ghostty, check the `required_zig`
 constant in `build.zig`. You don't need to know Zig to extract this information.
 This version will always be an official released version of Zig.
 
-For example, at the time of writing this document, Ghostty requires Zig 0.14.0.
+For example, at the time of writing this document, Ghostty requires Zig 0.15.1.
 
 ## Building Ghostty
 

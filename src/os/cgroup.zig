@@ -19,8 +19,9 @@ pub fn current(alloc: Allocator, pid: std.os.linux.pid_t) !?[]const u8 {
     defer file.close();
 
     // Read it all into memory -- we don't expect this file to ever be that large.
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const contents = try buf_reader.reader().readAllAlloc(
+    var reader_buf: [4096]u8 = undefined;
+    var reader = file.reader(&reader_buf);
+    const contents = try reader.interface.readAlloc(
         alloc,
         1 * 1024 * 1024, // 1MB
     );
@@ -52,7 +53,11 @@ pub fn create(
         );
         const file = try std.fs.cwd().openFile(pid_path, .{ .mode = .write_only });
         defer file.close();
-        try file.writer().print("{}", .{pid});
+
+        var file_buf: [64]u8 = undefined;
+        var writer = file.writer(&file_buf);
+        try writer.interface.print("{}", .{pid});
+        try writer.interface.flush();
     }
 }
 
@@ -182,10 +187,11 @@ pub fn controllers(alloc: Allocator, cgroup: []const u8) ![]const u8 {
 
     // Read it all into memory -- we don't expect this file to ever
     // be that large.
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const contents = try buf_reader.reader().readAllAlloc(
+    var reader_buf: [4096]u8 = undefined;
+    var reader = file.reader(&reader_buf);
+    const contents = try reader.interface.readAlloc(
         alloc,
-        1 * 1024 * 1024, // 1MB
+        1 * 1024 * 1024, // 5MB,
     );
     defer alloc.free(contents);
 
@@ -213,7 +219,10 @@ pub fn configureControllers(
     defer file.close();
 
     // Write
-    try file.writer().writeAll(v);
+    var writer_buf: [4096]u8 = undefined;
+    var writer = file.writer(&writer_buf);
+    try writer.interface.writeAll(v);
+    try writer.interface.flush();
 }
 
 pub const Limit = union(enum) {
@@ -242,5 +251,8 @@ pub fn configureLimit(cgroup: []const u8, limit: Limit) !void {
     defer file.close();
 
     // Write our limit in bytes
-    try file.writer().print("{}", .{size});
+    var writer_buf: [4096]u8 = undefined;
+    var writer = file.writer(&writer_buf);
+    try writer.interface.print("{}", .{size});
+    try writer.interface.flush();
 }

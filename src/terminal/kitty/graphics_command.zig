@@ -19,6 +19,7 @@ pub const Parser = struct {
     /// The memory used by the parser is stored in an arena because it is
     /// all freed at the end of the command.
     arena: ArenaAllocator,
+    alloc: Allocator,
 
     /// This is the list of KV pairs that we're building up.
     kv: KV,
@@ -59,7 +60,8 @@ pub const Parser = struct {
         errdefer arena.deinit();
         var result: Parser = .{
             .arena = arena,
-            .data = std.ArrayList(u8).init(alloc),
+            .alloc = alloc,
+            .data = .empty,
             .kv = .{},
             .kv_temp_len = 0,
             .kv_current = 0,
@@ -78,7 +80,7 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         // We don't free the hash map because its in the arena
         self.arena.deinit();
-        self.data.deinit();
+        self.data.deinit(self.alloc);
     }
 
     /// Parse a complete command string.
@@ -136,7 +138,7 @@ pub const Parser = struct {
                 else => {},
             },
 
-            .data => try self.data.append(c),
+            .data => try self.data.append(self.alloc, c),
         }
     }
 
@@ -225,7 +227,7 @@ pub const Parser = struct {
         // Remove the extra bytes.
         self.data.items.len = decoded.len;
 
-        return try self.data.toOwnedSlice();
+        return try self.data.toOwnedSlice(self.alloc);
     }
 
     fn accumulateValue(self: *Parser, c: u8, overflow_state: State) !void {
@@ -276,7 +278,7 @@ pub const Response = struct {
     placement_id: u32 = 0,
     message: []const u8 = "OK",
 
-    pub fn encode(self: Response, writer: anytype) !void {
+    pub fn encode(self: Response, writer: *std.Io.Writer) !void {
         // We only encode a result if we have either an id or an image number.
         if (self.id == 0 and self.image_number == 0) return;
 
@@ -1214,41 +1216,41 @@ test "all i32 values" {
 test "response: encode nothing without ID or image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{};
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "response: encode with only image id" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .id = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_Gi=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_Gi=4;OK\x1b\\", writer.buffered());
 }
 
 test "response: encode with only image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .image_number = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_GI=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_GI=4;OK\x1b\\", writer.buffered());
 }
 
 test "response: encode with image ID and number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .id = 12, .image_number = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_Gi=12,I=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_Gi=12,I=4;OK\x1b\\", writer.buffered());
 }
 
 test "delete range command 1" {

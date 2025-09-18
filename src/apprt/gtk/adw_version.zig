@@ -27,7 +27,7 @@ pub fn getRuntimeVersion() std.SemanticVersion {
 }
 
 pub fn logVersion() void {
-    log.info("libadwaita version build={} runtime={}", .{
+    log.info("libadwaita version build={f} runtime={f}", .{
         comptime_version,
         getRuntimeVersion(),
     });

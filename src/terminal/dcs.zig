@@ -10,7 +10,7 @@ const log = std.log.scoped(.terminal_dcs);
 /// The hook/put/unhook functions are meant to be called from the
 /// terminal.stream dcsHook, dcsPut, and dcsUnhook functions, respectively.
 pub const Handler = struct {
-    state: State = .{ .inactive = {} },
+    state: State = .inactive,
 
     /// Maximum bytes any DCS command can take. This is to prevent
     /// malicious input from causing us to allocate too much memory.
@@ -25,7 +25,7 @@ pub const Handler = struct {
         assert(self.state == .inactive);
 
         // Initialize our state to ignore in case of error
-        self.state = .{ .ignore = {} };
+        self.state = .ignore;
 
         // Try to parse the hook.
         const hk_ = self.tryHook(alloc, dcs) catch |err| {
@@ -58,7 +58,7 @@ pub const Handler = struct {
                         .state = .{
                             .tmux = .{
                                 .max_bytes = self.max_bytes,
-                                .buffer = try std.ArrayList(u8).initCapacity(
+                                .buffer = try .initCapacity(
                                     alloc,
                                     128, // Arbitrary choice to limit initial reallocs
                                 ),
@@ -77,7 +77,7 @@ pub const Handler = struct {
                     // https://github.com/mitchellh/ghostty/issues/517
                     'q' => .{
                         .state = .{
-                            .xtgettcap = try std.ArrayList(u8).initCapacity(
+                            .xtgettcap = try .initCapacity(
                                 alloc,
                                 128, // Arbitrary choice
                             ),
@@ -110,7 +110,7 @@ pub const Handler = struct {
             // On error we just discard our state and ignore the rest
             log.info("error putting byte into DCS handler err={}", .{err});
             self.discard();
-            self.state = .{ .ignore = {} };
+            self.state = .ignore;
             return null;
         };
     }
@@ -125,12 +125,12 @@ pub const Handler = struct {
                 .tmux = (try tmux.put(byte)) orelse return null,
             },
 
-            .xtgettcap => |*list| {
-                if (list.items.len >= self.max_bytes) {
+            .xtgettcap => |*buf| {
+                if (buf.written().len >= self.max_bytes) {
                     return error.OutOfMemory;
                 }
 
-                try list.append(byte);
+                try buf.writer.writeByte(byte);
             },
 
             .decrqss => |*buffer| {
@@ -150,7 +150,7 @@ pub const Handler = struct {
         // Note: we do NOT call deinit here on purpose because some commands
         // transfer memory ownership. If state needs cleanup, the switch
         // prong below should handle it.
-        defer self.state = .{ .inactive = {} };
+        defer self.state = .inactive;
 
         return switch (self.state) {
             .inactive,
@@ -159,14 +159,12 @@ pub const Handler = struct {
 
             .tmux => tmux: {
                 self.state.deinit();
-                break :tmux .{ .tmux = .{ .exit = {} } };
+                break :tmux .{ .tmux = .exit };
             },
 
-            .xtgettcap => |list| xtgettcap: {
-                for (list.items, 0..) |b, i| {
-                    list.items[i] = std.ascii.toUpper(b);
-                }
-                break :xtgettcap .{ .xtgettcap = .{ .data = list } };
+            .xtgettcap => |*list| xtgettcap: {
+                for (list.written()) |*b| b.* = std.ascii.toUpper(b.*);
+                break :xtgettcap .{ .xtgettcap = .{ .data = list.toArrayList() } };
             },
 
             .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
@@ -191,7 +189,7 @@ pub const Handler = struct {
 
     fn discard(self: *Handler) void {
         self.state.deinit();
-        self.state = .{ .inactive = {} };
+        self.state = .inactive;
     }
 };
 
@@ -205,9 +203,9 @@ pub const Command = union(enum) {
     /// Tmux control mode
     tmux: terminal.tmux.Notification,
 
-    pub fn deinit(self: Command) void {
-        switch (self) {
-            .xtgettcap => |*v| v.data.deinit(),
+    pub fn deinit(self: *Command, alloc: Allocator) void {
+        switch (self.*) {
+            .xtgettcap => |*v| v.data.deinit(alloc),
             .decrqss => {},
             .tmux => {},
         }
@@ -260,7 +258,7 @@ const State = union(enum) {
     ignore: void,
 
     /// XTGETTCAP
-    xtgettcap: std.ArrayList(u8),
+    xtgettcap: std.Io.Writer.Allocating,
 
     /// DECRQSS
     decrqss: struct {
@@ -305,7 +303,7 @@ test "XTGETTCAP command" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("536D756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expect(cmd.xtgettcap.next() == null);
@@ -320,7 +318,7 @@ test "XTGETTCAP mixed case" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("536d756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expect(cmd.xtgettcap.next() == null);
@@ -335,7 +333,7 @@ test "XTGETTCAP command multiple keys" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("536D756C78;536D756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
@@ -351,7 +349,7 @@ test "XTGETTCAP command invalid data" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("who;536D756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("WHO", cmd.xtgettcap.next().?);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
@@ -367,7 +365,7 @@ test "DECRQSS command" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
     _ = h.put('m');
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .decrqss);
     try testing.expect(cmd.decrqss == .sgr);
 }
@@ -381,7 +379,7 @@ test "DECRQSS invalid command" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
     _ = h.put('z');
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .decrqss);
     try testing.expect(cmd.decrqss == .none);
 
@@ -403,14 +401,14 @@ test "tmux enter and implicit exit" {
 
     {
         var cmd = h.hook(alloc, .{ .params = &.{1000}, .final = 'p' }).?;
-        defer cmd.deinit();
+        defer cmd.deinit(alloc);
         try testing.expect(cmd == .tmux);
         try testing.expect(cmd.tmux == .enter);
     }
 
     {
         var cmd = h.unhook().?;
-        defer cmd.deinit();
+        defer cmd.deinit(alloc);
         try testing.expect(cmd == .tmux);
         try testing.expect(cmd.tmux == .exit);
     }

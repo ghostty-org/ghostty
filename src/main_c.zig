@@ -94,13 +94,19 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 /// false. If there is an action then this doesn't return.
 pub export fn ghostty_cli_try_action() void {
     const action = state.action orelse return;
+
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
     std.log.info("executing CLI action={}", .{action});
-    posix.exit(action.run(state.alloc) catch |err| {
+
+    const result = action.run(state.alloc, stdout) catch |err| {
         std.log.err("CLI action failed error={}", .{err});
         posix.exit(1);
-    });
-
-    posix.exit(0);
+    };
+    stdout.flush() catch {};
+    posix.exit(result);
 }
 
 /// Return metadata about Ghostty, such as version, build mode, etc.

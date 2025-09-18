@@ -38,21 +38,35 @@ pub fn run(alloc_gpa: Allocator) !u8 {
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }
 
+    var buffer: [1024]u8 = undefined;
+    var stdout_file: std.fs.File = .stdout();
+    var stdout_writer = stdout_file.writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
+    const result = runInner(alloc, &stdout_file, stdout);
+    stdout.flush() catch {};
+    return result;
+}
+
+fn runInner(
+    alloc: Allocator,
+    stdout_file: *std.fs.File,
+    stdout: *std.Io.Writer,
+) !u8 {
     const crash_dir = try crash.defaultDir(alloc);
-    var reports = std.ArrayList(crash.Report).init(alloc);
+    var reports: std.ArrayList(crash.Report) = .empty;
+    errdefer reports.deinit(alloc);
 
     var it = try crash_dir.iterator();
-    while (try it.next()) |report| try reports.append(.{
+    while (try it.next()) |report| try reports.append(alloc, .{
         .name = try alloc.dupe(u8, report.name),
         .mtime = report.mtime,
     });
 
-    const stdout = std.io.getStdOut();
-
     // If we have no reports, then we're done. If we have a tty then we
     // print a message, otherwise we do nothing.
     if (reports.items.len == 0) {
-        if (std.posix.isatty(stdout.handle)) {
+        if (std.posix.isatty(stdout_file.handle)) {
             try stdout.writeAll("No crash reports! 👻\n");
         }
         return 0;
@@ -60,16 +74,15 @@ pub fn run(alloc_gpa: Allocator) !u8 {
 
     std.mem.sort(crash.Report, reports.items, {}, lt);
 
-    const writer = stdout.writer();
     for (reports.items) |report| {
         var buf: [128]u8 = undefined;
         const now = std.time.nanoTimestamp();
         const diff = now - report.mtime;
         const since = if (diff <= 0) "now" else s: {
             const d = Config.Duration{ .duration = @intCast(diff) };
-            break :s try std.fmt.bufPrint(&buf, "{s} ago", .{d.round(std.time.ns_per_s)});
+            break :s try std.fmt.bufPrint(&buf, "{f} ago", .{d.round(std.time.ns_per_s)});
         };
-        try writer.print("{s} ({s})\n", .{ report.name, since });
+        try stdout.print("{s} ({s})\n", .{ report.name, since });
     }
 
     return 0;

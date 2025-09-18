@@ -282,7 +282,7 @@ pub fn Common(
                 fn setter(self: *Self, value: ?[:0]const u8) void {
                     const priv = private(self);
                     if (@field(priv, name)) |v| {
-                        glib.free(@constCast(@ptrCast(v)));
+                        glib.free(@ptrCast(@constCast(v)));
                     }
 
                     // We don't need to copy this because it was already

@@ -244,7 +244,7 @@ pub const Terminator = enum {
         self: Terminator,
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
         try writer.writeAll(self.string());
     }
@@ -267,7 +267,7 @@ pub const Parser = struct {
     buf: [MAX_BUF]u8,
     buf_start: usize,
     buf_idx: usize,
-    buf_dynamic: ?*std.ArrayListUnmanaged(u8),
+    buf_dynamic: ?*std.ArrayList(u8),
 
     /// True when a command is complete/valid to return.
     complete: bool,
@@ -445,7 +445,7 @@ pub const Parser = struct {
 
         // Some commands have their own memory management we need to clear.
         switch (self.command) {
-            .kitty_color_protocol => |*v| v.list.deinit(),
+            .kitty_color_protocol => |*v| v.list.deinit(v.alloc),
             .color_operation => |*v| v.requests.deinit(self.alloc.?),
             else => {},
         }
@@ -796,7 +796,8 @@ pub const Parser = struct {
 
                     self.command = .{
                         .kitty_color_protocol = .{
-                            .list = std.ArrayList(kitty.color.OSC.Request).init(alloc),
+                            .alloc = alloc,
+                            .list = .empty,
                         },
                     };
 
@@ -1363,7 +1364,7 @@ pub const Parser = struct {
         };
 
         // Allocate our dynamic buffer
-        const list = alloc.create(std.ArrayListUnmanaged(u8)) catch {
+        const list = alloc.create(std.ArrayList(u8)) catch {
             self.state = .string;
             return;
         };
@@ -1511,17 +1512,17 @@ pub const Parser = struct {
                 }
 
                 if (kind == .key_only or value.len == 0) {
-                    v.list.append(.{ .reset = key }) catch |err| {
+                    v.list.append(v.alloc, .{ .reset = key }) catch |err| {
                         log.warn("unable to append kitty color protocol option: {}", .{err});
                         return;
                     };
                 } else if (mem.eql(u8, "?", value)) {
-                    v.list.append(.{ .query = key }) catch |err| {
+                    v.list.append(v.alloc, .{ .query = key }) catch |err| {
                         log.warn("unable to append kitty color protocol option: {}", .{err});
                         return;
                     };
                 } else {
-                    v.list.append(.{
+                    v.list.append(v.alloc, .{
                         .set = .{
                             .key = key,
                             .color = RGB.parse(value) catch |err| switch (err) {
