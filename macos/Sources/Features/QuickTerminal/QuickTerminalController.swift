@@ -21,13 +21,13 @@ class QuickTerminalController: BaseTerminalController {
     // The active space when the quick terminal was last shown.
     private var previousActiveSpace: CGSSpace? = nil
 
-    /// The window frame saved when the quick terminal's surface tree becomes empty.
+    /// The saved state when the quick terminal's surface tree becomes empty.
     ///
     /// This preserves the user's window size and position when all terminal surfaces
     /// are closed (e.g., via the `exit` command). When a new surface is created,
     /// the window will be restored to this frame, preventing SwiftUI from resetting
     /// the window to its default minimum size.
-    private var lastClosedFrame: NSRect? = nil
+    private var lastClosedFrames: NSMapTable<NSScreen, LastClosedState>
 
     /// Non-nil if we have hidden dock state.
     private var hiddenDock: HiddenDock? = nil
@@ -45,6 +45,10 @@ class QuickTerminalController: BaseTerminalController {
     ) {
         self.position = position
         self.derivedConfig = DerivedConfig(ghostty.config)
+        
+        // This is a weak to strong mapping, so that our keys being NSScreens
+        // can remove themselves when they disappear.
+        self.lastClosedFrames = .weakToStrongObjects()
 
         // Important detail here: we initialize with an empty surface tree so
         // that we don't start a terminal process. This gets started when the
@@ -360,8 +364,9 @@ class QuickTerminalController: BaseTerminalController {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
         
         // Grab our last closed frame to use, and clear our state since we're animating in.
-        let lastClosedFrame = self.lastClosedFrame
-        self.lastClosedFrame = nil
+        // We only use the last closed frame if we're opening on the same screen.
+        let lastClosedFrame: NSRect? = lastClosedFrames.object(forKey: screen)?.frame
+        lastClosedFrames.removeObject(forKey: screen)
 
         // Move our window off screen to the initial animation position.
         position.setInitial(
@@ -491,8 +496,8 @@ class QuickTerminalController: BaseTerminalController {
         // the user's preferred window size and position for when the quick
         // terminal is reactivated with a new surface. Without this, SwiftUI
         // would reset the window to its minimum content size.
-        if window.frame.width > 0 && window.frame.height > 0 {
-            lastClosedFrame = window.frame
+        if window.frame.width > 0 && window.frame.height > 0, let screen = window.screen {
+            lastClosedFrames.setObject(.init(frame: window.frame), forKey: screen)
         }
 
         // If we hid the dock then we unhide it.
@@ -713,6 +718,14 @@ class QuickTerminalController: BaseTerminalController {
             NSApp.releasePresentationOption(.autoHideDock)
             Dock.autoHideEnabled = previousAutoHide
             hidden = false
+        }
+    }
+    
+    private class LastClosedState {
+        let frame: NSRect
+        
+        init(frame: NSRect) {
+            self.frame = frame
         }
     }
 }
