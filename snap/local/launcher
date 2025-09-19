@@ -61,10 +61,4 @@ fi
 
 [ "$needs_update" = true ] && echo "LAST_REVISION=$SNAP_REVISION" > "$SNAP_USER_DATA/.last_revision"
 
-# Unset all SNAP specific environment variables to keep them from leaking
-# into other snaps that might get executed from within the shell
-for var in $(printenv | grep SNAP_ | cut -d= -f1); do
-  unset $var
-done
-
 exec "$@"

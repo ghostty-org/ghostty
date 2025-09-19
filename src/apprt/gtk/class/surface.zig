@@ -9,6 +9,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
+const build_config = @import("../../../build_config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
@@ -1227,19 +1228,11 @@ pub const Surface = extern struct {
 
         // Unset environment varies set by snaps if we're running in a snap.
         // This allows Ghostty to further launch additional snaps.
-        if (env.get("SNAP")) |_| {
-            env.remove("SNAP");
-            env.remove("DRIRC_CONFIGDIR");
-            env.remove("__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS");
-            env.remove("__EGL_VENDOR_LIBRARY_DIRS");
-            env.remove("LD_LIBRARY_PATH");
-            env.remove("LIBGL_DRIVERS_PATH");
-            env.remove("LIBVA_DRIVERS_PATH");
-            env.remove("VK_LAYER_PATH");
-            env.remove("XLOCALEDIR");
-            env.remove("GDK_PIXBUF_MODULEDIR");
-            env.remove("GDK_PIXBUF_MODULE_FILE");
-            env.remove("GTK_PATH");
+        if (comptime build_config.snap) {
+            if (env.get("SNAP") != null) try filterSnapPaths(
+                alloc,
+                &env,
+            );
         }
 
         // This is a hack because it ties ourselves (optionally) to the
@@ -1251,6 +1244,79 @@ pub const Surface = extern struct {
         }
 
         return env;
+    }
+
+    /// Filter out environment variables that start with forbidden prefixes.
+    fn filterSnapPaths(gpa: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
+        comptime assert(build_config.snap);
+
+        const snap_vars = [_][]const u8{
+            "SNAP",
+            "SNAP_USER_COMMON",
+            "SNAP_USER_DATA",
+            "SNAP_DATA",
+            "SNAP_COMMON",
+        };
+
+        // Use an arena because everything in this function is temporary.
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var env_to_remove = std.ArrayList([]const u8).init(alloc);
+        var env_to_update = std.ArrayList(struct {
+            key: []const u8,
+            value: []const u8,
+        }).init(alloc);
+
+        var it = env_map.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+
+            // Ignore fields we set ourself
+            if (std.mem.eql(u8, key, "TERMINFO")) continue;
+            if (std.mem.startsWith(u8, key, "GHOSTTY")) continue;
+
+            // Any env var starting with SNAP must be removed
+            if (std.mem.startsWith(u8, key, "SNAP_")) {
+                try env_to_remove.append(key);
+                continue;
+            }
+
+            var filtered_paths = std.ArrayList([]const u8).init(alloc);
+            defer filtered_paths.deinit();
+
+            var modified = false;
+            var paths = std.mem.splitAny(u8, value, ":");
+            while (paths.next()) |path| {
+                var include = true;
+                for (snap_vars) |k| if (env_map.get(k)) |snap_path| {
+                    if (snap_path.len == 0) continue;
+                    if (std.mem.startsWith(u8, path, snap_path)) {
+                        include = false;
+                        modified = true;
+                        break;
+                    }
+                };
+                if (include) try filtered_paths.append(path);
+            }
+
+            if (modified) {
+                if (filtered_paths.items.len > 0) {
+                    const new_value = try std.mem.join(alloc, ":", filtered_paths.items);
+                    try env_to_update.append(.{ .key = key, .value = new_value });
+                } else {
+                    try env_to_remove.append(key);
+                }
+            }
+        }
+
+        for (env_to_update.items) |item| try env_map.put(
+            item.key,
+            item.value,
+        );
+        for (env_to_remove.items) |key| _ = env_map.remove(key);
     }
 
     pub fn clipboardRequest(

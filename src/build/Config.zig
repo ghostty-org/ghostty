@@ -51,6 +51,7 @@ patch_rpath: ?[]const u8 = null,
 
 /// Artifacts
 flatpak: bool = false,
+snap: bool = false,
 emit_bench: bool = false,
 emit_docs: bool = false,
 emit_exe: bool = false,
@@ -150,6 +151,12 @@ pub fn init(b: *std.Build) !Config {
         bool,
         "flatpak",
         "Build for Flatpak (integrates with Flatpak APIs). Only has an effect targeting Linux.",
+    ) orelse false;
+
+    config.snap = b.option(
+        bool,
+        "snap",
+        "Build for Snap (do specific Snap operations). Only has an effect targeting Linux.",
     ) orelse false;
 
     config.sentry = b.option(
@@ -442,6 +449,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
     // support all types.
     step.addOption(bool, "flatpak", self.flatpak);
+    step.addOption(bool, "snap", self.snap);
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
@@ -506,6 +514,7 @@ pub fn fromOptions() Config {
         .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
         .renderer = std.meta.stringToEnum(rendererpkg.Impl, @tagName(options.renderer)).?,
+        .snap = options.snap,
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,
