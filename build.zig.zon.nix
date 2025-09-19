@@ -259,6 +259,14 @@ in
       };
     }
     {
+      name = "uucode-0.0.0-ZZjBPgErQADBJsnLdcZKdRk94lB28CbKC4OrUDPOnSeV";
+      path = fetchZigArtifact {
+        name = "uucode";
+        url = "https://github.com/jacobsandlund/uucode/archive/3512203ca991c02b2500392d1d51226c48131c99.tar.gz";
+        hash = "sha256-nbbeHgvkoMmr5DJN0qRF776hu3waTL85d8dGpvYsZBw=";
+      };
+    }
+    {
       name = "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn";
       path = fetchZigArtifact {
         name = "vaxis";

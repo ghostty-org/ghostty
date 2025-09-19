@@ -109,6 +109,11 @@
     "url": "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
     "hash": "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8="
   },
+  "uucode-0.0.0-ZZjBPgErQADBJsnLdcZKdRk94lB28CbKC4OrUDPOnSeV": {
+    "name": "uucode",
+    "url": "https://github.com/jacobsandlund/uucode/archive/3512203ca991c02b2500392d1d51226c48131c99.tar.gz",
+    "hash": "sha256-nbbeHgvkoMmr5DJN0qRF776hu3waTL85d8dGpvYsZBw="
+  },
   "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn": {
     "name": "vaxis",
     "url": "git+https://github.com/rockorager/libvaxis#1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23",
