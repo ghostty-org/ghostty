@@ -860,7 +860,12 @@ class AppDelegate: NSObject,
         } else {
             GlobalEventTap.shared.disable()
         }
+    }
 
+    /// Sync the appearance of our app with the theme specified in the config.
+    private func syncAppearance(config: Ghostty.Config) {
+        NSApplication.shared.appearance = .init(ghosttyConfig: config)
+        
         switch (config.macosIcon) {
         case .official:
             self.appIcon = nil
@@ -907,11 +912,6 @@ class AppDelegate: NSObject,
             ).makeImage() else { break }
             self.appIcon = icon
         }
-    }
-
-    /// Sync the appearance of our app with the theme specified in the config.
-    private func syncAppearance(config: Ghostty.Config) {
-        NSApplication.shared.appearance = .init(ghosttyConfig: config)
     }
 
     //MARK: - Restorable State
