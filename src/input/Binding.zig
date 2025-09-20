@@ -454,6 +454,12 @@ pub const Action = union(enum) {
     /// Open a new tab.
     new_tab,
 
+    /// Duplicate the current tab.
+    ///
+    /// Creates a new tab with the same working directory as the current tab.
+    /// The new tab will be opened in the same window as the current tab.
+    duplicate_tab,
+
     /// Go to the previous tab.
     previous_tab,
 
@@ -1104,6 +1110,7 @@ pub const Action = union(enum) {
             // come from. For example `new_window` needs to be sourced to
             // a surface so inheritance can be done correctly.
             .new_tab,
+            .duplicate_tab,
             .previous_tab,
             .next_tab,
             .last_tab,
@@ -2826,6 +2833,23 @@ test "set: parseAndPut sequence with two actions" {
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leaf);
         try testing.expect(e.leaf.action == .new_tab);
+        try testing.expectEqual(Flags{}, e.leaf.flags);
+    }
+}
+
+test "set: parseAndPut duplicate_tab action" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "ctrl+shift+d=duplicate_tab");
+    {
+        const t: Trigger = .{ .key = .{ .unicode = 'd' }, .mods = .{ .ctrl = true, .shift = true } };
+        const e = s.get(t).?.value_ptr.*;
+        try testing.expect(e == .leaf);
+        try testing.expect(e.leaf.action == .duplicate_tab);
         try testing.expectEqual(Flags{}, e.leaf.flags);
     }
 }
