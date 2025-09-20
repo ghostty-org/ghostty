@@ -51,6 +51,11 @@ const Renderer = rendererpkg.Renderer;
 const min_window_width_cells: u32 = 10;
 const min_window_height_cells: u32 = 4;
 
+/// Unique ID used to identify this surface for IPC purposes. It is
+/// exposed to the commands running in surfaces as the environment variable
+/// GHOSTTY_SURFACE.
+id: u64,
+
 /// Allocator
 alloc: Allocator,
 
@@ -514,6 +519,7 @@ pub fn init(
     errdefer io_thread.deinit();
 
     self.* = .{
+        .id = std.crypto.random.int(u64),
         .alloc = alloc,
         .app = app,
         .rt_app = rt_app,
@@ -559,6 +565,12 @@ pub fn init(
                 std.process.EnvMap.init(alloc);
         };
         errdefer env.deinit();
+
+        var buf: [18]u8 = undefined;
+        try env.put(
+            "GHOSTTY_SURFACE",
+            std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
+        );
 
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
