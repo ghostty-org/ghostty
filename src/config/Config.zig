@@ -3223,6 +3223,105 @@ _replay_steps: std.ArrayListUnmanaged(Replay.Step) = .{},
 /// Set to true if Ghostty was executed as xdg-terminal-exec on Linux.
 @"_xdg-terminal-exec": bool = false,
 
+/// Record which settings have been changed from the default. We can't use an
+/// std.EnumSet(Settings) because that would cause circular references. We'll
+/// use an enum constructed in a separate step to index them by using the
+/// backing integer.
+_set: std.StaticBitSet(numberOfSettings) = .initEmpty(),
+
+/// The number of settings in Config. This must be updated when new settings
+/// are added/removed. The test below should keep us honest.
+const numberOfSettings = 182;
+
+// Ensure that the number of settings doesn't get out of sync.
+test "check number of settings" {
+    const info = @typeInfo(Config);
+    var size: usize = 0;
+    inline for (info.@"struct".fields) |field| {
+        if (!std.mem.startsWith(u8, field.name, "_")) size += 1;
+    }
+    try std.testing.expectEqual(numberOfSettings, size);
+}
+
+/// Construct an enum with all of the non-"_"-prefixed fields in the config.
+/// This will be used to index the bitset declared above using the backing
+/// integer.
+pub const Setting = setting: {
+    @setEvalBranchQuota(5000);
+
+    const info = @typeInfo(Config).@"struct";
+
+    var count = 0;
+    for (info.fields) |field| {
+        if (!std.mem.startsWith(u8, field.name, "_")) count += 1;
+    }
+
+    assert(count == numberOfSettings);
+
+    var fields: [count]std.builtin.Type.EnumField = undefined;
+    var index = 0;
+    for (info.fields) |field| {
+        if (std.mem.startsWith(u8, field.name, "_")) continue;
+
+        fields[index] = .{
+            .name = field.name,
+            .value = index,
+        };
+        index += 1;
+    }
+
+    break :setting @Type(
+        .{
+            .@"enum" = .{
+                .tag_type = std.math.IntFittingRange(0, fields.len - 1),
+                .fields = &fields,
+                .decls = &.{},
+                .is_exhaustive = true,
+            },
+        },
+    );
+};
+
+/// Check to see if a particular setting has been changed from the default.
+pub fn isSet(self: *const Config, setting: Setting) bool {
+    return self._set.isSet(@intFromEnum(setting));
+}
+
+// By default all settings should be set to the default.
+test "isSet" {
+    var cfg: Config = .{};
+
+    inline for (std.meta.fields(Setting)) |field| {
+        try std.testing.expect(!cfg.isSet(@enumFromInt(field.value)));
+    }
+}
+
+/// Mark a setting as having been changed from the default.
+pub fn set(self: *Config, setting: Setting) void {
+    self._set.set(@intFromEnum(setting));
+}
+
+/// Mark a setting as having been reset to the default.
+pub fn unset(self: *Config, setting: Setting) void {
+    self._set.unset(@intFromEnum(setting));
+}
+
+test "set/unset" {
+    var cfg: Config = .{};
+
+    inline for (std.meta.fields(Setting)) |field| {
+        const setting: Setting = @enumFromInt(field.value);
+        try std.testing.expect(!cfg.isSet(setting));
+        cfg.set(setting);
+        try std.testing.expect(cfg.isSet(setting));
+        cfg.unset(setting);
+        try std.testing.expect(!cfg.isSet(setting));
+    }
+    inline for (std.meta.fields(Setting)) |field| {
+        try std.testing.expect(!cfg.isSet(@enumFromInt(field.value)));
+    }
+}
+
 pub fn deinit(self: *Config) void {
     if (self._arena) |arena| arena.deinit();
     self.* = undefined;
@@ -4206,8 +4305,8 @@ fn compatCursorInvertFgBg(
     // Realistically, these fields were mutually exclusive so anyone
     // relying on that behavior should just upgrade to the new
     // cursor-color/cursor-text fields.
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"cursor-color" = .@"cell-foreground";
         self.@"cursor-text" = .@"cell-background";
     }
@@ -4224,8 +4323,8 @@ fn compatSelectionInvertFgBg(
     _ = alloc;
     assert(std.mem.eql(u8, key, "selection-invert-fg-bg"));
 
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"selection-foreground" = .@"cell-background";
         self.@"selection-background" = .@"cell-foreground";
     }
@@ -4242,8 +4341,8 @@ fn compatBoldIsBright(
     _ = alloc;
     assert(std.mem.eql(u8, key, "bold-is-bright"));
 
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"bold-color" = .bright;
     }
 
@@ -6383,9 +6482,9 @@ pub const Keybinds = struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var set: Keybinds = .{};
-        try set.parseCLI(alloc, "shift+a=copy_to_clipboard");
-        try set.parseCLI(alloc, "shift+a=csi:hello");
+        var keybinds: Keybinds = .{};
+        try keybinds.parseCLI(alloc, "shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "shift+a=csi:hello");
     }
 
     test "formatConfig single" {
