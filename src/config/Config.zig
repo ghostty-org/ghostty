@@ -2908,6 +2908,28 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"macos-shortcuts": MacShortcuts = .ask,
 
+/// The background style for macOS windows when `background-opacity` is less than 1.
+/// This controls the visual effect applied behind the terminal background.
+///
+/// Valid values are:
+///
+///   * `blur` - Uses the standard background behavior. The `background-blur`
+///     configuration will control whether blur is applied (available on all macOS versions)
+///   * `regular-glass` - Standard glass effect with some opacity (macOS 26.0+ only)
+///   * `clear-glass` - Highly transparent glass effect (macOS 26.0+ only)
+///
+/// The `blur` option does not force any blur effect - it simply respects the
+/// `background-blur` configuration. The glass options override `background-blur`
+/// and apply their own visual effects.
+///
+/// On macOS versions prior to 26.0, only `blur` has an effect. The glass
+/// options will fall back to `blur` behavior on older versions.
+///
+/// The default value is `blur`.
+///
+/// Available since: 1.2.2
+@"macos-background-style": MacBackgroundStyle = .blur,
+
 /// Put every surface (tab, split, window) into a dedicated Linux cgroup.
 ///
 /// This makes it so that resource management can be done on a per-surface
@@ -7197,6 +7219,13 @@ pub const MacShortcuts = enum {
     allow,
     deny,
     ask,
+};
+
+/// See macos-background-style
+pub const MacBackgroundStyle = enum {
+    blur,
+    @"regular-glass",
+    @"clear-glass",
 };
 
 /// See gtk-single-instance

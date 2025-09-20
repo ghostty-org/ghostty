@@ -18,6 +18,9 @@ class TerminalWindow: NSWindow {
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
 
+    /// Glass effect view for liquid glass background when transparency is enabled
+    private var glassEffectView: NSView?
+
     /// Gets the terminal controller from the window controller.
     var terminalController: TerminalController? {
         windowController as? TerminalController
@@ -42,14 +45,12 @@ class TerminalWindow: NSWindow {
         DispatchQueue.main.async {
             self.tabbingMode = .automatic
         }
-        
         // All new windows are based on the app config at the time of creation.
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
         let config = appDelegate.ghostty.config
 
         // Setup our initial config
         derivedConfig = .init(config)
-        
         // If there is a hardcoded title in the configuration, we set that
         // immediately. Future `set_title` apprt actions will override this
         // if necessary but this ensures our window loads with the proper
@@ -356,13 +357,21 @@ class TerminalWindow: NSWindow {
             // Terminal.app more easily.
             backgroundColor = .white.withAlphaComponent(0.001)
 
-            if let appDelegate = NSApp.delegate as? AppDelegate {
+            // Add liquid glass behind terminal content
+            if #available(macOS 26.0, *), derivedConfig.macosBackgroundStyle != .blur {
+                setupGlassLayer()
+            } else if let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
             }
         } else {
             isOpaque = true
+
+            // Remove liquid glass when not transparent
+            if #available(macOS 26.0, *) {
+                removeGlassLayer()
+            }
 
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
             self.backgroundColor = backgroundColor.withAlphaComponent(1)
@@ -421,13 +430,11 @@ class TerminalWindow: NSWindow {
             fromTopLeftOffsetX: CGFloat(x),
             offsetY: CGFloat(y),
             windowSize: frame.size)
-        
         // Clamp the origin to ensure the window stays fully visible on screen
         var safeOrigin = origin
         let vf = screen.visibleFrame
         safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
         safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
-        
         setFrameOrigin(safeOrigin)
     }
 
@@ -437,6 +444,50 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.zoomButton)?.isHidden = true
     }
 
+    // MARK: Glass
+
+    @available(macOS 26.0, *)
+    private func setupGlassLayer() {
+        guard let contentView = contentView else { return }
+
+        // Remove existing glass effect view
+        glassEffectView?.removeFromSuperview()
+
+        // Get the window content view (parent of the NSHostingView)
+        guard let windowContentView = contentView.superview else { return }
+
+        // Create NSGlassEffectView for native glass effect
+        let effectView = NSGlassEffectView()
+
+        // Map Ghostty config to NSGlassEffectView style
+        let backgroundStyle = derivedConfig.macosBackgroundStyle
+        switch backgroundStyle {
+        case .regularGlass:
+            effectView.style = NSGlassEffectView.Style.regular
+        case .clearGlass:
+            effectView.style = NSGlassEffectView.Style.clear
+        default:
+            // Should not reach here since we check for "default" before calling setupGlassLayer()
+            return
+        }
+
+        effectView.cornerRadius = derivedConfig.windowCornerRadius
+        effectView.tintColor = preferredBackgroundColor
+
+        effectView.frame = windowContentView.bounds
+        effectView.autoresizingMask = [.width, .height]
+
+        // Position BELOW the terminal content to act as background
+        windowContentView.addSubview(effectView, positioned: .below, relativeTo: contentView)
+        glassEffectView = effectView
+    }
+
+    @available(macOS 26.0, *)
+    private func removeGlassLayer() {
+        glassEffectView?.removeFromSuperview()
+        glassEffectView = nil
+    }
+
     // MARK: Config
 
     struct DerivedConfig {
@@ -444,12 +495,16 @@ class TerminalWindow: NSWindow {
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
+        let macosBackgroundStyle: Ghostty.MacBackgroundStyle
+        let windowCornerRadius: CGFloat
 
         init() {
             self.title = nil
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
+            self.macosBackgroundStyle = .blur
+            self.windowCornerRadius = 16
         }
 
         init(_ config: Ghostty.Config) {
@@ -457,6 +512,17 @@ class TerminalWindow: NSWindow {
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
+            self.macosBackgroundStyle = config.macosBackgroundStyle
+
+            // Set corner radius based on macos-titlebar-style
+            // Native, transparent, and hidden styles use 16pt radius
+            // Tabs style uses 20pt radius
+            switch config.macosTitlebarStyle {
+            case "tabs":
+                self.windowCornerRadius = 20
+            default:
+                self.windowCornerRadius = 16
+            }
         }
     }
 }
@@ -472,7 +538,6 @@ extension TerminalWindow {
     struct ResetZoomAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         let action: () -> Void
-        
         // The padding from the top that the view appears. This was all just manually
         // measured based on the OS.
         var topPadding: CGFloat {
