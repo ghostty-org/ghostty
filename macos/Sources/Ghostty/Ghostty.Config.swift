@@ -261,6 +261,17 @@ extension Ghostty {
             return MacOSWindowButtons(rawValue: str) ?? defaultValue
         }
 
+        var backgroundGlassStyle: String {
+            let defaultValue = "off"
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "background-glass-style"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return String(cString: ptr)
+        }
+
+
         var macosTitlebarStyle: String {
             let defaultValue = "transparent"
             guard let config = self.config else { return defaultValue }
@@ -635,7 +646,7 @@ extension Ghostty.Config {
         static let title = BellFeatures(rawValue: 1 << 3)
         static let border = BellFeatures(rawValue: 1 << 4)
     }
-    
+
     enum MacDockDropBehavior: String {
         case new_tab = "new-tab"
         case new_window = "new-window"

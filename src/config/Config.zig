@@ -914,6 +914,24 @@ palette: Palette = .{},
 /// doing so.
 @"background-blur": BackgroundBlur = .false,
 
+/// The style of the glass effect when `background-opacity` is less than 1
+/// and the terminal is using a modern glass effect (macOS 26.0+ only).
+///
+/// Valid values are:
+///
+///   * `off` - No glass effect
+///   * `regular` - Standard glass effect with some opacity
+///   * `clear` - Highly transparent glass effect
+///
+/// This setting only takes effect on macOS 26.0+ when transparency is enabled
+/// (`background-opacity` < 1). On older macOS versions or when transparency
+/// is disabled, this setting has no effect.
+///
+/// The default value is `off`.
+///
+/// Available since: 1.2.2
+@"background-glass-style": BackgroundGlassStyle = .off,
+
 /// The opacity level (opposite of transparency) of an unfocused split.
 /// Unfocused splits by default are slightly faded out to make it easier to see
 /// which split is focused. To disable this feature, set this value to 1.
@@ -7993,6 +8011,13 @@ pub const BackgroundBlur = union(enum) {
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));
         try testing.expectError(error.InvalidValue, v.parseCLI("420"));
     }
+};
+
+/// See background-glass-style
+pub const BackgroundGlassStyle = enum {
+    off,
+    regular,
+    clear,
 };
 
 /// See window-decoration
