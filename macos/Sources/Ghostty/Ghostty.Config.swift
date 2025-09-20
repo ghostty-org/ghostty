@@ -262,7 +262,7 @@ extension Ghostty {
         }
 
         var macosBackgroundStyle: MacBackgroundStyle {
-            let defaultValue = MacBackgroundStyle.blur
+            let defaultValue = MacBackgroundStyle.defaultStyle
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>? = nil
             let key = "macos-background-style"

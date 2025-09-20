@@ -306,7 +306,7 @@ extension Ghostty {
 
     /// Enum for the macos-background-style config option
     enum MacBackgroundStyle: String {
-        case blur
+        case defaultStyle = "default"
         case regularGlass = "regular-glass"
         case clearGlass = "clear-glass"
     }
