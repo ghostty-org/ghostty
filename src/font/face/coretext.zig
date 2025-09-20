@@ -298,57 +298,18 @@ pub const Face = struct {
         // Get the bounding rect for rendering this glyph.
         // This is in a coordinate space with (0.0, 0.0)
         // in the bottom left and +Y pointing up.
-        var rect = self.font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
+        const rect = self.font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
 
         // Determine whether this is a color glyph.
         const is_color = self.isColorGlyph(glyph_index);
         // And whether it's (probably) a bitmap (sbix).
         const sbix = is_color and self.color != null and self.color.?.sbix;
 
-        // If we're rendering a synthetic bold then we will gain 50% of
-        // the line width on every edge, which means we should increase
-        // our width and height by the line width and subtract half from
-        // our origin points.
-        //
-        // We don't add extra size if it's a sbix color font though,
-        // since bitmaps aren't affected by synthetic bold.
-        if (!sbix) if (self.synthetic_bold) |line_width| {
-            rect.size.width += line_width;
-            rect.size.height += line_width;
-            rect.origin.x -= line_width / 2;
-            rect.origin.y -= line_width / 2;
-        };
-
-        // We make an assumption that font smoothing ("thicken")
-        // adds no more than 1 extra pixel to any edge. We don't
-        // add extra size if it's a sbix color font though, since
-        // bitmaps aren't affected by smoothing.
-        if (opts.thicken and !sbix) {
-            rect.size.width += 2.0;
-            rect.size.height += 2.0;
-            rect.origin.x -= 1.0;
-            rect.origin.y -= 1.0;
-        }
-
-        // If our rect is smaller than a quarter pixel in either axis
-        // then it has no outlines or they're too small to render.
-        //
-        // In this case we just return 0-sized glyph struct.
-        if (rect.size.width < 0.25 or rect.size.height < 0.25)
-            return font.Glyph{
-                .width = 0,
-                .height = 0,
-                .offset_x = 0,
-                .offset_y = 0,
-                .atlas_x = 0,
-                .atlas_y = 0,
-            };
-
         const metrics = opts.grid_metrics;
         const cell_width: f64 = @floatFromInt(metrics.cell_width);
         const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
-        // Next we apply any constraints to get the final size of the glyph.
+        // Next we apply any constraints to size and align the glyph.
         var constraint = opts.constraint;
 
         // We eliminate any negative vertical padding since these overlap
@@ -373,20 +334,42 @@ pub const Face = struct {
             opts.constraint_width,
         );
 
+        // When rendering a synthetic bold or thickened glyph, we must
+        // pad the canvas to ensure the glyph fits. We don't pad if it's
+        // a sbix color font though, since bitmaps aren't affected by
+        // synthetic bold or thickening.
+        var canvas_padding: f64 = 0.0;
+
+        // Synthetic bold adds 50% of the line width to every edge.
+        if (!sbix) if (self.synthetic_bold) |line_width| {
+            canvas_padding += line_width / 2;
+        };
+
+        // We make an assumption that font smoothing ("thicken")
+        // adds no more than 1 extra pixel to any edge.
+        if (opts.thicken and !sbix) {
+            canvas_padding += 1.0;
+        }
+
+        // If our unrounded canvas is smaller than a quarter pixel in
+        // either axis then the glyph has no outlines or they're too
+        // small to render.
+        //
+        // In this case we just return 0-sized glyph struct.
+        if ((glyph_size.width + 2 * canvas_padding) < 0.25 or (glyph_size.height + 2 * canvas_padding) < 0.25)
+            return font.Glyph{
+                .width = 0,
+                .height = 0,
+                .offset_x = 0,
+                .offset_y = 0,
+                .atlas_x = 0,
+                .atlas_y = 0,
+            };
+
         var x = glyph_size.x;
         var y = glyph_size.y;
         var width = glyph_size.width;
         var height = glyph_size.height;
-
-        // If this is a bitmap glyph, it will always render as full pixels,
-        // not fractional pixels, so we need to quantize its position and
-        // size accordingly to align to full pixels so we get good results.
-        if (sbix) {
-            width = cell_width - @round(cell_width - width - x) - @round(x);
-            height = cell_height - @round(cell_height - height - y) - @round(y);
-            x = @round(x);
-            y = @round(y);
-        }
 
         // If the cell width was adjusted wider, we re-center all glyphs
         // in the new width, so that they aren't weirdly off to the left.
@@ -403,22 +386,32 @@ pub const Face = struct {
             x += (cell_width - @as(f64, @floatFromInt(original))) / 2;
         }
 
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (sbix) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
+        }
+
         // Our whole-pixel bearings for the final glyph.
         // The fractional portion will be included in the rasterized position.
-        const px_x: i32 = @intFromFloat(@floor(x));
-        const px_y: i32 = @intFromFloat(@floor(y));
+        const px_x: i32 = @intFromFloat(@floor(x - canvas_padding));
+        const px_y: i32 = @intFromFloat(@floor(y - canvas_padding));
 
         // We keep track of the fractional part of the pixel bearings, which
         // we will add as an offset when rasterizing to make sure we get the
         // correct sub-pixel position.
-        const frac_x = x - @floor(x);
-        const frac_y = y - @floor(y);
+        const frac_x = x - @floor(x - canvas_padding);
+        const frac_y = y - @floor(y - canvas_padding);
 
         // Add the fractional pixel to the width and height and take
         // the ceiling to get a canvas size that will definitely fit
         // our drawn glyph, including the fractional offset.
-        const px_width: u32 = @intFromFloat(@ceil(width + frac_x));
-        const px_height: u32 = @intFromFloat(@ceil(height + frac_y));
+        const px_width: u32 = @intFromFloat(@ceil(width + frac_x + canvas_padding));
+        const px_height: u32 = @intFromFloat(@ceil(height + frac_y + canvas_padding));
 
         // Settings that are specific to if we are rendering text or emoji.
         const color: struct {
