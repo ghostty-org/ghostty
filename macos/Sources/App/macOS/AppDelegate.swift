@@ -107,7 +107,7 @@ class AppDelegate: NSObject,
     }
 
     /// Tracks the windows that we hid for toggleVisibility.
-    private var hiddenState: ToggleVisibilityState? = nil
+    private var windowStash: HiddenWindowStash = HiddenWindowStash()
 
     /// The observer for the app appearance.
     private var appearanceObserver: NSKeyValueObservation? = nil
@@ -294,8 +294,8 @@ class AppDelegate: NSObject,
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        // If we're back manually then clear the hidden state because macOS handles it.
-        self.hiddenState = nil
+        // Restore hidden windows, because MacOS won't do it for us
+        windowStash.restoreAll()
 
         // Clear the dock badge when the app becomes active
         self.setDockBadge(nil)
@@ -1039,27 +1039,22 @@ class AppDelegate: NSObject,
 
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
-        // If we have focus, then we hide all windows.
-        if NSApp.isActive {
+        if windowStash.hasHiddenWindows() {
+            // If we're not active, we want to become active
+            NSApp.activate(ignoringOtherApps: true)
+
+            windowStash.restoreAll()
+        } else {
             // Toggle visibility doesn't do anything if the focused window is native
             // fullscreen. This is only relevant if Ghostty is active.
             guard let keyWindow = NSApp.keyWindow,
                   !keyWindow.styleMask.contains(.fullScreen) else { return }
 
-            // Keep track of our hidden state to restore properly
-            self.hiddenState = .init()
+            windowStash.hideAll()
+
+            // Deactivate the app, as we no longer have any visible windows
             NSApp.hide(nil)
-            return
         }
-
-        // If we're not active, we want to become active
-        NSApp.activate(ignoringOtherApps: true)
-
-        // Bring all windows to the front. Note: we don't use NSApp.unhide because
-        // that will unhide ALL hidden windows. We want to only bring forward the
-        // ones that we hid.
-        hiddenState?.restore()
-        hiddenState = nil
     }
 
     @IBAction func bringAllToFront(_ sender: Any) {
@@ -1096,14 +1091,18 @@ class AppDelegate: NSObject,
         }
     }
 
-    private struct ToggleVisibilityState {
-        let hiddenWindows: [Weak<NSWindow>]
-        let keyWindow: Weak<NSWindow>?
+    private struct HiddenWindowStash {
+        private var hiddenWindows: [Weak<NSWindow>] = []
+        private var keyWindow: Weak<NSWindow>?
 
-        init() {
+        init() {}
+
+        func hasHiddenWindows() -> Bool { !hiddenWindows.isEmpty }
+
+        mutating func hideAll() {
             // We need to know the key window so that we can bring focus back to the
             // right window if it was hidden.
-            self.keyWindow = if let keyWindow = NSApp.keyWindow {
+            self.keyWindow = if let keyWindow = NSApp.keyWindow, !keyWindow.styleMask.contains(.nonactivatingPanel) {
                 .init(keyWindow)
             } else {
                 nil
@@ -1113,15 +1112,23 @@ class AppDelegate: NSObject,
             // want to bring back these windows if we remove the toggle.
             //
             // We also ignore fullscreen windows because they don't hide anyways.
-            self.hiddenWindows = NSApp.windows.filter {
+            let windows = NSApp.windows.filter {
                 $0.isVisible &&
+                !$0.styleMask.contains(.nonactivatingPanel) &&
                 !$0.styleMask.contains(.fullScreen)
             }.map { Weak($0) }
+            windows.forEach { $0.value?.orderOut(nil) }
+            hiddenWindows.append(contentsOf: windows)
         }
 
-        func restore() {
+        mutating func restoreAll() {
             hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
-            keyWindow?.value?.makeKey()
+            if let keyWindow = self.keyWindow?.value ?? hiddenWindows.compactMap(\.value).last {
+                keyWindow.makeKeyAndOrderFront(nil)
+            }
+
+            hiddenWindows.removeAll()
+            keyWindow = nil
         }
     }
 }
