@@ -74,32 +74,45 @@ fn dir(
         else => .{ posix.getenv(internal_opts.env), false },
         .windows => windows: {
             if (std.process.getEnvVarOwned(alloc, internal_opts.env)) |env| {
+                if (env.len == 0) {
+                    alloc.free(env);
+                } else {
+                    break :windows .{ env, true };
+                }
+            } else |err| switch (err) {
+                error.EnvironmentVariableNotFound => {},
+                else => return err,
+            };
+
+            if (std.process.getEnvVarOwned(alloc, internal_opts.windows_env)) |env| {
+                if (env.len == 0) {
+                    alloc.free(env);
+                    break :windows .{ null, false };
+                }
                 break :windows .{ env, true };
             } else |err| switch (err) {
-                error.EnvironmentVariableNotFound => {
-                    if (std.process.getEnvVarOwned(alloc, internal_opts.windows_env)) |env| {
-                        break :windows .{ env, true };
-                    } else |err2| switch (err2) {
-                        error.EnvironmentVariableNotFound => break :windows .{ null, false },
-                        else => return err,
-                    }
-                },
+                error.EnvironmentVariableNotFound => break :windows .{ null, false },
                 else => return err,
-            }
+            };
         },
     };
     defer if (owned) if (env_) |v| alloc.free(v);
 
     if (env_) |env| {
-        // If we have a subdir, then we use the env as-is to avoid a copy.
-        if (opts.subdir) |subdir| {
-            return try std.fs.path.join(alloc, &[_][]const u8{
-                env,
-                subdir,
-            });
-        }
+        if (env.len == 0) {
+            // Treat empty environment variables the same as if they were unset.
+            // Owned allocations are freed by the deferred cleanup above.
+        } else {
+            // If we have a subdir, then we use the env as-is to avoid a copy.
+            if (opts.subdir) |subdir| {
+                return try std.fs.path.join(alloc, &[_][]const u8{
+                    env,
+                    subdir,
+                });
+            }
 
-        return try alloc.dupe(u8, env);
+            return try alloc.dupe(u8, env);
+        }
     }
 
     // Get our home dir
@@ -165,6 +178,79 @@ test "cache directory paths" {
             });
             defer alloc.free(cache_path);
             try testing.expectEqualStrings("/Users/test/.cache/ghostty", cache_path);
+        }
+    }
+}
+
+test "xdg directories fallback to home when env empty" {
+    if (builtin.os.tag == .windows) return;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const env_os = @import("env.zig");
+    const posix = std.posix;
+
+    const saved_home = blk: {
+        if (posix.getenv("HOME")) |value| {
+            break :blk try alloc.dupeZ(u8, value);
+        }
+        break :blk null;
+    };
+    defer {
+        if (saved_home) |value| {
+            _ = env_os.setenv("HOME", value);
+            alloc.free(value);
+        } else {
+            _ = env_os.unsetenv("HOME");
+        }
+    };
+
+    const temp_home_z: [:0]const u8 = "/tmp/ghostty-test-home";
+    const temp_home = std.mem.span(temp_home_z);
+    _ = env_os.setenv("HOME", temp_home_z);
+
+    const DirCase = struct {
+        name: [:0]const u8,
+        func: fn (Allocator, Options) anyerror![]u8,
+        default_subdir: []const u8,
+    };
+
+    const cases = [_]DirCase{
+        .{ .name = "XDG_CONFIG_HOME", .func = config, .default_subdir = ".config" },
+        .{ .name = "XDG_CACHE_HOME", .func = cache, .default_subdir = ".cache" },
+        .{ .name = "XDG_STATE_HOME", .func = state, .default_subdir = ".local/state" },
+    };
+
+    for (cases) |case| {
+        {
+            const saved_env = blk: {
+                if (posix.getenv(case.name)) |value| {
+                    break :blk try alloc.dupeZ(u8, value);
+                }
+                break :blk null;
+            };
+            defer {
+                if (saved_env) |value| {
+                    _ = env_os.setenv(case.name, value);
+                    alloc.free(value);
+                } else {
+                    _ = env_os.unsetenv(case.name);
+                }
+            };
+
+            _ = env_os.setenv(case.name, "");
+
+            const result = try case.func(alloc, .{});
+            defer alloc.free(result);
+
+            const expected = try std.fs.path.join(alloc, &[_][]const u8{
+                temp_home,
+                case.default_subdir,
+                "",
+            });
+            defer alloc.free(expected);
+
+            try testing.expectEqualStrings(expected, result);
         }
     }
 }
