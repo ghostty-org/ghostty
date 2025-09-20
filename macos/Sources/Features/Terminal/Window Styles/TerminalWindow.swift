@@ -421,11 +421,9 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // Add liquid glass behind terminal content
-            if #available(macOS 26.0, *), derivedConfig.backgroundGlassStyle != "off" {
+            if #available(macOS 26.0, *), derivedConfig.macosBackgroundStyle != .blur {
                 setupGlassLayer()
-            }
-
-            if let appDelegate = NSApp.delegate as? AppDelegate {
+            } else if let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
@@ -510,7 +508,7 @@ class TerminalWindow: NSWindow {
     }
 
     // MARK: Glass
-    
+
     @available(macOS 26.0, *)
     private func setupGlassLayer() {
         guard let contentView = contentView else { return }
@@ -525,18 +523,18 @@ class TerminalWindow: NSWindow {
         let effectView = NSGlassEffectView()
 
         // Map Ghostty config to NSGlassEffectView style
-        let glassStyle = derivedConfig.backgroundGlassStyle
-        switch glassStyle {
-        case "regular":
+        let backgroundStyle = derivedConfig.macosBackgroundStyle
+        switch backgroundStyle {
+        case .regularGlass:
             effectView.style = NSGlassEffectView.Style.regular
-        case "clear":
+        case .clearGlass:
             effectView.style = NSGlassEffectView.Style.clear
         default:
-            // Should not reach here since we check for "off" before calling setupGlassLayer()
+            // Should not reach here since we check for "default" before calling setupGlassLayer()
             return
         }
 
-        effectView.cornerRadius = 18
+        effectView.cornerRadius = derivedConfig.windowCornerRadius
         effectView.tintColor = preferredBackgroundColor
 
         effectView.frame = windowContentView.bounds
@@ -560,14 +558,16 @@ class TerminalWindow: NSWindow {
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
-        let backgroundGlassStyle: String
+        let macosBackgroundStyle: Ghostty.MacBackgroundStyle
+        let windowCornerRadius: CGFloat
 
         init() {
             self.title = nil
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
-            self.backgroundGlassStyle = "off"
+            self.macosBackgroundStyle = .blur
+            self.windowCornerRadius = 16
         }
 
         init(_ config: Ghostty.Config) {
@@ -575,7 +575,17 @@ class TerminalWindow: NSWindow {
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
-            self.backgroundGlassStyle = config.backgroundGlassStyle
+            self.macosBackgroundStyle = config.macosBackgroundStyle
+
+            // Set corner radius based on macos-titlebar-style
+            // Native, transparent, and hidden styles use 16pt radius
+            // Tabs style uses 20pt radius
+            switch config.macosTitlebarStyle {
+            case "tabs":
+                self.windowCornerRadius = 20
+            default:
+                self.windowCornerRadius = 16
+            }
         }
     }
 }

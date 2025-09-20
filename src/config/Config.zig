@@ -914,24 +914,6 @@ palette: Palette = .{},
 /// doing so.
 @"background-blur": BackgroundBlur = .false,
 
-/// The style of the glass effect when `background-opacity` is less than 1
-/// and the terminal is using a modern glass effect (macOS 26.0+ only).
-///
-/// Valid values are:
-///
-///   * `off` - No glass effect
-///   * `regular` - Standard glass effect with some opacity
-///   * `clear` - Highly transparent glass effect
-///
-/// This setting only takes effect on macOS 26.0+ when transparency is enabled
-/// (`background-opacity` < 1). On older macOS versions or when transparency
-/// is disabled, this setting has no effect.
-///
-/// The default value is `off`.
-///
-/// Available since: 1.2.2
-@"background-glass-style": BackgroundGlassStyle = .off,
-
 /// The opacity level (opposite of transparency) of an unfocused split.
 /// Unfocused splits by default are slightly faded out to make it easier to see
 /// which split is focused. To disable this feature, set this value to 1.
@@ -3054,6 +3036,28 @@ keybind: Keybinds = .{},
 ///
 /// Available since: 1.2.0
 @"macos-shortcuts": MacShortcuts = .ask,
+
+/// The background style for macOS windows when `background-opacity` is less than 1.
+/// This controls the visual effect applied behind the terminal background.
+///
+/// Valid values are:
+///
+///   * `blur` - Uses the standard background behavior. The `background-blur`
+///     configuration will control whether blur is applied (available on all macOS versions)
+///   * `regular-glass` - Standard glass effect with some opacity (macOS 26.0+ only)
+///   * `clear-glass` - Highly transparent glass effect (macOS 26.0+ only)
+///
+/// The `blur` option does not force any blur effect - it simply respects the
+/// `background-blur` configuration. The glass options override `background-blur`
+/// and apply their own visual effects.
+///
+/// On macOS versions prior to 26.0, only `blur` has an effect. The glass
+/// options will fall back to `blur` behavior on older versions.
+///
+/// The default value is `blur`.
+///
+/// Available since: 1.2.2
+@"macos-background-style": MacBackgroundStyle = .blur,
 
 /// Put every surface (tab, split, window) into a dedicated Linux cgroup.
 ///
@@ -7321,6 +7325,13 @@ pub const MacShortcuts = enum {
     ask,
 };
 
+/// See macos-background-style
+pub const MacBackgroundStyle = enum {
+    blur,
+    @"regular-glass",
+    @"clear-glass",
+};
+
 /// See gtk-single-instance
 pub const GtkSingleInstance = enum {
     false,
@@ -8011,13 +8022,6 @@ pub const BackgroundBlur = union(enum) {
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));
         try testing.expectError(error.InvalidValue, v.parseCLI("420"));
     }
-};
-
-/// See background-glass-style
-pub const BackgroundGlassStyle = enum {
-    off,
-    regular,
-    clear,
 };
 
 /// See window-decoration
