@@ -36,11 +36,17 @@ cursor_thickness: u32 = 1,
 cursor_height: u32,
 
 /// The constraint height for nerd fonts icons.
-icon_height: u32,
+icon_height: f64,
 
-/// Original cell width in pixels. This is used to keep
-/// glyphs centered if the cell width is adjusted wider.
-original_cell_width: ?u32 = null,
+/// The unrounded face width, used in scaling calculations.
+face_width: f64,
+
+/// The unrounded face height, used in scaling calculations.
+face_height: f64,
+
+/// The vertical bearing of face within the pixel-rounded
+/// and possibly height-adjusted cell
+face_y: f64,
 
 /// Minimum acceptable values for some fields to prevent modifiers
 /// from being able to, for example, cause 0-thickness underlines.
@@ -53,7 +59,9 @@ const Minimums = struct {
     const box_thickness = 1;
     const cursor_thickness = 1;
     const cursor_height = 1;
-    const icon_height = 1;
+    const icon_height = 1.0;
+    const face_height = 1.0;
+    const face_width = 1.0;
 };
 
 /// Metrics extracted from a font face, based on
@@ -214,8 +222,10 @@ pub fn calc(face: FaceMetrics) Metrics {
     // We use the ceiling of the provided cell width and height to ensure
     // that the cell is large enough for the provided size, since we cast
     // it to an integer later.
-    const cell_width = @ceil(face.cell_width);
-    const cell_height = @ceil(face.lineHeight());
+    const face_width = face.cell_width;
+    const face_height = face.lineHeight();
+    const cell_width = @ceil(face_width);
+    const cell_height = @ceil(face_height);
 
     // We split our line gap in two parts, and put half of it on the top
     // of the cell and the other half on the bottom, so that our text never
@@ -224,7 +234,11 @@ pub fn calc(face: FaceMetrics) Metrics {
 
     // Unlike all our other metrics, `cell_baseline` is relative to the
     // BOTTOM of the cell.
-    const cell_baseline = @round(half_line_gap - face.descent);
+    const face_baseline = half_line_gap - face.descent;
+    const cell_baseline = @round(face_baseline);
+
+    // We keep track of the vertical bearing of the face in the cell
+    const face_y = cell_baseline - face_baseline;
 
     // We calculate a top_to_baseline to make following calculations simpler.
     const top_to_baseline = cell_height - cell_baseline;
@@ -237,16 +251,8 @@ pub fn calc(face: FaceMetrics) Metrics {
     const underline_position = @round(top_to_baseline - face.underlinePosition());
     const strikethrough_position = @round(top_to_baseline - face.strikethroughPosition());
 
-    // The calculation for icon height in the nerd fonts patcher
-    // is two thirds cap height to one third line height, but we
-    // use an opinionated default of 1.2 * cap height instead.
-    //
-    // Doing this prevents fonts with very large line heights
-    // from having excessively oversized icons, and allows fonts
-    // with very small line heights to still have roomy icons.
-    //
-    // We do cap it at `cell_height` though for obvious reasons.
-    const icon_height = @min(cell_height, cap_height * 1.2);
+    // Same heuristic as the font_patcher script
+    const icon_height = (2 * cap_height + face_height) / 3;
 
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),
@@ -260,7 +266,10 @@ pub fn calc(face: FaceMetrics) Metrics {
         .overline_thickness = @intFromFloat(underline_thickness),
         .box_thickness = @intFromFloat(underline_thickness),
         .cursor_height = @intFromFloat(cell_height),
-        .icon_height = @intFromFloat(icon_height),
+        .icon_height = icon_height,
+        .face_width = face_width,
+        .face_height = face_height,
+        .face_y = face_y,
     };
 
     // Ensure all metrics are within their allowable range.
@@ -286,11 +295,6 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 const new = @max(entry.value_ptr.apply(original), 1);
                 if (new == original) continue;
 
-                // Preserve the original cell width if not set.
-                if (self.original_cell_width == null) {
-                    self.original_cell_width = self.cell_width;
-                }
-
                 // Set the new value
                 @field(self, @tagName(tag)) = new;
 
@@ -307,6 +311,7 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                         const diff = new - original;
                         const diff_bottom = diff / 2;
                         const diff_top = diff - diff_bottom;
+                        self.face_y += @floatFromInt(diff_bottom);
                         self.cell_baseline +|= diff_bottom;
                         self.underline_position +|= diff_top;
                         self.strikethrough_position +|= diff_top;
@@ -315,6 +320,7 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                         const diff = original - new;
                         const diff_bottom = diff / 2;
                         const diff_top = diff - diff_bottom;
+                        self.face_y -= @floatFromInt(diff_bottom);
                         self.cell_baseline -|= diff_bottom;
                         self.underline_position -|= diff_top;
                         self.strikethrough_position -|= diff_top;
@@ -417,25 +423,35 @@ pub const Modifier = union(enum) {
     /// Apply a modifier to a numeric value.
     pub fn apply(self: Modifier, v: anytype) @TypeOf(v) {
         const T = @TypeOf(v);
-        const signed = @typeInfo(T).int.signedness == .signed;
-        return switch (self) {
-            .percent => |p| percent: {
-                const p_clamped: f64 = @max(0, p);
-                const v_f64: f64 = @floatFromInt(v);
-                const applied_f64: f64 = @round(v_f64 * p_clamped);
-                const applied_T: T = @intFromFloat(applied_f64);
-                break :percent applied_T;
-            },
+        const Tinfo = @typeInfo(T);
+        return switch (comptime Tinfo) {
+            .int, .comptime_int => switch (self) {
+                .percent => |p| percent: {
+                    const p_clamped: f64 = @max(0, p);
+                    const v_f64: f64 = @floatFromInt(v);
+                    const applied_f64: f64 = @round(v_f64 * p_clamped);
+                    const applied_T: T = @intFromFloat(applied_f64);
+                    break :percent applied_T;
+                },
 
-            .absolute => |abs| absolute: {
-                const v_i64: i64 = @intCast(v);
-                const abs_i64: i64 = @intCast(abs);
-                const applied_i64: i64 = v_i64 +| abs_i64;
-                const clamped_i64: i64 = if (signed) applied_i64 else @max(0, applied_i64);
-                const applied_T: T = std.math.cast(T, clamped_i64) orelse
-                    std.math.maxInt(T) * @as(T, @intCast(std.math.sign(clamped_i64)));
-                break :absolute applied_T;
+                .absolute => |abs| absolute: {
+                    const v_i64: i64 = @intCast(v);
+                    const abs_i64: i64 = @intCast(abs);
+                    const applied_i64: i64 = v_i64 +| abs_i64;
+                    const clamped_i64: i64 = if (Tinfo.int.signedness == .signed)
+                        applied_i64
+                    else
+                        @max(0, applied_i64);
+                    const applied_T: T = std.math.cast(T, clamped_i64) orelse
+                        std.math.maxInt(T) * @as(T, @intCast(std.math.sign(clamped_i64)));
+                    break :absolute applied_T;
+                },
             },
+            .float, .comptime_float => return switch (self) {
+                .percent => |p| v * @max(0, p),
+                .absolute => |abs| v + @as(T, @floatFromInt(abs)),
+            },
+            else => {},
         };
     }
 
@@ -481,7 +497,7 @@ pub const Key = key: {
     var enumFields: [field_infos.len]std.builtin.Type.EnumField = undefined;
     var count: usize = 0;
     for (field_infos, 0..) |field, i| {
-        if (field.type != u32 and field.type != i32) continue;
+        if (field.type != u32 and field.type != i32 and field.type != f64) continue;
         enumFields[i] = .{ .name = field.name, .value = i };
         count += 1;
     }
@@ -512,7 +528,10 @@ fn init() Metrics {
         .overline_thickness = 0,
         .box_thickness = 0,
         .cursor_height = 0,
-        .icon_height = 0,
+        .icon_height = 0.0,
+        .face_width = 0.0,
+        .face_height = 0.0,
+        .face_y = 0.0,
     };
 }
 
@@ -542,6 +561,7 @@ test "Metrics: adjust cell height smaller" {
     try set.put(alloc, .cell_height, .{ .percent = 0.75 });
 
     var m: Metrics = init();
+    m.face_y = 0.33;
     m.cell_baseline = 50;
     m.underline_position = 55;
     m.strikethrough_position = 30;
@@ -549,6 +569,7 @@ test "Metrics: adjust cell height smaller" {
     m.cell_height = 100;
     m.cursor_height = 100;
     m.apply(set);
+    try testing.expectEqual(-11.67, m.face_y);
     try testing.expectEqual(@as(u32, 75), m.cell_height);
     try testing.expectEqual(@as(u32, 38), m.cell_baseline);
     try testing.expectEqual(@as(u32, 42), m.underline_position);
@@ -570,6 +591,7 @@ test "Metrics: adjust cell height larger" {
     try set.put(alloc, .cell_height, .{ .percent = 1.75 });
 
     var m: Metrics = init();
+    m.face_y = 0.33;
     m.cell_baseline = 50;
     m.underline_position = 55;
     m.strikethrough_position = 30;
@@ -577,6 +599,7 @@ test "Metrics: adjust cell height larger" {
     m.cell_height = 100;
     m.cursor_height = 100;
     m.apply(set);
+    try testing.expectEqual(37.33, m.face_y);
     try testing.expectEqual(@as(u32, 175), m.cell_height);
     try testing.expectEqual(@as(u32, 87), m.cell_baseline);
     try testing.expectEqual(@as(u32, 93), m.underline_position);

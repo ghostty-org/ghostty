@@ -3093,8 +3093,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // its cell(s), we don't modify the alignment at all.
                     .constraint = getConstraint(cp) orelse
                         if (cellpkg.isSymbol(cp)) .{
-                            .size_horizontal = .fit,
-                            .size_vertical = .fit,
+                            .size = .fit,
                         } else .none,
                     .constraint_width = constraintWidth(cell_pin),
                 },
