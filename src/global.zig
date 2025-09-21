@@ -39,9 +39,13 @@ pub const GlobalState = struct {
     resources_dir: internal_os.ResourcesDir,
 
     /// Where logging should go
-    pub const Logging = union(enum) {
-        disabled: void,
-        stderr: void,
+    pub const Logging = packed struct {
+        /// Whether to log to stderr. For lib mode we always disable stderr
+        /// logging by default. Otherwise it's enabled by default.
+        stderr: bool = build_config.app_runtime != .none,
+        /// Whether to log to macOS's unified logging. Enabled by default
+        /// on macOS.
+        macos: bool = builtin.os.tag.isDarwin(),
     };
 
     /// Initialize the global state.
@@ -61,7 +65,7 @@ pub const GlobalState = struct {
             .gpa = null,
             .alloc = undefined,
             .action = null,
-            .logging = .{ .stderr = {} },
+            .logging = .{},
             .rlimits = .{},
             .resources_dir = .{},
         };
@@ -100,12 +104,7 @@ pub const GlobalState = struct {
         // If we have an action executing, we disable logging by default
         // since we write to stderr we don't want logs messing up our
         // output.
-        if (self.action != null) self.logging = .{ .disabled = {} };
-
-        // For lib mode we always disable stderr logging by default.
-        if (comptime build_config.app_runtime == .none) {
-            self.logging = .{ .disabled = {} };
-        }
+        if (self.action != null) self.logging.stderr = false;
 
         // I don't love the env var name but I don't have it in my heart
         // to parse CLI args 3 times (once for actions, once for config,
@@ -114,9 +113,7 @@ pub const GlobalState = struct {
         // easy to set.
         if ((try internal_os.getenv(self.alloc, "GHOSTTY_LOG"))) |v| {
             defer v.deinit(self.alloc);
-            if (v.value.len > 0) {
-                self.logging = .{ .stderr = {} };
-            }
+            self.logging = cli.args.parsePackedStruct(Logging, v.value) catch .{};
         }
 
         // Setup our signal handlers before logging
