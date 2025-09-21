@@ -43,6 +43,18 @@ const Node = struct {
     prev: ?*Node = null,
     next: ?*Node = null,
     data: Page,
+
+    /// Number of active references to this node. Managed via retainNode/
+    /// releaseNode helpers so readers can keep nodes alive while the writer
+    /// mutates the list.
+    refs: std.atomic.Value(u32) = .init(1),
+
+    /// Monotonic identifier for this node, bumped each time the node is
+    /// created or reused. Used to validate search matches across mutations.
+    serial: u64 = 0,
+
+    /// Next pointer used when nodes are queued for deferred destruction.
+    pending_next: ?*Node = null,
 };
 
 /// The memory pool we get page nodes from.
@@ -113,6 +125,16 @@ pool_owned: bool,
 /// The list of pages in the screen.
 pages: List,
 
+/// Synchronizes access between writers (IO thread) and concurrent readers.
+rw_lock: std.Thread.RwLock = .{},
+
+/// Re-entrant depth counter for the writer lock.
+write_lock_depth: std.atomic.Value(u32) = .init(0),
+
+/// Monotonically increasing value bumped on structural mutations. Readers
+/// can sample this to detect stale snapshots.
+snapshot_epoch: std.atomic.Value(u64) = .init(0),
+
 /// Byte size of the total amount of allocated pages. Note this does
 /// not include the total allocated amount in the pool which may be more
 /// than this due to preheating.
@@ -130,6 +152,14 @@ min_max_size: usize,
 
 /// The list of tracked pins. These are kept up to date automatically.
 tracked_pins: PinSet,
+
+/// Nodes that have reached zero references and must be destroyed on
+/// the owning thread. Stored as a LIFO stack.
+pending_free: std.atomic.Value(?*List.Node) = .init(null),
+
+/// Monotonic counter used to assign a serial number to each node when it is
+/// created or reused.
+serial_counter: std.atomic.Value(u64) = .init(1),
 
 /// The top-left of certain parts of the screen that are frequently
 /// accessed so we don't have to traverse the linked list to find them.
@@ -249,7 +279,7 @@ pub fn init(
     errdefer tracked_pins.deinit(pool.alloc);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
 
-    return .{
+    var result = PageList{
         .cols = cols,
         .rows = rows,
         .pool = pool,
@@ -262,6 +292,9 @@ pub fn init(
         .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
     };
+
+    assignInitialSerials(&result);
+    return result;
 }
 
 fn initPages(
@@ -288,10 +321,15 @@ fn initPages(
         // Initialize the first set of pages to contain our viewport so that
         // the top of the first page is always the active area.
         node.* = .{
+            .prev = null,
+            .next = null,
             .data = .initBuf(
                 .init(page_buf),
                 Page.layout(cap),
             ),
+            .refs = .init(1),
+            .serial = 0,
+            .pending_next = null,
         };
         node.data.size.rows = @min(rem, node.data.capacity.rows);
         rem -= node.data.size.rows;
@@ -309,6 +347,8 @@ fn initPages(
 /// Deinit the pagelist. If you own the memory pool (used clonePool) then
 /// this will reset the pool and retain capacity.
 pub fn deinit(self: *PageList) void {
+    _ = self.drainPendingFree();
+
     // Always deallocate our hashmap.
     self.tracked_pins.deinit(self.pool.alloc);
 
@@ -339,6 +379,9 @@ pub fn deinit(self: *PageList) void {
 /// This can't fail because we always retain at least enough allocated
 /// memory to fit the active area.
 pub fn reset(self: *PageList) void {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     // We need enough pages/nodes to keep our active area. This should
     // never fail since we by definition have allocated a page already
     // that fits our size but I'm not confident to make that assertion.
@@ -514,6 +557,7 @@ pub fn clone(
         // Clone the page. We have to use createPageExt here because
         // we don't know if the source page has a standard size.
         const node = try createPageExt(
+            @constCast(self),
             pool,
             chunk.node.data.capacity,
             &page_size,
@@ -584,6 +628,7 @@ pub fn clone(
         }
     }
 
+    assignInitialSerials(&result);
     return result;
 }
 
@@ -619,6 +664,9 @@ pub fn resize(self: *PageList, opts: Resize) !void {
 
     if (!opts.reflow) return try self.resizeWithoutReflow(opts);
 
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     // Recalculate our minimum max size. This allows grow to work properly
     // when increasing beyond our initial minimum max size or explicit max
     // size to fit the active area.
@@ -634,19 +682,19 @@ pub fn resize(self: *PageList, opts: Resize) !void {
     // on the change of columns.
     const cols = opts.cols orelse self.cols;
     switch (std.math.order(cols, self.cols)) {
-        .eq => try self.resizeWithoutReflow(opts),
+        .eq => try self.resizeWithoutReflowUnlocked(opts),
 
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
             try self.resizeCols(cols, opts.cursor);
-            try self.resizeWithoutReflow(opts);
+            try self.resizeWithoutReflowUnlocked(opts);
         },
 
         .lt => {
             // We first change our row count so that we have the proper amount
             // we can use when shrinking our cols.
-            try self.resizeWithoutReflow(opts: {
+            try self.resizeWithoutReflowUnlocked(opts: {
                 var copy = opts;
                 copy.cols = self.cols;
                 break :opts copy;
@@ -1351,7 +1399,8 @@ const ReflowCursor = struct {
     }
 };
 
-fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
+fn resizeWithoutReflowUnlocked(self: *PageList, opts: Resize) !void {
+
     // We only set the new min_max_size if we're not reflowing. If we are
     // reflowing, then resize handles this for us.
     const old_min_max_size = self.min_max_size;
@@ -1496,6 +1545,13 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             assert(self.totalRows() >= self.rows);
         }
     }
+}
+
+fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
+    try self.resizeWithoutReflowUnlocked(opts);
 }
 
 fn resizeWithoutReflowGrowCols(
@@ -1878,6 +1934,9 @@ fn growRequiredForActive(self: *const PageList) bool {
 ///
 /// This returns the newly allocated page node if there is one.
 pub fn grow(self: *PageList) !?*List.Node {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     const last = self.pages.last.?;
     if (last.data.capacity.rows > last.data.size.rows) {
         // Fast path: we have capacity in the last page.
@@ -1906,26 +1965,40 @@ pub fn grow(self: *PageList) !?*List.Node {
 
         const layout = Page.layout(try std_capacity.adjust(.{ .cols = self.cols }));
 
-        // Get our first page and reset it to prepare for reuse.
+        // Get our first page and determine if it can be safely reused.
         const first = self.pages.popFirst().?;
         assert(first != last);
-        const buf = first.data.memory;
-        @memset(buf, 0);
 
-        // Initialize our new page and reinsert it as the last
-        first.data = .initBuf(.init(buf), layout);
-        first.data.size.rows = 1;
-        self.pages.insertAfter(last, first);
+        const new_first = self.pages.first.?;
 
-        // Update any tracked pins that point to this page to point to the
-        // new first page to the top-left.
+        // Update any tracked pins that pointed at the old first page so they
+        // remain valid regardless of whether we reuse or destroy the page.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node != first) continue;
-            p.node = self.pages.first.?;
+            p.node = new_first;
             p.y = 0;
             p.x = 0;
         }
+
+        if (first.refs.load(.acquire) != 1) {
+            // Another reader still holds the page, so we can't reuse it. Drop
+            // our reference and fall through to allocate a new page.
+            self.releaseNode(first);
+            _ = self.drainPendingFree();
+            break :prune;
+        }
+
+        const buf = first.data.memory;
+        @memset(buf, 0);
+
+        // Initialize our new page and reinsert it as the last.
+        first.data = .initBuf(.init(buf), layout);
+        first.data.size.rows = 1;
+        first.pending_next = null;
+        first.refs.store(1, .release);
+        first.serial = nextNodeSerial(self);
+        self.pages.insertAfter(last, first);
 
         // In this case we do NOT need to update page_size because
         // we're reusing an existing page so nothing has changed.
@@ -1988,6 +2061,9 @@ pub fn adjustCapacity(
     node: *List.Node,
     adjustment: AdjustCapacity,
 ) AdjustCapacityError!*List.Node {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     const page: *Page = &node.data;
 
     // We always start with the base capacity of the existing page. This
@@ -2050,10 +2126,11 @@ fn createPage(
     cap: Capacity,
 ) Allocator.Error!*List.Node {
     // log.debug("create page cap={}", .{cap});
-    return try createPageExt(&self.pool, cap, &self.page_size);
+    return try createPageExt(self, &self.pool, cap, &self.page_size);
 }
 
 fn createPageExt(
+    self: *PageList,
     pool: *MemoryPool,
     cap: Capacity,
     total_size: ?*usize,
@@ -2085,7 +2162,14 @@ fn createPageExt(
     // to undefined, 0xAA.
     if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
 
-    page.* = .{ .data = .initBuf(.init(page_buf), layout) };
+    page.* = .{
+        .prev = null,
+        .next = null,
+        .data = .initBuf(.init(page_buf), layout),
+        .refs = .init(1),
+        .serial = self.nextNodeSerial(),
+        .pending_next = null,
+    };
     page.data.size.rows = 0;
 
     if (total_size) |v| {
@@ -2098,14 +2182,95 @@ fn createPageExt(
     return page;
 }
 
-/// Destroy the memory of the given node in the PageList linked list
-/// and return it to the pool. The node is assumed to already be removed
-/// from the linked list.
-fn destroyNode(self: *PageList, node: *List.Node) void {
-    destroyNodeExt(&self.pool, node, &self.page_size);
+fn nextNodeSerial(self: *PageList) u64 {
+    return self.serial_counter.fetchAdd(1, .acq_rel);
 }
 
-fn destroyNodeExt(
+fn assignInitialSerials(self: *PageList) void {
+    var node = self.pages.first;
+    while (node) |n| : (node = n.next) {
+        n.serial = self.nextNodeSerial();
+    }
+}
+
+fn bumpEpoch(self: *PageList) void {
+    _ = self.snapshot_epoch.fetchAdd(1, .acq_rel);
+}
+
+pub fn snapshotEpoch(self: *const PageList) u64 {
+    return self.snapshot_epoch.load(.acquire);
+}
+
+const WriteGuard = struct {
+    list: *PageList,
+    held: bool,
+    mutated: bool = false,
+    freed_entry: bool,
+
+    pub fn init(list: *PageList) WriteGuard {
+        const prev = list.write_lock_depth.fetchAdd(1, .acq_rel);
+        if (prev == 0) list.rw_lock.lock();
+        return .{
+            .list = list,
+            .held = true,
+            .freed_entry = list.drainPendingFree(),
+        };
+    }
+
+    pub fn initMutating(list: *PageList) WriteGuard {
+        var guard = WriteGuard.init(list);
+        guard.mutated = true;
+        return guard;
+    }
+
+    pub fn markMutated(self: *WriteGuard) void {
+        self.mutated = true;
+    }
+
+    pub fn release(self: *WriteGuard) void {
+        if (!self.held) return;
+        const freed_exit = self.list.drainPendingFree();
+        const prev = self.list.write_lock_depth.fetchSub(1, .acq_rel);
+        std.debug.assert(prev != 0);
+        if (self.mutated or self.freed_entry or freed_exit) self.list.bumpEpoch();
+        if (prev == 1) self.list.rw_lock.unlock();
+        self.held = false;
+    }
+};
+
+fn writeGuard(self: *PageList) WriteGuard {
+    return WriteGuard.init(self);
+}
+
+fn writeGuardMutating(self: *PageList) WriteGuard {
+    return WriteGuard.initMutating(self);
+}
+
+pub const ReadGuard = struct {
+    list: *PageList,
+    held: bool,
+
+    pub fn init(list: *PageList) ReadGuard {
+        list.rw_lock.lockShared();
+        return .{ .list = list, .held = true };
+    }
+
+    pub fn release(self: *ReadGuard) void {
+        if (!self.held) return;
+        self.list.rw_lock.unlockShared();
+        self.held = false;
+    }
+};
+
+pub fn readGuard(self: *PageList) ReadGuard {
+    return ReadGuard.init(self);
+}
+
+pub fn readGuardConst(self: *const PageList) ReadGuard {
+    return ReadGuard.init(@constCast(self));
+}
+
+fn freeNodeImmediate(
     pool: *MemoryPool,
     node: *List.Node,
     total_size: ?*usize,
@@ -2127,6 +2292,49 @@ fn destroyNodeExt(
     pool.nodes.destroy(node);
 }
 
+pub fn retainNode(_: *PageList, node: *List.Node) void {
+    _ = node.refs.fetchAdd(1, .acq_rel);
+}
+
+pub fn releaseNode(self: *PageList, node: *List.Node) void {
+    const prev = node.refs.fetchSub(1, .acq_rel);
+    assert(prev != 0);
+    if (prev == 1) enqueuePendingFree(self, node);
+}
+
+fn enqueuePendingFree(self: *PageList, node: *List.Node) void {
+    while (true) {
+        const head = self.pending_free.load(.acquire);
+        node.pending_next = head;
+        if (self.pending_free.cmpxchgWeak(head, node, .release, .acquire) == null) break;
+    }
+}
+
+fn drainPendingFree(self: *PageList) bool {
+    var head = self.pending_free.swap(null, .acq_rel);
+    var freed_any = false;
+    while (head) |node| {
+        const next = node.pending_next;
+        node.pending_next = null;
+        freeNodeImmediate(&self.pool, node, &self.page_size);
+        head = next;
+        freed_any = true;
+    }
+
+    return freed_any;
+}
+
+pub fn processPendingFree(self: *PageList) void {
+    var guard = writeGuard(self);
+    defer guard.release();
+    _ = self.drainPendingFree();
+}
+
+fn destroyNode(self: *PageList, node: *List.Node) void {
+    self.releaseNode(node);
+    _ = self.drainPendingFree();
+}
+
 /// Fast-path function to erase exactly 1 row. Erasing means that the row
 /// is completely REMOVED, not just cleared. All rows following the removed
 /// row will be shifted up by 1 to fill the empty space.
@@ -2138,6 +2346,9 @@ pub fn eraseRow(
     self: *PageList,
     pt: point.Point,
 ) !void {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     const pn = self.pin(pt).?;
 
     var node = pn.node;
@@ -2227,6 +2438,9 @@ pub fn eraseRowBounded(
     pt: point.Point,
     limit: usize,
 ) !void {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     // This function has a lot of repeated code in it because it is a hot path.
     //
     // To get a better idea of what's happening, read eraseRow first for more
@@ -2372,6 +2586,9 @@ pub fn eraseRows(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) void {
+    var guard = writeGuardMutating(self);
+    defer guard.release();
+
     // The count of rows that was erased.
     var erased: usize = 0;
 
@@ -9096,4 +9313,40 @@ test "PageList clears history" {
         .y = 0,
         .x = 0,
     }, s.getTopLeft(.active));
+}
+
+test "PageList grow skips reuse when node retained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var list = try PageList.init(alloc, 80, 24, null);
+    defer list.deinit();
+
+    const first = list.pages.first.?;
+
+    // Fill the first page completely and then one extra grow so that a second
+    // page exists. The next grow will attempt the prune/reuse path.
+    const cap_rows = first.data.capacity.rows;
+    for (0..cap_rows) |_| _ = try list.grow();
+    try testing.expect(list.pages.first.? != list.pages.last.?);
+
+    // Ensure the newest page is also filled so grow() cannot just reuse space
+    // within the last page and is forced down the prune path.
+    const last = list.pages.last.?;
+    while (last.data.size.rows < last.data.capacity.rows) _ = try list.grow();
+
+    list.retainNode(first);
+    defer {
+        list.releaseNode(first);
+        list.processPendingFree();
+    }
+
+    // Force grow to hit the prune path where it would normally reuse the
+    // first page.
+    list.explicit_max_size = list.page_size;
+    list.min_max_size = list.page_size;
+
+    const old_page_size = list.page_size;
+    _ = try list.grow();
+    try testing.expectEqual(old_page_size + PagePool.item_size, list.page_size);
 }

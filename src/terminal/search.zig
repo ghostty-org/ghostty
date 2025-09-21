@@ -22,6 +22,7 @@
 //!
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const CircBuf = @import("../datastruct/main.zig").CircBuf;
@@ -45,6 +46,10 @@ pub const PageListSearch = struct {
     /// The sliding window of page contents and nodes to search.
     window: SlidingWindow,
 
+    /// Epoch sampled when the search was created. Used to detect stale
+    /// results when reported to other threads.
+    snapshot_epoch: u64,
+
     /// Initialize the page list search.
     ///
     /// The needle is not copied and must be kept alive for the duration
@@ -54,12 +59,13 @@ pub const PageListSearch = struct {
         list: *PageList,
         needle: []const u8,
     ) Allocator.Error!PageListSearch {
-        var window = try SlidingWindow.init(alloc, needle);
+        var window = try SlidingWindow.init(alloc, list, needle);
         errdefer window.deinit(alloc);
 
         return .{
             .list = list,
             .window = window,
+            .snapshot_epoch = list.snapshotEpoch(),
         };
     }
 
@@ -73,6 +79,15 @@ pub const PageListSearch = struct {
         self: *PageListSearch,
         alloc: Allocator,
     ) Allocator.Error!?Selection {
+        var guard = self.list.readGuard();
+        defer guard.release();
+
+        const current_epoch = self.list.snapshotEpoch();
+        if (current_epoch != self.snapshot_epoch) {
+            self.window.clearAndRetainCapacity();
+            self.snapshot_epoch = current_epoch;
+        }
+
         // Try to search for the needle in the window. If we find a match
         // then we can return that and we're done.
         if (self.window.next()) |sel| return sel;
@@ -125,6 +140,10 @@ const SlidingWindow = struct {
     /// data to meta.
     meta: MetaBuf,
 
+    /// The pagelist we are searching. Used to retain/release nodes while
+    /// they are part of the sliding window.
+    list: *PageList,
+
     /// Offset into data for our current state. This handles the
     /// situation where our search moved through meta[0] but didn't
     /// do enough to prune it.
@@ -141,16 +160,19 @@ const SlidingWindow = struct {
     const DataBuf = CircBuf(u8, 0);
     const MetaBuf = CircBuf(Meta, undefined);
     const Meta = struct {
+        list: *PageList,
         node: *PageList.List.Node,
         cell_map: Page.CellMap,
 
         pub fn deinit(self: *Meta) void {
+            self.list.releaseNode(self.node);
             self.cell_map.deinit();
         }
     };
 
     pub fn init(
         alloc: Allocator,
+        list: *PageList,
         needle: []const u8,
     ) Allocator.Error!SlidingWindow {
         var data = try DataBuf.init(alloc, 0);
@@ -165,6 +187,7 @@ const SlidingWindow = struct {
         return .{
             .data = data,
             .meta = meta,
+            .list = list,
             .needle = needle,
             .overlap_buf = overlap_buf,
         };
@@ -416,10 +439,13 @@ const SlidingWindow = struct {
     ) Allocator.Error!void {
         // Initialize our metadata for the node.
         var meta: Meta = .{
+            .list = self.list,
             .node = node,
             .cell_map = .init(alloc),
         };
         errdefer meta.deinit();
+
+        self.list.retainNode(node);
 
         // This is suboptimal but we need to encode the page once to
         // temporary memory, and then copy it into our circular buffer.
@@ -470,6 +496,14 @@ const SlidingWindow = struct {
     }
 };
 
+fn nodeInList(list: *PageList, target: *PageList.List.Node) bool {
+    var it = list.pages.first;
+    while (it) |node| : (it = node.next) {
+        if (node == target) return true;
+    }
+    return false;
+}
+
 test "PageListSearch single page" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -509,11 +543,59 @@ test "PageListSearch single page" {
     try testing.expect((try search.next(alloc)) == null);
 }
 
+test "PageListSearch drops stale nodes after epoch bump" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    const first_page_rows = s.pages.pages.first.?.data.capacity.rows;
+    for (0..first_page_rows - 1) |_| try s.testWriteString("\n");
+    for (0..s.pages.cols - 4) |_| try s.testWriteString("x");
+    try s.testWriteString("boo!");
+    try s.testWriteString("\n");
+    try testing.expect(s.pages.pages.first != s.pages.pages.last);
+    try s.testWriteString("hello. boo!\n");
+
+    // Ensure the last page is full so the next grow has to prune.
+    while (true) {
+        const last = s.pages.pages.last.?;
+        if (last.data.size.rows >= last.data.capacity.rows) break;
+        _ = try s.pages.grow();
+    }
+
+    var search = try PageListSearch.init(alloc, &s.pages, "boo!");
+    defer search.deinit(alloc);
+
+    // Consume the first match, which lives on the soon-to-be-pruned page.
+    const first_sel = (try search.next(alloc)).?;
+
+    // Constrain max size so the next grow prunes the head, even though the
+    // search still retains it.
+    s.pages.explicit_max_size = s.pages.page_size;
+    s.pages.min_max_size = s.pages.page_size;
+    _ = try s.pages.grow();
+
+    const first_node = first_sel.start().node;
+
+    // After pruning, the original node should no longer be part of the list.
+    try testing.expect(!nodeInList(&s.pages, first_node));
+
+    // The next match must reference a node that still exists in the list.
+    const second_sel = (try search.next(alloc)).?;
+    try testing.expect(nodeInList(&s.pages, second_sel.start().node));
+    try testing.expect(nodeInList(&s.pages, second_sel.end().node));
+}
+
 test "SlidingWindow empty on init" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "boo!");
+    var s = try Screen.init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    var w = try SlidingWindow.init(alloc, &s.pages, "boo!");
     defer w.deinit(alloc);
     try testing.expectEqual(0, w.data.len());
     try testing.expectEqual(0, w.meta.len());
@@ -523,16 +605,16 @@ test "SlidingWindow single append" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
-
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
     try s.testWriteString("hello. boo! hello. boo!");
 
+    var w = try SlidingWindow.init(alloc, &s.pages, "boo!");
+    defer w.deinit(alloc);
+
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
 
     // We should be able to find two matches.
@@ -566,16 +648,16 @@ test "SlidingWindow single append no match" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "nope!");
-    defer w.deinit(alloc);
-
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
     try s.testWriteString("hello. boo! hello. boo!");
 
+    var w = try SlidingWindow.init(alloc, &s.pages, "nope!");
+    defer w.deinit(alloc);
+
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
 
     // No matches
@@ -589,9 +671,6 @@ test "SlidingWindow single append no match" {
 test "SlidingWindow two pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
-
-    var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -607,8 +686,11 @@ test "SlidingWindow two pages" {
     try testing.expect(s.pages.pages.first != s.pages.pages.last);
     try s.testWriteString("hello. boo!");
 
+    var w = try SlidingWindow.init(alloc, &s.pages, "boo!");
+    defer w.deinit(alloc);
+
     // Add both pages
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
     try w.append(alloc, node.next.?);
 
@@ -643,9 +725,6 @@ test "SlidingWindow two pages match across boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "hello, world");
-    defer w.deinit(alloc);
-
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
 
@@ -659,8 +738,11 @@ test "SlidingWindow two pages match across boundary" {
     try s.testWriteString("o, world!");
     try testing.expect(s.pages.pages.first != s.pages.pages.last);
 
+    var w = try SlidingWindow.init(alloc, &s.pages, "hello, world");
+    defer w.deinit(alloc);
+
     // Add both pages
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
     try w.append(alloc, node.next.?);
 
@@ -687,9 +769,6 @@ test "SlidingWindow two pages no match prunes first page" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "nope!");
-    defer w.deinit(alloc);
-
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
 
@@ -704,8 +783,11 @@ test "SlidingWindow two pages no match prunes first page" {
     try testing.expect(s.pages.pages.first != s.pages.pages.last);
     try s.testWriteString("hello. boo!");
 
+    var w = try SlidingWindow.init(alloc, &s.pages, "nope!");
+    defer w.deinit(alloc);
+
     // Add both pages
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
     try w.append(alloc, node.next.?);
 
@@ -742,11 +824,11 @@ test "SlidingWindow two pages no match keeps both pages" {
     try needle_list.appendNTimes('x', first_page_rows * s.pages.cols);
     const needle: []const u8 = needle_list.items;
 
-    var w = try SlidingWindow.init(alloc, needle);
+    var w = try SlidingWindow.init(alloc, &s.pages, needle);
     defer w.deinit(alloc);
 
     // Add both pages
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
     try w.append(alloc, node.next.?);
 
@@ -762,12 +844,12 @@ test "SlidingWindow single append across circular buffer boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "abc");
-    defer w.deinit(alloc);
-
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
     try s.testWriteString("XXXXXXXXXXXXXXXXXXXboo!XXXXX");
+
+    var w = try SlidingWindow.init(alloc, &s.pages, "abc");
+    defer w.deinit(alloc);
 
     // We are trying to break a circular buffer boundary so the way we
     // do this is to duplicate the data then do a failing search. This
@@ -775,7 +857,7 @@ test "SlidingWindow single append across circular buffer boundary" {
     // put it in the middle of the circ buffer. We assert this so that if
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
     try w.append(alloc, node);
     {
@@ -817,12 +899,12 @@ test "SlidingWindow single append match on boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var w = try SlidingWindow.init(alloc, "abcd");
-    defer w.deinit(alloc);
-
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
     try s.testWriteString("o!XXXXXXXXXXXXXXXXXXXbo");
+
+    var w = try SlidingWindow.init(alloc, &s.pages, "abcd");
+    defer w.deinit(alloc);
 
     // We are trying to break a circular buffer boundary so the way we
     // do this is to duplicate the data then do a failing search. This
@@ -830,7 +912,7 @@ test "SlidingWindow single append match on boundary" {
     // put it in the middle of the circ buffer. We assert this so that if
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
-    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const node = s.pages.pages.first.?;
     try w.append(alloc, node);
     try w.append(alloc, node);
     {
@@ -866,4 +948,47 @@ test "SlidingWindow single append match on boundary" {
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     try testing.expect(w.next() == null);
+}
+
+test "PageListSearch survives concurrent mutation" {
+    if (!builtin.is_test) return;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    // Seed initial scrollback so the search window has data before the writer
+    // thread starts mutating the pagelist.
+    for (0..200) |_| try s.testWriteString("seed line\n");
+
+    var searcher = try PageListSearch.init(alloc, &s.pages, "line");
+    defer searcher.deinit(alloc);
+
+    const WriterCtx = struct {
+        screen: *Screen,
+
+        fn run(ctx: @This()) !void {
+            var i: usize = 0;
+            while (i < 200) : (i += 1) {
+                try ctx.screen.testWriteString("mutation\n");
+                ctx.screen.pages.processPendingFree();
+            }
+        }
+    };
+
+    var writer = std.Thread.spawn(.{}, WriterCtx.run, .{WriterCtx{ .screen = &s }}) catch |err| {
+        if (err == error.ThreadUnavailable) return error.SkipZigTest;
+        return err;
+    };
+    defer writer.join();
+
+    // Drain the search results until the datasource finishes.
+    while (true) {
+        const sel = try searcher.next(alloc);
+        if (sel == null) break;
+    }
+
+    s.pages.processPendingFree();
 }
