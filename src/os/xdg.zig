@@ -67,64 +67,76 @@ fn dir(
         });
     }
 
-    // First check the env var. On Windows we have to allocate so this tracks
-    // both whether we have the env var and whether we own it.
-    // on Windows we treat `LOCALAPPDATA` as a fallback for `XDG_CONFIG_HOME`
-    const env_, const owned = switch (builtin.os.tag) {
-        else => .{ posix.getenv(internal_opts.env), false },
-        .windows => windows: {
-            if (std.process.getEnvVarOwned(alloc, internal_opts.env)) |env| {
-                if (env.len == 0) {
-                    alloc.free(env);
-                } else {
-                    break :windows .{ env, true };
-                }
-            } else |err| switch (err) {
-                error.EnvironmentVariableNotFound => {},
-                else => return err,
-            };
+    // Try to get environment variable value
+    const env_result = getEnvVar(alloc, internal_opts);
+    defer env_result.deinit(alloc);
 
-            if (std.process.getEnvVarOwned(alloc, internal_opts.windows_env)) |env| {
-                if (env.len == 0) {
-                    alloc.free(env);
-                    break :windows .{ null, false };
-                }
-                break :windows .{ env, true };
-            } else |err| switch (err) {
-                error.EnvironmentVariableNotFound => break :windows .{ null, false },
-                else => return err,
-            };
-        },
-    };
-    defer if (owned) if (env_) |v| alloc.free(v);
-
-    if (env_) |env| {
-        if (env.len == 0) {
-            // Treat empty environment variables the same as if they were unset.
-            // Owned allocations are freed by the deferred cleanup above.
-        } else {
-            // If we have a subdir, then we use the env as-is to avoid a copy.
+    if (env_result.value) |env| {
+        // Only use non-empty environment variables
+        if (env.len > 0) {
             if (opts.subdir) |subdir| {
-                return try std.fs.path.join(alloc, &[_][]const u8{
-                    env,
-                    subdir,
-                });
+                return try std.fs.path.join(alloc, &[_][]const u8{ env, subdir });
             }
-
             return try alloc.dupe(u8, env);
         }
+        // Empty env var falls through to home directory fallback
     }
 
-    // Get our home dir
+    // Fallback to home directory
+    return getHomeDirPath(alloc, internal_opts, opts.subdir);
+}
+
+const EnvResult = struct {
+    value: ?[]const u8,
+    owned: bool,
+
+    fn deinit(self: EnvResult, alloc: Allocator) void {
+        if (self.owned and self.value != null) {
+            alloc.free(self.value.?);
+        }
+    }
+};
+
+/// Get environment variable value with proper memory ownership tracking.
+/// On Windows, tries primary env var first, then falls back to windows_env.
+fn getEnvVar(alloc: Allocator, internal_opts: InternalOptions) EnvResult {
+    switch (builtin.os.tag) {
+        .windows => return getWindowsEnvVar(alloc, internal_opts),
+        else => return .{
+            .value = posix.getenv(internal_opts.env),
+            .owned = false
+        },
+    }
+}
+
+fn getWindowsEnvVar(alloc: Allocator, internal_opts: InternalOptions) EnvResult {
+    // Try primary environment variable first
+    if (std.process.getEnvVarOwned(alloc, internal_opts.env)) |env| {
+        return .{ .value = env, .owned = true };
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => {},
+        // Treat other errors (like OutOfMemory) as if env var doesn't exist
+        else => return .{ .value = null, .owned = false },
+    }
+
+    // Try Windows fallback environment variable (LOCALAPPDATA)
+    if (std.process.getEnvVarOwned(alloc, internal_opts.windows_env)) |env| {
+        return .{ .value = env, .owned = true };
+    } else |_| {
+        return .{ .value = null, .owned = false };
+    }
+}
+
+/// Build path using home directory and default subdirectory.
+fn getHomeDirPath(alloc: Allocator, internal_opts: InternalOptions, subdir: ?[]const u8) ![]u8 {
     var buf: [1024]u8 = undefined;
     if (try homedir.home(&buf)) |home| {
         return try std.fs.path.join(alloc, &[_][]const u8{
             home,
             internal_opts.default_subdir,
-            opts.subdir orelse "",
+            subdir orelse "",
         });
     }
-
     return error.NoHomeDir;
 }
 
@@ -188,8 +200,8 @@ test "xdg directories fallback to home when env empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
     const env_os = @import("env.zig");
-    const posix = std.posix;
 
+    // Save original HOME to restore after test
     const saved_home = blk: {
         if (posix.getenv("HOME")) |value| {
             break :blk try alloc.dupeZ(u8, value);
@@ -205,6 +217,7 @@ test "xdg directories fallback to home when env empty" {
         }
     };
 
+    // Set up a controlled HOME directory for testing
     const temp_home_z: [:0]const u8 = "/tmp/ghostty-test-home";
     const temp_home = std.mem.span(temp_home_z);
     _ = env_os.setenv("HOME", temp_home_z);
@@ -222,37 +235,95 @@ test "xdg directories fallback to home when env empty" {
     };
 
     for (cases) |case| {
-        {
-            const saved_env = blk: {
-                if (posix.getenv(case.name)) |value| {
-                    break :blk try alloc.dupeZ(u8, value);
-                }
-                break :blk null;
-            };
-            defer {
-                if (saved_env) |value| {
-                    _ = env_os.setenv(case.name, value);
-                    alloc.free(value);
-                } else {
-                    _ = env_os.unsetenv(case.name);
-                }
-            };
-
-            _ = env_os.setenv(case.name, "");
-
-            const result = try case.func(alloc, .{});
-            defer alloc.free(result);
-
-            const expected = try std.fs.path.join(alloc, &[_][]const u8{
-                temp_home,
-                case.default_subdir,
-                "",
-            });
-            defer alloc.free(expected);
-
-            try testing.expectEqualStrings(expected, result);
+    // Save and restore each environment variable
+        const saved_env = blk: {
+            if (posix.getenv(case.name)) |value| {
+                break :blk try alloc.dupeZ(u8, value);
+            }
+            break :blk null;
+    };
+    defer {
+        if (saved_env) |value| {
+            _ = env_os.setenv(case.name, value);
+            alloc.free(value);
+        } else {
+            _ = env_os.unsetenv(case.name);
         }
+    };
+
+    // Test with empty string - should fallback to home
+    _ = env_os.setenv(case.name, "");
+
+    const result = try case.func(alloc, .{});
+    defer alloc.free(result);
+
+    const expected = try std.fs.path.join(alloc, &[_][]const u8{
+        temp_home,
+        case.default_subdir,
+    });
+    defer alloc.free(expected);
+
+    try testing.expectEqualStrings(expected, result);
     }
+}
+
+// Test with subdirectories when environment variables are empty
+test "xdg directories with subdir when env empty" {
+    if (builtin.os.tag == .windows) return;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const env_os = @import("env.zig");
+
+    // Save original HOME
+    const saved_home = blk: {
+        if (posix.getenv("HOME")) |value| {
+            break :blk try alloc.dupeZ(u8, value);
+        }
+        break :blk null;
+    };
+    defer {
+        if (saved_home) |value| {
+            _ = env_os.setenv("HOME", value);
+            alloc.free(value);
+        } else {
+            _ = env_os.unsetenv("HOME");
+        }
+    };
+
+    const temp_home = "/tmp/ghostty-test-home";
+    _ = env_os.setenv("HOME", temp_home);
+
+    // Save and clear XDG_CONFIG_HOME
+    const saved_config = blk: {
+        if (posix.getenv("XDG_CONFIG_HOME")) |value| {
+            break :blk try alloc.dupeZ(u8, value);
+        }
+        break :blk null;
+    };
+    defer {
+        if (saved_config) |value| {
+            _ = env_os.setenv("XDG_CONFIG_HOME", value);
+            alloc.free(value);
+        } else {
+            _ = env_os.unsetenv("XDG_CONFIG_HOME");
+        }
+    };
+
+    // Test that empty env var with subdir falls back correctly
+    _ = env_os.setenv("XDG_CONFIG_HOME", "");
+
+    const result = try config(alloc, .{ .subdir = "myapp" });
+    defer alloc.free(result);
+
+    const expected = try std.fs.path.join(alloc, &[_][]const u8{
+        temp_home,
+        ".config",
+        "myapp",
+    });
+    defer alloc.free(expected);
+
+    try testing.expectEqualStrings(expected, result);
 }
 
 test parseTerminalExec {
