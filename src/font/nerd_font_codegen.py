@@ -60,6 +60,7 @@ class PatchSetAttributeEntry(TypedDict):
 
 
 class PatchSet(TypedDict):
+    Name: str
     SymStart: int
     SymEnd: int
     SrcStart: int | None
@@ -116,20 +117,43 @@ class PatchSetExtractor(ast.NodeVisitor):
             if hasattr(ast, "unparse"):
                 return eval(
                     ast.unparse(node),
-                    {"box_keep": True},
-                    {"self": SimpleNamespace(args=SimpleNamespace(careful=True))},
+                    {"box_enabled": False, "box_keep": False},
+                    {
+                        "self": SimpleNamespace(
+                            args=SimpleNamespace(
+                                careful=False,
+                                custom=False,
+                                fontawesome=True,
+                                fontawesomeextension=True,
+                                fontlogos=True,
+                                octicons=True,
+                                codicons=True,
+                                powersymbols=True,
+                                pomicons=True,
+                                powerline=True,
+                                powerlineextra=True,
+                                material=True,
+                                weather=True,
+                            )
+                        ),
+                    },
                 )
             msg = f"<cannot eval: {type(node).__name__}>"
             raise ValueError(msg) from None
 
     def process_patch_entry(self, dict_node: ast.Dict) -> None:
         entry = {}
-        disallowed_key_nodes = frozenset({"Enabled", "Name", "Filename", "Exact"})
+        disallowed_key_nodes = frozenset({"Filename", "Exact"})
         for key_node, value_node in zip(dict_node.keys, dict_node.values):
             if (
                 isinstance(key_node, ast.Constant)
                 and key_node.value not in disallowed_key_nodes
             ):
+                if key_node.value == "Enabled":
+                    if self.safe_literal_eval(value_node):
+                        continue  # This patch set is enabled, continue to next key
+                    else:
+                        return  # This patch set is disabled, skip
                 key = ast.literal_eval(cast("ast.Constant", key_node))
                 entry[key] = self.resolve_symbol(value_node)
         self.patch_set_values.append(cast("PatchSet", entry))
@@ -281,12 +305,17 @@ def generate_zig_switch_arms(
 
     entries: dict[int, PatchSetAttributeEntry] = {}
     for entry in patch_sets:
+        print(f"Info: Extracting rules from patch set '{entry['Name']}'")
         attributes = entry["Attributes"]
 
         for cp in range(entry["SymStart"], entry["SymEnd"] + 1):
-            entries[cp] = attributes["default"].copy()
-
-        entries |= {k: v for k, v in attributes.items() if isinstance(k, int)}
+            if cp not in cmap:
+                print(f"Info: Skipping missing codepoint {hex(cp)}")
+                continue
+            if cp in attributes:
+                entries[cp] = attributes[cp].copy()
+            else:
+                entries[cp] = attributes["default"].copy()
 
         if entry["ScaleRules"] is not None:
             if "ScaleGroups" not in entry["ScaleRules"]:
@@ -336,8 +365,6 @@ def generate_zig_switch_arms(
                     entries[cp]["relative_x"] = (this_bounds[0] - xMin) / group_width
                     entries[cp]["relative_y"] = (this_bounds[1] - yMin) / group_height
                     entries[cp]["align_grouped"] = group_is_monospace
-
-    del entries[0]
 
     # Group codepoints by attribute key
     grouped = defaultdict[AttributeHash, list[int]](list)
