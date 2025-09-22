@@ -308,14 +308,23 @@ def generate_zig_switch_arms(
         print(f"Info: Extracting rules from patch set '{entry['Name']}'")
         attributes = entry["Attributes"]
 
-        for cp in range(entry["SymStart"], entry["SymEnd"] + 1):
-            if cp not in cmap:
-                print(f"Info: Skipping missing codepoint {hex(cp)}")
+        # A glyph's scale rules are specified using its codepoint in
+        # the original font, which is sometimes different from its
+        # Nerd Font codepoint. In font_patcher, the font to be patched
+        # (including the Symbols Only font embedded in Ghostty) is
+        # termed the sourceFont, while the original font is the
+        # symbolFont. Thus, the offset that maps the scale rule
+        # codepoint to the Nerd Font codepoint is SrcStart - SymStart.
+        cp_offset = entry["SrcStart"] - entry["SymStart"] if entry["SrcStart"] else 0
+        for cp_rule in range(entry["SymStart"], entry["SymEnd"] + 1):
+            cp_font = cp_rule + cp_offset
+            if cp_font not in cmap:
+                print(f"Info: Skipping missing codepoint {hex(cp_font)}")
                 continue
-            if cp in attributes:
-                entries[cp] = attributes[cp].copy()
+            if cp_rule in attributes:
+                entries[cp_font] = attributes[cp_rule].copy()
             else:
-                entries[cp] = attributes["default"].copy()
+                entries[cp_font] = attributes["default"].copy()
 
         if entry["ScaleRules"] is not None:
             if "ScaleGroups" not in entry["ScaleRules"]:
@@ -329,14 +338,15 @@ def generate_zig_switch_arms(
                 yMax = -math.inf
                 individual_bounds: dict[int, tuple[int, int, int, int]] = {}
                 individual_advances: set[float] = set()
-                for cp in group:
-                    if cp not in cmap:
+                for cp_rule in group:
+                    cp_font = cp_rule + cp_offset
+                    if cp_font not in cmap:
                         continue
-                    glyph = glyphs[cmap[cp]]
+                    glyph = glyphs[cmap[cp_font]]
                     individual_advances.add(glyph.width)
                     bounds = BoundsPen(glyphSet=glyphs)
                     glyph.draw(bounds)
-                    individual_bounds[cp] = bounds.bounds
+                    individual_bounds[cp_font] = bounds.bounds
                     xMin = min(bounds.bounds[0], xMin)
                     yMin = min(bounds.bounds[1], yMin)
                     xMax = max(bounds.bounds[2], xMax)
@@ -346,25 +356,30 @@ def generate_zig_switch_arms(
                 group_is_monospace = (len(individual_bounds) > 1) and (
                     len(individual_advances) == 1
                 )
-                for cp in group:
+                for cp_rule in group:
+                    cp_font = cp_rule + cp_offset
                     if (
-                        cp not in cmap
-                        or cp not in entries
+                        cp_font not in cmap
+                        or cp_font not in entries
                         # Codepoints may contribute to the bounding box of multiple groups,
                         # but should be scaled according to the first group they are found
                         # in. Hence, to avoid overwriting, we need to skip codepoints that
                         # have already been assigned a scale group.
-                        or "align_grouped" in entries[cp]
+                        or "align_grouped" in entries[cp_font]
                     ):
                         continue
-                    this_bounds = individual_bounds[cp]
+                    this_bounds = individual_bounds[cp_font]
                     this_width = this_bounds[2] - this_bounds[0]
                     this_height = this_bounds[3] - this_bounds[1]
-                    entries[cp]["relative_width"] = this_width / group_width
-                    entries[cp]["relative_height"] = this_height / group_height
-                    entries[cp]["relative_x"] = (this_bounds[0] - xMin) / group_width
-                    entries[cp]["relative_y"] = (this_bounds[1] - yMin) / group_height
-                    entries[cp]["align_grouped"] = group_is_monospace
+                    entries[cp_font]["relative_width"] = this_width / group_width
+                    entries[cp_font]["relative_height"] = this_height / group_height
+                    entries[cp_font]["relative_x"] = (
+                        this_bounds[0] - xMin
+                    ) / group_width
+                    entries[cp_font]["relative_y"] = (
+                        this_bounds[1] - yMin
+                    ) / group_height
+                    entries[cp_font]["align_grouped"] = group_is_monospace
 
     # Group codepoints by attribute key
     grouped = defaultdict[AttributeHash, list[int]](list)
