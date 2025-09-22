@@ -305,8 +305,11 @@ def generate_zig_switch_arms(
 
     entries: dict[int, PatchSetAttributeEntry] = {}
     for entry in patch_sets:
-        print(f"Info: Extracting rules from patch set '{entry['Name']}'")
+        patch_set_name = entry["Name"]
+        print(f"Info: Extracting rules from patch set '{patch_set_name}'")
+
         attributes = entry["Attributes"]
+        patch_set_entries: dict[int, PatchSetAttributeEntry] = {}
 
         # A glyph's scale rules are specified using its codepoint in
         # the original font, which is sometimes different from its
@@ -321,10 +324,28 @@ def generate_zig_switch_arms(
             if cp_font not in cmap:
                 print(f"Info: Skipping missing codepoint {hex(cp_font)}")
                 continue
+            elif cp_font in entries:
+                # Patch sets sometimes have overlapping codepoint ranges.
+                # Sometimes a later set is a smaller set filling in a gap
+                # in the range of a larger, preceding set. Sometimes it's
+                # the other way around. The best thing we can do is hardcode
+                # each case.
+                if patch_set_name == "Font Awesome":
+                    # The Font Awesome range has a gap matching the
+                    # prededing Progress Indicators range.
+                    print(f"Info: Not overwriting existing codepoint {hex(cp_font)}")
+                    continue
+                elif patch_set_name == "Octicons":
+                    # The fourth Octicons range overlaps with the first.
+                    print(f"Info: Overwriting existing codepoint {hex(cp_font)}")
+                else:
+                    raise ValueError(
+                        f"Unknown case of overlap for codepoint {hex(cp_font)} in patch set '{patch_set_name}'"
+                    )
             if cp_rule in attributes:
-                entries[cp_font] = attributes[cp_rule].copy()
+                patch_set_entries[cp_font] = attributes[cp_rule].copy()
             else:
-                entries[cp_font] = attributes["default"].copy()
+                patch_set_entries[cp_font] = attributes["default"].copy()
 
         if entry["ScaleRules"] is not None:
             if "ScaleGroups" not in entry["ScaleRules"]:
@@ -360,26 +381,31 @@ def generate_zig_switch_arms(
                     cp_font = cp_rule + cp_offset
                     if (
                         cp_font not in cmap
-                        or cp_font not in entries
+                        or cp_font not in patch_set_entries
                         # Codepoints may contribute to the bounding box of multiple groups,
                         # but should be scaled according to the first group they are found
                         # in. Hence, to avoid overwriting, we need to skip codepoints that
                         # have already been assigned a scale group.
-                        or "align_grouped" in entries[cp_font]
+                        or "align_grouped" in patch_set_entries[cp_font]
                     ):
                         continue
                     this_bounds = individual_bounds[cp_font]
                     this_width = this_bounds[2] - this_bounds[0]
                     this_height = this_bounds[3] - this_bounds[1]
-                    entries[cp_font]["relative_width"] = this_width / group_width
-                    entries[cp_font]["relative_height"] = this_height / group_height
-                    entries[cp_font]["relative_x"] = (
+                    patch_set_entries[cp_font]["relative_width"] = (
+                        this_width / group_width
+                    )
+                    patch_set_entries[cp_font]["relative_height"] = (
+                        this_height / group_height
+                    )
+                    patch_set_entries[cp_font]["relative_x"] = (
                         this_bounds[0] - xMin
                     ) / group_width
-                    entries[cp_font]["relative_y"] = (
+                    patch_set_entries[cp_font]["relative_y"] = (
                         this_bounds[1] - yMin
                     ) / group_height
-                    entries[cp_font]["align_grouped"] = group_is_monospace
+                    patch_set_entries[cp_font]["align_grouped"] = group_is_monospace
+        entries |= patch_set_entries
 
     # Group codepoints by attribute key
     grouped = defaultdict[AttributeHash, list[int]](list)
