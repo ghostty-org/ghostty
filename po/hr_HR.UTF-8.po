@@ -25,7 +25,7 @@ msgstr "Promijeni naslov terminala"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Ostavi prazno za zadržavanje zadanog naslova."
+msgstr "Ostavi prazno za povratak zadanog naslova."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
@@ -48,7 +48,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Pronađene su jedna ili više grešaka u postavkama. Pregledaj niže navedene greške,"
+"Pronađene su jedna ili više grešaka u postavkama. Pregledaj niže navedene greške"
 "te ponovno učitaj postavke ili zanemari ove greške."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -272,7 +272,7 @@ msgstr "Sve sesije terminala u ovoj kartici će biti prekinute."
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "Pokrenuti procesi u ovom podjeljku će biti prekinuti."
+msgstr "Pokrenuti procesi u ovom odjeljku će biti prekinuti."
 
 #: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
