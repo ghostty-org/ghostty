@@ -306,7 +306,7 @@ msgstr "Nova podjela"
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ Pokrenuta je debug verzija Ghosttyja! Performanse će biti smanjene"
+"⚠️ Pokrenuta je debug verzija Ghosttyja! Performanse će biti smanjene."
 
 #: src/apprt/gtk/Window.zig:775
 msgid "Reloaded the configuration"
