@@ -895,6 +895,42 @@ const Preview = struct {
                     config.background.b,
                 },
             };
+            const cursor_fg: vaxis.Color = if (config.@"cursor-text") |cursor_text| .{
+                .rgb = [_]u8{
+                    cursor_text.color.r,
+                    cursor_text.color.g,
+                    cursor_text.color.b,
+                },
+            } else bg;
+            const cursor_bg: vaxis.Color = if (config.@"cursor-color") |cursor_bg| .{
+                .rgb = [_]u8{
+                    cursor_bg.color.r,
+                    cursor_bg.color.g,
+                    cursor_bg.color.b,
+                },
+            } else fg;
+            const selection_fg: vaxis.Color = if (config.@"selection-foreground") |selection_fg| .{
+                .rgb = [_]u8{
+                    selection_fg.color.r,
+                    selection_fg.color.g,
+                    selection_fg.color.b,
+                },
+            } else bg;
+            const selection_bg: vaxis.Color = if (config.@"selection-background") |selection_bg| .{
+                .rgb = [_]u8{
+                    selection_bg.color.r,
+                    selection_bg.color.g,
+                    selection_bg.color.b,
+                },
+            } else fg;
+            const cursor: vaxis.Style = .{
+                .fg = cursor_fg,
+                .bg = cursor_bg,
+            };
+            const standard_selection: vaxis.Style = .{
+                .fg = selection_fg,
+                .bg = selection_bg,
+            };
             const standard: vaxis.Style = .{
                 .fg = fg,
                 .bg = bg,
@@ -1433,11 +1469,8 @@ const Preview = struct {
                     &.{
                         .{ .text = "  14   │             ", .style = color238 },
                         .{ .text = "try ", .style = color5 },
-                        .{ .text = "stdout.print(", .style = standard },
-                        .{ .text = "\"{d}", .style = color10 },
-                        .{ .text = "\\n", .style = color12 },
-                        .{ .text = "\"", .style = color10 },
-                        .{ .text = ", .{i});", .style = standard },
+                        .{ .text = "stdout.print(\"{d}\\n\", .{i})", .style = standard_selection },
+                        .{ .text = ";", .style = cursor },
                     },
                     .{
                         .row_offset = 17,
