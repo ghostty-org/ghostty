@@ -275,6 +275,24 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"is-split" = struct {
+            pub const name = "is-split";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "is_split",
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -503,6 +521,10 @@ pub const Surface = extern struct {
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
 
+        // True if the current surface is a split, this is used to apply
+        // unfocused-split-* options
+        is_split: bool = false,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -599,6 +621,16 @@ pub const Surface = extern struct {
         };
 
         return @intFromBool(config.@"bell-features".border);
+    }
+
+    /// Callback used to determine whether unfocused-split-fill / unfocused-split-opacity
+    /// should be applied to the surface
+    fn closureShouldUnfocusedSplitBeShown(
+        _: *Self,
+        focused: c_int,
+        is_split: c_int,
+    ) callconv(.c) c_int {
+        return @intFromBool(focused == 0 and is_split != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -2829,6 +2861,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
             class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
+            class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -2847,6 +2880,7 @@ pub const Surface = extern struct {
                 properties.title.impl,
                 properties.@"title-override".impl,
                 properties.zoom.impl,
+                properties.@"is-split".impl,
             });
 
             // Signals

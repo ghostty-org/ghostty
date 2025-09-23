@@ -112,6 +112,25 @@ pub const SplitTree = extern struct {
                 },
             );
         };
+
+        pub const @"is-split" = struct {
+            pub const name = "is-split";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .getter = getIsSplit,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -209,6 +228,14 @@ pub const SplitTree = extern struct {
                 surface.setParent(core);
             }
         }
+
+        // Bind is-split property for new surface
+        _ = self.as(gobject.Object).bindProperty(
+            "is-split",
+            surface.as(gobject.Object),
+            "is-split",
+            .{ .sync_create = true },
+        );
 
         // Create our tree
         var single_tree = try Surface.Tree.init(alloc, surface);
@@ -509,6 +536,18 @@ pub const SplitTree = extern struct {
             value,
             ?*Surface.Tree,
         ));
+    }
+
+    fn getIsSplit(self: *Self) bool {
+        const tree: *const Surface.Tree = self.private().tree orelse &.empty;
+        if (tree.isEmpty()) return false;
+
+        const root_handle: Surface.Tree.Node.Handle = .root;
+        const root = tree.nodes[root_handle.idx()];
+        return switch (root) {
+            .leaf => false,
+            .split => true,
+        };
     }
 
     //---------------------------------------------------------------
@@ -816,6 +855,9 @@ pub const SplitTree = extern struct {
             v.grabFocus();
         }
 
+        // Our split status may have changed
+        self.as(gobject.Object).notifyByPspec(properties.@"is-split".impl.param_spec);
+
         // Our active surface may have changed
         self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
 
@@ -873,6 +915,7 @@ pub const SplitTree = extern struct {
                 properties.@"has-surfaces".impl,
                 properties.@"is-zoomed".impl,
                 properties.tree.impl,
+                properties.@"is-split".impl,
             });
 
             // Bindings

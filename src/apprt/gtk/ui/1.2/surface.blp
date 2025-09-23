@@ -115,6 +115,20 @@ Overlay terminal_page {
     label: bind template.mouse-hover-url;
   }
 
+  [overlay]
+  // Apply unfocused-split-fill and unfocused-split-opacity to current surface
+  // this is only applied when a tab has more than one surface
+  Revealer {
+    reveal-child: bind $should_unfocused_split_be_shown(template.focused, template.is-split) as <bool>;
+    transition-duration: 0;
+
+    DrawingArea {
+      styles [
+        "unfocused-split",
+      ]
+    }
+  }
+
   // Event controllers for interactivity
   EventControllerFocus {
     enter => $focus_enter();
