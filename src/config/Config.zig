@@ -3461,31 +3461,60 @@ fn writeConfigTemplate(path: []const u8) !void {
 }
 
 /// Load configurations from the default configuration files. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
+/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
 ///
-/// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
+/// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/`
 /// is also loaded.
+///
+/// The legacy `config` file (without extension) is first loaded,
+/// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     // Load XDG first
+    const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
     const xdg_path = try defaultXdgPath(alloc);
+    defer alloc.free(legacy_xdg_path);
     defer alloc.free(xdg_path);
-    const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+    var xdg_loaded = false;
+    {
+        const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
+        const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+        if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
+            log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
+            log.warn("loading them both in that order", .{});
+            xdg_loaded = true;
+        } else if (xdg_action != .not_found or legacy_xdg_action != .not_found) {
+            xdg_loaded = true;
+        }
+    }
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
-        const app_support_path = try defaultAppSupportPath(alloc);
+        const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
+        const app_support_path = try preferredAppSupportPath(alloc);
         defer alloc.free(app_support_path);
-        const app_support_action = self.loadOptionalFile(alloc, app_support_path);
+        defer alloc.free(legacy_app_support_path);
+        var app_support_loaded = false;
+        {
+            const legacy_app_support_action = self.loadOptionalFile(alloc, legacy_app_support_path);
+            const app_support_action = self.loadOptionalFile(alloc, app_support_path);
+            if (app_support_action != .not_found and legacy_app_support_action != .not_found) {
+                log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_app_support_path, app_support_path });
+                log.warn("loading them both in that order", .{});
+                app_support_loaded = true;
+            } else if (app_support_action != .not_found or legacy_app_support_action != .not_found) {
+                app_support_loaded = true;
+            }
+        }
 
         // If both files are not found, then we create a template file.
         // For macOS, we only create the template file in the app support
-        if (app_support_action == .not_found and xdg_action == .not_found) {
+        if (app_support_loaded and xdg_loaded) {
             writeConfigTemplate(app_support_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
         }
     } else {
-        if (xdg_action == .not_found) {
+        if (xdg_loaded) {
             writeConfigTemplate(xdg_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
@@ -3495,17 +3524,68 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
 
 /// Default path for the XDG home configuration file. Returned value
 /// must be freed by the caller.
-fn defaultXdgPath(alloc: Allocator) ![]const u8 {
+pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
+    return try internal_os.xdg.config(
+        alloc,
+        .{ .subdir = "ghostty/config.ghostty" },
+    );
+}
+
+/// Ghostty <1.3.0 default path for the XDG home configuration file.
+/// Returned value must be freed by the caller.
+pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
         .{ .subdir = "ghostty/config" },
     );
 }
 
+/// Preferred default path for the XDG home configuration file.
+/// Returned value must be freed by the caller.
+fn preferredXdgPath(alloc: Allocator) ![]const u8 {
+    const xdg_path = try defaultXdgPath(alloc);
+    const xdg_file = openFile(xdg_path) catch {
+        const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
+        const legacy_xdg_file = openFile(legacy_xdg_path) catch {
+            alloc.free(legacy_xdg_path);
+            return xdg_path;
+        };
+        legacy_xdg_file.close();
+        alloc.free(xdg_path);
+        return legacy_xdg_path;
+    };
+    xdg_file.close();
+    return xdg_path;
+}
+
 /// Default path for the macOS Application Support configuration file.
 /// Returned value must be freed by the caller.
-fn defaultAppSupportPath(alloc: Allocator) ![]const u8 {
+pub fn defaultAppSupportPath(alloc: Allocator) ![]const u8 {
+    return try internal_os.macos.appSupportDir(alloc, "config.ghostty");
+}
+
+/// Ghostty <1.3.0 default path for the macOS Application Support
+/// configuration file. Returned value must be freed by the caller.
+pub fn legacyDefaultAppSupportPath(alloc: Allocator) ![]const u8 {
     return try internal_os.macos.appSupportDir(alloc, "config");
+}
+
+/// Default path for the macOS Application Support configuration file.
+/// Returned value must be freed by the caller.
+fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
+    const app_support_path = try defaultAppSupportPath(alloc);
+    const app_support_file = openFile(app_support_path) catch {
+        const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
+        const legacy_app_support_file = openFile(legacy_app_support_path) catch {
+            alloc.free(legacy_app_support_path);
+            return app_support_path;
+        };
+        legacy_app_support_file.close();
+        alloc.free(app_support_path);
+        return legacy_app_support_path;
+    };
+    app_support_file.close();
+    return app_support_path;
 }
 
 /// Returns the path to the preferred default configuration file.
@@ -3520,27 +3600,25 @@ pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
         .macos => {
             // macOS prefers the Application Support directory
             // if it exists.
-            const app_support_path = try defaultAppSupportPath(alloc);
-            if (openFile(app_support_path)) |f| {
-                f.close();
-                return app_support_path;
-            } else |_| {}
-
-            // Try the XDG path if it exists
-            const xdg_path = try defaultXdgPath(alloc);
-            if (openFile(xdg_path)) |f| {
-                f.close();
+            const app_support_path = try preferredAppSupportPath(alloc);
+            const app_support_file = openFile(app_support_path) catch {
+                // Try the XDG path if it exists
+                const xdg_path = try preferredXdgPath(alloc);
+                const xdg_file = openFile(xdg_path) catch {
+                    // If neither file exists, use app support
+                    alloc.free(xdg_path);
+                    return app_support_path;
+                };
+                xdg_file.close();
                 alloc.free(app_support_path);
                 return xdg_path;
-            } else |_| {}
-            defer alloc.free(xdg_path);
-
-            // Neither exist, use app support
+            };
+            app_support_file.close();
             return app_support_path;
         },
 
         // All other platforms use XDG only
-        else => return try defaultXdgPath(alloc),
+        else => return try preferredXdgPath(alloc),
     }
 }
 
