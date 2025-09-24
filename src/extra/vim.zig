@@ -10,7 +10,7 @@ pub const ftdetect =
     \\"
     \\" THIS FILE IS AUTO-GENERATED
     \\
-    \\au BufRead,BufNewFile */ghostty/config,*/ghostty/themes/* set ft=ghostty
+    \\au BufRead,BufNewFile *.ghostty,*/ghostty/config,*/ghostty/themes/* set ft=ghostty
     \\
 ;
 pub const ftplugin =
