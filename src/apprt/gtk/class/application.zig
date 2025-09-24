@@ -741,6 +741,10 @@ pub const Application = extern struct {
 
         const writer = buf.writer(alloc);
 
+        // Load standard css first as it can override some of the user configured styling.
+        try loadRuntimeCss414(config, &writer);
+        try loadRuntimeCss416(config, &writer);
+
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
         try writer.print(
@@ -778,9 +782,6 @@ pub const Application = extern struct {
                 \\
             , .{ .font_family = font_family });
         }
-
-        try loadRuntimeCss414(config, &writer);
-        try loadRuntimeCss416(config, &writer);
 
         // ensure that we have a sentinel
         try writer.writeByte(0);
