@@ -210,12 +210,12 @@ msgstr "Dopusti"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr "Zapamti izbor za ovaj podjeljak"
+msgstr "Zapamti izbor za ovu podjelu"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr "Ponovno učitaj postavke za ponovni prikaz prompta"
+msgstr "Ponovno učitaj postavke za prikaz ovog upita"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
