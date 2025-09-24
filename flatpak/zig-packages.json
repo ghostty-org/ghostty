@@ -133,6 +133,12 @@
   },
   {
     "type": "archive",
+    "url": "https://github.com/pluiedev/libvaxis/archive/4dd053212e7d9fe4c96476c202d96edf571ddda3.tar.gz",
+    "dest": "vendor/p/vaxis-0.5.1-BWNV_I8XCQDA_UM-ZYXMPZUz6JKsYEj3wM9I7UR-lxCa",
+    "sha256": "e742c615d51edc8019b41e5a8c44da2f39a2b449bc83b722fb18bd407c45e157"
+  },
+  {
+    "type": "archive",
     "url": "https://github.com/rockorager/libvaxis/archive/1bf887aa7e3736bad69fd4e277a378946edb0f2a.tar.gz",
     "dest": "vendor/p/vaxis-0.5.1-BWNV_H0PCQAeMusmtLzh9P9xO2IW242GZ2IRe9iKYhcA",
     "sha256": "7aae580b6e8e6348b671d409d195cc67ea36bc740b10534d1b342de59bb3e013"
@@ -175,6 +181,12 @@
   },
   {
     "type": "archive",
+    "url": "https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz",
+    "dest": "vendor/p/zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9",
+    "sha256": "059873d673eac4aea176c250eba9fb264e3332015218b5e6f1e534097ffb9832"
+  },
+  {
+    "type": "archive",
     "url": "https://github.com/pluiedev/zig-js/archive/ed36e95815b2ef0e1885cfcfea00484612d89ae3.tar.gz",
     "dest": "vendor/p/zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi",
     "sha256": "53d08571eb536804890038458a0f6c1d28bac551c36bafc331a1de44dd503c28"
@@ -196,6 +208,12 @@
     "url": "https://github.com/ivanstepanovftw/zigimg",
     "commit": "aa4c31db872612c39edbb79f753b3cd9a79fe726",
     "dest": "vendor/p/zigimg-0.1.0-8_eo2mWmEgBoqdr0sH9O5GTqDHthkoEPM5_tipcBRreL"
+  },
+  {
+    "type": "archive",
+    "url": "https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz",
+    "dest": "vendor/p/zigimg-0.1.0-8_eo2vHnEwCIVW34Q14Ec-xUlzIoVg86-7FU2ypPtxms",
+    "sha256": "2c1ed76ba2b35514544b0c27c9633ecba7c31be9080e37e7a010c93b5a1bc553"
   },
   {
     "type": "archive",

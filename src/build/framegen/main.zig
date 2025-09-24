@@ -22,7 +22,8 @@ pub fn main() !void {
     // Join the frames with a null byte. We'll split on this later
     const all_frames = try std.mem.join(gpa.allocator(), "\x01", &frames);
 
-    var flate: std.compress.flate.Compress = .init(&writer.interface, all_frames, .{});
+    var flate: std.compress.flate.Compress = .init(&writer.interface, &.{}, .{});
+    try flate.writer.writeAll(all_frames);
     try flate.end();
 
     const compressed_path = try std.fs.path.join(gpa.allocator(), &.{ out_dir_path, compressed_out });

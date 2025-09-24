@@ -109,6 +109,11 @@
     "url": "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
     "hash": "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8="
   },
+  "vaxis-0.5.1-BWNV_I8XCQDA_UM-ZYXMPZUz6JKsYEj3wM9I7UR-lxCa": {
+    "name": "vaxis",
+    "url": "https://github.com/pluiedev/libvaxis/archive/4dd053212e7d9fe4c96476c202d96edf571ddda3.tar.gz",
+    "hash": "sha256-50LGFdUe3IAZtB5ajETaLzmitEm8g7ci+xi9QHxF4Vc="
+  },
   "vaxis-0.5.1-BWNV_H0PCQAeMusmtLzh9P9xO2IW242GZ2IRe9iKYhcA": {
     "name": "vaxis",
     "url": "https://github.com/rockorager/libvaxis/archive/1bf887aa7e3736bad69fd4e277a378946edb0f2a.tar.gz",
@@ -144,6 +149,11 @@
     "url": "git+https://codeberg.org/ivanstepanovftw/zg#4fe689e56ce2ed5a8f59308b471bccd7da89fac9",
     "hash": "sha256-P0ieLuOQ05wKVaMmeNKJIxCWMIdyeKkmhsj8Ps80BGU="
   },
+  "zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9": {
+    "name": "zg",
+    "url": "https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz",
+    "hash": "sha256-BZhz1nPqxK6hdsJQ66n7Jk4zMgFSGLXm8eU0CX/7mDI="
+  },
   "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi": {
     "name": "zig_js",
     "url": "https://github.com/pluiedev/zig-js/archive/ed36e95815b2ef0e1885cfcfea00484612d89ae3.tar.gz",
@@ -163,6 +173,11 @@
     "name": "zigimg",
     "url": "git+https://github.com/ivanstepanovftw/zigimg#aa4c31db872612c39edbb79f753b3cd9a79fe726",
     "hash": "sha256-Ko5RuxxTAvpUHCnWEdHqNl7b+PVUAxg1/OPmzGGjdt0="
+  },
+  "zigimg-0.1.0-8_eo2vHnEwCIVW34Q14Ec-xUlzIoVg86-7FU2ypPtxms": {
+    "name": "zigimg",
+    "url": "https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz",
+    "hash": "sha256-LB7Xa6KzVRRUSwwnyWM+y6fDG+kIDjfnoBDJO1obxVM="
   },
   "ziglyph-0.12.0-PJbp-XX8HwD7VRYrqJl7ktlYvcI5HShflUWl2nT_9MeV": {
     "name": "ziglyph",

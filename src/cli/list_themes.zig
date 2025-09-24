@@ -57,9 +57,12 @@ const ThemeListElement = struct {
             .host = .{ .raw = "" },
             .path = .{ .raw = self.path },
         };
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         errdefer buf.deinit();
-        try uri.writeToStream(.{ .scheme = true, .authority = true, .path = true }, buf.writer());
+        try uri.writeToStream(
+            &buf.writer,
+            .{ .scheme = true, .authority = true, .path = true },
+        );
         return buf.toOwnedSlice();
     }
 };
@@ -114,8 +117,14 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var arena = std.heap.ArenaAllocator.init(gpa_alloc);
     const alloc = arena.allocator();
 
-    const stderr = std.Io.getStdErr().writer();
-    const stdout = std.Io.getStdOut().writer();
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_file: std.fs.File = .stdout();
+    var stdout_writer = stdout_file.writer(&stdout_buf);
+    const stdout = &stdout_writer.interface;
+
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_writer.interface;
 
     const resources_dir = global_state.resources_dir.app();
     if (resources_dir == null)
@@ -124,9 +133,9 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 
     var count: usize = 0;
 
-    var themes = std.ArrayList(ThemeListElement).init(alloc);
+    var themes: std.ArrayList(ThemeListElement) = .empty;
 
-    var it = themepkg.LocationIterator{ .arena_alloc = arena.allocator() };
+    var it: themepkg.LocationIterator = .{ .arena_alloc = arena.allocator() };
 
     while (try it.next()) |loc| {
         var dir = std.fs.cwd().openDir(loc.dir, .{ .iterate = true }) catch |err| switch (err) {
@@ -148,7 +157,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
                     count += 1;
 
                     const path = try std.fs.path.join(alloc, &.{ loc.dir, entry.name });
-                    try themes.append(.{
+                    try themes.append(alloc, .{
                         .path = path,
                         .location = loc.location,
                         .theme = try alloc.dupe(u8, entry.name),
@@ -166,18 +175,20 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
-    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(std.Io.getStdOut().handle)) {
+    if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
         try preview(gpa_alloc, themes.items, opts.color);
         return 0;
     }
 
     for (themes.items) |theme| {
         if (opts.path)
-            try stdout.print("{s} ({s}) {s}\n", .{ theme.theme, @tagName(theme.location), theme.path })
+            try stdout.print("{s} ({t}) {s}\n", .{ theme.theme, theme.location, theme.path })
         else
-            try stdout.print("{s} ({s})\n", .{ theme.theme, @tagName(theme.location) });
+            try stdout.print("{s} ({t})\n", .{ theme.theme, theme.location });
     }
 
+    // Don't forget to flush!
+    try stdout.flush();
     return 0;
 }
 
@@ -209,23 +220,28 @@ const Preview = struct {
     text_input: vaxis.widgets.TextInput,
     theme_filter: ColorScheme,
 
-    pub fn init(allocator: std.mem.Allocator, themes: []ThemeListElement, theme_filter: ColorScheme) !*Preview {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        themes: []ThemeListElement,
+        theme_filter: ColorScheme,
+        buf: []u8,
+    ) !*Preview {
         const self = try allocator.create(Preview);
 
         self.* = .{
             .allocator = allocator,
             .should_quit = false,
-            .tty = try vaxis.Tty.init(),
+            .tty = try .init(buf),
             .vx = try vaxis.init(allocator, .{}),
             .mouse = null,
             .themes = themes,
-            .filtered = try std.ArrayList(usize).initCapacity(allocator, themes.len),
+            .filtered = try .initCapacity(allocator, themes.len),
             .current = 0,
             .window = 0,
             .hex = false,
             .mode = .normal,
             .color_scheme = .light,
-            .text_input = vaxis.widgets.TextInput.init(allocator, &self.vx.unicode),
+            .text_input = .init(allocator, &self.vx.unicode),
             .theme_filter = theme_filter,
         };
 
@@ -236,7 +252,7 @@ const Preview = struct {
 
     pub fn deinit(self: *Preview) void {
         const allocator = self.allocator;
-        self.filtered.deinit();
+        self.filtered.deinit(allocator);
         self.text_input.deinit();
         self.vx.deinit(allocator, self.tty.anyWriter());
         self.tty.deinit();
@@ -251,12 +267,14 @@ const Preview = struct {
         try loop.init();
         try loop.start();
 
-        try self.vx.enterAltScreen(self.tty.anyWriter());
-        try self.vx.setTitle(self.tty.anyWriter(), "👻 Ghostty Theme Preview 👻");
-        try self.vx.queryTerminal(self.tty.anyWriter(), 1 * std.time.ns_per_s);
-        try self.vx.setMouseMode(self.tty.anyWriter(), true);
+        const writer = self.tty.anyWriter();
+
+        try self.vx.enterAltScreen(writer);
+        try self.vx.setTitle(writer, "👻 Ghostty Theme Preview 👻");
+        try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+        try self.vx.setMouseMode(writer, true);
         if (self.vx.caps.color_scheme_updates)
-            try self.vx.subscribeToColorSchemeUpdates(self.tty.anyWriter());
+            try self.vx.subscribeToColorSchemeUpdates(writer);
 
         while (!self.should_quit) {
             var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -269,9 +287,8 @@ const Preview = struct {
             }
             try self.draw(alloc);
 
-            var buffered = self.tty.bufferedWriter();
-            try self.vx.render(buffered.writer().any());
-            try buffered.flush();
+            try self.vx.render(writer);
+            try writer.flush();
         }
     }
 
@@ -308,11 +325,11 @@ const Preview = struct {
             const string = try std.ascii.allocLowerString(self.allocator, buffer);
             defer self.allocator.free(string);
 
-            var tokens = std.ArrayList([]const u8).init(self.allocator);
-            defer tokens.deinit();
+            var tokens: std.ArrayList([]const u8) = .empty;
+            defer tokens.deinit(self.allocator);
 
             var it = std.mem.tokenizeScalar(u8, string, ' ');
-            while (it.next()) |token| try tokens.append(token);
+            while (it.next()) |token| try tokens.append(self.allocator, token);
 
             for (self.themes, 0..) |*theme, i| {
                 try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
@@ -322,13 +339,13 @@ const Preview = struct {
                     .to_lower = true,
                     .plain = true,
                 });
-                if (theme.rank != null) try self.filtered.append(i);
+                if (theme.rank != null) try self.filtered.append(self.allocator, i);
             }
         } else {
             for (self.themes, 0..) |*theme, i| {
                 try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
                 if (shouldIncludeTheme(self.theme_filter, theme_config)) {
-                    try self.filtered.append(i);
+                    try self.filtered.append(self.allocator, i);
                     theme.rank = null;
                 }
             }
@@ -1044,14 +1061,14 @@ const Preview = struct {
                     );
                 }
 
-                var buf = std.ArrayList(u8).init(alloc);
+                var buf: std.Io.Writer.Allocating = .init(alloc);
                 defer buf.deinit();
                 for (config._diagnostics.items(), 0..) |diag, captured_i| {
                     const i: u16 = @intCast(captured_i);
-                    try diag.write(buf.writer());
+                    try diag.format(&buf.writer);
                     _ = child.printSegment(
                         .{
-                            .text = buf.items,
+                            .text = buf.written(),
                             .style = self.ui_err(),
                         },
                         .{
@@ -1651,7 +1668,13 @@ fn color(config: Config, palette: usize) vaxis.Color {
 const lorem_ipsum = @embedFile("lorem_ipsum.txt");
 
 fn preview(allocator: std.mem.Allocator, themes: []ThemeListElement, theme_filter: ColorScheme) !void {
-    var app = try Preview.init(allocator, themes, theme_filter);
+    var buf: [4096]u8 = undefined;
+    var app = try Preview.init(
+        allocator,
+        themes,
+        theme_filter,
+        &buf,
+    );
     defer app.deinit();
     try app.run();
 }

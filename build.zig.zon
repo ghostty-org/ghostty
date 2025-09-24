@@ -12,12 +12,12 @@
             .hash = "libxev-0.0.0-86vtc6scEwCrajQNitQ2BQA2RhyovuY3RbTk6l5WiPJJ",
             .lazy = true,
         },
-        // .vaxis = .{
-        //     // rockorager/libvaxis
-        //     .url = "https://github.com/rockorager/libvaxis/archive/1bf887aa7e3736bad69fd4e277a378946edb0f2a.tar.gz",
-        //     .hash = "vaxis-0.5.1-BWNV_H0PCQAeMusmtLzh9P9xO2IW242GZ2IRe9iKYhcA",
-        //     .lazy = true,
-        // },
+        .vaxis = .{
+            // rockorager/libvaxis
+            .url = "https://github.com/pluiedev/libvaxis/archive/4dd053212e7d9fe4c96476c202d96edf571ddda3.tar.gz",
+            .hash = "vaxis-0.5.1-BWNV_I8XCQDA_UM-ZYXMPZUz6JKsYEj3wM9I7UR-lxCa",
+            .lazy = true,
+        },
         .z2d = .{
             // vancluever/z2d
             .url = "https://github.com/vancluever/z2d/archive/a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz",

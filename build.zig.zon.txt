@@ -1,5 +1,6 @@
 git+https://codeberg.org/ivanstepanovftw/zg#4fe689e56ce2ed5a8f59308b471bccd7da89fac9
 git+https://github.com/ivanstepanovftw/zigimg#aa4c31db872612c39edbb79f753b3cd9a79fe726
+https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz
 https://codeberg.org/ifreund/zig-wayland/archive/1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz
 https://codeberg.org/pluiedev/ziglyph/archive/4a37b1282cdd35e0410482d09c6f068691e79eaf.tar.gz
 https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz
@@ -26,8 +27,10 @@ https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23c
 https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz
 https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
 https://github.com/ghostty-org/zig-gobject/releases/download/2025-09-20-20-1/ghostty-gobject-2025-09-20-20-1.tar.zst
+https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz
 https://github.com/jcollie/zf/archive/52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz
 https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20250916-134637-76894f0/ghostty-themes.tgz
+https://github.com/pluiedev/libvaxis/archive/4dd053212e7d9fe4c96476c202d96edf571ddda3.tar.gz
 https://github.com/pluiedev/libxev/archive/a767897735f7dc9b16c09887d52c205aa1917645.tar.gz
 https://github.com/pluiedev/zig-js/archive/ed36e95815b2ef0e1885cfcfea00484612d89ae3.tar.gz
 https://github.com/pluiedev/zig-objc/archive/d52aa8224e619feb78c1d327e306e63d923f8f03.tar.gz
