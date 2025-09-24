@@ -21,6 +21,7 @@ const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
 const font = @import("main.zig");
 const options = font.options;
+const SegmentedList = @import("../datastruct/segmented_list.zig").SegmentedList;
 const DeferredFace = font.DeferredFace;
 const DesiredSize = font.face.DesiredSize;
 const Face = font.Face;
@@ -683,7 +684,7 @@ pub fn updateMetrics(self: *Collection) UpdateMetricsError!void {
 ///
 /// WARNING: We cannot use any prealloc yet for the segmented list because
 /// the collection is copied around by value and pointers aren't stable.
-const StyleArray = std.EnumArray(Style, std.SegmentedList(EntryOrAlias, 0));
+const StyleArray = std.EnumArray(Style, SegmentedList(EntryOrAlias, 0));
 
 /// Load options are used to configure all the details a Collection
 /// needs to load deferred faces.
