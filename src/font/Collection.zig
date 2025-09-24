@@ -223,12 +223,13 @@ fn getFaceFromEntry(
 
             // Calculate the scale factor for this
             // entry now that we have a loaded face.
-            entry.scale_factor = .{
-                .scale = self.scaleFactor(
+            if (entry.scale_factor == .adjustment) {
+                const scale = self.scaleFactor(
                     face.getMetrics(),
                     entry.scale_factor.adjustment,
-                ),
-            };
+                );
+                entry.scale_factor = .{ .scale = scale };
+            }
 
             // If our scale factor is something other
             // than 1.0 then we need to resize the face.
