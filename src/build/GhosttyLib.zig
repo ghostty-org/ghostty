@@ -17,6 +17,7 @@ dsym: ?std.Build.LazyPath,
 pub fn initStatic(
     b: *std.Build,
     deps: *const SharedDeps,
+    comptime Build: type,
 ) !GhosttyLib {
     const lib = b.addLibrary(.{
         .name = "ghostty",
@@ -39,7 +40,7 @@ pub fn initStatic(
 
     // Add our dependencies. Get the list of all static deps so we can
     // build a combined archive if necessary.
-    var lib_list = try deps.add(lib);
+    var lib_list = try deps.add(lib, Build);
     try lib_list.append(b.allocator, lib.getEmittedBin());
 
     if (!deps.config.target.result.os.tag.isDarwin()) return .{
@@ -68,6 +69,7 @@ pub fn initStatic(
 pub fn initShared(
     b: *std.Build,
     deps: *const SharedDeps,
+    comptime Build: type,
 ) !GhosttyLib {
     const lib = b.addLibrary(.{
         .name = "ghostty",
@@ -81,7 +83,7 @@ pub fn initShared(
             .unwind_tables = if (deps.config.strip) .none else .sync,
         }),
     });
-    _ = try deps.add(lib);
+    _ = try deps.add(lib, Build);
 
     // Get our debug symbols
     const dsymutil: ?std.Build.LazyPath = dsymutil: {
@@ -107,15 +109,24 @@ pub fn initShared(
 pub fn initMacOSUniversal(
     b: *std.Build,
     original_deps: *const SharedDeps,
+    comptime Build: type,
 ) !GhosttyLib {
-    const aarch64 = try initStatic(b, &try original_deps.retarget(
+    const aarch64 = try initStatic(
         b,
-        Config.genericMacOSTarget(b, .aarch64),
-    ));
-    const x86_64 = try initStatic(b, &try original_deps.retarget(
+        &try original_deps.retarget(
+            b,
+            Config.genericMacOSTarget(b, .aarch64),
+        ),
+        Build,
+    );
+    const x86_64 = try initStatic(
         b,
-        Config.genericMacOSTarget(b, .x86_64),
-    ));
+        &try original_deps.retarget(
+            b,
+            Config.genericMacOSTarget(b, .x86_64),
+        ),
+        Build,
+    );
 
     const universal = LipoStep.create(b, .{
         .name = "ghostty",

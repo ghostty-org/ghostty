@@ -93,6 +93,7 @@ fn initTarget(
 pub fn add(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
+    comptime Build: type,
 ) !LazyPathList {
     const b = step.step.owner;
 
@@ -533,7 +534,7 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-            .gtk => try self.addGtkNg(step),
+            .gtk => try self.addGtkNg(step, Build),
         }
     }
 
@@ -548,6 +549,7 @@ pub fn add(
 fn addGtkNg(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
+    comptime Build: type,
 ) !void {
     const b = step.step.owner;
     const target = step.root_module.resolved_target.?;
@@ -598,7 +600,7 @@ fn addGtkNg(
             .{},
         );
         const zig_wayland_import_ = b.lazyImport(
-            @import("root"),
+            Build,
             "zig_wayland",
         );
         const zig_wayland_dep_ = b.lazyDependency("zig_wayland", .{});

@@ -1,3 +1,6 @@
+/// Used by lazy imports to refer to Ghostty itself.
+const Build = @This();
+
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
@@ -56,7 +59,7 @@ pub fn build(b: *std.Build) !void {
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
 
     // Ghostty executable, the actual runnable Ghostty program.
-    const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
+    const exe = try buildpkg.GhosttyExe.init(b, &config, &deps, Build);
 
     // Ghostty docs
     const docs = try buildpkg.GhosttyDocs.init(b, &deps);
@@ -74,7 +77,7 @@ pub fn build(b: *std.Build) !void {
     if (config.emit_webdata) webdata.install();
 
     // Ghostty bench tools
-    const bench = try buildpkg.GhosttyBench.init(b, &deps);
+    const bench = try buildpkg.GhosttyBench.init(b, &deps, Build);
     if (config.emit_bench) bench.install();
 
     // Ghostty dist tarball
@@ -91,10 +94,12 @@ pub fn build(b: *std.Build) !void {
     const libghostty_shared = try buildpkg.GhosttyLib.initShared(
         b,
         &deps,
+        Build,
     );
     const libghostty_static = try buildpkg.GhosttyLib.initStatic(
         b,
         &deps,
+        Build,
     );
 
     // libghostty-vt
@@ -140,6 +145,7 @@ pub fn build(b: *std.Build) !void {
             b,
             &deps,
             config.xcframework_target,
+            Build,
         );
         if (config.emit_xcframework) {
             xcframework.install();
@@ -194,6 +200,7 @@ pub fn build(b: *std.Build) !void {
                 b,
                 &deps,
                 .native,
+                Build,
             );
             const macos_app_native_only = try buildpkg.GhosttyXcodebuild.init(
                 b,
@@ -226,6 +233,7 @@ pub fn build(b: *std.Build) !void {
                 b,
                 &valgrind_config,
                 &deps,
+                Build,
             );
         };
 
@@ -267,7 +275,7 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         if (config.emit_test_exe) b.installArtifact(test_exe);
-        _ = try deps.add(test_exe);
+        _ = try deps.add(test_exe, Build);
 
         // Normal test running
         const test_run = b.addRunArtifact(test_exe);

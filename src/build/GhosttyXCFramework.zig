@@ -15,44 +15,57 @@ pub fn init(
     b: *std.Build,
     deps: *const SharedDeps,
     target: Target,
+    comptime Build: type,
 ) !GhosttyXCFramework {
     // Universal macOS build
-    const macos_universal = try GhosttyLib.initMacOSUniversal(b, deps);
+    const macos_universal = try GhosttyLib.initMacOSUniversal(b, deps, Build);
 
     // Native macOS build
-    const macos_native = try GhosttyLib.initStatic(b, &try deps.retarget(
+    const macos_native = try GhosttyLib.initStatic(
         b,
-        Config.genericMacOSTarget(b, null),
-    ));
+        &try deps.retarget(
+            b,
+            Config.genericMacOSTarget(b, null),
+        ),
+        Build,
+    );
 
     // iOS
-    const ios = try GhosttyLib.initStatic(b, &try deps.retarget(
+    const ios = try GhosttyLib.initStatic(
         b,
-        b.resolveTargetQuery(.{
-            .cpu_arch = .aarch64,
-            .os_tag = .ios,
-            .os_version_min = Config.osVersionMin(.ios),
-            .abi = null,
-        }),
-    ));
+        &try deps.retarget(
+            b,
+            b.resolveTargetQuery(.{
+                .cpu_arch = .aarch64,
+                .os_tag = .ios,
+                .os_version_min = Config.osVersionMin(.ios),
+                .abi = null,
+            }),
+        ),
+        Build,
+    );
 
     // iOS Simulator
-    const ios_sim = try GhosttyLib.initStatic(b, &try deps.retarget(
+    const ios_sim = try GhosttyLib.initStatic(
         b,
-        b.resolveTargetQuery(.{
-            .cpu_arch = .aarch64,
-            .os_tag = .ios,
-            .os_version_min = Config.osVersionMin(.ios),
-            .abi = .simulator,
+        &try deps.retarget(
+            b,
+            b.resolveTargetQuery(.{
+                .cpu_arch = .aarch64,
+                .os_tag = .ios,
+                .os_version_min = Config.osVersionMin(.ios),
+                .abi = .simulator,
 
-            // We force the Apple CPU model because the simulator
-            // doesn't support the generic CPU model as of Zig 0.14 due
-            // to missing "altnzcv" instructions, which is false. This
-            // surely can't be right but we can fix this if/when we get
-            // back to running simulator builds.
-            .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
-        }),
-    ));
+                // We force the Apple CPU model because the simulator
+                // doesn't support the generic CPU model as of Zig 0.14 due
+                // to missing "altnzcv" instructions, which is false. This
+                // surely can't be right but we can fix this if/when we get
+                // back to running simulator builds.
+                .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
+            }),
+        ),
+        Build,
+    );
 
     // The xcframework wraps our ghostty library so that we can link
     // it to the final app built with Swift.
