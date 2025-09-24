@@ -472,13 +472,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Quit the application.",
         }},
 
+        .text => comptime &.{.{
+            .action = .{ .text = "👻" },
+            .title = "Ghostty",
+            .description = "Put a little Ghostty in your terminal.",
+        }},
+
         // No commands because they're parameterized and there
         // aren't obvious values users would use. It is possible that
         // these may have commands in the future if there are very
         // common values that users tend to use.
         .csi,
         .esc,
-        .text,
         .cursor_key,
         .set_font_size,
         .scroll_page_fractional,

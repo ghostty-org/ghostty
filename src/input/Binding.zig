@@ -1213,7 +1213,7 @@ pub const Action = union(enum) {
         const value_info = @typeInfo(Value);
         switch (Value) {
             void => {},
-            []const u8 => try writer.print("{s}", .{value}),
+            []const u8 => try std.zig.stringEscape(value, "", .{}, writer),
             else => switch (value_info) {
                 .@"enum" => try writer.print("{s}", .{@tagName(value)}),
                 .float => try writer.print("{d}", .{value}),
@@ -3222,4 +3222,19 @@ test "parse: set_font_size" {
         try testing.expect(binding.action == .set_font_size);
         try testing.expectEqual(13.5, binding.action.set_font_size);
     }
+}
+
+test "action: format" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const a: Action = .{ .text = "👻" };
+
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(alloc);
+
+    const writer = buf.writer(alloc);
+    try a.format("", .{}, writer);
+
+    try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.items);
 }

@@ -7,6 +7,7 @@ const diags = @import("diagnostics.zig");
 const internal_os = @import("../os/main.zig");
 const Diagnostic = diags.Diagnostic;
 const DiagnosticList = diags.DiagnosticList;
+const CommaSplitter = @import("CommaSplitter.zig");
 
 const log = std.log.scoped(.cli);
 
@@ -527,24 +528,31 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     const FieldSet = std.StaticBitSet(info.fields.len);
     var fields_set: FieldSet = .initEmpty();
 
-    // We split each value by ","
-    var iter = std.mem.splitSequence(u8, v, ",");
-    loop: while (iter.next()) |entry| {
+    // We split each value by "," allowing for quoting and escaping.
+    var iter: CommaSplitter = .init(v);
+    loop: while (try iter.next()) |entry| {
         // Find the key/value, trimming whitespace. The value may be quoted
         // which we strip the quotes from.
         const idx = mem.indexOf(u8, entry, ":") orelse return error.InvalidValue;
         const key = std.mem.trim(u8, entry[0..idx], whitespace);
+
+        // used if we need to decode a double-quoted string.
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer buf.deinit(alloc);
+
         const value = value: {
-            var value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
+            const value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
 
             // Detect a quoted string.
             if (value.len >= 2 and
                 value[0] == '"' and
                 value[value.len - 1] == '"')
             {
-                // Trim quotes since our CLI args processor expects
-                // quotes to already be gone.
-                value = value[1 .. value.len - 1];
+                // Decode a double-quoted string as a Zig string literal.
+                const writer = buf.writer(alloc);
+                const parsed = try std.zig.string_literal.parseWrite(writer, value);
+                if (parsed == .failure) return error.InvalidValue;
+                break :value buf.items;
             }
 
             break :value value;

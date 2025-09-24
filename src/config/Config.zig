@@ -2357,9 +2357,21 @@ keybind: Keybinds = .{},
 /// (`:`), and then the specified value. The syntax for actions is identical
 /// to the one for keybind actions. Whitespace in between fields is ignored.
 ///
+/// If you need to embed commas or any other special characters in the values,
+/// enclose the value in double quotes and it will be interpreted as a Zig
+/// string literal. This is also useful for including whitespace at the
+/// beginning or the end of a value. See the
+/// [Zig documentation](https://ziglang.org/documentation/master/#Escape-Sequences)
+/// for more information on string literals. Note that multiline string literals
+/// are not supported.
+///
+/// Double quotes can not be used around the field names.
+///
 /// ```ini
 /// command-palette-entry = title:Reset Font Style, action:csi:0m
 /// command-palette-entry = title:Crash on Main Thread,description:Causes a crash on the main (UI) thread.,action:crash:main
+/// command-palette-entry = title:Focus Split: Right,description:"Focus the split to the right, if it exists.",action:goto_split:right
+/// command-palette-entry = title:"Ghostty",description:"Add a little Ghostty to your terminal.",action:"text:\xf0\x9f\x91\xbb"
 /// ```
 ///
 /// By default, the command palette is preloaded with most actions that might
@@ -7023,18 +7035,24 @@ pub const RepeatableCommand = struct {
             return;
         }
 
-        var buf: [4096]u8 = undefined;
         for (self.value.items) |item| {
-            const str = if (item.description.len > 0) std.fmt.bufPrint(
-                &buf,
-                "title:{s},description:{s},action:{}",
-                .{ item.title, item.description, item.action },
-            ) else std.fmt.bufPrint(
-                &buf,
-                "title:{s},action:{}",
-                .{ item.title, item.action },
-            );
-            try formatter.formatEntry([]const u8, str catch return error.OutOfMemory);
+            var buf: [4096]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buf);
+            var writer = fbs.writer();
+
+            writer.writeAll("title:\"") catch return error.OutOfMemory;
+            std.zig.stringEscape(item.title, "", .{}, writer) catch return error.OutOfMemory;
+            writer.writeAll("\"") catch return error.OutOfMemory;
+
+            if (item.description.len > 0) {
+                writer.writeAll(",description:\"") catch return error.OutOfMemory;
+                std.zig.stringEscape(item.description, "", .{}, writer) catch return error.OutOfMemory;
+                writer.writeAll("\"") catch return error.OutOfMemory;
+            }
+
+            writer.print(",action:\"{}\"", .{item.action}) catch return error.OutOfMemory;
+
+            try formatter.formatEntry([]const u8, fbs.getWritten());
         }
     }
 
@@ -7100,7 +7118,7 @@ pub const RepeatableCommand = struct {
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:Bober");
         try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = title:Bobr,action:text:Bober\n", buf.items);
+        try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:Bober\"\n", buf.items);
     }
 
     test "RepeatableCommand formatConfig multiple items" {
@@ -7116,7 +7134,40 @@ pub const RepeatableCommand = struct {
         try list.parseCLI(alloc, "title:Bobr, action:text:kurwa");
         try list.parseCLI(alloc, "title:Ja,   description: pierdole,  action:text:jakie bydle");
         try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = title:Bobr,action:text:kurwa\na = title:Ja,description:pierdole,action:text:jakie bydle\n", buf.items);
+        try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:kurwa\"\na = title:\"Ja\",description:\"pierdole\",action:\"text:jakie bydle\"\n", buf.items);
+    }
+
+    test "RepeatableCommand parseCLI commas" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        {
+            var list: RepeatableCommand = .{};
+            try list.parseCLI(alloc, "title:\"Bo,br\",action:\"text:kur,wa\"");
+            try testing.expectEqual(@as(usize, 1), list.value.items.len);
+
+            const item = list.value.items[0];
+            try testing.expectEqualStrings("Bo,br", item.title);
+            try testing.expectEqualStrings("", item.description);
+            try testing.expect(item.action == .text);
+            try testing.expectEqualStrings("kur,wa", item.action.text);
+        }
+        {
+            var list: RepeatableCommand = .{};
+            try list.parseCLI(alloc, "title:\"Bo,br\",description:\"abc,def\",action:text:kurwa");
+            try testing.expectEqual(@as(usize, 1), list.value.items.len);
+
+            const item = list.value.items[0];
+            try testing.expectEqualStrings("Bo,br", item.title);
+            try testing.expectEqualStrings("abc,def", item.description);
+            try testing.expect(item.action == .text);
+            try testing.expectEqualStrings("kurwa", item.action.text);
+        }
     }
 };
 
