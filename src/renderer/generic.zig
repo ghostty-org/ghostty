@@ -700,8 +700,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .screen_size = undefined,
                     .padding_extend = .{},
                     .min_contrast = options.config.min_contrast,
-                    .cursor_pos = .{ std.math.maxInt(u16), std.math.maxInt(u16) },
-                    .cursor_color = undefined,
                     .bg_color = .{
                         options.config.background.r,
                         options.config.background.g,
@@ -709,7 +707,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         @intFromFloat(@round(options.config.background_opacity * 255.0)),
                     },
                     .bools = .{
-                        .cursor_wide = false,
                         .use_display_p3 = options.config.colorspace == .@"display-p3",
                         .use_linear_blending = options.config.blending.isLinear(),
                         .use_linear_correction = options.config.blending == .@"linear-corrected",
@@ -2635,27 +2632,65 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             self.background_color orelse
                             self.default_background_color;
 
-                        // Whether we need to use the bg color as our fg color:
-                        // - Cell is selected, inverted, and set to cell-foreground
-                        // - Cell is selected, not inverted, and set to cell-background
-                        // - Cell is inverted and not selected
-                        if (selected) {
-                            // Use the selection foreground if set
-                            if (self.config.selection_foreground) |v| {
-                                break :fg switch (v) {
+                        // The cell fg and bg colors used below
+                        // depend on the inverse style flag.
+                        const cell_fg = if (style.flags.inverse) final_bg else fg_style;
+                        const cell_bg = if (style.flags.inverse) fg_style else final_bg;
+
+                        const under_cursor = cursor: {
+                            if (y != screen.cursor.y)
+                                break :cursor false;
+
+                            if (x == screen.cursor.x)
+                                break :cursor true;
+
+                            // NOTE: We don't need to worry about spacer tails
+                            //       since they have no associated glyph color.
+                            if (wide == .wide and x + 1 == screen.cursor.x)
+                                break :cursor true;
+
+                            break :cursor false;
+                        };
+
+                        // If the cursor is a block cursor and this glyph
+                        // is under it, then we use the appropriate fg color
+                        // based on the configured cursor text color, or else
+                        // just the background color if no cursor text color
+                        // is configured.
+                        if (cursor_style_ == .block and
+                            screen.viewportIsBottom() and
+                            under_cursor)
+                        {
+                            if (self.config.cursor_text) |cursor_text| {
+                                break :fg switch (cursor_text) {
                                     .color => |color| color.toTerminalRGB(),
-                                    .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
-                                    .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                                    .@"cell-foreground" => cell_fg,
+                                    .@"cell-background" => cell_bg,
                                 };
                             }
 
                             break :fg self.background_color orelse self.default_background_color;
                         }
 
-                        break :fg if (style.flags.inverse)
-                            final_bg
-                        else
-                            fg_style;
+                        // If the cell is selected then we use the appropriate
+                        // fg color based on the configured selection fg color,
+                        // or else just the background color if no selection
+                        // fg color is configured.
+                        if (selected) {
+                            if (self.config.selection_foreground) |v| {
+                                break :fg switch (v) {
+                                    .color => |color| color.toTerminalRGB(),
+                                    .@"cell-foreground" => cell_fg,
+                                    .@"cell-background" => cell_bg,
+                                };
+                            }
+
+                            break :fg self.background_color orelse self.default_background_color;
+                        }
+
+                        // If we have no cursor or selection to deal with, the
+                        // cell just gets the fg color that we determined above.
+                        break :fg cell_fg;
                     };
 
                     // Foreground alpha for this cell.
@@ -2834,12 +2869,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Setup our cursor rendering information.
             cursor: {
-                // By default, we don't handle cursor inversion on the shader.
                 self.cells.setCursor(null, null);
-                self.uniforms.cursor_pos = .{
-                    std.math.maxInt(u16),
-                    std.math.maxInt(u16),
-                };
 
                 // If we have preedit text, we don't setup a cursor
                 if (preedit != null) break :cursor;
@@ -2879,58 +2909,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 self.addCursor(screen, style, cursor_color);
-
-                // If the cursor is visible then we set our uniforms.
-                if (style == .block and screen.viewportIsBottom()) {
-                    const wide = screen.cursor.page_cell.wide;
-
-                    self.uniforms.cursor_pos = .{
-                        // If we are a spacer tail of a wide cell, our cursor needs
-                        // to move back one cell. The saturate is to ensure we don't
-                        // overflow but this shouldn't happen with well-formed input.
-                        switch (wide) {
-                            .narrow, .spacer_head, .wide => screen.cursor.x,
-                            .spacer_tail => screen.cursor.x -| 1,
-                        },
-                        screen.cursor.y,
-                    };
-
-                    self.uniforms.bools.cursor_wide = switch (wide) {
-                        .narrow, .spacer_head => false,
-                        .wide, .spacer_tail => true,
-                    };
-
-                    const uniform_color = if (self.config.cursor_text) |txt| blk: {
-                        // If cursor-text is set, then compute the correct color.
-                        // Otherwise, use the background color.
-                        if (txt == .color) {
-                            // Use the color set by cursor-text, if any.
-                            break :blk txt.color.toTerminalRGB();
-                        }
-
-                        const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                        const fg_style = sty.fg(.{
-                            .default = self.foreground_color orelse self.default_foreground_color,
-                            .palette = color_palette,
-                            .bold = self.config.bold_color,
-                        });
-                        const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
-
-                        break :blk switch (txt) {
-                            // If the cell is reversed, use the opposite cell color instead.
-                            .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
-                            .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
-                            else => unreachable,
-                        };
-                    } else self.background_color orelse self.default_background_color;
-
-                    self.uniforms.cursor_color = .{
-                        uniform_color.r,
-                        uniform_color.g,
-                        uniform_color.b,
-                        255,
-                    };
-                }
             }
 
             // Setup our preedit text.
@@ -3198,7 +3176,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.cells.setCursor(.{
                 .atlas = .grayscale,
-                .bools = .{ .is_cursor_glyph = true },
+                .bools = .{},
                 .grid_pos = .{ x, screen.cursor.y },
                 .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },

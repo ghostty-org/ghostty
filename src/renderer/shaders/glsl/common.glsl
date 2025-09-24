@@ -19,17 +19,14 @@ layout(binding = 1, std140) uniform Globals {
     uniform vec4 grid_padding;
     uniform uint padding_extend;
     uniform float min_contrast;
-    uniform uint cursor_pos_packed_2u16;
-    uniform uint cursor_color_packed_4u8;
     uniform uint bg_color_packed_4u8;
     uniform uint bools;
 };
 
 // Bools
-const uint CURSOR_WIDE = 1u;
-const uint USE_DISPLAY_P3 = 2u;
-const uint USE_LINEAR_BLENDING = 4u;
-const uint USE_LINEAR_CORRECTION = 8u;
+const uint USE_DISPLAY_P3 = 1u;
+const uint USE_LINEAR_BLENDING = 2u;
+const uint USE_LINEAR_CORRECTION = 4u;
 
 // Padding extend enum
 const uint EXTEND_LEFT = 1u;

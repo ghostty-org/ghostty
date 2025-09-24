@@ -383,7 +383,7 @@ test Contents {
     // Add a block cursor.
     const cursor_cell: shaderpkg.CellText = .{
         .atlas = .grayscale,
-        .bools = .{ .is_cursor_glyph = true },
+        .bools = .{},
         .grid_pos = .{ 2, 3 },
         .color = .{ 0, 0, 0, 1 },
     };

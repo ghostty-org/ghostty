@@ -17,10 +17,7 @@ struct Uniforms {
   float4 grid_padding;
   uint8_t padding_extend;
   float min_contrast;
-  ushort2 cursor_pos;
-  uchar4 cursor_color;
   uchar4 bg_color;
-  bool cursor_wide;
   bool use_display_p3;
   bool use_linear_blending;
   bool use_linear_correction;
@@ -518,8 +515,6 @@ enum CellTextAtlas : uint8_t {
 enum CellTextBools : uint8_t {
   // Don't apply min contrast to this glyph.
   NO_MIN_CONTRAST = 1u,
-  // This is the cursor glyph.
-  IS_CURSOR_GLYPH = 2u,
 };
 
 struct CellTextVertexIn {
@@ -653,23 +648,6 @@ vertex CellTextVertexOut cell_text_vertex(
   if (uniforms.min_contrast > 1.0f && (in.bools & NO_MIN_CONTRAST) == 0) {
     // Ensure our minimum contrast
     out.color = contrasted_color(uniforms.min_contrast, out.color, out.bg_color);
-  }
-
-  // Check if current position is under cursor (including wide cursor)
-  bool is_cursor_pos = (
-      in.grid_pos.x == uniforms.cursor_pos.x ||
-      uniforms.cursor_wide &&
-        in.grid_pos.x == uniforms.cursor_pos.x + 1
-    ) && in.grid_pos.y == uniforms.cursor_pos.y;
-
-  // If this cell is the cursor cell, but we're not processing
-  // the cursor glyph itself, then we need to change the color.
-  if ((in.bools & IS_CURSOR_GLYPH) == 0 && is_cursor_pos) {
-    out.color = load_color(
-      uniforms.cursor_color,
-      uniforms.use_display_p3,
-      false
-    );
   }
 
   return out;

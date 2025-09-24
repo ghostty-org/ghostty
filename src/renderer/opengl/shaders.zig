@@ -187,10 +187,6 @@ pub const Uniforms = extern struct {
     /// according to the WCAG 2.0 spec.
     min_contrast: f32 align(4),
 
-    /// The cursor position and color.
-    cursor_pos: [2]u16 align(4),
-    cursor_color: [4]u8 align(4),
-
     /// The background color for the whole surface.
     bg_color: [4]u8 align(4),
 
@@ -198,9 +194,6 @@ pub const Uniforms = extern struct {
     bools: Bools align(4),
 
     const Bools = packed struct(u32) {
-        /// Whether the cursor is 2 cells wide.
-        cursor_wide: bool,
-
         /// Indicates that colors provided to the shader are already in
         /// the P3 color space, so they don't need to be converted from
         /// sRGB.
@@ -218,7 +211,7 @@ pub const Uniforms = extern struct {
         /// (thickness) to gamma-incorrect blending.
         use_linear_correction: bool = false,
 
-        _padding: u28 = 0,
+        _padding: u29 = 0,
     };
 
     const PaddingExtend = packed struct(u32) {
@@ -240,8 +233,7 @@ pub const CellText = extern struct {
     atlas: Atlas align(1),
     bools: packed struct(u8) {
         no_min_contrast: bool = false,
-        is_cursor_glyph: bool = false,
-        _padding: u6 = 0,
+        _padding: u7 = 0,
     } align(1) = .{},
 
     pub const Atlas = enum(u8) {
