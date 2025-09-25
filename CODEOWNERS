@@ -186,6 +186,7 @@
 /po/it_IT.UTF-8.po @ghostty-org/it_IT
 /po/zh_TW.UTF-8.po @ghostty-org/zh_TW
 /po/hr_HR.UTF-8.po @ghostty-org/hr_HR
+/po/vi_VN.UTF-8.po @ghostty-org/vi_VN
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap
