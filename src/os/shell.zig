@@ -36,6 +36,10 @@ pub fn ShellEscapeWriter(comptime T: type) type {
 
         const Writer = std.io.Writer(*ShellEscapeWriter(T), error{Error}, write);
 
+        pub fn init(child_writer: T) ShellEscapeWriter(T) {
+            return .{ .child_writer = child_writer };
+        }
+
         pub fn writer(self: *ShellEscapeWriter(T)) Writer {
             return .{ .context = self };
         }

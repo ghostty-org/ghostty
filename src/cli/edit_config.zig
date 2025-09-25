@@ -133,13 +133,23 @@ pub fn run(alloc: Allocator) !u8 {
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 
-    const editorZ = try alloc.dupeZ(u8, editor);
-    defer alloc.free(editorZ);
-    const pathZ = try alloc.dupeZ(u8, path);
-    defer alloc.free(pathZ);
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(alloc);
+
+    const writer = buf.writer(alloc);
+    var shellescape: internal_os.ShellEscapeWriter(std.ArrayListUnmanaged(u8).Writer) = .init(writer);
+    var shellescapewriter = shellescape.writer();
+
+    try writer.writeAll(editor);
+    try writer.writeByte(' ');
+    try shellescapewriter.writeAll(path);
+
+    const command = try buf.toOwnedSliceSentinel(alloc, 0);
+    defer alloc.free(command);
+
     const err = std.posix.execvpeZ(
-        editorZ,
-        &.{ editorZ, pathZ },
+        "sh",
+        &.{ "sh", "-c", command },
         std.c.environ,
     );
 
