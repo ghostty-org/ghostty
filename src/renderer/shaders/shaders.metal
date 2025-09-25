@@ -452,20 +452,18 @@ fragment float4 cell_bg_fragment(
 ) {
   int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
 
-  float4 bg = float4(0.0);
-
   // Clamp x position, extends edge bg colors in to padding on sides.
   if (grid_pos.x < 0) {
     if (uniforms.padding_extend & EXTEND_LEFT) {
       grid_pos.x = 0;
     } else {
-      return bg;
+      discard_fragment();
     }
   } else if (grid_pos.x > uniforms.grid_size.x - 1) {
     if (uniforms.padding_extend & EXTEND_RIGHT) {
       grid_pos.x = uniforms.grid_size.x - 1;
     } else {
-      return bg;
+      discard_fragment();
     }
   }
 
@@ -474,18 +472,26 @@ fragment float4 cell_bg_fragment(
     if (uniforms.padding_extend & EXTEND_UP) {
       grid_pos.y = 0;
     } else {
-      return bg;
+      discard_fragment();
     }
   } else if (grid_pos.y > uniforms.grid_size.y - 1) {
     if (uniforms.padding_extend & EXTEND_DOWN) {
       grid_pos.y = uniforms.grid_size.y - 1;
     } else {
-      return bg;
+      discard_fragment();
     }
   }
 
   // Load the color for the cell.
   uchar4 cell_color = cells[grid_pos.y * uniforms.grid_size.x + grid_pos.x];
+
+  // If the color for this cell is fully transparent, discard the fragment.
+  // We do this because we do not enable blending for this shader, so any
+  // place we want to let the background show through we need to discard
+  // rather than just returning a color with 0 alpha.
+  if (cell_color.a == 0) {
+    discard_fragment();
+  }
 
   // Convert the color and return it.
   //
@@ -634,13 +640,14 @@ vertex CellTextVertexOut cell_text_vertex(
     uniforms.use_display_p3,
     true
   );
-  // Blend it with the global bg color
-  float4 global_bg = load_color(
-    uniforms.bg_color,
-    uniforms.use_display_p3,
-    true
-  );
-  out.bg_color += global_bg * (1.0 - out.bg_color.a);
+  // If it has 0 opacity, use the global bg color instead.
+  if (out.bg_color.a == 0.0) {
+    out.bg_color = load_color(
+      uniforms.bg_color,
+      uniforms.use_display_p3,
+      true
+    );
+  }
 
   // If we have a minimum contrast, we need to check if we need to
   // change the color of the text to ensure it has enough contrast
