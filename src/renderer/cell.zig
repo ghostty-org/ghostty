@@ -47,7 +47,10 @@ pub const Contents = struct {
     ///
     /// Prefer accessing with `Contents.bgCell(row, col).*` instead
     /// of directly indexing in order to avoid integer size bugs.
-    bg_cells: []shaderpkg.CellBg = undefined,
+    ///
+    /// Must be initialized to an empty (not undefined!) slice since
+    /// otherwise calling `resize` will crash.
+    bg_cells: []shaderpkg.CellBg = &.{},
 
     /// The ArrayListCollection which holds all of the foreground cells. When
     /// sized with Contents.resize the individual ArrayLists are given enough
@@ -113,9 +116,7 @@ pub const Contents = struct {
         );
         errdefer fg_rows.deinit(alloc);
 
-        alloc.free(self.bg_cells);
-        self.fg_rows.deinit(alloc);
-
+        self.deinit(alloc);
         self.bg_cells = bg_cells;
         self.fg_rows = fg_rows;
 
@@ -124,12 +125,12 @@ pub const Contents = struct {
         // extra work but resize is not a hot function so it's worth it to not
         // waste the memory.
         self.fg_rows.lists[0].deinit(alloc);
-        self.fg_rows.lists[0] = try std.ArrayListUnmanaged(
+        self.fg_rows.lists[0] = try std.ArrayList(
             shaderpkg.CellText,
         ).initCapacity(alloc, 1);
 
         self.fg_rows.lists[size.rows + 1].deinit(alloc);
-        self.fg_rows.lists[size.rows + 1] = try std.ArrayListUnmanaged(
+        self.fg_rows.lists[size.rows + 1] = try std.ArrayList(
             shaderpkg.CellText,
         ).initCapacity(alloc, 1);
     }

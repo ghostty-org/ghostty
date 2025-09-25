@@ -268,7 +268,7 @@ pub const SplitTree = extern struct {
         );
         defer new_tree.deinit();
         log.debug(
-            "new split at={} direction={} old_tree={} new_tree={}",
+            "new split at={} direction={} old_tree={f} new_tree={f}",
             .{ handle, direction, old_tree, &new_tree },
         );
 

@@ -477,7 +477,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(std.SemanticVersion, "app_version", self.version);
     step.addOption([:0]const u8, "app_version_string", try std.fmt.bufPrintZ(
         &buf,
-        "{}",
+        "{f}",
         .{self.version},
     ));
     step.addOption(

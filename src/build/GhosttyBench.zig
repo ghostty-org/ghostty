@@ -10,9 +10,10 @@ steps: []*std.Build.Step.Compile,
 pub fn init(
     b: *std.Build,
     deps: *const SharedDeps,
+    comptime Build: type,
 ) !GhosttyBench {
-    var steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
-    errdefer steps.deinit();
+    var steps: std.ArrayList(*std.Build.Step.Compile) = .empty;
+    errdefer steps.deinit(b.allocator);
 
     // Our synthetic data generator
     {
@@ -27,8 +28,8 @@ pub fn init(
             }),
         });
         exe.linkLibC();
-        _ = try deps.add(exe);
-        try steps.append(exe);
+        _ = try deps.add(exe, Build);
+        try steps.append(b.allocator, exe);
     }
 
     // Our benchmarking application.
@@ -43,8 +44,8 @@ pub fn init(
             }),
         });
         exe.linkLibC();
-        _ = try deps.add(exe);
-        try steps.append(exe);
+        _ = try deps.add(exe, Build);
+        try steps.append(b.allocator, exe);
     }
 
     return .{ .steps = steps.items };

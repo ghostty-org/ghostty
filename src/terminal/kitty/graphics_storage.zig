@@ -526,8 +526,8 @@ pub const ImageStorage = struct {
             used: bool,
         };
 
-        var candidates = std.ArrayList(Candidate).init(alloc);
-        defer candidates.deinit();
+        var candidates: std.ArrayList(Candidate) = .empty;
+        defer candidates.deinit(alloc);
 
         var it = self.images.iterator();
         while (it.next()) |kv| {
@@ -548,7 +548,7 @@ pub const ImageStorage = struct {
                 break :used false;
             };
 
-            try candidates.append(.{
+            try candidates.append(alloc, .{
                 .id = img.id,
                 .time = img.transmit_time,
                 .used = used,

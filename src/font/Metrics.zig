@@ -1,6 +1,7 @@
 const Metrics = @This();
 
 const std = @import("std");
+const formatterpkg = @import("../config/formatter.zig");
 
 /// Recommended cell width and height for a monospace grid using this font.
 cell_width: u32,
@@ -387,7 +388,7 @@ pub const Modifier = union(enum) {
     }
 
     /// Used by config formatter
-    pub fn formatEntry(self: Modifier, formatter: anytype) !void {
+    pub fn formatEntry(self: Modifier, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [1024]u8 = undefined;
         switch (self) {
             .percent => |v| {
@@ -455,23 +456,23 @@ pub const Modifier = union(enum) {
     test "formatConfig percent" {
         const configpkg = @import("../config.zig");
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         const p = try parseCLI("24%");
-        try p.formatEntry(configpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = 24%\n", buf.items);
+        try p.formatEntry(configpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = 24%\n", buf.written());
     }
 
     test "formatConfig absolute" {
         const configpkg = @import("../config.zig");
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         const p = try parseCLI("-30");
-        try p.formatEntry(configpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = -30\n", buf.items);
+        try p.formatEntry(configpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = -30\n", buf.written());
     }
 };
 

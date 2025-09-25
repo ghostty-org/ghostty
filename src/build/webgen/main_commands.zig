@@ -3,14 +3,18 @@ const Action = @import("../../cli/ghostty.zig").Action;
 const help_strings = @import("help_strings");
 
 pub fn main() !void {
-    const output = std.io.getStdOut().writer();
-    try genActions(output);
+    var buf: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buf);
+    try genActions(&stdout_writer.interface);
+
+    // Don't forget to flush!
+    try stdout_writer.interface.flush();
 }
 
 // Note: as a shortcut for defining inline editOnGithubLinks per cli action the user
 // is directed to the folder view on Github. This includes a README pointing them to
 // the files to edit.
-pub fn genActions(writer: anytype) !void {
+pub fn genActions(writer: *std.Io.Writer) !void {
     // Write the header
     try writer.writeAll(
         \\---

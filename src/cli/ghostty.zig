@@ -96,7 +96,7 @@ pub const Action = enum {
     pub const help_error = error.ActionHelpRequested;
 
     /// Run the action. This returns the exit code to exit with.
-    pub fn run(self: Action, alloc: Allocator) !u8 {
+    pub fn run(self: Action, alloc: Allocator, stdout: *std.Io.Writer) !u8 {
         return self.runMain(alloc) catch |err| switch (err) {
             // If help is requested, then we use some comptime trickery
             // to find this action in the help strings and output that.
@@ -107,7 +107,6 @@ pub const Action = enum {
                     // for all commands by just changing this one place.
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
-                        const stdout = std.io.getStdOut().writer();
                         const text = @field(help_strings.Action, field.name) ++ "\n";
                         stdout.writeAll(text) catch |write_err| {
                             std.log.warn("failed to write help text: {}\n", .{write_err});

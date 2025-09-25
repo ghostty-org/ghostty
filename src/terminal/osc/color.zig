@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const DynamicColor = @import("../color.zig").Dynamic;
 const SpecialColor = @import("../color.zig").Special;
 const RGB = @import("../color.zig").RGB;
+const SegmentedList = @import("../../datastruct/segmented_list.zig").SegmentedList;
 
 pub const ParseError = Allocator.Error || error{
     MissingOperation,
@@ -254,7 +255,7 @@ fn parseResetDynamicColor(
 /// The exact prealloc value is chosen arbitrarily assuming most
 /// color ops have very few. If we can get empirical data on more
 /// typical values we can switch to that.
-pub const List = std.SegmentedList(
+pub const List = SegmentedList(
     Request,
     2,
 );

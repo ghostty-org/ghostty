@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
+const SegmentedList = @import("segmented_list.zig").SegmentedList;
 
 /// A data structure where you can get stable (never copied) pointers to
 /// a type that automatically grows if necessary. The values can be "put back"
@@ -18,7 +19,7 @@ pub fn SegmentedPool(comptime T: type, comptime prealloc: usize) type {
 
         i: usize = 0,
         available: usize = prealloc,
-        list: std.SegmentedList(T, prealloc) = .{ .len = prealloc },
+        list: SegmentedList(T, prealloc) = .{ .len = prealloc },
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
             self.list.deinit(alloc);

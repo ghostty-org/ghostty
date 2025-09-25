@@ -21,6 +21,7 @@ const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
 const font = @import("main.zig");
 const options = font.options;
+const SegmentedList = @import("../datastruct/segmented_list.zig").SegmentedList;
 const DeferredFace = font.DeferredFace;
 const DesiredSize = font.face.DesiredSize;
 const Face = font.Face;
@@ -222,12 +223,13 @@ fn getFaceFromEntry(
 
             // Calculate the scale factor for this
             // entry now that we have a loaded face.
-            entry.scale_factor = .{
-                .scale = self.scaleFactor(
+            if (entry.scale_factor == .adjustment) {
+                const scale = self.scaleFactor(
                     face.getMetrics(),
                     entry.scale_factor.adjustment,
-                ),
-            };
+                );
+                entry.scale_factor = .{ .scale = scale };
+            }
 
             // If our scale factor is something other
             // than 1.0 then we need to resize the face.
@@ -683,7 +685,7 @@ pub fn updateMetrics(self: *Collection) UpdateMetricsError!void {
 ///
 /// WARNING: We cannot use any prealloc yet for the segmented list because
 /// the collection is copied around by value and pointers aren't stable.
-const StyleArray = std.EnumArray(Style, std.SegmentedList(EntryOrAlias, 0));
+const StyleArray = std.EnumArray(Style, SegmentedList(EntryOrAlias, 0));
 
 /// Load options are used to configure all the details a Collection
 /// needs to load deferred faces.

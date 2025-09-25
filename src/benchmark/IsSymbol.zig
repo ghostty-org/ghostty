@@ -88,9 +88,11 @@ fn teardown(ptr: *anyopaque) void {
 
 fn stepZiglyph(ptr: *anyopaque) Benchmark.Error!void {
     const self: *IsSymbol = @ptrCast(@alignCast(ptr));
-
     const f = self.data_f orelse return;
-    var r = std.io.bufferedReader(f.reader());
+
+    var read_buf: [4096]u8 = undefined;
+    var r = f.reader(&read_buf);
+
     var d: UTF8Decoder = .{};
     var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
@@ -112,9 +114,11 @@ fn stepZiglyph(ptr: *anyopaque) Benchmark.Error!void {
 
 fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
     const self: *IsSymbol = @ptrCast(@alignCast(ptr));
-
     const f = self.data_f orelse return;
-    var r = std.io.bufferedReader(f.reader());
+
+    var read_buf: [4096]u8 = undefined;
+    var r = f.reader(&read_buf);
+
     var d: UTF8Decoder = .{};
     var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {

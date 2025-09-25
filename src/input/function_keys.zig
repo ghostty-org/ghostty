@@ -278,6 +278,7 @@ fn pcStyle(comptime fmt: []const u8) []Entry {
     // The comptime {} wrapper is superfluous but it prevents us from
     // accidentally running this function at runtime.
     comptime {
+        @setEvalBranchQuota(500_000);
         var entries: [modifiers.len]Entry = undefined;
         for (modifiers, 2.., 0..) |mods, code, i| {
             entries[i] = .{

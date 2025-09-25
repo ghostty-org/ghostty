@@ -266,8 +266,8 @@ pub const App = struct {
         // embedded apprt.
         self.performPreAction(target, action, value);
 
-        log.debug("dispatching action target={s} action={} value={}", .{
-            @tagName(target),
+        log.debug("dispatching action target={t} action={} value={any}", .{
+            target,
             action,
             value,
         });
@@ -1910,7 +1910,7 @@ pub const CAPI = struct {
         };
 
         return ptr.core_surface.performBindingAction(action) catch |err| {
-            log.err("error performing binding action action={} err={}", .{ action, err });
+            log.err("error performing binding action action={f} err={}", .{ action, err });
             return false;
         };
     }

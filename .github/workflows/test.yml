@@ -333,7 +333,7 @@ jobs:
         run: nix build .#ghostty-releasefast
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q 'builtin.OptimizeMode.ReleaseFast'
+        run: result/bin/ghostty +version | grep -q '.ReleaseFast'
 
       - name: Check to see if the binary has been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'no symbols'
@@ -342,7 +342,7 @@ jobs:
         run: nix build .#ghostty-debug
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q 'builtin.OptimizeMode.Debug'
+        run: result/bin/ghostty +version | grep -q '.Debug'
 
       - name: Check to see if the binary has not been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'main_ghostty.main'
@@ -478,11 +478,11 @@ jobs:
 
       - name: Test All
         run: |
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_noshape
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=freetype -Dsentry=false
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext -Dsentry=false
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype -Dsentry=false
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_harfbuzz -Dsentry=false
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_noshape -Dsentry=false
 
       - name: Build All
         run: |
@@ -513,7 +513,7 @@ jobs:
           $fileContent = Get-Content -Path "build.zig" -Raw
           $pattern = 'buildpkg\.requireZig\("(.*?)"\);'
           $zigVersion = [regex]::Match($fileContent, $pattern).Groups[1].Value
-          $version = "zig-windows-x86_64-$zigVersion"
+          $version = "zig-x86_64-windows-$zigVersion"
           Write-Output $version
           $uri = "https://ziglang.org/download/$zigVersion/$version.zip"
           Invoke-WebRequest -Uri "$uri" -OutFile ".\zig-windows.zip"
@@ -743,7 +743,7 @@ jobs:
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
 
       - name: test
-        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dsentry=false
 
   test-i18n:
     strategy:
@@ -1138,6 +1138,7 @@ jobs:
     name: Build on FreeBSD
     needs: test
     runs-on: namespace-profile-mitchellh-sm-systemd
+    if: false # FIXME: FreeBSD does not yet ship with Zig 0.15
     strategy:
       matrix:
         release:

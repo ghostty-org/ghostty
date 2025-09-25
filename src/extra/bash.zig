@@ -19,14 +19,14 @@ pub const completions = comptimeGenerateBashCompletions();
 fn comptimeGenerateBashCompletions() []const u8 {
     comptime {
         @setEvalBranchQuota(50000);
-        var counter = std.io.countingWriter(std.io.null_writer);
-        try writeBashCompletions(&counter.writer());
+        var counter: std.Io.Writer.Discarding = .init(&.{});
+        try writeBashCompletions(&counter.writer);
 
-        var buf: [counter.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeBashCompletions(stream.writer());
+        var buf: [counter.count]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try writeBashCompletions(&writer);
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..writer.end];
     }
 }
 

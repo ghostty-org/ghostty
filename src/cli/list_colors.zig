@@ -39,11 +39,12 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    const stdout = std.io.getStdOut();
+    var buffer: [1024]u8 = undefined;
+    var stdout: std.fs.File = .stdout();
 
-    var keys = std.ArrayList([]const u8).init(alloc);
-    defer keys.deinit();
-    for (x11_color.map.keys()) |key| try keys.append(key);
+    var keys: std.ArrayList([]const u8) = .empty;
+    defer keys.deinit(alloc);
+    for (x11_color.map.keys()) |key| try keys.append(alloc, key);
 
     std.mem.sortUnstable([]const u8, keys.items, {}, struct {
         fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
@@ -51,13 +52,13 @@ pub fn run(alloc: Allocator) !u8 {
         }
     }.lessThan);
 
-    // Despite being under the posix namespace, this also works on Windows as of zig 0.13.0
-    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(stdout.handle)) {
+    if (tui.can_pretty_print and !opts.plain and stdout.isTty()) {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         return prettyPrint(arena.allocator(), keys.items);
     } else {
-        const writer = stdout.writer();
+        var stdout_writer = stdout.writer(&buffer);
+        const writer = &stdout_writer.interface;
         for (keys.items) |name| {
             const rgb = x11_color.map.get(name).?;
             try writer.print("{s} = #{x:0>2}{x:0>2}{x:0>2}\n", .{
@@ -74,19 +75,18 @@ pub fn run(alloc: Allocator) !u8 {
 
 fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
     // Set up vaxis
-    var tty = try vaxis.Tty.init();
+    var buf: [1024]u8 = undefined;
+    var tty = try vaxis.Tty.init(&buf);
     defer tty.deinit();
     var vx = try vaxis.init(alloc, .{});
-    defer vx.deinit(alloc, tty.anyWriter());
+    const writer = tty.anyWriter();
+    defer vx.deinit(alloc, writer);
 
     // We know we are ghostty, so let's enable mode 2027. Vaxis normally does this but you need an
     // event loop to auto-enable it.
     vx.caps.unicode = .unicode;
-    try tty.anyWriter().writeAll(vaxis.ctlseqs.unicode_set);
-    defer tty.anyWriter().writeAll(vaxis.ctlseqs.unicode_reset) catch {};
-
-    var buf_writer = tty.bufferedWriter();
-    const writer = buf_writer.writer().any();
+    try writer.writeAll(vaxis.ctlseqs.unicode_set);
+    defer writer.writeAll(vaxis.ctlseqs.unicode_reset) catch {};
 
     const winsize: vaxis.Winsize = switch (builtin.os.tag) {
         // We use some default, it doesn't really matter for what
@@ -100,7 +100,7 @@ fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
 
         else => try vaxis.Tty.getWinsize(tty.fd),
     };
-    try vx.resize(alloc, tty.anyWriter(), winsize);
+    try vx.resize(alloc, writer, winsize);
 
     const win = vx.window();
 
@@ -207,7 +207,6 @@ fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
     }
 
     // be sure to flush!
-    try buf_writer.flush();
-
+    try writer.flush();
     return 0;
 }

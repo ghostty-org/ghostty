@@ -25,9 +25,9 @@ pub fn build(b: *std.Build) !void {
         lib.addIncludePath(b.path("override/config/posix"));
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         // Version info, hardcoded
         comptime "-DLIBXML_VERSION=" ++ Version.number(),
         comptime "-DLIBXML_VERSION_STRING=" ++ Version.string(),
@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) !void {
         "-DWITHOUT_TRIO=1",
     });
     if (target.result.os.tag != .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DHAVE_ARPA_INET_H=1",
             "-DHAVE_ARPA_NAMESER_H=1",
             "-DHAVE_DL_H=1",
@@ -74,25 +74,25 @@ pub fn build(b: *std.Build) !void {
             var nameBuf: [32]u8 = undefined;
             const name = std.ascii.upperString(&nameBuf, field.name);
             const define = try std.fmt.allocPrint(b.allocator, "-DLIBXML_{s}_ENABLED=1", .{name});
-            try flags.append(define);
+            try flags.append(b.allocator, define);
 
             if (std.mem.eql(u8, field.name, "history")) {
-                try flags.appendSlice(&.{
+                try flags.appendSlice(b.allocator, &.{
                     "-DHAVE_LIBHISTORY=1",
                     "-DHAVE_LIBREADLINE=1",
                 });
             }
             if (std.mem.eql(u8, field.name, "mem_debug")) {
-                try flags.append("-DDEBUG_MEMORY_LOCATION=1");
+                try flags.append(b.allocator, "-DDEBUG_MEMORY_LOCATION=1");
             }
             if (std.mem.eql(u8, field.name, "regexp")) {
-                try flags.append("-DLIBXML_UNICODE_ENABLED=1");
+                try flags.append(b.allocator, "-DLIBXML_UNICODE_ENABLED=1");
             }
             if (std.mem.eql(u8, field.name, "run_debug")) {
-                try flags.append("-DLIBXML_DEBUG_RUNTIME=1");
+                try flags.append(b.allocator, "-DLIBXML_DEBUG_RUNTIME=1");
             }
             if (std.mem.eql(u8, field.name, "thread")) {
-                try flags.append("-DHAVE_LIBPTHREAD=1");
+                try flags.append(b.allocator, "-DHAVE_LIBPTHREAD=1");
             }
         }
     }

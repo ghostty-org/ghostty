@@ -69,7 +69,12 @@ pub fn main() !void {
     defer alloc.free(t.stage1);
     defer alloc.free(t.stage2);
     defer alloc.free(t.stage3);
-    try t.writeZig(std.io.getStdOut().writer());
+
+    var buf: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buf);
+    const writer = &stdout_writer.interface;
+
+    try t.writeZig(writer);
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
@@ -77,6 +82,8 @@ pub fn main() !void {
     //     t.stage2.len,
     //     t.stage3.len,
     // });
+
+    try writer.flush();
 }
 
 // This is not very fast in debug modes, so its commented by default.

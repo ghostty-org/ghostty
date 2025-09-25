@@ -10,7 +10,12 @@ exe: *std.Build.Step.Compile,
 /// The install step for the executable.
 install_step: *std.Build.Step.InstallArtifact,
 
-pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty {
+pub fn init(
+    b: *std.Build,
+    cfg: *const Config,
+    deps: *const SharedDeps,
+    comptime Build: type,
+) !Ghostty {
     const exe: *std.Build.Step.Compile = b.addExecutable(.{
         .name = "ghostty",
         .root_module = b.createModule(.{
@@ -21,6 +26,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .omit_frame_pointer = cfg.strip,
             .unwind_tables = if (cfg.strip) .none else .sync,
         }),
+        // FIXME: the x86 linker does NOT link dylibs properly yet.
+        .use_llvm = true,
     });
     const install_step = b.addInstallArtifact(exe, .{});
 
@@ -28,7 +35,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     if (cfg.pie) exe.pie = true;
 
     // Add the shared dependencies
-    _ = try deps.add(exe);
+    _ = try deps.add(exe, Build);
 
     // Check for possible issues
     try checkNixShell(exe, cfg);

@@ -50,7 +50,7 @@ pub const Command = struct {
 
         return .{
             .action_key = @tagName(self.action),
-            .action = std.fmt.comptimePrint("{s}", .{self.action}),
+            .action = std.fmt.comptimePrint("{t}", .{self.action}),
             .title = self.title,
             .description = self.description,
         };
@@ -94,6 +94,7 @@ pub const defaults: []const Command = defaults: {
 
 /// Defaults in C-compatible form.
 pub const defaultsC: []const Command.C = defaults: {
+    @setEvalBranchQuota(100_000);
     var result: [defaults.len]Command.C = undefined;
     for (defaults, 0..) |cmd, i| result[i] = cmd.comptimeCval();
     const final = result;

@@ -32,10 +32,11 @@ pub const Log = opaque {
         comptime format: []const u8,
         args: anytype,
     ) void {
-        const str = nosuspend std.fmt.allocPrintZ(
+        const str = nosuspend std.fmt.allocPrintSentinel(
             alloc,
             format,
             args,
+            0,
         ) catch return;
         defer alloc.free(str);
         zig_os_log_with_type(self, typ, str.ptr);
