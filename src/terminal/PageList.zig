@@ -153,6 +153,9 @@ min_max_size: usize,
 /// The list of tracked pins. These are kept up to date automatically.
 tracked_pins: PinSet,
 
+/// Protects access to tracked_pins against concurrent mutation.
+tracked_pins_lock: std.Thread.Mutex = .{},
+
 /// Nodes that have reached zero references and must be destroyed on
 /// the owning thread. Stored as a LIFO stack.
 pending_free: std.atomic.Value(?*List.Node) = .init(null),
@@ -451,6 +454,8 @@ pub fn reset(self: *PageList) void {
 
     // Update all our tracked pins to point to our first page top-left
     {
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         var it = self.tracked_pins.iterator();
         while (it.next()) |entry| {
             const p: *Pin = entry.key_ptr.*;
@@ -501,6 +506,9 @@ pub fn clone(
     self: *const PageList,
     opts: Clone,
 ) !PageList {
+    var read_guard = self.readGuardConst();
+    defer read_guard.release();
+
     var it = self.pageIterator(.right_down, opts.top, opts.bot);
 
     // Setup our own memory pool if we have to.
@@ -579,6 +587,8 @@ pub fn clone(
         // Remap our tracked pins by changing the page and
         // offsetting the Y position based on the chunk start.
         if (opts.tracked_pins) |remap| {
+            var pins_guard = trackedPinsGuardConst(self);
+            defer pins_guard.release();
             const pin_keys = self.tracked_pins.keys();
             for (pin_keys) |p| {
                 // We're only interested in pins that were within the chunk.
@@ -892,6 +902,8 @@ const ReflowCursor = struct {
 
         // Handle tracked pin adjustments.
         {
+            var pins_guard = trackedPinsGuard(list);
+            defer pins_guard.release();
             const pin_keys = list.tracked_pins.keys();
             for (pin_keys) |p| {
                 if (&p.node.data != src_page or
@@ -942,6 +954,8 @@ const ReflowCursor = struct {
 
             // Move any tracked pins from the source.
             {
+                var pins_guard = trackedPinsGuard(list);
+                defer pins_guard.release();
                 const pin_keys = list.tracked_pins.keys();
                 for (pin_keys) |p| {
                     if (&p.node.data != src_page or
@@ -1437,6 +1451,8 @@ fn resizeWithoutReflowUnlocked(self: *PageList, opts: Resize) !void {
 
                 // Update all our tracked pins. If they have an X
                 // beyond the edge, clamp it.
+                var pins_guard = trackedPinsGuard(self);
+                defer pins_guard.release();
                 const pin_keys = self.tracked_pins.keys();
                 for (pin_keys) |p| {
                     if (p.x >= cols) p.x = cols - 1;
@@ -1671,6 +1687,8 @@ fn resizeWithoutReflowGrowCols(
         self.pages.insertBefore(chunk.node, new_node);
 
         // Update our tracked pins that pointed to this previous page.
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node != chunk.node or
@@ -1736,19 +1754,27 @@ fn trimTrailingBlankRows(
         // If our tracked pins are in this row then we cannot trim it
         // because it implies some sort of importance. If we trimmed this
         // we'd invalidate this pin, as well.
-        const pin_keys = self.tracked_pins.keys();
-        for (pin_keys) |p| {
-            if (p.node != row_pin.node or
-                p.y != row_pin.y) continue;
-            return trimmed;
-        }
+        const has_pin = pins: {
+            var pins_guard = trackedPinsGuard(self);
+            defer pins_guard.release();
+            const pin_keys = self.tracked_pins.keys();
+            for (pin_keys) |p| {
+                if (p.node == row_pin.node and p.y == row_pin.y) {
+                    break :pins true;
+                }
+            }
+            break :pins false;
+        };
+        if (has_pin) return trimmed;
 
         // No text, we can trim this row. Because it has
         // no text we can also be sure it has no styling
         // so we don't need to worry about memory.
         row_pin.node.data.size.rows -= 1;
         if (row_pin.node.data.size.rows == 0) {
-            self.erasePage(row_pin.node);
+            var pins_guard = trackedPinsGuard(self);
+            defer pins_guard.release();
+            self.erasePageLocked(row_pin.node);
         } else {
             row_pin.node.data.assertIntegrity();
         }
@@ -1973,6 +1999,8 @@ pub fn grow(self: *PageList) !?*List.Node {
 
         // Update any tracked pins that pointed at the old first page so they
         // remain valid regardless of whether we reuse or destroy the page.
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node != first) continue;
@@ -2104,6 +2132,8 @@ pub fn adjustCapacity(
     try new_page.cloneFrom(page, 0, page.size.rows);
 
     // Fix up all our tracked pins to point to the new page.
+    var pins_guard = trackedPinsGuard(self);
+    defer pins_guard.release();
     const pin_keys = self.tracked_pins.keys();
     for (pin_keys) |p| {
         if (p.node != node) continue;
@@ -2270,6 +2300,30 @@ pub fn readGuardConst(self: *const PageList) ReadGuard {
     return ReadGuard.init(@constCast(self));
 }
 
+const TrackedPinsGuard = struct {
+    list: *PageList,
+    held: bool,
+
+    pub fn init(list: *PageList) TrackedPinsGuard {
+        list.tracked_pins_lock.lock();
+        return .{ .list = list, .held = true };
+    }
+
+    pub fn release(self: *TrackedPinsGuard) void {
+        if (!self.held) return;
+        self.list.tracked_pins_lock.unlock();
+        self.held = false;
+    }
+};
+
+fn trackedPinsGuard(self: *PageList) TrackedPinsGuard {
+    return TrackedPinsGuard.init(self);
+}
+
+fn trackedPinsGuardConst(self: *const PageList) TrackedPinsGuard {
+    return TrackedPinsGuard.init(@constCast(self));
+}
+
 fn freeNodeImmediate(
     pool: *MemoryPool,
     node: *List.Node,
@@ -2362,6 +2416,8 @@ pub fn eraseRow(
     // We adjust the tracked pins in this page, moving up any that were below
     // the removed row.
     {
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node == node and p.y > pn.y) p.y -= 1;
@@ -2412,6 +2468,8 @@ pub fn eraseRow(
         // Our tracked pins for this page need to be updated.
         // If the pin is in row 0 that means the corresponding row has
         // been moved to the previous page. Otherwise, move it up by 1.
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node != node) continue;
@@ -2464,6 +2522,8 @@ pub fn eraseRowBounded(
         dirty.setRangeValue(.{ .start = pn.y, .end = pn.y + limit }, true);
 
         // Update pins in the shifted region.
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node == node and
@@ -2496,6 +2556,8 @@ pub fn eraseRowBounded(
 
     // Update tracked pins.
     {
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node == node and p.y >= pn.y) {
@@ -2535,6 +2597,8 @@ pub fn eraseRowBounded(
             dirty.setRangeValue(.{ .start = 0, .end = shifted_limit }, true);
 
             // Update pins in the shifted region.
+            var pins_guard = trackedPinsGuard(self);
+            defer pins_guard.release();
             const pin_keys = self.tracked_pins.keys();
             for (pin_keys) |p| {
                 if (p.node != node or p.y > shifted_limit) continue;
@@ -2559,6 +2623,8 @@ pub fn eraseRowBounded(
         shifted += node.data.size.rows;
 
         // Update tracked pins.
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node != node) continue;
@@ -2613,7 +2679,9 @@ pub fn eraseRows(
             }
 
             erased += chunk.node.data.size.rows;
-            self.erasePage(chunk.node);
+            var pins_guard = trackedPinsGuard(self);
+            defer pins_guard.release();
+            self.erasePageLocked(chunk.node);
             continue;
         }
 
@@ -2647,6 +2715,8 @@ pub fn eraseRows(
 
         // Update any tracked pins to shift their y. If it was in the erased
         // row then we move it to the top of this page.
+        var pins_guard = trackedPinsGuard(self);
+        defer pins_guard.release();
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
             if (p.node != chunk.node) continue;
@@ -2701,7 +2771,7 @@ pub fn eraseRows(
 /// Erase a single page, freeing all its resources. The page can be
 /// anywhere in the linked list but must NOT be the final page in the
 /// entire list (i.e. must not make the list empty).
-fn erasePage(self: *PageList, node: *List.Node) void {
+fn erasePageLocked(self: *PageList, node: *List.Node) void {
     assert(node.next != null or node.prev != null);
 
     // Update any tracked pins to move to the next page.
@@ -2716,6 +2786,12 @@ fn erasePage(self: *PageList, node: *List.Node) void {
     // Remove the page from the linked list
     self.pages.remove(node);
     self.destroyNode(node);
+}
+
+fn erasePage(self: *PageList, node: *List.Node) void {
+    var pins_guard = trackedPinsGuard(self);
+    defer pins_guard.release();
+    self.erasePageLocked(node);
 }
 
 /// Returns the pin for the given point. The pin is NOT tracked so it
@@ -2743,6 +2819,9 @@ pub fn pin(self: *const PageList, pt: point.Point) ?Pin {
 pub fn trackPin(self: *PageList, p: Pin) Allocator.Error!*Pin {
     if (build_config.slow_runtime_safety) assert(self.pinIsValid(p));
 
+    var pins_guard = trackedPinsGuard(self);
+    defer pins_guard.release();
+
     // Create our tracked pin
     const tracked = try self.pool.pins.create();
     errdefer self.pool.pins.destroy(tracked);
@@ -2758,12 +2837,16 @@ pub fn trackPin(self: *PageList, p: Pin) Allocator.Error!*Pin {
 /// Untrack a previously tracked pin. This will deallocate the pin.
 pub fn untrackPin(self: *PageList, p: *Pin) void {
     assert(p != self.viewport_pin);
+    var pins_guard = trackedPinsGuard(self);
+    defer pins_guard.release();
     if (self.tracked_pins.swapRemove(p)) {
         self.pool.pins.destroy(p);
     }
 }
 
 pub fn countTrackedPins(self: *const PageList) usize {
+    var pins_guard = trackedPinsGuardConst(self);
+    defer pins_guard.release();
     return self.tracked_pins.count();
 }
 
@@ -3049,6 +3132,8 @@ pub fn diagram(self: *const PageList, writer: anytype) !void {
                 // don't wanna bother making this function allocating.
                 var pin_buf: [16]*Pin = undefined;
                 var pin_count: usize = 0;
+                var pins_guard = trackedPinsGuardConst(self);
+                defer pins_guard.release();
                 const pin_keys = self.tracked_pins.keys();
                 for (pin_keys) |p| {
                     if (p.node != chunk.node) continue;
@@ -9349,4 +9434,97 @@ test "PageList grow skips reuse when node retained" {
     const old_page_size = list.page_size;
     _ = try list.grow();
     try testing.expectEqual(old_page_size + PagePool.item_size, list.page_size);
+}
+
+// Stress test: concurrent cloning (with tracked pin remapping)
+// versus frequent trackPin/untrackPin operations. This exercised a
+// data race where clone iterated tracked_pins while another thread
+// mutated the set, causing intermittent crashes.
+test "PageList concurrent clone vs trackPin stress" {
+    const testing = std.testing;
+    // Use a thread-safe allocator for concurrency in this test.
+    const alloc = std.heap.c_allocator;
+
+    var list = try PageList.init(alloc, 80, 24, null);
+    defer list.deinit();
+
+    // Populate multiple pages to better exercise chunked clone.
+    try list.growRows(24 * 8);
+
+    const Batch: usize = 128;
+    const Iters: usize = 500;
+
+    const ClonerCtx = struct {
+        list: *PageList,
+        alloc: std.mem.Allocator,
+        iters: usize,
+
+        fn run(ctx: *@This()) void {
+            var i: usize = 0;
+            while (i < ctx.iters) : (i += 1) {
+                var remap = PageList.Clone.TrackedPinsRemap.init(ctx.alloc);
+                var copy = ctx.list.clone(.{
+                    .top = .{ .active = .{} },
+                    .bot = null,
+                    .memory = .{ .alloc = ctx.alloc },
+                    .tracked_pins = &remap,
+                }) catch |err| {
+                    std.debug.panic("clone failed: {}", .{err});
+                };
+                copy.deinit();
+                remap.deinit();
+            }
+        }
+    };
+
+    const PinnerCtx = struct {
+        list: *PageList,
+        alloc: std.mem.Allocator,
+        iters: usize,
+
+        fn run(ctx: *@This()) void {
+            var prng = std.Random.DefaultPrng.init(0x12345678);
+            const r = prng.random();
+            var pins = std.ArrayList(*PageList.Pin).init(ctx.alloc);
+            defer {
+                for (pins.items) |p| ctx.list.untrackPin(p);
+                pins.deinit();
+            }
+
+            var i: usize = 0;
+            while (i < ctx.iters) : (i += 1) {
+                pins.clearRetainingCapacity();
+
+                var j: usize = 0;
+                while (j < Batch) : (j += 1) {
+                    // Choose a random point in the active area.
+                    const max_x: u16 = @intCast(ctx.list.cols - 1);
+                    const max_y: u32 = @intCast(ctx.list.rows - 1);
+                    const x: u16 = r.intRangeAtMost(u16, 0, max_x);
+                    const y: u32 = r.intRangeAtMost(u32, 0, max_y);
+
+                    const p = ctx.list.pin(.{ .active = .{ .x = x, .y = y } }) orelse continue;
+                    const tp = ctx.list.trackPin(p) catch |err| {
+                        std.debug.panic("trackPin failed: {}", .{err});
+                    };
+                    pins.append(tp) catch unreachable;
+                }
+
+                // Untrack the batch.
+                for (pins.items) |p| ctx.list.untrackPin(p);
+            }
+        }
+    };
+
+    var cloner = ClonerCtx{ .list = &list, .alloc = alloc, .iters = Iters };
+    var pinner = PinnerCtx{ .list = &list, .alloc = alloc, .iters = Iters };
+
+    var th1 = try std.Thread.spawn(.{}, ClonerCtx.run, .{&cloner});
+    defer th1.join();
+    var th2 = try std.Thread.spawn(.{}, PinnerCtx.run, .{&pinner});
+    defer th2.join();
+
+    // If a race exists, this test is expected to crash/hang under load.
+    // With proper synchronization, it should run to completion.
+    try testing.expect(true);
 }
