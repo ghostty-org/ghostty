@@ -834,13 +834,14 @@ palette: Palette = .{},
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
 /// Multiplier for scrolling distance with the mouse wheel. Any value less
-/// than 0.01 or greater than 10,000 will be clamped to the nearest valid
-/// value.
+/// than 0.01 (0.01 for precision scroll) or greater than 10,000 will be clamped
+/// to the nearest valid value.
 ///
-/// A value of "3" (default) scrolls 3 lines per tick.
+/// A discrete value of "3" (default) scrolls about 3 lines per wheel tick.
+/// And a precision value of "0.1" (default) scales pixel-level scrolling.
 ///
-/// Available since: 1.2.0
-@"mouse-scroll-multiplier": f64 = 3.0,
+/// Available since: 1.2.1
+@"mouse-scroll-multiplier": MouseScrollMultiplier = .{ .precision = 0.1, .discrete = 3.0 },
 
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
@@ -4077,7 +4078,8 @@ pub fn finalize(self: *Config) !void {
     }
 
     // Clamp our mouse scroll multiplier
-    self.@"mouse-scroll-multiplier" = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier"));
+    self.@"mouse-scroll-multiplier".precision = @min(10_000.0, @max(0.1, self.@"mouse-scroll-multiplier".precision));
+    self.@"mouse-scroll-multiplier".discrete = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".discrete));
 
     // Clamp our split opacity
     self.@"unfocused-split-opacity" = @min(1.0, @max(0.15, self.@"unfocused-split-opacity"));
@@ -6508,7 +6510,7 @@ pub const RepeatableCodepointMap = struct {
         return .{ .map = try self.map.clone(alloc) };
     }
 
-    /// Compare if two of our value are requal. Required by Config.
+    /// Compare if two of our value are equal. Required by Config.
     pub fn equal(self: Self, other: Self) bool {
         const itemsA = self.map.list.slice();
         const itemsB = other.map.list.slice();
@@ -7317,6 +7319,111 @@ pub const MouseShiftCapture = enum {
     true,
     always,
     never,
+};
+
+/// See mouse-scroll-multiplier
+pub const MouseScrollMultiplier = struct {
+    const Self = @This();
+
+    precision: f64,
+    discrete: f64,
+
+    pub fn parseCLI(self: *Self, input_: ?[]const u8) !void {
+        const input_raw = input_ orelse return error.ValueRequired;
+        const whitespace = " \t";
+        const input = std.mem.trim(u8, input_raw, whitespace);
+        if (input.len == 0) return error.ValueRequired;
+
+        const value = std.fmt.parseFloat(f64, input) catch null;
+        if (value) |val| {
+            self.precision = val;
+            self.discrete = val;
+            return;
+        }
+
+        const comma_idx = std.mem.indexOf(u8, input, ",");
+        if (comma_idx) |idx| {
+            if (std.mem.indexOf(u8, input[idx + 1 ..], ",")) |_| return error.InvalidValue;
+
+            const lhs = std.mem.trim(u8, input[0..idx], whitespace);
+            const rhs = std.mem.trim(u8, input[idx + 1 ..], whitespace);
+            if (lhs.len == 0 or rhs.len == 0) return error.InvalidValue;
+
+            const lcolon_idx = std.mem.indexOf(u8, lhs, ":") orelse return error.InvalidValue;
+            const rcolon_idx = std.mem.indexOf(u8, rhs, ":") orelse return error.InvalidValue;
+            const lkey = lhs[0..lcolon_idx];
+            const lvalstr = std.mem.trim(u8, lhs[lcolon_idx + 1 ..], whitespace);
+            const rkey = rhs[0..rcolon_idx];
+            const rvalstr = std.mem.trim(u8, rhs[rcolon_idx + 1 ..], whitespace);
+
+            // Only "precision" and "discrete" are valid keys. They
+            // must be different.
+            if (std.mem.eql(u8, lkey, rkey)) return error.InvalidValue;
+
+            var found_precision = false;
+            var found_discrete = false;
+            var precision_val = self.precision;
+            var discrete_val = self.discrete;
+
+            if (std.mem.eql(u8, lkey, "precision")) {
+                precision_val = std.fmt.parseFloat(f64, lvalstr) catch return error.InvalidValue;
+                found_precision = true;
+            } else if (std.mem.eql(u8, lkey, "discrete")) {
+                discrete_val = std.fmt.parseFloat(f64, lvalstr) catch return error.InvalidValue;
+                found_discrete = true;
+            } else return error.InvalidValue;
+
+            if (std.mem.eql(u8, rkey, "precision")) {
+                precision_val = std.fmt.parseFloat(f64, rvalstr) catch return error.InvalidValue;
+                found_precision = true;
+            } else if (std.mem.eql(u8, rkey, "discrete")) {
+                discrete_val = std.fmt.parseFloat(f64, rvalstr) catch return error.InvalidValue;
+                found_discrete = true;
+            } else return error.InvalidValue;
+
+            if (!found_precision or !found_discrete) return error.InvalidValue;
+            if (precision_val == 0 or discrete_val == 0) return error.InvalidValue;
+
+            self.precision = precision_val;
+            self.discrete = discrete_val;
+
+            return;
+        } else {
+            const colon_idx = std.mem.indexOf(u8, input, ":") orelse return error.InvalidValue;
+            const key = input[0..colon_idx];
+            const valstr = std.mem.trim(u8, input[colon_idx + 1 ..], whitespace);
+            if (valstr.len == 0) return error.InvalidValue;
+
+            const val = std.fmt.parseFloat(f64, valstr) catch return error.InvalidValue;
+            if (val == 0) return error.InvalidValue;
+
+            if (std.mem.eql(u8, key, "precision")) {
+                self.precision = val;
+                return;
+            } else if (std.mem.eql(u8, key, "discrete")) {
+                self.discrete = val;
+                return;
+            } else return error.InvalidValue;
+        }
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        _ = alloc;
+        return self.*;
+    }
+
+    /// Compare if two of our value are equal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return self.precision == other.precision and self.discrete == other.discrete;
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        var buf: [32]u8 = undefined;
+        const formatted = try std.fmt.bufPrint(&buf, "precision:{d},discrete:{d}", .{ self.precision, self.discrete });
+        try formatter.formatEntry([]const u8, formatted);
+    }
 };
 
 /// How to treat requests to write to or read from the clipboard
