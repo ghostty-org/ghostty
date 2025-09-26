@@ -28,6 +28,7 @@ const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
+const SplitTree = @import("split_tree.zig").SplitTree;
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -1078,6 +1079,71 @@ pub const Surface = extern struct {
             .x = x * scale_factor,
             .y = y * scale_factor,
         };
+    }
+
+    /// Find the surface under the given cursor coordinates.
+    /// This function traverses up the widget hierarchy to find the split tree
+    /// and then uses spatial layout information to determine which surface
+    /// contains the given coordinates.
+    fn findSurfaceUnderCursor(
+        self: *Self,
+        cursor_x: f64,
+        cursor_y: f64,
+    ) ?*Surface {
+        // Get our parent widget hierarchy to find the split tree
+        var parent = self.as(gtk.Widget).getParent();
+        while (parent) |p| {
+            // Check if this parent is a split tree
+            if (gobject.ext.isA(p, SplitTree)) {
+                const split_tree: *SplitTree = @ptrCast(@alignCast(p));
+
+                // Get the spatial representation of the split tree
+                const tree = split_tree.getTree() orelse return null;
+                const alloc = Application.default().allocator();
+                var spatial = tree.spatial(alloc) catch return null;
+                defer spatial.deinit(alloc);
+
+                // Get the widget dimensions for coordinate normalization
+                const tree_widget = split_tree.as(gtk.Widget);
+                const tree_width = tree_widget.getWidth();
+                const tree_height = tree_widget.getHeight();
+
+                if (tree_width == 0 or tree_height == 0) return null;
+
+                // Convert cursor coordinates to normalized coordinates (0-1)
+                var tree_alloc: gtk.Allocation = undefined;
+                tree_widget.getAllocation(&tree_alloc);
+                const rel_x = cursor_x - @as(f64, @floatFromInt(tree_alloc.f_x));
+                const rel_y = cursor_y - @as(f64, @floatFromInt(tree_alloc.f_y));
+                const norm_x: f16 = @floatCast(rel_x / @as(f64, @floatFromInt(tree_width)));
+                const norm_y: f16 = @floatCast(rel_y / @as(f64, @floatFromInt(tree_height)));
+
+                // Find which slot contains our coordinates
+                for (spatial.slots, 0..) |slot, i| {
+                    if (norm_x >= slot.x and norm_x < slot.x + slot.width and
+                        norm_y >= slot.y and norm_y < slot.y + slot.height)
+                    {
+                        // Return the surface at this slot
+                        const handle = @as(Surface.Tree.Node.Handle, @enumFromInt(i));
+                        const idx = handle.idx();
+                        // Add bounds checking to prevent null pointer dereference
+                        if (idx >= tree.nodes.len) return null;
+                        const node = &tree.nodes[idx];
+                        // Check if this is a leaf node and return the surface
+                        return switch (node.*) {
+                            .leaf => |view| view,
+                            .split => null,
+                        };
+                    }
+                }
+
+                break;
+            }
+
+            parent = p.getParent();
+        }
+
+        return null;
     }
 
     /// Initialize the cgroup for this surface if it hasn't been
@@ -2248,6 +2314,23 @@ pub const Surface = extern struct {
                 config.get().@"focus-follows-mouse")
             {
                 _ = gl_area_widget.grabFocus();
+            }
+        }
+
+        // Handle focus-follows-mouse - switch focus between panes within the same window
+        if (priv.config) |config| {
+            if (config.get().@"focus-follows-mouse") {
+                const gl_area_widget = priv.gl_area.as(gtk.Widget);
+                // Only switch focus if the window already has focus
+                if (gl_area_widget.hasFocus() != 0) {
+                    // Try to find the split tree parent and switch focus to the pane under cursor
+                    if (self.findSurfaceUnderCursor(pos.x, pos.y)) |target_surface| {
+                        // Only switch focus if it's a different surface
+                        if (target_surface != self and !target_surface.getFocused()) {
+                            target_surface.grabFocus();
+                        }
+                    }
+                }
             }
         }
 
