@@ -3,6 +3,7 @@
     .version = "1.2.0",
     .paths = .{""},
     .fingerprint = 0x64407a2a0b4147e5,
+    .minimum_zig_version = "0.14.1",
     .dependencies = .{
         // Zig libs
 
