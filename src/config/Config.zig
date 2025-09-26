@@ -7424,6 +7424,53 @@ pub const MouseScrollMultiplier = struct {
         const formatted = try std.fmt.bufPrint(&buf, "precision:{d},discrete:{d}", .{ self.precision, self.discrete });
         try formatter.formatEntry([]const u8, formatted);
     }
+
+    test "parse MouseScrollMultiplier" {
+        const testing = std.testing;
+
+        var args: Self = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI("3");
+        try testing.expect(args.precision == 3 and args.discrete == 3);
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI("precision:1");
+        try testing.expect(args.precision == 1 and args.discrete == 3);
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI("discrete:5");
+        try testing.expect(args.precision == 0.1 and args.discrete == 5);
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI("precision:3,discrete:7");
+        try testing.expect(args.precision == 3 and args.discrete == 7);
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI("discrete:8,precision:6");
+        try testing.expect(args.precision == 6 and args.discrete == 8);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI("foo:1"));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI("precision:bar"));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,precision:3"));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.ValueRequired, args.parseCLI(""));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,discrete:3,foo:5"));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,,discrete:3"));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,discrete:3,"));
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try testing.expectError(error.InvalidValue, args.parseCLI(",precision:1,discrete:3"));
+    }
+
+    test "format entry MouseScrollMultiplier" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var args: Self = .{ .precision = 1.5, .discrete = 2.5 };
+        try args.formatEntry(formatterpkg.entryFormatter("mouse-scroll-multiplier", buf.writer()));
+        try testing.expectEqualSlices(u8, "mouse-scroll-multiplier = precision:1.5,discrete:2.5\n", buf.items);
+    }
 };
 
 /// How to treat requests to write to or read from the clipboard
