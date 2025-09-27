@@ -10,6 +10,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
+const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const cgroup = @import("../cgroup.zig");
@@ -2472,7 +2473,9 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
         /// disable it.
         @"vulkan-disable": bool = false,
     } = .{
-        .opengl = config.@"gtk-opengl-debug",
+        // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
+        // to enable OpenGL debbugging.
+        .opengl = state.logging.stderr and config.@"gtk-opengl-debug",
     };
 
     var gdk_disable: struct {

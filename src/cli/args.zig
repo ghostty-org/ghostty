@@ -582,7 +582,7 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     return result;
 }
 
-fn parsePackedStruct(comptime T: type, v: []const u8) !T {
+pub fn parsePackedStruct(comptime T: type, v: []const u8) !T {
     const info = @typeInfo(T).@"struct";
     comptime assert(info.layout == .@"packed");
 

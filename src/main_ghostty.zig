@@ -121,19 +121,17 @@ fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    // Stuff we can do before the lock
-    const level_txt = comptime level.asText();
-    const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-
-    // Lock so we are thread-safe
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-
     // On Mac, we use unified logging. To view this:
     //
     //   sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'
     //
-    if (builtin.target.os.tag.isDarwin()) {
+    // macOS logging is thread safe so no need for locks/mutexes
+    macos: {
+        if (comptime !builtin.target.os.tag.isDarwin()) break :macos;
+        if (!state.logging.macos) break :macos;
+
+        const prefix = if (scope == .default) "" else @tagName(scope) ++ ": ";
+
         // Convert our levels to Mac levels
         const mac_level: macos.os.LogType = switch (level) {
             .debug => .debug,
@@ -146,27 +144,29 @@ fn logFn(
         // but we shouldn't be logging too much.
         const logger = macos.os.Log.create(build_config.bundle_id, @tagName(scope));
         defer logger.release();
-        logger.log(std.heap.c_allocator, mac_level, format, args);
+        logger.log(std.heap.c_allocator, mac_level, prefix ++ format, args);
     }
 
-    switch (state.logging) {
-        .disabled => {},
+    stderr: {
+        // don't log debug messages to stderr unless we are a debug build
+        if (comptime builtin.mode != .Debug and level == .debug) break :stderr;
 
-        .stderr => {
-            // Always try default to send to stderr
-            const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
-        },
+        // skip if we are not logging to stderr
+        if (!state.logging.stderr) break :stderr;
+
+        // Lock so we are thread-safe
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
+
+        const level_txt = comptime level.asText();
+        const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+        const stderr = std.io.getStdErr().writer();
+        nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
     }
 }
 
 pub const std_options: std.Options = .{
-    // Our log level is always at least info in every build mode.
-    .log_level = switch (builtin.mode) {
-        .Debug => .debug,
-        else => .info,
-    },
-
+    .log_level = .info,
     .logFn = logFn,
 };
 
