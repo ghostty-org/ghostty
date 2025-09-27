@@ -236,8 +236,8 @@ pub fn isCovering(cp: u21) bool {
 }
 
 /// Returns true of the codepoint is a "symbol-like" character, which
-/// for now we define as anything in a private use area and anything
-/// in several unicode blocks:
+/// for now we define as anything in a private use area, except
+/// the Powerline range, and anything in several unicode blocks:
 /// - Dingbats
 /// - Emoticons
 /// - Miscellaneous Symbols
@@ -249,11 +249,13 @@ pub fn isCovering(cp: u21) bool {
 /// In the future it may be prudent to expand this to encompass more
 /// symbol-like characters, and/or exclude some PUA sections.
 pub fn isSymbol(cp: u21) bool {
-    return symbols.get(cp);
+    return symbols.get(cp) and !isPowerline(cp);
 }
 
 /// Returns the appropriate `constraint_width` for
 /// the provided cell when rendering its glyph(s).
+///
+/// Tested as part of the Screen tests.
 pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
@@ -274,18 +276,13 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
 
     // If we have a previous cell and it was a symbol then we need
     // to also constrain. This is so that multiple PUA glyphs align.
-    // As an exception, we ignore powerline glyphs since they are
-    // used for box drawing and we consider them whitespace.
-    if (cell_pin.x > 0) prev: {
+    if (cell_pin.x > 0) {
         const prev_cp = prev_cp: {
             var copy = cell_pin;
             copy.x -= 1;
             const prev_cell = copy.rowAndCell().cell;
             break :prev_cp prev_cell.codepoint();
         };
-
-        // We consider powerline glyphs whitespace.
-        if (isPowerline(prev_cp)) break :prev;
 
         if (isSymbol(prev_cp)) {
             return 1;
@@ -300,10 +297,7 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         const next_cell = copy.rowAndCell().cell;
         break :next_cp next_cell.codepoint();
     };
-    if (next_cp == 0 or
-        isSpace(next_cp) or
-        isPowerline(next_cp))
-    {
+    if (next_cp == 0 or isSpace(next_cp)) {
         return 2;
     }
 
@@ -312,9 +306,10 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
 }
 
 /// Whether min contrast should be disabled for a given glyph.
+/// True for glyphs used for terminal graphics, such as box
+/// drawing characters, block elements, and Powerline glyphs.
 pub fn noMinContrast(cp: u21) bool {
-    // TODO: We should disable for all box drawing type characters.
-    return isPowerline(cp);
+    return isBoxDrawing(cp) or isBlockElement(cp) or isLegacyComputing(cp) or isPowerline(cp);
 }
 
 // Some general spaces, others intentionally kept
@@ -328,10 +323,36 @@ fn isSpace(char: u21) bool {
     };
 }
 
+// Returns true if the codepoint is a box drawing character.
+fn isBoxDrawing(char: u21) bool {
+    return switch (char) {
+        0x2500...0x257F => true,
+        else => false,
+    };
+}
+
+// Returns true if the codepoint is a block element.
+fn isBlockElement(char: u21) bool {
+    return switch (char) {
+        0x2580...0x259F => true,
+        else => false,
+    };
+}
+
+// Returns true if the codepoint is in a Symbols for Legacy
+// Computing block, including supplements.
+fn isLegacyComputing(char: u21) bool {
+    return switch (char) {
+        0x1FB00...0x1FBFF => true,
+        0x1CC00...0x1CEBF => true, // Supplement introduced in Unicode 16.0
+        else => false,
+    };
+}
+
 // Returns true if the codepoint is a part of the Powerline range.
 fn isPowerline(char: u21) bool {
     return switch (char) {
-        0xE0B0...0xE0C8, 0xE0CA, 0xE0CC...0xE0D2, 0xE0D4 => true,
+        0xE0B0...0xE0D7 => true,
         else => false,
     };
 }
