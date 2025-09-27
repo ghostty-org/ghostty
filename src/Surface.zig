@@ -4801,6 +4801,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .duplicate_tab => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .duplicate_tab,
+            {},
+        ),
+
         .close_tab => |v| return try self.rt_app.performAction(
             .{ .surface = self },
             .close_tab,

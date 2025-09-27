@@ -258,6 +258,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Open a new tab.",
         }},
 
+        .duplicate_tab => comptime &.{.{
+            .action = .duplicate_tab,
+            .title = "Duplicate Tab",
+            .description = "Duplicate the current tab.",
+        }},
+
         .move_tab => comptime &.{
             .{
                 .action = .{ .move_tab = -1 },
