@@ -1213,6 +1213,9 @@ test "metrics" {
         // and 1em should be the point size * dpi scale, so 12 * (96/72)
         // which is 16, and 16 * 1.049 = 16.784, which finally is rounded
         // to 17.
+        //
+        // The icon height is (2 * cap_height + face_height) / 3
+        // = (2 * 623 + 1049) / 3 = 765, and 16 * 0.765 = 12.24.
         .cell_height = 17,
         .cell_baseline = 3,
         .underline_position = 17,
@@ -1223,7 +1226,10 @@ test "metrics" {
         .overline_thickness = 1,
         .box_thickness = 1,
         .cursor_height = 17,
-        .icon_height = 11,
+        .icon_height = 12.24,
+        .face_width = 8.0,
+        .face_height = 16.784,
+        .face_y = @round(3.04) - @as(f64, 3.04), // use f64, not comptime float, for exact match with runtime value
     }, c.metrics);
 
     // Resize should change metrics
@@ -1240,7 +1246,10 @@ test "metrics" {
         .overline_thickness = 2,
         .box_thickness = 2,
         .cursor_height = 34,
-        .icon_height = 23,
+        .icon_height = 24.48,
+        .face_width = 16.0,
+        .face_height = 33.568,
+        .face_y = @round(6.08) - @as(f64, 6.08), // use f64, not comptime float, for exact match with runtime value
     }, c.metrics);
 }
 

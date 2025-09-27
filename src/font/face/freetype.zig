@@ -498,17 +498,14 @@ pub const Face = struct {
             y = @round(y);
         }
 
-        // If the cell width was adjusted wider, we re-center all glyphs
-        // in the new width, so that they aren't weirdly off to the left.
-        if (metrics.original_cell_width) |original| recenter: {
-            // We don't do this if the constraint has a horizontal alignment,
-            // since in that case the position was already calculated with the
-            // new cell width in mind.
-            if (opts.constraint.align_horizontal != .none) break :recenter;
-
-            // If the original width was wider then we don't do anything.
-            if (original >= metrics.cell_width) break :recenter;
-
+        // We center all glyphs within the pixel-rounded and adjusted
+        // cell width if it's larger than the face width, so that they
+        // aren't weirdly off to the left.
+        //
+        // We don't do this if the constraint has a horizontal alignment,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((opts.constraint.align_horizontal == .none) and (metrics.face_width < cell_width)) {
             // We add half the difference to re-center.
             //
             // NOTE: We round this to a whole-pixel amount because under
@@ -516,7 +513,7 @@ pub const Face = struct {
             //       the case under CoreText. If we move the outlines by
             //       a non-whole-pixel amount, it completely ruins the
             //       hinting.
-            x += @round((cell_width - @as(f64, @floatFromInt(original))) / 2);
+            x += @round((cell_width - metrics.face_width) / 2);
         }
 
         // Now we can render the glyph.
@@ -1211,25 +1208,31 @@ test "color emoji" {
             alloc,
             &atlas,
             ft_font.glyphIndex('🥸').?,
-            .{ .grid_metrics = .{
-                .cell_width = 13,
-                .cell_height = 24,
-                .cell_baseline = 0,
-                .underline_position = 0,
-                .underline_thickness = 0,
-                .strikethrough_position = 0,
-                .strikethrough_thickness = 0,
-                .overline_position = 0,
-                .overline_thickness = 0,
-                .box_thickness = 0,
-                .cursor_height = 0,
-                .icon_height = 0,
-            }, .constraint_width = 2, .constraint = .{
-                .size_horizontal = .cover,
-                .size_vertical = .cover,
-                .align_horizontal = .center,
-                .align_vertical = .center,
-            } },
+            .{
+                .grid_metrics = .{
+                    .cell_width = 13,
+                    .cell_height = 24,
+                    .cell_baseline = 0,
+                    .underline_position = 0,
+                    .underline_thickness = 0,
+                    .strikethrough_position = 0,
+                    .strikethrough_thickness = 0,
+                    .overline_position = 0,
+                    .overline_thickness = 0,
+                    .box_thickness = 0,
+                    .cursor_height = 0,
+                    .icon_height = 0,
+                    .face_width = 13,
+                    .face_height = 24,
+                    .face_y = 0,
+                },
+                .constraint_width = 2,
+                .constraint = .{
+                    .size = .fit,
+                    .align_horizontal = .center,
+                    .align_vertical = .center,
+                },
+            },
         );
         try testing.expectEqual(@as(u32, 24), glyph.height);
     }
