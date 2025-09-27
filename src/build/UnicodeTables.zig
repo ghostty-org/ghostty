@@ -11,11 +11,11 @@ symbols_exe: *std.Build.Step.Compile,
 props_output: std.Build.LazyPath,
 symbols_output: std.Build.LazyPath,
 
-pub fn init(b: *std.Build) !UnicodeTables {
+pub fn init(b: *std.Build, uucode_tables: std.Build.LazyPath) !UnicodeTables {
     const props_exe = b.addExecutable(.{
         .name = "props-unigen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/unicode/props_ziglyph.zig"),
+            .root_source_file = b.path("src/unicode/props_uucode.zig"),
             .target = b.graph.host,
             .strip = false,
             .omit_frame_pointer = false,
@@ -26,7 +26,7 @@ pub fn init(b: *std.Build) !UnicodeTables {
     const symbols_exe = b.addExecutable(.{
         .name = "symbols-unigen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/unicode/symbols_ziglyph.zig"),
+            .root_source_file = b.path("src/unicode/symbols_uucode.zig"),
             .target = b.graph.host,
             .strip = false,
             .omit_frame_pointer = false,
@@ -34,14 +34,13 @@ pub fn init(b: *std.Build) !UnicodeTables {
         }),
     });
 
-    if (b.lazyDependency("ziglyph", .{
+    if (b.lazyDependency("uucode", .{
         .target = b.graph.host,
-    })) |ziglyph_dep| {
+        .tables_path = uucode_tables,
+        .build_config_path = b.path("src/build/uucode_config.zig"),
+    })) |dep| {
         inline for (&.{ props_exe, symbols_exe }) |exe| {
-            exe.root_module.addImport(
-                "ziglyph",
-                ziglyph_dep.module("ziglyph"),
-            );
+            exe.root_module.addImport("uucode", dep.module("uucode"));
         }
     }
 

@@ -1,9 +1,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ziglyph = @import("ziglyph");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
+const unicode = @import("../../unicode/main.zig");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -111,7 +111,7 @@ pub const Shaper = struct {
         // font ligatures. However, we do support grapheme clustering.
         // This means we can render things like skin tone emoji but
         // we can't render things like single glyph "=>".
-        var break_state: u3 = 0;
+        var break_state: unicode.GraphemeBreakState = .{};
         var cp1: u21 = @intCast(codepoints[0]);
 
         var start: usize = 0;
@@ -126,7 +126,7 @@ pub const Shaper = struct {
                 const cp2: u21 = @intCast(codepoints[i]);
                 defer cp1 = cp2;
 
-                break :blk ziglyph.graphemeBreak(
+                break :blk unicode.graphemeBreak(
                     cp1,
                     cp2,
                     &break_state,

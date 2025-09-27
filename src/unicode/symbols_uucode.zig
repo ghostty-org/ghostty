@@ -1,32 +1,6 @@
-const props = @This();
 const std = @import("std");
-const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
+const uucode = @import("uucode");
 const lut = @import("lut.zig");
-
-/// Returns true of the codepoint is a "symbol-like" character, which
-/// for now we define as anything in a private use area and anything
-/// in several unicode blocks:
-/// - Dingbats
-/// - Emoticons
-/// - Miscellaneous Symbols
-/// - Enclosed Alphanumerics
-/// - Enclosed Alphanumeric Supplement
-/// - Miscellaneous Symbols and Pictographs
-/// - Transport and Map Symbols
-///
-/// In the future it may be prudent to expand this to encompass more
-/// symbol-like characters, and/or exclude some PUA sections.
-pub fn isSymbol(cp: u21) bool {
-    return ziglyph.general_category.isPrivateUse(cp) or
-        ziglyph.blocks.isDingbats(cp) or
-        ziglyph.blocks.isEmoticons(cp) or
-        ziglyph.blocks.isMiscellaneousSymbols(cp) or
-        ziglyph.blocks.isEnclosedAlphanumerics(cp) or
-        ziglyph.blocks.isEnclosedAlphanumericSupplement(cp) or
-        ziglyph.blocks.isMiscellaneousSymbolsAndPictographs(cp) or
-        ziglyph.blocks.isTransportAndMapSymbols(cp);
-}
 
 /// Runnable binary to generate the lookup tables and output to stdout.
 pub fn main() !void {
@@ -39,7 +13,10 @@ pub fn main() !void {
         struct {
             pub fn get(ctx: @This(), cp: u21) !bool {
                 _ = ctx;
-                return isSymbol(cp);
+                return if (cp > uucode.config.max_code_point)
+                    false
+                else
+                    uucode.get(.is_symbol, @intCast(cp));
             }
 
             pub fn eql(ctx: @This(), a: bool, b: bool) bool {
@@ -63,9 +40,7 @@ pub fn main() !void {
     // });
 }
 
-// This is not very fast in debug modes, so its commented by default.
-// IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CHANGES.
-test "unicode symbols: tables match ziglyph" {
+test "unicode symbols: tables match uucode" {
     if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
 
     const testing = std.testing;
@@ -73,7 +48,36 @@ test "unicode symbols: tables match ziglyph" {
 
     for (0..std.math.maxInt(u21)) |cp| {
         const t = table.get(@intCast(cp));
-        const zg = isSymbol(@intCast(cp));
+        const uu = if (cp > uucode.config.max_code_point)
+            false
+        else
+            uucode.get(.is_symbol, @intCast(cp));
+
+        if (t != uu) {
+            std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t, uu });
+            try testing.expect(false);
+        }
+    }
+}
+
+test "unicode symbols: tables match ziglyph" {
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const table = @import("symbols_table.zig").table;
+    const ziglyph = @import("ziglyph");
+
+    for (0..std.math.maxInt(u21)) |cp_usize| {
+        const cp: u21 = @intCast(cp_usize);
+        const t = table.get(cp);
+        const zg = ziglyph.general_category.isPrivateUse(cp) or
+            ziglyph.blocks.isDingbats(cp) or
+            ziglyph.blocks.isEmoticons(cp) or
+            ziglyph.blocks.isMiscellaneousSymbols(cp) or
+            ziglyph.blocks.isEnclosedAlphanumerics(cp) or
+            ziglyph.blocks.isEnclosedAlphanumericSupplement(cp) or
+            ziglyph.blocks.isMiscellaneousSymbolsAndPictographs(cp) or
+            ziglyph.blocks.isTransportAndMapSymbols(cp);
 
         if (t != zg) {
             std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });

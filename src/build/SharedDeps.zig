@@ -17,16 +17,26 @@ help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
 framedata: GhosttyFrameData,
+uucode_tables: std.Build.LazyPath,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
 
 pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
+    const uucode_tables = blk: {
+        const uucode = b.dependency("uucode", .{
+            .build_config_path = b.path("src/build/uucode_config.zig"),
+        });
+
+        break :blk uucode.namedLazyPath("tables.zig");
+    };
+
     var result: SharedDeps = .{
         .config = cfg,
         .help_strings = try .init(b, cfg),
-        .unicode_tables = try .init(b),
+        .unicode_tables = try .init(b, uucode_tables),
         .framedata = try .init(b),
+        .uucode_tables = uucode_tables,
 
         // Setup by retarget
         .options = undefined,
@@ -393,11 +403,21 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    if (b.lazyDependency("ziglyph", .{
+    if (step.kind == .@"test") {
+        if (b.lazyDependency("ziglyph", .{
+            .target = step.root_module.resolved_target.?,
+            .optimize = step.root_module.optimize.?,
+        })) |dep| {
+            step.root_module.addImport("ziglyph", dep.module("ziglyph"));
+        }
+    }
+    if (b.lazyDependency("uucode", .{
         .target = target,
         .optimize = optimize,
+        .tables_path = self.uucode_tables,
+        .build_config_path = b.path("src/build/uucode_config.zig"),
     })) |dep| {
-        step.root_module.addImport("ziglyph", dep.module("ziglyph"));
+        step.root_module.addImport("uucode", dep.module("uucode"));
     }
     if (b.lazyDependency("zf", .{
         .target = target,

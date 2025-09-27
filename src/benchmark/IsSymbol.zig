@@ -10,7 +10,7 @@ const Allocator = std.mem.Allocator;
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
-const symbols = @import("../unicode/symbols_ziglyph.zig");
+const uucode = @import("uucode");
 const symbols_table = @import("../unicode/symbols_table.zig").table;
 
 const log = std.log.scoped(.@"is-symbol-bench");
@@ -22,7 +22,7 @@ data_f: ?std.fs.File = null,
 
 pub const Options = struct {
     /// Which test to run.
-    mode: Mode = .ziglyph,
+    mode: Mode = .uucode,
 
     /// The data to read as a filepath. If this is "-" then
     /// we will read stdin. If this is unset, then we will
@@ -33,8 +33,8 @@ pub const Options = struct {
 };
 
 pub const Mode = enum {
-    /// "Naive" ziglyph implementation.
-    ziglyph,
+    /// uucode implementation
+    uucode,
 
     /// Ghostty's table-based approach.
     table,
@@ -58,7 +58,7 @@ pub fn destroy(self: *IsSymbol, alloc: Allocator) void {
 pub fn benchmark(self: *IsSymbol) Benchmark {
     return .init(self, .{
         .stepFn = switch (self.opts.mode) {
-            .ziglyph => stepZiglyph,
+            .uucode => stepUucode,
             .table => stepTable,
         },
         .setupFn = setup,
@@ -86,7 +86,7 @@ fn teardown(ptr: *anyopaque) void {
     }
 }
 
-fn stepZiglyph(ptr: *anyopaque) Benchmark.Error!void {
+fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
     const self: *IsSymbol = @ptrCast(@alignCast(ptr));
 
     const f = self.data_f orelse return;
@@ -104,7 +104,7 @@ fn stepZiglyph(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols.isSymbol(cp));
+                std.mem.doNotOptimizeAway(uucode.get(.is_symbol, cp));
             }
         }
     }

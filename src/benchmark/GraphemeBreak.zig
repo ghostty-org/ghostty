@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
+const uucode = @import("uucode");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const unicode = @import("../unicode/main.zig");
 
@@ -38,6 +39,9 @@ pub const Mode = enum {
 
     /// Ghostty's table-based approach.
     table,
+
+    /// uucode implementation
+    uucode,
 };
 
 /// Create a new terminal stream handler for the given arguments.
@@ -60,6 +64,7 @@ pub fn benchmark(self: *GraphemeBreak) Benchmark {
         .stepFn = switch (self.opts.mode) {
             .noop => stepNoop,
             .table => stepTable,
+            .uucode => stepUucode,
         },
         .setupFn = setup,
         .teardownFn = teardown,
@@ -127,6 +132,33 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             assert(consumed);
             if (cp_) |cp2| {
                 std.mem.doNotOptimizeAway(unicode.graphemeBreak(cp1, @intCast(cp2), &state));
+                cp1 = cp2;
+            }
+        }
+    }
+}
+
+fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *GraphemeBreak = @ptrCast(@alignCast(ptr));
+
+    const f = self.data_f orelse return;
+    var r = std.io.bufferedReader(f.reader());
+    var d: UTF8Decoder = .{};
+    var state: uucode.grapheme.BreakState = .default;
+    var cp1: u21 = 0;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+    while (true) {
+        const n = r.read(&buf) catch |err| {
+            log.warn("error reading data file err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        if (n == 0) break; // EOF reached
+
+        for (buf[0..n]) |c| {
+            const cp_, const consumed = d.next(c);
+            assert(consumed);
+            if (cp_) |cp2| {
+                std.mem.doNotOptimizeAway(uucode.grapheme.isBreak(cp1, @intCast(cp2), &state));
                 cp1 = cp2;
             }
         }

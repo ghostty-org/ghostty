@@ -434,8 +434,8 @@ pub fn print(self: *Terminal, c: u21) !void {
     // control characters because they're always filtered prior.
     const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
 
-    // Note: it is possible to have a width of "3" and a width of "-1"
-    // from ziglyph. We should look into those cases and handle them
+    // Note: it is possible to have a width of "3" and a width of "-1" from
+    // uucode.x's wcwidth. We should look into those cases and handle them
     // appropriately.
     assert(width <= 2);
     // log.debug("c={x} width={}", .{ c, width });

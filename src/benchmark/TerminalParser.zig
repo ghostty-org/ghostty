@@ -79,7 +79,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
 
     var p: terminalpkg.Parser = .init();
 
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});

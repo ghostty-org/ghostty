@@ -132,6 +132,12 @@
     "sha256": "ffc668a310e77607d393f3c18b32715f223da1eac4c4d6e0579a11df8e6b59cf"
   },
   {
+    "type": "archive",
+    "url": "https://github.com/jacobsandlund/uucode/archive/f748edb9639d9b3c8ae13d6190953f419a615343.tar.gz",
+    "dest": "vendor/p/uucode-0.0.0-ZZjBPk0GQACuYIoFqT_Vzkvn8Ur_M3dE7o4DNUE65Z7v",
+    "sha256": "8f564dba61f5f68970d031d311beac0a19c26696212bdfb543faebea7c4f45c4"
+  },
+  {
     "type": "git",
     "url": "https://github.com/rockorager/libvaxis",
     "commit": "1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23",

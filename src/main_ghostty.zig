@@ -191,8 +191,8 @@ test {
     _ = @import("simd/main.zig");
     _ = @import("synthetic/main.zig");
     _ = @import("unicode/main.zig");
-    _ = @import("unicode/props_ziglyph.zig");
-    _ = @import("unicode/symbols_ziglyph.zig");
+    _ = @import("unicode/props_uucode.zig");
+    _ = @import("unicode/symbols_uucode.zig");
 
     // Extra
     _ = @import("extra/bash.zig");
