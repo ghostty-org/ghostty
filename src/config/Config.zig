@@ -842,6 +842,11 @@ palette: Palette = .{},
 /// Available since: 1.2.0
 @"mouse-scroll-multiplier": f64 = 3.0,
 
+/// If true, when mouse reporting is enabled (eg: SGR 1006), emit a single
+/// wheel event per scroll gesture regardless of computed y.delta. This
+/// prevents the multiplier from inflating the number of reported events.
+@"mouse-scroll-single-event": bool = false,
+
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
 /// or greater than 1 will be clamped to the nearest valid value.
