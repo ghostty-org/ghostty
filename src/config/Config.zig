@@ -416,9 +416,12 @@ pub const compatibility = std.StaticStringMap(
 /// necessarily force them to be. Decreasing this value will make nerd font
 /// icons smaller.
 ///
-/// The default value for the icon height is 1.2 times the height of capital
-/// letters in your primary font, so something like -16.6% would make icons
-/// roughly the same height as capital letters.
+/// This value only applies to icons that are constrained to a single cell by
+/// neighboring characters. An icon that is free to spread across two cells
+/// can always use up to the full line height of the primary font.
+///
+/// The default value is 2/3 times the height of capital letters in your primary
+/// font plus 1/3 times the font's line height.
 ///
 /// See the notes about adjustments in `adjust-cell-width`.
 ///

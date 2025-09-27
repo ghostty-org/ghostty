@@ -270,11 +270,9 @@ pub fn renderGlyph(
     // Always use these constraints for emoji.
     if (p == .emoji) {
         render_opts.constraint = .{
-            // Make the emoji as wide as possible, scaling proportionally,
-            // but then scale it down as necessary if its new size exceeds
-            // the cell height.
-            .size_horizontal = .cover,
-            .size_vertical = .fit,
+            // Scale emoji to be as large as possible
+            // while preserving their aspect ratio.
+            .size = .cover,
 
             // Center the emoji in its cells.
             .align_horizontal = .center,
