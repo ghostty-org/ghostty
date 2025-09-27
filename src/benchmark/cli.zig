@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cli = @import("../cli.zig");
+const Benchmark = @import("Benchmark.zig");
 
 /// The available actions for the CLI. This is the list of available
 /// benchmarks. View docs for each individual one in the predictably
@@ -9,6 +10,7 @@ pub const Action = enum {
     @"codepoint-width",
     @"grapheme-break",
     @"terminal-parser",
+    @"terminal-search",
     @"terminal-stream",
     @"is-symbol",
 
@@ -22,6 +24,7 @@ pub const Action = enum {
     /// See TerminalStream for an example.
     pub fn Struct(comptime action: Action) type {
         return switch (action) {
+            .@"terminal-search" => @import("TerminalSearch.zig"),
             .@"terminal-stream" => @import("TerminalStream.zig"),
             .@"codepoint-width" => @import("CodepointWidth.zig"),
             .@"grapheme-break" => @import("GraphemeBreak.zig"),
@@ -90,7 +93,24 @@ fn mainActionImpl(
     const impl = try BenchmarkImpl.create(alloc, opts);
     defer impl.destroy(alloc);
 
-    // Initialize our benchmark
-    const b = impl.benchmark();
-    _ = try b.run(.once);
+    const run_mode = if (@hasField(Options, "duration-ns")) blk: {
+        const maybe_duration = @field(opts, "duration-ns");
+        if (maybe_duration) |ns|
+            break :blk Benchmark.RunMode{ .duration = ns };
+        break :blk Benchmark.RunMode.once;
+    } else Benchmark.RunMode.once;
+
+    const bench = impl.benchmark();
+    const result = try bench.run(run_mode);
+
+    if (@hasField(Options, "report") and @field(opts, "report")) {
+        if (@hasDecl(BenchmarkImpl, "report")) {
+            BenchmarkImpl.report(impl, result);
+        } else {
+            std.debug.print(
+                "iterations={d} duration={d}ns\n",
+                .{ result.iterations, result.duration },
+            );
+        }
+    }
 }
