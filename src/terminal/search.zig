@@ -314,9 +314,14 @@ const SlidingWindow = struct {
             self.data.deleteOldest(prune_data_len);
         }
 
-        // Our data offset now moves to needle.len - 1 from the end so
-        // that we can handle the overlap case.
-        self.data_offset = self.data.len() - self.needle.len + 1;
+        // Our data offset now moves near the end so that we retain enough overlap
+        // to detect matches that straddle batches. For single-byte needles we
+        // still keep one byte; otherwise we retain needle.len - 1 bytes.
+        const overlap: usize = if (self.needle.len <= 1)
+            @min(self.data.len(), 1)
+        else
+            @min(self.data.len(), self.needle.len - 1);
+        self.data_offset = self.data.len() - overlap;
 
         self.assertIntegrity();
         return null;
