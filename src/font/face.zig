@@ -93,6 +93,14 @@ pub const Variation = struct {
     };
 };
 
+/// The size and position of a glyph.
+pub const GlyphSize = struct {
+    width: f64,
+    height: f64,
+    x: f64,
+    y: f64,
+};
+
 /// Additional options for rendering glyphs.
 pub const RenderOptions = struct {
     /// The metrics that are defining the grid layout. These are usually
@@ -214,14 +222,6 @@ pub const RenderOptions = struct {
             /// metrics as the height. (When the constraint width is >1, the
             /// constraint height is always the full cell height.)
             icon,
-        };
-
-        /// The size and position of a glyph.
-        pub const GlyphSize = struct {
-            width: f64,
-            height: f64,
-            x: f64,
-            y: f64,
         };
 
         /// Returns true if the constraint does anything. If it doesn't,

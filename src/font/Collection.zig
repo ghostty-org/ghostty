@@ -1378,3 +1378,155 @@ test "adjusted sizes" {
         );
     }
 }
+
+test "face metrics" {
+    // The web canvas backend doesn't calculate face metrics, only cell metrics
+    if (options.backend != .web_canvas) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const narrowFont = font.embedded.cozette;
+    const wideFont = font.embedded.geist_mono;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var c = init();
+    defer c.deinit(alloc);
+    const size: DesiredSize = .{ .points = 12, .xdpi = 96, .ydpi = 96 };
+    c.load_options = .{ .library = lib, .size = size };
+
+    const narrowIndex = try c.add(alloc, try .init(
+        lib,
+        narrowFont,
+        .{ .size = size },
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+    const wideIndex = try c.add(alloc, try .init(
+        lib,
+        wideFont,
+        .{ .size = size },
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    const narrowMetrics: font.Metrics.FaceMetrics = (try c.getFace(narrowIndex)).getMetrics();
+    const wideMetrics: font.Metrics.FaceMetrics = (try c.getFace(wideIndex)).getMetrics();
+
+    // Verify provided/measured metrics. Measured
+    // values are backend-dependent due to hinting.
+    const narrowMetricsExpected = font.Metrics.FaceMetrics{
+        .px_per_em = 16.0,
+        .cell_width = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 8.0,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 7.3828125,
+            .web_canvas => unreachable,
+        },
+        .ascent = 12.3046875,
+        .descent = -3.6953125,
+        .line_gap = 0.0,
+        .underline_position = -1.2265625,
+        .underline_thickness = 1.2265625,
+        .strikethrough_position = 6.15625,
+        .strikethrough_thickness = 1.234375,
+        .cap_height = 9.84375,
+        .ex_height = 7.3828125,
+        .ascii_height = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 18.0625,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 16.0,
+            .web_canvas => unreachable,
+        },
+    };
+    const wideMetricsExpected = font.Metrics.FaceMetrics{
+        .px_per_em = 16.0,
+        .cell_width = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 10.0,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 9.6,
+            .web_canvas => unreachable,
+        },
+        .ascent = 14.72,
+        .descent = -3.52,
+        .line_gap = 1.6,
+        .underline_position = -1.6,
+        .underline_thickness = 0.8,
+        .strikethrough_position = 4.24,
+        .strikethrough_thickness = 0.8,
+        .cap_height = 11.36,
+        .ex_height = 8.48,
+        .ascii_height = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 16.0,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 15.472000000000001,
+            .web_canvas => unreachable,
+        },
+    };
+
+    inline for (
+        .{ narrowMetricsExpected, wideMetricsExpected },
+        .{ narrowMetrics, wideMetrics },
+    ) |metricsExpected, metricsActual| {
+        inline for (@typeInfo(font.Metrics.FaceMetrics).@"struct".fields) |field| {
+            const expected = @field(metricsExpected, field.name);
+            const actual = @field(metricsActual, field.name);
+            // Unwrap optional fields
+            const expectedValue, const actualValue = unwrap: switch (@typeInfo(field.type)) {
+                .optional => {
+                    if (expected) |expectedValue| if (actual) |actualValue| {
+                        break :unwrap .{ expectedValue, actualValue };
+                    };
+                    // Null values can be compared directly
+                    try std.testing.expectEqual(expected, actual);
+                    continue;
+                },
+                else => break :unwrap .{ expected, actual },
+            };
+            // All non-null values are floats
+            const eps = std.math.floatEps(@TypeOf(actualValue - expectedValue));
+            try std.testing.expectApproxEqRel(
+                expectedValue,
+                actualValue,
+                std.math.sqrt(eps),
+            );
+        }
+    }
+
+    // Verify estimated metrics. icWidth() should equal the smaller of
+    // 2 * cell_width and ascii_height. For a narrow (wide) font, the
+    // smaller quantity is the former (latter).
+    try std.testing.expectEqual(
+        2 * narrowMetrics.cell_width,
+        narrowMetrics.icWidth(),
+    );
+    try std.testing.expectEqual(
+        wideMetrics.ascii_height,
+        wideMetrics.icWidth(),
+    );
+}
