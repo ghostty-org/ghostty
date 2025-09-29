@@ -507,13 +507,18 @@ pub fn parseTaggedUnion(comptime T: type, alloc: Allocator, v: []const u8) !T {
 
 fn parseStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     return switch (@typeInfo(T).@"struct".layout) {
-        .auto => parseAutoStruct(T, alloc, v),
+        .auto => parseAutoStruct(T, alloc, v, null),
         .@"packed" => parsePackedStruct(T, v),
         else => @compileError("unsupported struct layout"),
     };
 }
 
-pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
+pub fn parseAutoStruct(
+    comptime T: type,
+    alloc: Allocator,
+    v: []const u8,
+    default_: ?T,
+) !T {
     const info = @typeInfo(T).@"struct";
     comptime assert(info.layout == .auto);
 
@@ -573,9 +578,18 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     // Ensure all required fields are set
     inline for (info.fields, 0..) |field, i| {
         if (!fields_set.isSet(i)) {
-            const default_ptr = field.default_value_ptr orelse return error.InvalidValue;
-            const typed_ptr: *const field.type = @alignCast(@ptrCast(default_ptr));
-            @field(result, field.name) = typed_ptr.*;
+            @field(result, field.name) = default: {
+                // If we're given a default value then we inherit those.
+                // Otherwise we use the default values as specified by the
+                // struct.
+                if (default_) |default| {
+                    break :default @field(default, field.name);
+                } else {
+                    const default_ptr = field.default_value_ptr orelse return error.InvalidValue;
+                    const typed_ptr: *const field.type = @alignCast(@ptrCast(default_ptr));
+                    break :default typed_ptr.*;
+                }
+            };
         }
     }
 
@@ -1194,7 +1208,18 @@ test "parseIntoField: struct with basic fields" {
     try testing.expectEqual(84, data.value.b);
     try testing.expectEqual(24, data.value.c);
 
-    // Missing require dfield
+    // Set with explicit default
+    data.value = try parseAutoStruct(
+        @TypeOf(data.value),
+        alloc,
+        "a:hello",
+        .{ .a = "oh no", .b = 42 },
+    );
+    try testing.expectEqualStrings("hello", data.value.a);
+    try testing.expectEqual(42, data.value.b);
+    try testing.expectEqual(12, data.value.c);
+
+    // Missing required field
     try testing.expectError(
         error.InvalidValue,
         parseIntoField(@TypeOf(data), alloc, &data, "value", "a:hello"),

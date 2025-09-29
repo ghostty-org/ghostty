@@ -827,14 +827,20 @@ palette: Palette = .{},
 ///   * `never`
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
-/// Multiplier for scrolling distance with the mouse wheel. Any value less
-/// than 0.01 or greater than 10,000 will be clamped to the nearest valid
-/// value.
+/// Multiplier for scrolling distance with the mouse wheel.
 ///
-/// A value of "3" (default) scrolls 3 lines per tick.
+/// A prefix of `precision:` or `discrete:` can be used to set the multiplier
+/// only for scrolling with the specific type of devices. These can be
+/// comma-separated to set both types of multipliers at the same time, e.g.
+/// `precision:0.1,discrete:3`. If no prefix is used, the multiplier applies
+/// to all scrolling devices. Specifying a prefix was introduced in Ghostty
+/// 1.2.1.
 ///
-/// Available since: 1.2.0
-@"mouse-scroll-multiplier": f64 = 3.0,
+/// The value will be clamped to [0.01, 10,000]. Both of these are extreme
+/// and you're likely to have a bad experience if you set either extreme.
+///
+/// The default value is "3" for discrete devices and "1" for precision devices.
+@"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
@@ -4071,7 +4077,8 @@ pub fn finalize(self: *Config) !void {
     }
 
     // Clamp our mouse scroll multiplier
-    self.@"mouse-scroll-multiplier" = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier"));
+    self.@"mouse-scroll-multiplier".precision = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".precision));
+    self.@"mouse-scroll-multiplier".discrete = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".discrete));
 
     // Clamp our split opacity
     self.@"unfocused-split-opacity" = @min(1.0, @max(0.15, self.@"unfocused-split-opacity"));
@@ -6502,7 +6509,7 @@ pub const RepeatableCodepointMap = struct {
         return .{ .map = try self.map.clone(alloc) };
     }
 
-    /// Compare if two of our value are requal. Required by Config.
+    /// Compare if two of our value are equal. Required by Config.
     pub fn equal(self: Self, other: Self) bool {
         const itemsA = self.map.list.slice();
         const itemsB = other.map.list.slice();
@@ -7004,6 +7011,7 @@ pub const RepeatableCommand = struct {
             inputpkg.Command,
             alloc,
             input,
+            null,
         );
         try self.value.append(alloc, cmd);
     }
@@ -7311,6 +7319,108 @@ pub const MouseShiftCapture = enum {
     true,
     always,
     never,
+};
+
+/// See mouse-scroll-multiplier
+pub const MouseScrollMultiplier = struct {
+    const Self = @This();
+
+    precision: f64 = 1,
+    discrete: f64 = 3,
+
+    pub const default: MouseScrollMultiplier = .{};
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+        const input = input_ orelse return error.ValueRequired;
+        self.* = cli.args.parseAutoStruct(
+            MouseScrollMultiplier,
+            alloc,
+            input,
+            self.*,
+        ) catch |err| switch (err) {
+            error.InvalidValue => bare: {
+                const v = std.fmt.parseFloat(
+                    f64,
+                    input,
+                ) catch return error.InvalidValue;
+                break :bare .{
+                    .precision = v,
+                    .discrete = v,
+                };
+            },
+            else => return err,
+        };
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        _ = alloc;
+        return self.*;
+    }
+
+    /// Compare if two of our value are equal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return self.precision == other.precision and self.discrete == other.discrete;
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        var buf: [32]u8 = undefined;
+        const formatted = std.fmt.bufPrint(
+            &buf,
+            "precision:{d},discrete:{d}",
+            .{ self.precision, self.discrete },
+        ) catch return error.OutOfMemory;
+        try formatter.formatEntry([]const u8, formatted);
+    }
+
+    test "parse" {
+        const testing = std.testing;
+        const alloc = testing.allocator;
+        const epsilon = 0.00001;
+
+        var args: Self = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "3");
+        try testing.expectApproxEqAbs(3, args.precision, epsilon);
+        try testing.expectApproxEqAbs(3, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "precision:1");
+        try testing.expectApproxEqAbs(1, args.precision, epsilon);
+        try testing.expectApproxEqAbs(3, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "discrete:5");
+        try testing.expectApproxEqAbs(0.1, args.precision, epsilon);
+        try testing.expectApproxEqAbs(5, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "precision:3,discrete:7");
+        try testing.expectApproxEqAbs(3, args.precision, epsilon);
+        try testing.expectApproxEqAbs(7, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "discrete:8,precision:6");
+        try testing.expectApproxEqAbs(6, args.precision, epsilon);
+        try testing.expectApproxEqAbs(8, args.discrete, epsilon);
+
+        args = .default;
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "foo:1"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:bar"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:1,discrete:3,foo:5"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:1,,discrete:3"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, ",precision:1,discrete:3"));
+    }
+
+    test "format entry MouseScrollMultiplier" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var args: Self = .{ .precision = 1.5, .discrete = 2.5 };
+        try args.formatEntry(formatterpkg.entryFormatter("mouse-scroll-multiplier", buf.writer()));
+        try testing.expectEqualSlices(u8, "mouse-scroll-multiplier = precision:1.5,discrete:2.5\n", buf.items);
+    }
 };
 
 /// How to treat requests to write to or read from the clipboard
@@ -7927,6 +8037,7 @@ pub const Theme = struct {
                 Theme,
                 alloc,
                 input,
+                null,
             );
             return;
         }

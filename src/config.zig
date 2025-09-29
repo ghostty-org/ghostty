@@ -27,6 +27,7 @@ pub const FontStyle = Config.FontStyle;
 pub const FreetypeLoadFlags = Config.FreetypeLoadFlags;
 pub const Keybinds = Config.Keybinds;
 pub const MouseShiftCapture = Config.MouseShiftCapture;
+pub const MouseScrollMultiplier = Config.MouseScrollMultiplier;
 pub const NonNativeFullscreen = Config.NonNativeFullscreen;
 pub const OptionAsAlt = Config.OptionAsAlt;
 pub const RepeatableCodepointMap = Config.RepeatableCodepointMap;

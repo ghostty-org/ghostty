@@ -260,7 +260,7 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
-    mouse_scroll_multiplier: f64,
+    mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?configpkg.OptionAsAlt,
@@ -2829,7 +2829,7 @@ pub fn scrollCallback(
         // scroll events to pixels by multiplying the wheel tick value and the cell size. This means
         // that a wheel tick of 1 results in single scroll event.
         const yoff_adjusted: f64 = if (scroll_mods.precision)
-            yoff
+            yoff * self.config.mouse_scroll_multiplier.precision
         else yoff_adjusted: {
             // Round out the yoff to an absolute minimum of 1. macos tries to
             // simulate precision scrolling with non precision events by
@@ -2843,7 +2843,7 @@ pub fn scrollCallback(
             else
                 @min(yoff, -1);
 
-            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier;
+            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
         };
 
         // Add our previously saved pending amount to the offset to get the
