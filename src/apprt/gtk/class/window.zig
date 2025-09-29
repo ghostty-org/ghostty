@@ -1489,6 +1489,13 @@ pub const Window = extern struct {
         const priv = self.private();
         if (priv.tab_view.getNPages() == 0) {
             // If we have no pages left then we want to close window.
+
+            // If the tab overview is open, then we don't close the window
+            // because its a rather abrupt experience. This also fixes an
+            // issue where dragging out the last tab in the tab overview
+            // won't cause Ghostty to exit.
+            if (priv.tab_overview.getOpen() != 0) return;
+
             self.as(gtk.Window).close();
         }
     }

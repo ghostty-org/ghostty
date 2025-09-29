@@ -456,13 +456,19 @@ pub const Application = extern struct {
                 if (!config.@"quit-after-last-window-closed") break :q false;
 
                 // If the quit timer has expired, quit.
-                if (priv.quit_timer == .expired) break :q true;
+                if (priv.quit_timer == .expired) {
+                    log.debug("must_quit due to quit timer expired", .{});
+                    break :q true;
+                }
 
                 // If we have no windows attached to our app, also quit.
                 if (priv.requested_window and @as(
                     ?*glib.List,
                     self.as(gtk.Application).getWindows(),
-                ) == null) break :q true;
+                ) == null) {
+                    log.debug("must_quit due to no app windows", .{});
+                    break :q true;
+                }
 
                 // No quit conditions met
                 break :q false;
