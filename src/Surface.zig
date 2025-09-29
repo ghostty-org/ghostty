@@ -261,6 +261,7 @@ const DerivedConfig = struct {
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
     mouse_scroll_multiplier: f64,
+    mouse_scroll_single_event: bool,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?configpkg.OptionAsAlt,
@@ -331,6 +332,7 @@ const DerivedConfig = struct {
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
+            .mouse_scroll_single_event = config.@"mouse-scroll-single-event",
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
@@ -2947,7 +2949,17 @@ pub fn scrollCallback(
 
         // If we're scrolling up or down, then send a mouse event.
         if (self.io.terminal.flags.mouse_event != .none) {
-            for (0..@abs(y.delta)) |_| {
+            const y_events: usize = if (self.config.mouse_scroll_single_event)
+                (if (y.delta != 0) 1 else 0)
+            else
+                @abs(y.delta);
+
+            const x_events: usize = if (self.config.mouse_scroll_single_event)
+                (if (x.delta != 0) 1 else 0)
+            else
+                @abs(x.delta);
+
+            for (0..y_events) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (y.direction()) {
                     .up_right => .four,
@@ -2955,7 +2967,7 @@ pub fn scrollCallback(
                 }, .press, self.mouse.mods, pos);
             }
 
-            for (0..@abs(x.delta)) |_| {
+            for (0..x_events) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (x.direction()) {
                     .up_right => .six,
