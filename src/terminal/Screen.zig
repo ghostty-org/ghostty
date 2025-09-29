@@ -14,6 +14,7 @@ const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
 const StringMap = @import("StringMap.zig");
 const pagepkg = @import("page.zig");
+const cellpkg = @import("../renderer/cell.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
 const style = @import("style.zig");
@@ -9093,4 +9094,98 @@ test "Screen UTF8 cell map with blank prefix" {
         .x = 2,
         .y = 1,
     }, cell_map.items[3]);
+}
+
+test "Screen cell constraint widths" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 4, 1, 0);
+    defer s.deinit();
+
+    // for each case, the numbers in the comment denote expected
+    // constraint widths for the symbol-containing cells
+
+    // symbol->nothing: 2
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(2, cellpkg.constraintWidth(p0));
+        s.reset();
+    }
+
+    // symbol->character: 1
+    {
+        try s.testWriteString("z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(1, cellpkg.constraintWidth(p0));
+        s.reset();
+    }
+
+    // symbol->space: 2
+    {
+        try s.testWriteString(" z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(2, cellpkg.constraintWidth(p0));
+        s.reset();
+    }
+    // symbol->no-break space: 1
+    {
+        try s.testWriteString("\u{00a0}z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(1, cellpkg.constraintWidth(p0));
+        s.reset();
+    }
+
+    // symbol->end of row: 1
+    {
+        try s.testWriteString("   ");
+        const p3 = s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?;
+        try testing.expectEqual(1, cellpkg.constraintWidth(p3));
+        s.reset();
+    }
+
+    // character->symbol: 2
+    {
+        try s.testWriteString("z");
+        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        try testing.expectEqual(2, cellpkg.constraintWidth(p1));
+        s.reset();
+    }
+
+    // symbol->symbol: 1,1
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        try testing.expectEqual(1, cellpkg.constraintWidth(p0));
+        try testing.expectEqual(1, cellpkg.constraintWidth(p1));
+        s.reset();
+    }
+
+    // symbol->space->symbol: 2,2
+    {
+        try s.testWriteString(" ");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const p2 = s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        try testing.expectEqual(2, cellpkg.constraintWidth(p0));
+        try testing.expectEqual(2, cellpkg.constraintWidth(p2));
+        s.reset();
+    }
+
+    // symbol->powerline: 1  (dedicated test because powerline is special-cased in cellpkg)
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(1, cellpkg.constraintWidth(p0));
+        s.reset();
+    }
+
+    // powerline->symbol: 2  (dedicated test because powerline is special-cased in cellpkg)
+    {
+        try s.testWriteString("");
+        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        try testing.expectEqual(2, cellpkg.constraintWidth(p1));
+        s.reset();
+    }
 }
