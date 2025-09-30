@@ -314,7 +314,7 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
     };
 }
 
-pub fn collect(self: *Parser, c: u8) void {
+pub inline fn collect(self: *Parser, c: u8) void {
     if (self.intermediates_idx >= MAX_INTERMEDIATE) {
         log.warn("invalid intermediates count", .{});
         return;
@@ -324,7 +324,7 @@ pub fn collect(self: *Parser, c: u8) void {
     self.intermediates_idx += 1;
 }
 
-fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
+inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
     return switch (action) {
         .none, .ignore => null,
         .print => Action{ .print = c },
@@ -410,7 +410,7 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
     };
 }
 
-pub fn clear(self: *Parser) void {
+pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
     self.params_sep = .initEmpty();

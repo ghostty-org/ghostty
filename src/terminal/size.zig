@@ -31,7 +31,7 @@ pub fn Offset(comptime T: type) type {
         };
 
         /// Returns a pointer to the start of the data, properly typed.
-        pub fn ptr(self: Self, base: anytype) [*]T {
+        pub inline fn ptr(self: Self, base: anytype) [*]T {
             // The offset must be properly aligned for the type since
             // our return type is naturally aligned. We COULD modify this
             // to return arbitrary alignment, but its not something we need.

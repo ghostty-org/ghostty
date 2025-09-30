@@ -541,13 +541,13 @@ pub fn adjustCapacity(
     return new_node;
 }
 
-pub fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
+pub inline fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
     assert(self.cursor.x + n < self.pages.cols);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     return @ptrCast(cell + n);
 }
 
-pub fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
+pub inline fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
     assert(self.cursor.x >= n);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     return @ptrCast(cell - n);
@@ -965,7 +965,7 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
 
 /// Move the cursor down if we're not at the bottom of the screen. Otherwise
 /// scroll. Currently only used for testing.
-fn cursorDownOrScroll(self: *Screen) !void {
+inline fn cursorDownOrScroll(self: *Screen) !void {
     if (self.cursor.y + 1 < self.pages.rows) {
         self.cursorDown(1);
     } else {
@@ -1040,7 +1040,7 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
 /// page than the old AND we have a style or hyperlink set. In that case,
 /// we must release our old one and insert the new one, since styles are
 /// stored per-page.
-fn cursorChangePin(self: *Screen, new: Pin) void {
+inline fn cursorChangePin(self: *Screen, new: Pin) void {
     // Moving the cursor affects text run splitting (ligatures) so
     // we must mark the old and new page dirty. We do this as long
     // as the pins are not equal
@@ -1114,7 +1114,7 @@ fn cursorChangePin(self: *Screen, new: Pin) void {
 
 /// Mark the cursor position as dirty.
 /// TODO: test
-pub fn cursorMarkDirty(self: *Screen) void {
+pub inline fn cursorMarkDirty(self: *Screen) void {
     self.cursor.page_pin.markDirty();
 }
 
@@ -1166,7 +1166,7 @@ pub const Scroll = union(enum) {
 };
 
 /// Scroll the viewport of the terminal grid.
-pub fn scroll(self: *Screen, behavior: Scroll) void {
+pub inline fn scroll(self: *Screen, behavior: Scroll) void {
     defer self.assertIntegrity();
 
     // No matter what, scrolling marks our image state as dirty since
@@ -1185,7 +1185,7 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
 
 /// See PageList.scrollClear. In addition to that, we reset the cursor
 /// to be on top.
-pub fn scrollClear(self: *Screen) !void {
+pub inline fn scrollClear(self: *Screen) !void {
     defer self.assertIntegrity();
 
     try self.pages.scrollClear();
@@ -1198,14 +1198,14 @@ pub fn scrollClear(self: *Screen) !void {
 }
 
 /// Returns true if the viewport is scrolled to the bottom of the screen.
-pub fn viewportIsBottom(self: Screen) bool {
+pub inline fn viewportIsBottom(self: Screen) bool {
     return self.pages.viewport == .active;
 }
 
 /// Erase the region specified by tl and br, inclusive. This will physically
 /// erase the rows meaning the memory will be reclaimed (if the underlying
 /// page is empty) and other rows will be shifted up.
-pub fn eraseRows(
+pub inline fn eraseRows(
     self: *Screen,
     tl: point.Point,
     bl: ?point.Point,
@@ -1539,7 +1539,7 @@ pub fn splitCellBoundary(
 
 /// Returns the blank cell to use when doing terminal operations that
 /// require preserving the bg color.
-pub fn blankCell(self: *const Screen) Cell {
+pub inline fn blankCell(self: *const Screen) Cell {
     if (self.cursor.style_id == style.default_id) return .{};
     return self.cursor.style.bgCell() orelse .{};
 }
@@ -1557,7 +1557,7 @@ pub fn blankCell(self: *const Screen) Cell {
 /// probably means the system is in trouble anyways. I'd like to improve this
 /// in the future but it is not a priority particularly because this scenario
 /// (resize) is difficult.
-pub fn resize(
+pub inline fn resize(
     self: *Screen,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
@@ -1568,7 +1568,7 @@ pub fn resize(
 /// Resize the screen without any reflow. In this mode, columns/rows will
 /// be truncated as they are shrunk. If they are grown, the new space is filled
 /// with zeros.
-pub fn resizeWithoutReflow(
+pub inline fn resizeWithoutReflow(
     self: *Screen,
     cols: size.CellCountInt,
     rows: size.CellCountInt,

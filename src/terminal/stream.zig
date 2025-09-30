@@ -85,7 +85,7 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
 
-        fn nextSliceCapped(self: *Self, input: []const u8, cp_buf: []u32) !void {
+        inline fn nextSliceCapped(self: *Self, input: []const u8, cp_buf: []u32) !void {
             assert(input.len <= cp_buf.len);
 
             var offset: usize = 0;
@@ -142,7 +142,7 @@ pub fn Stream(comptime Handler: type) type {
         ///
         /// Expects input to start with 0x1B, use consumeUntilGround first
         /// if the stream may be in the middle of an escape sequence.
-        fn consumeAllEscapes(self: *Self, input: []const u8) !usize {
+        inline fn consumeAllEscapes(self: *Self, input: []const u8) !usize {
             var offset: usize = 0;
             while (input[offset] == 0x1B) {
                 self.parser.state = .escape;
@@ -156,7 +156,7 @@ pub fn Stream(comptime Handler: type) type {
 
         /// Parses escape sequences until the parser reaches the ground state.
         /// Returns the number of bytes consumed from the provided input.
-        fn consumeUntilGround(self: *Self, input: []const u8) !usize {
+        inline fn consumeUntilGround(self: *Self, input: []const u8) !usize {
             var offset: usize = 0;
             while (self.parser.state != .ground) {
                 if (offset >= input.len) return input.len;
@@ -169,7 +169,7 @@ pub fn Stream(comptime Handler: type) type {
         /// Like nextSlice but takes one byte and is necessarily a scalar
         /// operation that can't use SIMD. Prefer nextSlice if you can and
         /// try to get multiple bytes at once.
-        pub fn next(self: *Self, c: u8) !void {
+        pub inline fn next(self: *Self, c: u8) !void {
             // The scalar path can be responsible for decoding UTF-8.
             if (self.parser.state == .ground) {
                 try self.nextUtf8(c);
@@ -183,7 +183,7 @@ pub fn Stream(comptime Handler: type) type {
         ///
         /// This assumes we're in the UTF-8 decoding state. If we may not
         /// be in the UTF-8 decoding state call nextSlice or next.
-        fn nextUtf8(self: *Self, c: u8) !void {
+        inline fn nextUtf8(self: *Self, c: u8) !void {
             assert(self.parser.state == .ground);
 
             const res = self.utf8decoder.next(c);
@@ -276,7 +276,14 @@ pub fn Stream(comptime Handler: type) type {
                 return;
             }
 
-            const actions = self.parser.next(c);
+            // We explicitly inline this call here for performance reasons.
+            //
+            // We do this rather than mark Parser.next as inline because doing
+            // that causes weird behavior in some tests- I'm not sure if they
+            // miscompile or it's just very counter-intuitive comptime stuff,
+            // but regardless, this is the easy solution.
+            const actions = @call(.always_inline, Parser.next, .{ &self.parser, c });
+
             for (actions) |action_opt| {
                 const action = action_opt orelse continue;
                 if (comptime debug) log.info("action: {}", .{action});
@@ -324,13 +331,13 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
 
-        pub fn print(self: *Self, c: u21) !void {
+        pub inline fn print(self: *Self, c: u21) !void {
             if (@hasDecl(T, "print")) {
                 try self.handler.print(c);
             }
         }
 
-        pub fn execute(self: *Self, c: u8) !void {
+        pub inline fn execute(self: *Self, c: u8) !void {
             const c0: ansi.C0 = @enumFromInt(c);
             if (comptime debug) log.info("execute: {}", .{c0});
             switch (c0) {
@@ -381,7 +388,7 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
 
-        fn csiDispatch(self: *Self, input: Parser.Action.CSI) !void {
+        inline fn csiDispatch(self: *Self, input: Parser.Action.CSI) !void {
             switch (input.final) {
                 // CUU - Cursor Up
                 'A', 'k' => switch (input.intermediates.len) {
@@ -1488,7 +1495,7 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
 
-        fn oscDispatch(self: *Self, cmd: osc.Command) !void {
+        inline fn oscDispatch(self: *Self, cmd: osc.Command) !void {
             switch (cmd) {
                 .change_window_title => |title| {
                     if (@hasDecl(T, "changeWindowTitle")) {
@@ -1633,7 +1640,7 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
 
-        fn configureCharset(
+        inline fn configureCharset(
             self: *Self,
             intermediates: []const u8,
             set: charsets.Charset,
@@ -1667,7 +1674,7 @@ pub fn Stream(comptime Handler: type) type {
             });
         }
 
-        fn escDispatch(
+        inline fn escDispatch(
             self: *Self,
             action: Parser.Action.ESC,
         ) !void {

@@ -1859,7 +1859,7 @@ pub fn maxSize(self: *const PageList) usize {
 }
 
 /// Returns true if we need to grow into our active area.
-fn growRequiredForActive(self: *const PageList) bool {
+inline fn growRequiredForActive(self: *const PageList) bool {
     var rows: usize = 0;
     var page = self.pages.last;
     while (page) |p| : (page = p.prev) {
@@ -2045,7 +2045,7 @@ pub fn adjustCapacity(
 
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
-fn createPage(
+inline fn createPage(
     self: *PageList,
     cap: Capacity,
 ) Allocator.Error!*List.Node {
@@ -2053,7 +2053,7 @@ fn createPage(
     return try createPageExt(&self.pool, cap, &self.page_size);
 }
 
-fn createPageExt(
+inline fn createPageExt(
     pool: *MemoryPool,
     cap: Capacity,
     total_size: ?*usize,
@@ -3392,7 +3392,7 @@ pub const Pin = struct {
     y: size.CellCountInt = 0,
     x: size.CellCountInt = 0,
 
-    pub fn rowAndCell(self: Pin) struct {
+    pub inline fn rowAndCell(self: Pin) struct {
         row: *pagepkg.Row,
         cell: *pagepkg.Cell,
     } {
@@ -3405,7 +3405,7 @@ pub const Pin = struct {
     /// Returns the cells for the row that this pin is on. The subset determines
     /// what subset of the cells are returned. The "left/right" subsets are
     /// inclusive of the x coordinate of the pin.
-    pub fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
+    pub inline fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
         const rac = self.rowAndCell();
         const all = self.node.data.getCells(rac.row);
         return switch (subset) {
@@ -3417,12 +3417,12 @@ pub const Pin = struct {
 
     /// Returns the grapheme codepoints for the given cell. These are only
     /// the EXTRA codepoints and not the first codepoint.
-    pub fn grapheme(self: Pin, cell: *const pagepkg.Cell) ?[]u21 {
+    pub inline fn grapheme(self: Pin, cell: *const pagepkg.Cell) ?[]u21 {
         return self.node.data.lookupGrapheme(cell);
     }
 
     /// Returns the style for the given cell in this pin.
-    pub fn style(self: Pin, cell: *const pagepkg.Cell) stylepkg.Style {
+    pub inline fn style(self: Pin, cell: *const pagepkg.Cell) stylepkg.Style {
         if (cell.style_id == stylepkg.default_id) return .{};
         return self.node.data.styles.get(
             self.node.data.memory,
@@ -3431,12 +3431,12 @@ pub const Pin = struct {
     }
 
     /// Check if this pin is dirty.
-    pub fn isDirty(self: Pin) bool {
+    pub inline fn isDirty(self: Pin) bool {
         return self.node.data.isRowDirty(self.y);
     }
 
     /// Mark this pin location as dirty.
-    pub fn markDirty(self: Pin) void {
+    pub inline fn markDirty(self: Pin) void {
         var set = self.node.data.dirtyBitSet();
         set.set(self.y);
     }
@@ -3505,7 +3505,7 @@ pub const Pin = struct {
     /// pointFromPin and building up the iterator from points.
     ///
     /// The limit pin is inclusive.
-    pub fn pageIterator(
+    pub inline fn pageIterator(
         self: Pin,
         direction: Direction,
         limit: ?Pin,
@@ -3527,7 +3527,7 @@ pub const Pin = struct {
         };
     }
 
-    pub fn rowIterator(
+    pub inline fn rowIterator(
         self: Pin,
         direction: Direction,
         limit: ?Pin,
@@ -3544,7 +3544,7 @@ pub const Pin = struct {
         };
     }
 
-    pub fn cellIterator(
+    pub inline fn cellIterator(
         self: Pin,
         direction: Direction,
         limit: ?Pin,
@@ -3645,14 +3645,14 @@ pub const Pin = struct {
         return false;
     }
 
-    pub fn eql(self: Pin, other: Pin) bool {
+    pub inline fn eql(self: Pin, other: Pin) bool {
         return self.node == other.node and
             self.y == other.y and
             self.x == other.x;
     }
 
     /// Move the pin left n columns. n must fit within the size.
-    pub fn left(self: Pin, n: usize) Pin {
+    pub inline fn left(self: Pin, n: usize) Pin {
         assert(n <= self.x);
         var result = self;
         result.x -= std.math.cast(size.CellCountInt, n) orelse result.x;
@@ -3660,7 +3660,7 @@ pub const Pin = struct {
     }
 
     /// Move the pin right n columns. n must fit within the size.
-    pub fn right(self: Pin, n: usize) Pin {
+    pub inline fn right(self: Pin, n: usize) Pin {
         assert(self.x + n < self.node.data.size.cols);
         var result = self;
         result.x +|= std.math.cast(size.CellCountInt, n) orelse
@@ -3669,14 +3669,14 @@ pub const Pin = struct {
     }
 
     /// Move the pin left n columns, stopping at the start of the row.
-    pub fn leftClamp(self: Pin, n: size.CellCountInt) Pin {
+    pub inline fn leftClamp(self: Pin, n: size.CellCountInt) Pin {
         var result = self;
         result.x -|= n;
         return result;
     }
 
     /// Move the pin right n columns, stopping at the end of the row.
-    pub fn rightClamp(self: Pin, n: size.CellCountInt) Pin {
+    pub inline fn rightClamp(self: Pin, n: size.CellCountInt) Pin {
         var result = self;
         result.x = @min(self.x +| n, self.node.data.size.cols - 1);
         return result;
@@ -3738,7 +3738,7 @@ pub const Pin = struct {
 
     /// Move the pin down a certain number of rows, or return null if
     /// the pin goes beyond the end of the screen.
-    pub fn down(self: Pin, n: usize) ?Pin {
+    pub inline fn down(self: Pin, n: usize) ?Pin {
         return switch (self.downOverflow(n)) {
             .offset => |v| v,
             .overflow => null,
@@ -3747,7 +3747,7 @@ pub const Pin = struct {
 
     /// Move the pin up a certain number of rows, or return null if
     /// the pin goes beyond the start of the screen.
-    pub fn up(self: Pin, n: usize) ?Pin {
+    pub inline fn up(self: Pin, n: usize) ?Pin {
         return switch (self.upOverflow(n)) {
             .offset => |v| v,
             .overflow => null,

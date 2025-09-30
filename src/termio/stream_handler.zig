@@ -186,19 +186,19 @@ pub const StreamHandler = struct {
         _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
     }
 
-    pub fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
+    pub inline fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
         var cmd = self.dcs.hook(self.alloc, dcs) orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
     }
 
-    pub fn dcsPut(self: *StreamHandler, byte: u8) !void {
+    pub inline fn dcsPut(self: *StreamHandler, byte: u8) !void {
         var cmd = self.dcs.put(byte) orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
     }
 
-    pub fn dcsUnhook(self: *StreamHandler) !void {
+    pub inline fn dcsUnhook(self: *StreamHandler) !void {
         var cmd = self.dcs.unhook() orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
@@ -293,11 +293,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn apcStart(self: *StreamHandler) !void {
+    pub inline fn apcStart(self: *StreamHandler) !void {
         self.apc.start();
     }
 
-    pub fn apcPut(self: *StreamHandler, byte: u8) !void {
+    pub inline fn apcPut(self: *StreamHandler, byte: u8) !void {
         self.apc.feed(self.alloc, byte);
     }
 
@@ -322,23 +322,23 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn print(self: *StreamHandler, ch: u21) !void {
+    pub inline fn print(self: *StreamHandler, ch: u21) !void {
         try self.terminal.print(ch);
     }
 
-    pub fn printRepeat(self: *StreamHandler, count: usize) !void {
+    pub inline fn printRepeat(self: *StreamHandler, count: usize) !void {
         try self.terminal.printRepeat(count);
     }
 
-    pub fn bell(self: *StreamHandler) !void {
+    pub inline fn bell(self: *StreamHandler) !void {
         self.surfaceMessageWriter(.ring_bell);
     }
 
-    pub fn backspace(self: *StreamHandler) !void {
+    pub inline fn backspace(self: *StreamHandler) !void {
         self.terminal.backspace();
     }
 
-    pub fn horizontalTab(self: *StreamHandler, count: u16) !void {
+    pub inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTab();
@@ -346,7 +346,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
+    pub inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTabBack();
@@ -354,61 +354,61 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn linefeed(self: *StreamHandler) !void {
+    pub inline fn linefeed(self: *StreamHandler) !void {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
     }
 
-    pub fn carriageReturn(self: *StreamHandler) !void {
+    pub inline fn carriageReturn(self: *StreamHandler) !void {
         self.terminal.carriageReturn();
     }
 
-    pub fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
+    pub inline fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
         self.terminal.cursorLeft(amount);
     }
 
-    pub fn setCursorRight(self: *StreamHandler, amount: u16) !void {
+    pub inline fn setCursorRight(self: *StreamHandler, amount: u16) !void {
         self.terminal.cursorRight(amount);
     }
 
-    pub fn setCursorDown(self: *StreamHandler, amount: u16, carriage: bool) !void {
+    pub inline fn setCursorDown(self: *StreamHandler, amount: u16, carriage: bool) !void {
         self.terminal.cursorDown(amount);
         if (carriage) self.terminal.carriageReturn();
     }
 
-    pub fn setCursorUp(self: *StreamHandler, amount: u16, carriage: bool) !void {
+    pub inline fn setCursorUp(self: *StreamHandler, amount: u16, carriage: bool) !void {
         self.terminal.cursorUp(amount);
         if (carriage) self.terminal.carriageReturn();
     }
 
-    pub fn setCursorCol(self: *StreamHandler, col: u16) !void {
+    pub inline fn setCursorCol(self: *StreamHandler, col: u16) !void {
         self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, col);
     }
 
-    pub fn setCursorColRelative(self: *StreamHandler, offset: u16) !void {
+    pub inline fn setCursorColRelative(self: *StreamHandler, offset: u16) !void {
         self.terminal.setCursorPos(
             self.terminal.screen.cursor.y + 1,
             self.terminal.screen.cursor.x + 1 +| offset,
         );
     }
 
-    pub fn setCursorRow(self: *StreamHandler, row: u16) !void {
+    pub inline fn setCursorRow(self: *StreamHandler, row: u16) !void {
         self.terminal.setCursorPos(row, self.terminal.screen.cursor.x + 1);
     }
 
-    pub fn setCursorRowRelative(self: *StreamHandler, offset: u16) !void {
+    pub inline fn setCursorRowRelative(self: *StreamHandler, offset: u16) !void {
         self.terminal.setCursorPos(
             self.terminal.screen.cursor.y + 1 +| offset,
             self.terminal.screen.cursor.x + 1,
         );
     }
 
-    pub fn setCursorPos(self: *StreamHandler, row: u16, col: u16) !void {
+    pub inline fn setCursorPos(self: *StreamHandler, row: u16, col: u16) !void {
         self.terminal.setCursorPos(row, col);
     }
 
-    pub fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
+    pub inline fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
         if (mode == .complete) {
             // Whenever we erase the full display, scroll to bottom.
             try self.terminal.scrollViewport(.{ .bottom = {} });
@@ -418,48 +418,48 @@ pub const StreamHandler = struct {
         self.terminal.eraseDisplay(mode, protected);
     }
 
-    pub fn eraseLine(self: *StreamHandler, mode: terminal.EraseLine, protected: bool) !void {
+    pub inline fn eraseLine(self: *StreamHandler, mode: terminal.EraseLine, protected: bool) !void {
         self.terminal.eraseLine(mode, protected);
     }
 
-    pub fn deleteChars(self: *StreamHandler, count: usize) !void {
+    pub inline fn deleteChars(self: *StreamHandler, count: usize) !void {
         self.terminal.deleteChars(count);
     }
 
-    pub fn eraseChars(self: *StreamHandler, count: usize) !void {
+    pub inline fn eraseChars(self: *StreamHandler, count: usize) !void {
         self.terminal.eraseChars(count);
     }
 
-    pub fn insertLines(self: *StreamHandler, count: usize) !void {
+    pub inline fn insertLines(self: *StreamHandler, count: usize) !void {
         self.terminal.insertLines(count);
     }
 
-    pub fn insertBlanks(self: *StreamHandler, count: usize) !void {
+    pub inline fn insertBlanks(self: *StreamHandler, count: usize) !void {
         self.terminal.insertBlanks(count);
     }
 
-    pub fn deleteLines(self: *StreamHandler, count: usize) !void {
+    pub inline fn deleteLines(self: *StreamHandler, count: usize) !void {
         self.terminal.deleteLines(count);
     }
 
-    pub fn reverseIndex(self: *StreamHandler) !void {
+    pub inline fn reverseIndex(self: *StreamHandler) !void {
         self.terminal.reverseIndex();
     }
 
-    pub fn index(self: *StreamHandler) !void {
+    pub inline fn index(self: *StreamHandler) !void {
         try self.terminal.index();
     }
 
-    pub fn nextLine(self: *StreamHandler) !void {
+    pub inline fn nextLine(self: *StreamHandler) !void {
         try self.terminal.index();
         self.terminal.carriageReturn();
     }
 
-    pub fn setTopAndBottomMargin(self: *StreamHandler, top: u16, bot: u16) !void {
+    pub inline fn setTopAndBottomMargin(self: *StreamHandler, top: u16, bot: u16) !void {
         self.terminal.setTopAndBottomMargin(top, bot);
     }
 
-    pub fn setLeftAndRightMarginAmbiguous(self: *StreamHandler) !void {
+    pub inline fn setLeftAndRightMarginAmbiguous(self: *StreamHandler) !void {
         if (self.terminal.modes.get(.enable_left_and_right_margin)) {
             try self.setLeftAndRightMargin(0, 0);
         } else {
@@ -467,7 +467,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn setLeftAndRightMargin(self: *StreamHandler, left: u16, right: u16) !void {
+    pub inline fn setLeftAndRightMargin(self: *StreamHandler, left: u16, right: u16) !void {
         self.terminal.setLeftAndRightMargin(left, right);
     }
 
@@ -504,12 +504,12 @@ pub const StreamHandler = struct {
         self.messageWriter(msg);
     }
 
-    pub fn saveMode(self: *StreamHandler, mode: terminal.Mode) !void {
+    pub inline fn saveMode(self: *StreamHandler, mode: terminal.Mode) !void {
         // log.debug("save mode={}", .{mode});
         self.terminal.modes.save(mode);
     }
 
-    pub fn restoreMode(self: *StreamHandler, mode: terminal.Mode) !void {
+    pub inline fn restoreMode(self: *StreamHandler, mode: terminal.Mode) !void {
         // For restore mode we have to restore but if we set it, we
         // always have to call setMode because setting some modes have
         // side effects and we want to make sure we process those.
@@ -696,11 +696,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn setMouseShiftCapture(self: *StreamHandler, v: bool) !void {
+    pub inline fn setMouseShiftCapture(self: *StreamHandler, v: bool) !void {
         self.terminal.flags.mouse_shift_capture = if (v) .true else .false;
     }
 
-    pub fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {
+    pub inline fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {
         switch (attr) {
             .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
 
@@ -709,11 +709,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
+    pub inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
         try self.terminal.screen.startHyperlink(uri, id);
     }
 
-    pub fn endHyperlink(self: *StreamHandler) !void {
+    pub inline fn endHyperlink(self: *StreamHandler) !void {
         self.terminal.screen.endHyperlink();
     }
 
@@ -832,31 +832,31 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn setProtectedMode(self: *StreamHandler, mode: terminal.ProtectedMode) !void {
+    pub inline fn setProtectedMode(self: *StreamHandler, mode: terminal.ProtectedMode) !void {
         self.terminal.setProtectedMode(mode);
     }
 
-    pub fn decaln(self: *StreamHandler) !void {
+    pub inline fn decaln(self: *StreamHandler) !void {
         try self.terminal.decaln();
     }
 
-    pub fn tabClear(self: *StreamHandler, cmd: terminal.TabClear) !void {
+    pub inline fn tabClear(self: *StreamHandler, cmd: terminal.TabClear) !void {
         self.terminal.tabClear(cmd);
     }
 
-    pub fn tabSet(self: *StreamHandler) !void {
+    pub inline fn tabSet(self: *StreamHandler) !void {
         self.terminal.tabSet();
     }
 
-    pub fn tabReset(self: *StreamHandler) !void {
+    pub inline fn tabReset(self: *StreamHandler) !void {
         self.terminal.tabReset();
     }
 
-    pub fn saveCursor(self: *StreamHandler) !void {
+    pub inline fn saveCursor(self: *StreamHandler) !void {
         self.terminal.saveCursor();
     }
 
-    pub fn restoreCursor(self: *StreamHandler) !void {
+    pub inline fn restoreCursor(self: *StreamHandler) !void {
         try self.terminal.restoreCursor();
     }
 
@@ -865,11 +865,11 @@ pub const StreamHandler = struct {
         self.messageWriter(try termio.Message.writeReq(self.alloc, self.enquiry_response));
     }
 
-    pub fn scrollDown(self: *StreamHandler, count: usize) !void {
+    pub inline fn scrollDown(self: *StreamHandler, count: usize) !void {
         self.terminal.scrollDown(count);
     }
 
-    pub fn scrollUp(self: *StreamHandler, count: usize) !void {
+    pub inline fn scrollUp(self: *StreamHandler, count: usize) !void {
         self.terminal.scrollUp(count);
     }
 
@@ -995,7 +995,7 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .set_title = buf });
     }
 
-    pub fn setMouseShape(
+    pub inline fn setMouseShape(
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
@@ -1037,22 +1037,22 @@ pub const StreamHandler = struct {
         });
     }
 
-    pub fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) !void {
+    pub inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) !void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt);
         self.terminal.flags.shell_redraws_prompt = redraw;
     }
 
-    pub fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) !void {
+    pub inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) !void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt_continuation);
     }
 
-    pub fn promptEnd(self: *StreamHandler) !void {
+    pub inline fn promptEnd(self: *StreamHandler) !void {
         self.terminal.markSemanticPrompt(.input);
     }
 
-    pub fn endOfInput(self: *StreamHandler) !void {
+    pub inline fn endOfInput(self: *StreamHandler) !void {
         self.terminal.markSemanticPrompt(.command);
     }
 

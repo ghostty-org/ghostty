@@ -95,6 +95,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Allocator that can be used
         alloc: std.mem.Allocator,
 
+        /// MemoryPool for PageList pages which we use when cloning the screen.
+        page_pool: terminal.PageList.MemoryPool,
+
         /// This mutex must be held whenever any state used in `drawFrame` is
         /// being modified, and also when it's being accessed in `drawFrame`.
         draw_mutex: std.Thread.Mutex = .{},
@@ -676,8 +679,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             };
             errdefer if (display_link) |v| v.release();
 
+            // We preheat the page pool with 4 pages- this is an arbitrary
+            // choice based on what seems reasonable for the number of pages
+            // used by the viewport area.
+            var page_pool: terminal.PageList.MemoryPool = try .init(
+                alloc,
+                std.heap.page_allocator,
+                4,
+            );
+            errdefer page_pool.deinit();
+
             var result: Self = .{
                 .alloc = alloc,
+                .page_pool = page_pool,
                 .config = options.config,
                 .surface_mailbox = options.surface_mailbox,
                 .grid_metrics = font_critical.metrics,
@@ -760,6 +774,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            self.page_pool.deinit();
+
             self.swap_chain.deinit();
 
             if (DisplayLink != void) {
@@ -1092,6 +1108,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 full_rebuild: bool,
             };
 
+            // Empty our page pool, but retain capacity.
+            self.page_pool.reset(.retain_capacity);
+
+            var arena: std.heap.ArenaAllocator = .init(self.alloc);
+            defer arena.deinit();
+            const alloc = arena.allocator();
+
             // Update all our data as tightly as possible within the mutex.
             var critical: Critical = critical: {
                 // const start = try std.time.Instant.now();
@@ -1148,12 +1171,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // We used to share terminal state, but we've since learned through
                 // analysis that it is faster to copy the terminal state than to
                 // hold the lock while rebuilding GPU cells.
-                var screen_copy = try state.terminal.screen.clone(
-                    self.alloc,
+                const screen_copy = try state.terminal.screen.clonePool(
+                    alloc,
+                    &self.page_pool,
                     .{ .viewport = .{} },
                     null,
                 );
-                errdefer screen_copy.deinit();
 
                 // Whether to draw our cursor or not.
                 const cursor_style = if (state.terminal.flags.password_input)
@@ -1169,9 +1192,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const preedit: ?renderer.State.Preedit = preedit: {
                     if (cursor_style == null) break :preedit null;
                     const p = state.preedit orelse break :preedit null;
-                    break :preedit try p.clone(self.alloc);
+                    break :preedit try p.clone(alloc);
                 };
-                errdefer if (preedit) |p| p.deinit(self.alloc);
 
                 // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
                 // We only do this if the Kitty image state is dirty meaning only if
@@ -1241,10 +1263,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .full_rebuild = full_rebuild,
                 };
             };
-            defer {
-                critical.screen.deinit();
-                if (critical.preedit) |p| p.deinit(self.alloc);
-            }
 
             // Build our GPU cells
             try self.rebuildCells(
