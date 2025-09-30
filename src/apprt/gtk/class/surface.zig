@@ -51,6 +51,13 @@ pub const Surface = extern struct {
     pub const Tree = datastruct.SplitTree(Self);
 
     pub const properties = struct {
+        /// This property is set to true when the bell is ringing. Note that
+        /// this property will only emit a changed signal when there is a
+        /// full state change. If a bell is ringing and another bell event
+        /// comes through, the change notification will NOT be emitted.
+        ///
+        /// If you need to know every scenario the bell is triggered,
+        /// listen to the `bell` signal instead.
         pub const @"bell-ringing" = struct {
             pub const name = "bell-ringing";
             const impl = gobject.ext.defineProperty(
@@ -296,6 +303,19 @@ pub const Surface = extern struct {
     };
 
     pub const signals = struct {
+        /// Emitted whenever the bell event is received. Unlike the
+        /// `bell-ringing` property, this is emitted every time the event
+        /// is received and not just on state changes.
+        pub const bell = struct {
+            pub const name = "bell";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
         /// Emitted whenever the surface would like to be closed for any
         /// reason.
         ///
@@ -1674,6 +1694,16 @@ pub const Surface = extern struct {
     }
 
     pub fn setBellRinging(self: *Self, ringing: bool) void {
+        // Prevent duplicate change notifications if the signals we emit
+        // in this function cause this state to change again.
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+
+        // Logic around bell reaction happens on every event even if we're
+        // already in the ringing state.
+        if (ringing) self.ringBell();
+
+        // Property change only happens on actual state change
         const priv = self.private();
         if (priv.bell_ringing == ringing) return;
         priv.bell_ringing = ringing;
@@ -1858,20 +1888,26 @@ pub const Surface = extern struct {
         self.as(gtk.Widget).setCursorFromName(name.ptr);
     }
 
-    fn propBellRinging(
-        self: *Self,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
+    /// Handle bell features that need to happen every time a BEL is received
+    /// Currently this is audio and system but this could change in the future.
+    fn ringBell(self: *Self) void {
         const priv = self.private();
-        if (!priv.bell_ringing) return;
+
+        // Emit the signal
+        signals.bell.impl.emit(
+            self,
+            null,
+            .{},
+            null,
+        );
 
         // Activate actions if they exist
         _ = self.as(gtk.Widget).activateAction("tab.ring-bell", null);
         _ = self.as(gtk.Widget).activateAction("win.ring-bell", null);
 
-        // Do our sound
         const config = if (priv.config) |c| c.get() else return;
+
+        // Do our sound
         if (config.@"bell-features".audio) audio: {
             const config_path = config.@"bell-audio-path" orelse break :audio;
             const path, const required = switch (config_path) {
@@ -2859,7 +2895,6 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
-            class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
 
@@ -2884,6 +2919,7 @@ pub const Surface = extern struct {
             });
 
             // Signals
+            signals.bell.impl.register(.{});
             signals.@"close-request".impl.register(.{});
             signals.@"clipboard-read".impl.register(.{});
             signals.@"clipboard-write".impl.register(.{});
