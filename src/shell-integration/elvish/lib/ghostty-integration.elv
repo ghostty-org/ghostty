@@ -196,6 +196,11 @@
     set edit:before-readline = (conj $edit:before-readline $beam~)
     set edit:after-readline  = (conj $edit:after-readline {|_| block })
   }
+  if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
+    if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {
+        set paths = [$@paths $E:GHOSTTY_BIN_DIR]
+    }
+  }
   if (and (has-value $features sudo) (not-eq "" $E:TERMINFO) (has-external sudo)) {
     edit:add-var sudo~ $sudo-with-terminfo~
   }

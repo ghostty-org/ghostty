@@ -73,6 +73,13 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
   builtin unset GHOSTTY_BASH_RCFILE
 fi
 
+# Add Ghostty binary to PATH if the path feature is enabled
+if [[ "$GHOSTTY_SHELL_FEATURES" == *"path"* && -n "$GHOSTTY_BIN_DIR" ]]; then
+  if [[ ":$PATH:" != *":$GHOSTTY_BIN_DIR:"* ]]; then
+    export PATH="$PATH:$GHOSTTY_BIN_DIR"
+  fi
+fi
+
 # Sudo
 if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
   # Wrap `sudo` command to ensure Ghostty terminfo is preserved.

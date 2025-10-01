@@ -219,8 +219,8 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true });
-        try testing.expectEqualStrings("cursor,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true });
+        try testing.expectEqualStrings("cursor,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
     // Test: all features disabled
@@ -228,7 +228,7 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false });
+        try setupFeatures(&env, .{ .cursor = false, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false });
         try testing.expect(env.get("GHOSTTY_SHELL_FEATURES") == null);
     }
 
@@ -237,7 +237,7 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false });
+        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false });
         try testing.expectEqualStrings("ssh-env,sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 }

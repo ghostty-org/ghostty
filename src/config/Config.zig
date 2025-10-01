@@ -2350,6 +2350,11 @@ keybind: Keybinds = .{},
 ///     cache manually using various arguments.
 ///     (Available since: 1.2.0)
 ///
+///   * `path` - Add Ghostty's binary directory to PATH. This ensures the `ghostty`
+///     command is available in the shell even if shell init scripts reset PATH.
+///     This is particularly useful on macOS where PATH is often overridden by
+///     system scripts. The directory is only added if not already present.
+///
 /// SSH features work independently and can be combined for optimal experience:
 /// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
 /// terminfo on remote hosts and use `xterm-ghostty` as TERM, falling back to
@@ -6985,6 +6990,7 @@ pub const ShellIntegrationFeatures = packed struct {
     title: bool = true,
     @"ssh-env": bool = false,
     @"ssh-terminfo": bool = false,
+    path: bool = true,
 };
 
 pub const RepeatableCommand = struct {
