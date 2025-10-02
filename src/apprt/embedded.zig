@@ -1630,6 +1630,50 @@ pub const CAPI = struct {
         };
     }
 
+    /// Return the content rows information a surface has.
+    export fn ghostty_surface_total_content_rows(surface: *Surface) u32 {
+        // First, collect all pages in order to process them as one continuous buffer
+        var total_rows: u32 = 0;
+        var node = surface.core_surface.io.terminal.screen.pages.pages.first;
+        while (node) |n| {
+            total_rows += n.data.size.rows;
+            node = n.next;
+        }
+
+        if (total_rows == 0) return 0;
+
+        // Now check from the end backwards to find the last row with actual text
+        var rows_checked: u32 = 0;
+        node = surface.core_surface.io.terminal.screen.pages.pages.last;
+
+        while (node) |n| {
+            const page = &n.data;
+            const rows = page.rows.ptr(page.memory);
+
+            // Check rows in this page from bottom to top
+            var i = page.size.rows;
+            while (i > 0) {
+                i -= 1;
+                rows_checked += 1;
+
+                const row = &rows[i];
+                const cells = page.getCells(row);
+
+                // Check if this row has any cell with actual text content
+                for (cells) |cell| {
+                    if (cell.hasText()) {
+                        // Found a cell with text, this is our last content row
+                        return total_rows - rows_checked + 1;
+                    }
+                }
+            }
+            node = n.prev;
+        }
+
+        // All rows were empty
+        return 0;
+    }
+
     /// Update the color scheme of the surface.
     export fn ghostty_surface_set_color_scheme(surface: *Surface, scheme_raw: c_int) void {
         const scheme = std.meta.intToEnum(apprt.ColorScheme, scheme_raw) catch {
