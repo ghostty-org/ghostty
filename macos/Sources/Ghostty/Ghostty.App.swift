@@ -115,6 +115,18 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
+        static func openConfigWindow() {
+            #if os(macOS)
+            guard let ghosttyApp = (NSApp.delegate as? AppDelegate)?.ghostty.app else {
+                return
+            }
+            let controller = SettingsController(ghosttyApp: ghosttyApp)
+            controller.show(sender: self)
+            #else
+            fatalError("Unsupported platform for opening config file")
+            #endif
+        }
+
         static func openConfig() {
             let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
@@ -529,7 +541,7 @@ extension Ghostty {
                 pwdChanged(app, target: target, v: action.action.pwd)
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
-                openConfig()
+                openConfigWindow()
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
                 toggleFloatWindow(app, target: target, mode: action.action.float_window)
