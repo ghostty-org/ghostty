@@ -42,6 +42,22 @@ extension Backport where Content: View {
         return content
         #endif
     }
+
+    @MainActor @preconcurrency func backgroundExtensionEffect(isEnabled: Bool = true) -> some View {
+        if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, *) {
+            return content.backgroundExtensionEffect(isEnabled: isEnabled)
+        } else {
+            return content
+        }
+    }
+
+    nonisolated func scrollEdgeEffectStyle(_ style: BackportScrollEdgeEffectStyle?, for edge: Edge.Set) -> some View {
+        if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, *) {
+            return content.scrollEdgeEffectStyle(style?.official, for: edge)
+        } else {
+            return content
+        }
+    }
 }
 
 enum BackportVisibility {
@@ -59,6 +75,18 @@ enum BackportVisibility {
     }
 }
 
+enum BackportScrollEdgeEffectStyle: Hashable, Sendable {
+    case automatic, hard, soft
+
+    @available(iOS 26.0, macOS 26.0, tvOS 26.0, watchOS 26.0, *)
+    var official: ScrollEdgeEffectStyle {
+        switch self {
+        case .automatic: return .automatic
+        case .hard: return .hard
+        case .soft: return .soft
+        }
+    }
+}
 enum BackportPointerStyle {
     case `default`
     case grabIdle
