@@ -2875,7 +2875,7 @@ keybind: Keybinds = .{},
 ///
 /// Note: This configuration is required when `macos-icon` is set to
 /// `custom`
-@"macos-custom-icon": ?[]const u8 = null,
+@"macos-custom-icon": ?[:0]const u8 = null,
 
 /// The material to use for the frame of the macOS app icon.
 ///
