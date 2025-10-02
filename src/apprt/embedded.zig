@@ -1674,6 +1674,16 @@ pub const CAPI = struct {
         return 0;
     }
 
+    /// Return the horizontal scale factor information a surface has.
+    export fn ghostty_surface_scale_factor_x(surface: *Surface) f32 {
+        return surface.content_scale.x;
+    }
+
+    /// Return the vertical scale factor information a surface has.
+    export fn ghostty_surface_scale_factor_y(surface: *Surface) f32 {
+        return surface.content_scale.y;
+    }
+
     /// Update the color scheme of the surface.
     export fn ghostty_surface_set_color_scheme(surface: *Surface, scheme_raw: c_int) void {
         const scheme = std.meta.intToEnum(apprt.ColorScheme, scheme_raw) catch {
