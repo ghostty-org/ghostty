@@ -18,6 +18,8 @@ const SMALL_LIST_THRESHOLD = 10;
 
 const ColorScheme = enum { all, dark, light };
 
+const ListThemeError = error{ BadResource, NoThemesFound };
+
 pub const Options = struct {
     /// If true, print the full path to the theme.
     path: bool = false,
@@ -113,9 +115,6 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
         try args.parse(Options, gpa_alloc, &opts, &iter);
     }
 
-    var arena = std.heap.ArenaAllocator.init(gpa_alloc);
-    const alloc = arena.allocator();
-
     var stdout_buf: [4096]u8 = undefined;
     var stdout_file: std.fs.File = .stdout();
     var stdout_writer = stdout_file.writer(&stdout_buf);
@@ -125,10 +124,48 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
     const stderr = &stderr_writer.interface;
 
+    const themes = get_theme_list(gpa_alloc) catch |err| switch (err) {
+        ListThemeError.BadResource => {
+            try stderr.print("Could not find the Ghostty resources directory. Please ensure " ++
+                "that Ghostty is installed correctly.\n", .{});
+            return 1;
+        },
+        else => {
+            try stderr.print("No themes found, check to make sure that the themes were installed correctly.", .{});
+            return 1;
+        },
+    };
+
+    if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
+        try preview(gpa_alloc, themes.items, opts.color);
+        return 0;
+    }
+
+    var theme_config = try Config.default(gpa_alloc);
+    defer theme_config.deinit();
+    for (themes.items) |theme| {
+        try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+        if (!shouldIncludeTheme(opts.color, theme_config)) {
+            continue;
+        }
+        if (opts.path)
+            try stdout.print("{s} ({t}) {s}\n", .{ theme.theme, theme.location, theme.path })
+        else
+            try stdout.print("{s} ({t})\n", .{ theme.theme, theme.location });
+    }
+
+    // Don't forget to flush!
+    try stdout.flush();
+    return 0;
+}
+
+pub fn get_theme_list(gpa_alloc: std.mem.Allocator) ![]ThemeListElement {
+    var arena = std.heap.ArenaAllocator.init(gpa_alloc);
+    const alloc = arena.allocator();
+
     const resources_dir = global_state.resources_dir.app();
     if (resources_dir == null)
-        try stderr.print("Could not find the Ghostty resources directory. Please ensure " ++
-            "that Ghostty is installed correctly.\n", .{});
+        return ListThemeError.BadResource;
 
     var count: usize = 0;
 
@@ -168,33 +205,12 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     }
 
     if (count == 0) {
-        try stderr.print("No themes found, check to make sure that the themes were installed correctly.", .{});
-        return 1;
+        return ListThemeError.NoThemesFound;
     }
 
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
-    if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
-        try preview(gpa_alloc, themes.items, opts.color);
-        return 0;
-    }
-
-    var theme_config = try Config.default(gpa_alloc);
-    defer theme_config.deinit();
-    for (themes.items) |theme| {
-        try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
-        if (!shouldIncludeTheme(opts.color, theme_config)) {
-            continue;
-        }
-        if (opts.path)
-            try stdout.print("{s} ({t}) {s}\n", .{ theme.theme, theme.location, theme.path })
-        else
-            try stdout.print("{s} ({t})\n", .{ theme.theme, theme.location });
-    }
-
-    // Don't forget to flush!
-    try stdout.flush();
-    return 0;
+    return themes.items;
 }
 
 fn resolveAutoThemePath(alloc: std.mem.Allocator) ![]u8 {

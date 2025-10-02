@@ -430,6 +430,26 @@ typedef struct {
   bool wait_after_command;
 } ghostty_surface_config_s;
 
+typedef enum {
+  // XDG config dir
+  GHOSTTY_SURFACE_THEME_LOCATION_USER,
+  // Ghostty resources dir
+  GHOSTTY_SURFACE_THEME_LOCATION_RESOURCES,
+} ghostty_surface_theme_location_e;
+
+typedef struct {
+  ghostty_surface_theme_location_e location;
+  const char* theme;
+  size_t theme_len;
+  const char* path;
+  size_t path_len;
+} ghostty_surface_theme_s;
+
+typedef struct {
+  const ghostty_surface_theme_s* themes;
+  size_t len;
+} ghostty_surface_theme_list_s;
+
 typedef struct {
   uint16_t columns;
   uint16_t rows;
@@ -1088,6 +1108,7 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+bool ghostty_surface_get_themes(ghostty_surface_t, ghostty_surface_theme_list_s*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
