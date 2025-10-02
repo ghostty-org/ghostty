@@ -236,8 +236,8 @@ pub fn isCovering(cp: u21) bool {
 }
 
 /// Returns true of the codepoint is a "symbol-like" character, which
-/// for now we define as anything in a private use area, except
-/// the Powerline range, and anything in several unicode blocks:
+/// for now we define as anything in a private use area, and anything
+/// in several unicode blocks:
 /// - Dingbats
 /// - Emoticons
 /// - Miscellaneous Symbols
@@ -249,13 +249,11 @@ pub fn isCovering(cp: u21) bool {
 /// In the future it may be prudent to expand this to encompass more
 /// symbol-like characters, and/or exclude some PUA sections.
 pub fn isSymbol(cp: u21) bool {
-    return symbols.get(cp) and !isPowerline(cp);
+    return symbols.get(cp);
 }
 
 /// Returns the appropriate `constraint_width` for
 /// the provided cell when rendering its glyph(s).
-///
-/// Tested as part of the Screen tests.
 pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
@@ -276,6 +274,8 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
 
     // If we have a previous cell and it was a symbol then we need
     // to also constrain. This is so that multiple PUA glyphs align.
+    // This does not apply if the previous symbol is a graphics
+    // element such as a block element or Powerline glyph.
     if (cell_pin.x > 0) {
         const prev_cp = prev_cp: {
             var copy = cell_pin;
@@ -284,7 +284,7 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
             break :prev_cp prev_cell.codepoint();
         };
 
-        if (isSymbol(prev_cp)) {
+        if (isSymbol(prev_cp) and !isGraphicsElement(prev_cp)) {
             return 1;
         }
     }
@@ -305,11 +305,10 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     return 1;
 }
 
-/// Whether min contrast should be disabled for a given glyph.
-/// True for glyphs used for terminal graphics, such as box
-/// drawing characters, block elements, and Powerline glyphs.
+/// Whether min contrast should be disabled for a given glyph. True
+/// for graphics elements such as blocks and Powerline glyphs.
 pub fn noMinContrast(cp: u21) bool {
-    return isBoxDrawing(cp) or isBlockElement(cp) or isLegacyComputing(cp) or isPowerline(cp);
+    return isGraphicsElement(cp);
 }
 
 // Some general spaces, others intentionally kept
@@ -321,6 +320,12 @@ fn isSpace(char: u21) bool {
         => true,
         else => false,
     };
+}
+
+/// Returns true if the codepoint is used for terminal graphics, such
+/// as box drawing characters, block elements, and Powerline glyphs.
+fn isGraphicsElement(char: u21) bool {
+    return isBoxDrawing(char) or isBlockElement(char) or isLegacyComputing(char) or isPowerline(char);
 }
 
 // Returns true if the codepoint is a box drawing character.
@@ -512,4 +517,114 @@ test "Contents with zero-sized screen" {
 
     c.setCursor(null, null);
     try testing.expect(c.getCursorGlyph() == null);
+}
+
+test "Cell constraint widths" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try terminal.Screen.init(alloc, 4, 1, 0);
+    defer s.deinit();
+
+    // for each case, the numbers in the comment denote expected
+    // constraint widths for the symbol-containing cells
+
+    // symbol->nothing: 2
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p0));
+        s.reset();
+    }
+
+    // symbol->character: 1
+    {
+        try s.testWriteString("z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(1, constraintWidth(p0));
+        s.reset();
+    }
+
+    // symbol->space: 2
+    {
+        try s.testWriteString(" z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p0));
+        s.reset();
+    }
+    // symbol->no-break space: 1
+    {
+        try s.testWriteString("\u{00a0}z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(1, constraintWidth(p0));
+        s.reset();
+    }
+
+    // symbol->end of row: 1
+    {
+        try s.testWriteString("   ");
+        const p3 = s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?;
+        try testing.expectEqual(1, constraintWidth(p3));
+        s.reset();
+    }
+
+    // character->symbol: 2
+    {
+        try s.testWriteString("z");
+        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p1));
+        s.reset();
+    }
+
+    // symbol->symbol: 1,1
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        try testing.expectEqual(1, constraintWidth(p0));
+        try testing.expectEqual(1, constraintWidth(p1));
+        s.reset();
+    }
+
+    // symbol->space->symbol: 2,2
+    {
+        try s.testWriteString(" ");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const p2 = s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p0));
+        try testing.expectEqual(2, constraintWidth(p2));
+        s.reset();
+    }
+
+    // symbol->powerline: 1  (dedicated test because powerline is special-cased in cellpkg)
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(1, constraintWidth(p0));
+        s.reset();
+    }
+
+    // powerline->symbol: 2  (dedicated test because powerline is special-cased in cellpkg)
+    {
+        try s.testWriteString("");
+        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p1));
+        s.reset();
+    }
+
+    // powerline->nothing: 2  (dedicated test because powerline is special-cased in cellpkg)
+    {
+        try s.testWriteString("");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p0));
+        s.reset();
+    }
+
+    // powerline->space: 2  (dedicated test because powerline is special-cased in cellpkg)
+    {
+        try s.testWriteString(" z");
+        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(2, constraintWidth(p0));
+        s.reset();
+    }
 }
