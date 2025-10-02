@@ -15,10 +15,13 @@ pub const Run = opaque {
         return @intCast(c.CTRunGetGlyphCount(@ptrCast(self)));
     }
 
-    pub fn getGlyphsPtr(self: *Run) []const graphics.Glyph {
+    pub fn getGlyphsPtr(self: *Run) ?[]const graphics.Glyph {
         const len = self.getGlyphCount();
         if (len == 0) return &.{};
-        const ptr = c.CTRunGetGlyphsPtr(@ptrCast(self)) orelse &.{};
+        const ptr: [*c]const graphics.Glyph = @ptrCast(
+            c.CTRunGetGlyphsPtr(@ptrCast(self)),
+        );
+        if (ptr == null) return null;
         return ptr[0..len];
     }
 
@@ -34,10 +37,13 @@ pub const Run = opaque {
         return ptr;
     }
 
-    pub fn getPositionsPtr(self: *Run) []const graphics.Point {
+    pub fn getPositionsPtr(self: *Run) ?[]const graphics.Point {
         const len = self.getGlyphCount();
         if (len == 0) return &.{};
-        const ptr = c.CTRunGetPositionsPtr(@ptrCast(self)) orelse &.{};
+        const ptr: [*c]const graphics.Point = @ptrCast(
+            c.CTRunGetPositionsPtr(@ptrCast(self)),
+        );
+        if (ptr == null) return null;
         return ptr[0..len];
     }
 
@@ -53,10 +59,13 @@ pub const Run = opaque {
         return ptr;
     }
 
-    pub fn getAdvancesPtr(self: *Run) []const graphics.Size {
+    pub fn getAdvancesPtr(self: *Run) ?[]const graphics.Size {
         const len = self.getGlyphCount();
         if (len == 0) return &.{};
-        const ptr = c.CTRunGetAdvancesPtr(@ptrCast(self)) orelse &.{};
+        const ptr: [*c]const graphics.Size = @ptrCast(
+            c.CTRunGetAdvancesPtr(@ptrCast(self)),
+        );
+        if (ptr == null) return null;
         return ptr[0..len];
     }
 
@@ -72,10 +81,13 @@ pub const Run = opaque {
         return ptr;
     }
 
-    pub fn getStringIndicesPtr(self: *Run) []const usize {
+    pub fn getStringIndicesPtr(self: *Run) ?[]const usize {
         const len = self.getGlyphCount();
         if (len == 0) return &.{};
-        const ptr = c.CTRunGetStringIndicesPtr(@ptrCast(self)) orelse &.{};
+        const ptr: [*c]const usize = @ptrCast(
+            c.CTRunGetStringIndicesPtr(@ptrCast(self)),
+        );
+        if (ptr == null) return null;
         return ptr[0..len];
     }
 
@@ -90,4 +102,16 @@ pub const Run = opaque {
         );
         return ptr;
     }
+
+    pub fn getStatus(self: *Run) Status {
+        return @bitCast(c.CTRunGetStatus(@ptrCast(self)));
+    }
+};
+
+/// https://developer.apple.com/documentation/coretext/ctrunstatus?language=objc
+pub const Status = packed struct(u32) {
+    right_to_left: bool,
+    non_monotonic: bool,
+    has_non_identity_matrix: bool,
+    _pad: u29 = 0,
 };
