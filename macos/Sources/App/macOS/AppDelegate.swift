@@ -1134,7 +1134,7 @@ class AppDelegate: NSObject,
     //MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Ghostty.App.openConfig()
+        Ghostty.App.openConfigWindow()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
