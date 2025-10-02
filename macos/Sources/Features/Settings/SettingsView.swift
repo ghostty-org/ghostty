@@ -1,31 +1,44 @@
 import SwiftUI
 
 struct SettingsView: View {
-    // We need access to our app delegate to know if we're quitting or not.
-    @EnvironmentObject private var appDelegate: AppDelegate
-
+    @State var currentCategory: SettingsCategory = .general
+    let surfaceView: Ghostty.SurfaceView
+    @State var presentedCategories: [SettingsCategory] = [.general]
     var body: some View {
-        HStack {
-            Image("AppIconImage")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 128, height: 128)
-
-            VStack(alignment: .leading) {
-                Text("Coming Soon. 🚧").font(.title)
-                Text("You can't configure settings in the GUI yet. To modify settings, " +
-                     "edit the file at $HOME/.config/ghostty/config.ghostty and restart Ghostty.")
-                .multilineTextAlignment(.leading)
-                .lineLimit(nil)
+        NavigationSplitView {
+            List(SettingsCategory.allCases, selection: $currentCategory) { category in
+                NavigationLink(value: category) {
+                    Label(category.rawValue, systemImage: category.symbol)
+                }
+            }
+            .navigationSplitViewColumnWidth(200)
+        } detail: {
+            switch currentCategory {
+            case .general:
+                ScrollView {
+                    Text(currentCategory.rawValue)
+                }.navigationTitle(currentCategory.rawValue)
+            case .themes:
+                ThemePreviewContentView(surfaceView: surfaceView)
+                    .navigationTitle(currentCategory.rawValue)
             }
         }
-        .padding()
-        .frame(minWidth: 500, maxWidth: 500, minHeight: 156, maxHeight: 156)
+        .frame(minWidth: 500, minHeight: 500)
     }
 }
 
-struct SettingsView_Previews: PreviewProvider {
-    static var previews: some View {
-        SettingsView()
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general = "General"
+    case themes = "Themes"
+
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .general:
+            return "gearshape"
+        case .themes:
+            return "paintbrush"
+        }
     }
 }
