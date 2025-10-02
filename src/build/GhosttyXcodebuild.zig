@@ -33,6 +33,14 @@ pub fn init(
         .ReleaseFast,
         => "Release",
     };
+    // for swift build/test
+    const swift_config = switch (config.optimize) {
+        .Debug => "debug",
+        .ReleaseSafe,
+        .ReleaseSmall,
+        .ReleaseFast,
+        => "release",
+    };
 
     const xc_arch: ?[]const u8 = switch (deps.xcframework.target) {
         // Universal is our default target, so we don't have to
@@ -65,6 +73,7 @@ pub fn init(
         step.env_map = env_map;
         step.addArgs(&.{
             "xcodebuild",
+            "-resolvePackageDependencies",
             "-target",
             "Ghostty",
             "-configuration",
@@ -76,7 +85,10 @@ pub fn init(
         if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
 
         // We need the xcframework
-        deps.xcframework.addStepDependencies(&step.step);
+        deps.xcframework.addBuildDependencies(&step.step, &.{
+            "-c",
+            swift_config,
+        });
 
         // We also need all these resources because the xcode project
         // references them via symlinks.
@@ -101,6 +113,7 @@ pub fn init(
         step.env_map = env_map;
         step.addArgs(&.{
             "xcodebuild",
+            "-resolvePackageDependencies",
             "test",
             "-scheme",
             "Ghostty",
@@ -108,7 +121,10 @@ pub fn init(
         if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
 
         // We need the xcframework
-        deps.xcframework.addStepDependencies(&step.step);
+        deps.xcframework.addTestDependencies(&step.step, &.{
+            "-c",
+            swift_config,
+        });
 
         // We also need all these resources because the xcode project
         // references them via symlinks.

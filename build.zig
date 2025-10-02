@@ -148,9 +148,6 @@ pub fn build(b: *std.Build) !void {
         if (config.emit_xcframework) {
             xcframework.install();
 
-            // The xcframework build always installs resources because our
-            // macOS xcode project contains references to them.
-            resources.install();
             if (i18n) |v| v.install();
         }
 

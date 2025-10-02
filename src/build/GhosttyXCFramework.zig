@@ -7,8 +7,9 @@ const GhosttyLib = @import("GhosttyLib.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 const Target = @import("xcframework.zig").Target;
 
-xcframework: *XCFrameworkStep,
 target: Target,
+swift_build: *std.Build.Step.Run,
+swift_test: *std.Build.Step.Run,
 
 pub fn init(
     b: *std.Build,
@@ -43,21 +44,15 @@ pub fn init(
             .os_tag = .ios,
             .os_version_min = Config.osVersionMin(.ios),
             .abi = .simulator,
-
-            // We force the Apple CPU model because the simulator
-            // doesn't support the generic CPU model as of Zig 0.14 due
-            // to missing "altnzcv" instructions, which is false. This
-            // surely can't be right but we can fix this if/when we get
-            // back to running simulator builds.
             .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
         }),
     ));
 
     // The xcframework wraps our ghostty library so that we can link
-    // it to the final app built with Swift.
+    // it to the swift package built with Swift.
     const xcframework = XCFrameworkStep.create(b, .{
-        .name = "GhosttyKit",
-        .out_path = "macos/GhosttyKit.xcframework",
+        .name = "CGhosttyKit",
+        .out_path = "macos/CGhosttyKit.xcframework",
         .libraries = switch (target) {
             .universal => &.{
                 .{
@@ -85,20 +80,48 @@ pub fn init(
         },
     });
 
+    // swift build step: Depends on XCFramework
+    var swift_build = b.addSystemCommand(&.{ "swift", "build" });
+    swift_build.addArgs(&.{
+        "--package-path",
+        "macos/GhosttyKit",
+    });
+    swift_build.step.dependOn(xcframework.step);
+
+    // swift test step: Depends on XCFramework
+    var swift_test = b.addSystemCommand(&.{ "swift", "test" });
+    swift_test.addArgs(&.{
+        "--package-path",
+        "macos/GhosttyKit",
+    });
+    swift_test.step.dependOn(xcframework.step);
+
     return .{
-        .xcframework = xcframework,
         .target = target,
+        .swift_build = swift_build,
+        .swift_test = swift_test,
     };
 }
 
 pub fn install(self: *const GhosttyXCFramework) void {
-    const b = self.xcframework.step.owner;
-    self.addStepDependencies(b.getInstallStep());
+    const b = self.swift_build.step.owner;
+    b.getInstallStep().dependOn(&self.swift_build.step);
 }
 
-pub fn addStepDependencies(
+pub fn addBuildDependencies(
     self: *const GhosttyXCFramework,
     other_step: *std.Build.Step,
+    args: []const []const u8,
 ) void {
-    other_step.dependOn(self.xcframework.step);
+    self.swift_build.addArgs(args);
+    other_step.dependOn(&self.swift_build.step);
+}
+
+pub fn addTestDependencies(
+    self: *const GhosttyXCFramework,
+    other_step: *std.Build.Step,
+    args: []const []const u8,
+) void {
+    self.swift_test.addArgs(args);
+    other_step.dependOn(&self.swift_test.step);
 }

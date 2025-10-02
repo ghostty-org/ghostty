@@ -10,15 +10,14 @@
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
+		81F8315B2E842887001EDFA7 /* GhosttyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 81F8315A2E842887001EDFA7 /* GhosttyKit */; };
+		81F8315D2E842890001EDFA7 /* GhosttyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 81F8315C2E842890001EDFA7 /* GhosttyKit */; };
 		9351BE8E3D22937F003B3499 /* nvim in Resources */ = {isa = PBXBuildFile; fileRef = 9351BE8E2D22937F003B3499 /* nvim */; };
 		A51BFC272B30F1B800E92F16 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A51BFC262B30F1B800E92F16 /* Sparkle */; };
-		A53D0C8E2B53B0EA00305CE6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
 		A53D0C952B53B4D800305CE6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		A546F1142D7B68D7003B11A0 /* locale in Resources */ = {isa = PBXBuildFile; fileRef = A546F1132D7B68D7003B11A0 /* locale */; };
 		A553F4132E06EB1600257779 /* Ghostty.icon in Resources */ = {isa = PBXBuildFile; fileRef = A553F4122E06EB1600257779 /* Ghostty.icon */; };
 		A553F4142E06EB1600257779 /* Ghostty.icon in Resources */ = {isa = PBXBuildFile; fileRef = A553F4122E06EB1600257779 /* Ghostty.icon */; };
-		A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A56B880A2A840447007A0E29 /* Carbon.framework */; };
-		A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
 		A586167C2B7703CC009BDB1D /* fish in Resources */ = {isa = PBXBuildFile; fileRef = A586167B2B7703CC009BDB1D /* fish */; };
 		A5985CE62C33060F00C57AD3 /* man in Resources */ = {isa = PBXBuildFile; fileRef = A5985CE52C33060F00C57AD3 /* man */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
@@ -42,12 +41,12 @@
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
+		81F831592E842862001EDFA7 /* GhosttyKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = GhosttyKit; sourceTree = "<group>"; };
 		9351BE8E2D22937F003B3499 /* nvim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = nvim; path = "../zig-out/share/nvim"; sourceTree = "<group>"; };
 		A51BFC282B30F26D00E92F16 /* GhosttyDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyDebug.entitlements; sourceTree = "<group>"; };
 		A546F1132D7B68D7003B11A0 /* locale */ = {isa = PBXFileReference; lastKnownFileType = folder; name = locale; path = "../zig-out/share/locale"; sourceTree = "<group>"; };
 		A54F45F32E1F047A0046BD5C /* GhosttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A553F4122E06EB1600257779 /* Ghostty.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = Ghostty.icon; path = ../images/Ghostty.icon; sourceTree = SOURCE_ROOT; };
-		A56B880A2A840447007A0E29 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
 		A571AB1C2A206FC600248498 /* Ghostty-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Ghostty-Info.plist"; sourceTree = "<group>"; };
 		A586167B2B7703CC009BDB1D /* fish */ = {isa = PBXFileReference; lastKnownFileType = folder; name = fish; path = "../zig-out/share/fish"; sourceTree = "<group>"; };
 		A5985CE52C33060F00C57AD3 /* man */ = {isa = PBXFileReference; lastKnownFileType = folder; name = man; path = "../zig-out/share/man"; sourceTree = "<group>"; };
@@ -56,7 +55,6 @@
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostty.entitlements; sourceTree = "<group>"; };
 		A5D4499D2B53AE7B000F5B83 /* Ghostty-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ghostty-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		FC5218F92D10FFC7004C93E0 /* zsh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = zsh; path = "../zig-out/share/zsh"; sourceTree = "<group>"; };
 		FC9ABA9B2D0F538D0020D4C8 /* bash-completion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bash-completion"; path = "../zig-out/share/bash-completion"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -197,8 +195,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A51BFC272B30F1B800E92F16 /* Sparkle in Frameworks */,
-				A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */,
-				A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */,
+				81F8315B2E842887001EDFA7 /* GhosttyKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,7 +203,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A53D0C8E2B53B0EA00305CE6 /* GhosttyKit.xcframework in Frameworks */,
+				81F8315D2E842890001EDFA7 /* GhosttyKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -239,9 +236,9 @@
 				A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */,
 				A51BFC282B30F26D00E92F16 /* GhosttyDebug.entitlements */,
 				3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */,
+				81F831592E842862001EDFA7 /* GhosttyKit */,
 				81F82BC72E82815D001EDFA7 /* Sources */,
 				A54F45F42E1F047A0046BD5C /* Tests */,
-				A5D495A3299BECBA00DD1313 /* Frameworks */,
 				A5A1F8862A489D7400D1E8BC /* Resources */,
 				A5B30532299BEAAA0047F10C /* Products */,
 			);
@@ -255,15 +252,6 @@
 				A54F45F32E1F047A0046BD5C /* GhosttyTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		A5D495A3299BECBA00DD1313 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				A56B880A2A840447007A0E29 /* Carbon.framework */,
-				A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */,
-			);
-			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -310,6 +298,7 @@
 			name = Ghostty;
 			packageProductDependencies = (
 				A51BFC262B30F1B800E92F16 /* Sparkle */,
+				81F8315A2E842887001EDFA7 /* GhosttyKit */,
 			);
 			productName = Ghostty;
 			productReference = A5B30531299BEAAA0047F10C /* Ghostty.app */;
@@ -1028,6 +1017,14 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		81F8315A2E842887001EDFA7 /* GhosttyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GhosttyKit;
+		};
+		81F8315C2E842890001EDFA7 /* GhosttyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GhosttyKit;
+		};
 		A51BFC262B30F1B800E92F16 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */;
