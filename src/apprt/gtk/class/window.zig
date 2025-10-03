@@ -697,6 +697,19 @@ pub const Window = extern struct {
         var it = tree.iterator();
         while (it.next()) |entry| {
             const surface = entry.view;
+            // Before adding any new signal handlers, disconnect any that we may
+            // have added before. Otherwise we may get multiple handlers for the
+            // same signal.
+            _ = gobject.signalHandlersDisconnectMatched(
+                surface.as(gobject.Object),
+                .{ .data = true },
+                0,
+                0,
+                null,
+                null,
+                self,
+            );
+
             _ = Surface.signals.@"present-request".connect(
                 surface,
                 *Self,
