@@ -14,7 +14,7 @@ class SettingsController: NSWindowController, NSWindowDelegate {
     init(ghosttyApp: ghostty_app_t) {
         var config = Ghostty.SurfaceConfiguration()
         config.waitAfterCommand = true
-        config.command = "bash"
+        config.command = "sh" // we use sh to remove 'Last login at the top'
         config.workingDirectory = Bundle.main.resourcePath
         surfaceView = .init(ghosttyApp, baseConfig: config)
         let window = NSWindow(
