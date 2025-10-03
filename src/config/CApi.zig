@@ -76,6 +76,15 @@ export fn ghostty_config_load_recursive_files(self: *Config) void {
     };
 }
 
+/// Load the configuration from a specific file path.
+/// The path must be null-terminated.
+export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
+    const path_slice = std.mem.span(path);
+    self.loadFile(state.alloc, path_slice) catch |err| {
+        log.err("error loading config from file path={s} err={}", .{ path_slice, err });
+    };
+}
+
 export fn ghostty_config_finalize(self: *Config) void {
     self.finalize() catch |err| {
         log.err("error finalizing config err={}", .{err});
@@ -91,6 +100,37 @@ export fn ghostty_config_get(
     @setEvalBranchQuota(10_000);
     const key = std.meta.stringToEnum(Key, key_str[0..len]) orelse return false;
     return c_get.get(self, key, ptr);
+}
+
+export fn ghostty_config_set(
+    self: *Config,
+    key_str: [*]const u8,
+    key_len: usize,
+    value_str: [*]const u8,
+    value_len: usize,
+) bool {
+    @setEvalBranchQuota(10_000);
+    const key = key_str[0..key_len];
+    const value = value_str[0..value_len];
+
+    const entry = std.fmt.allocPrint(state.alloc, "--{s}={s}", .{ key, value }) catch |err| {
+        log.err("error setting {s} to {s} trigger err={}", .{ key, value, err });
+        return false;
+    };
+
+    var it: SimpleIterator = .{ .data = &.{
+        entry,
+    } };
+    self.loadIter(state.alloc, &it) catch |err| {
+        log.err("error changing config err={}", .{err});
+        return false;
+    };
+
+    self.finalize() catch |err| {
+        log.err("error finalizing config err={}", .{err});
+        return false;
+    };
+    return true;
 }
 
 export fn ghostty_config_trigger(
@@ -136,4 +176,17 @@ export fn ghostty_config_open_path() c.String {
 /// Sync with ghostty_diagnostic_s
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",
+};
+
+/// Helper iterator for ghostty_config_set
+const SimpleIterator = struct {
+    data: []const []const u8,
+    i: usize = 0,
+
+    pub fn next(self: *SimpleIterator) ?[]const u8 {
+        if (self.i >= self.data.len) return null;
+        const result = self.data[self.i];
+        self.i += 1;
+        return result;
+    }
 };
