@@ -19,6 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
+const comparison = @import("../datastruct/comparison.zig");
 const font = @import("main.zig");
 const options = font.options;
 const DeferredFace = font.DeferredFace;
@@ -1199,7 +1200,7 @@ test "metrics" {
 
     try c.updateMetrics();
 
-    try std.testing.expectEqual(font.Metrics{
+    try comparison.expectApproxEqual(font.Metrics{
         .cell_width = 8,
         // The cell height is 17 px because the calculation is
         //
@@ -1229,12 +1230,12 @@ test "metrics" {
         .icon_height = 12.24,
         .face_width = 8.0,
         .face_height = 16.784,
-        .face_y = @round(3.04) - @as(f64, 3.04), // use f64, not comptime float, for exact match with runtime value
+        .face_y = -0.04,
     }, c.metrics);
 
     // Resize should change metrics
     try c.setSize(.{ .points = 24, .xdpi = 96, .ydpi = 96 });
-    try std.testing.expectEqual(font.Metrics{
+    try comparison.expectApproxEqual(font.Metrics{
         .cell_width = 16,
         .cell_height = 34,
         .cell_baseline = 6,
@@ -1249,7 +1250,7 @@ test "metrics" {
         .icon_height = 24.48,
         .face_width = 16.0,
         .face_height = 33.568,
-        .face_y = @round(6.08) - @as(f64, 6.08), // use f64, not comptime float, for exact match with runtime value
+        .face_y = -0.08,
     }, c.metrics);
 }
 
@@ -1493,29 +1494,7 @@ test "face metrics" {
         .{ narrowMetricsExpected, wideMetricsExpected },
         .{ narrowMetrics, wideMetrics },
     ) |metricsExpected, metricsActual| {
-        inline for (@typeInfo(font.Metrics.FaceMetrics).@"struct".fields) |field| {
-            const expected = @field(metricsExpected, field.name);
-            const actual = @field(metricsActual, field.name);
-            // Unwrap optional fields
-            const expectedValue, const actualValue = unwrap: switch (@typeInfo(field.type)) {
-                .optional => {
-                    if (expected) |expectedValue| if (actual) |actualValue| {
-                        break :unwrap .{ expectedValue, actualValue };
-                    };
-                    // Null values can be compared directly
-                    try std.testing.expectEqual(expected, actual);
-                    continue;
-                },
-                else => break :unwrap .{ expected, actual },
-            };
-            // All non-null values are floats
-            const eps = std.math.floatEps(@TypeOf(actualValue - expectedValue));
-            try std.testing.expectApproxEqRel(
-                expectedValue,
-                actualValue,
-                std.math.sqrt(eps),
-            );
-        }
+        try comparison.expectApproxEqual(metricsExpected, metricsActual);
     }
 
     // Verify estimated metrics. icWidth() should equal the smaller of
