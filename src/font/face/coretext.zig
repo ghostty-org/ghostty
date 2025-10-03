@@ -319,17 +319,6 @@ pub const Face = struct {
             rect.origin.y -= line_width / 2;
         };
 
-        // We make an assumption that font smoothing ("thicken")
-        // adds no more than 1 extra pixel to any edge. We don't
-        // add extra size if it's a sbix color font though, since
-        // bitmaps aren't affected by smoothing.
-        if (opts.thicken and !sbix) {
-            rect.size.width += 2.0;
-            rect.size.height += 2.0;
-            rect.origin.x -= 1.0;
-            rect.origin.y -= 1.0;
-        }
-
         // If our rect is smaller than a quarter pixel in either axis
         // then it has no outlines or they're too small to render.
         //
@@ -378,16 +367,6 @@ pub const Face = struct {
         var width = glyph_size.width;
         var height = glyph_size.height;
 
-        // If this is a bitmap glyph, it will always render as full pixels,
-        // not fractional pixels, so we need to quantize its position and
-        // size accordingly to align to full pixels so we get good results.
-        if (sbix) {
-            width = cell_width - @round(cell_width - width - x) - @round(x);
-            height = cell_height - @round(cell_height - height - y) - @round(y);
-            x = @round(x);
-            y = @round(y);
-        }
-
         // We center all glyphs within the pixel-rounded and adjusted
         // cell width if it's larger than the face width, so that they
         // aren't weirdly off to the left.
@@ -400,10 +379,26 @@ pub const Face = struct {
             x += (cell_width - metrics.face_width) / 2;
         }
 
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (sbix) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
+        }
+
+        // We make an assumption that font smoothing ("thicken")
+        // adds no more than 1 extra pixel to any edge. We don't
+        // add extra size if it's a sbix color font though, since
+        // bitmaps aren't affected by smoothing.
+        const canvas_padding: u32 = if (opts.thicken and !sbix) 1 else 0;
+
         // Our whole-pixel bearings for the final glyph.
         // The fractional portion will be included in the rasterized position.
-        const px_x: i32 = @intFromFloat(@floor(x));
-        const px_y: i32 = @intFromFloat(@floor(y));
+        const px_x = @as(i32, @intFromFloat(@floor(x))) - @as(i32, @intCast(canvas_padding));
+        const px_y = @as(i32, @intFromFloat(@floor(y))) - @as(i32, @intCast(canvas_padding));
 
         // We keep track of the fractional part of the pixel bearings, which
         // we will add as an offset when rasterizing to make sure we get the
@@ -413,9 +408,9 @@ pub const Face = struct {
 
         // Add the fractional pixel to the width and height and take
         // the ceiling to get a canvas size that will definitely fit
-        // our drawn glyph, including the fractional offset.
-        const px_width: u32 = @intFromFloat(@ceil(width + frac_x));
-        const px_height: u32 = @intFromFloat(@ceil(height + frac_y));
+        // our drawn glyph, including the fractional offset and font smoothing.
+        const px_width = @as(u32, @intFromFloat(@ceil(width + frac_x))) + (2 * canvas_padding);
+        const px_height = @as(u32, @intFromFloat(@ceil(height + frac_y))) + (2 * canvas_padding);
 
         // Settings that are specific to if we are rendering text or emoji.
         const color: struct {
@@ -526,8 +521,8 @@ pub const Face = struct {
         // `drawGlyphs`, we pass the negated bearings.
         context.translateCTM(
             ctx,
-            frac_x,
-            frac_y,
+            frac_x + @as(f64, @floatFromInt(canvas_padding)),
+            frac_y + @as(f64, @floatFromInt(canvas_padding)),
         );
 
         // Scale the drawing context so that when we draw
