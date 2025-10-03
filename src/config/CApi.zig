@@ -168,6 +168,43 @@ export fn ghostty_config_open_path() c.String {
     return .fromSlice(path);
 }
 
+/// Export the configuration to a string.
+/// Returns null-terminated string on success, empty string on error.
+/// The returned string must be freed with ghostty_string_free.
+export fn ghostty_config_export_string(config: *Config) c.String {
+    // Safety check: ensure config pointer is valid
+    if (@intFromPtr(config) == 0) {
+        log.err("config pointer is null in ghostty_config_export_string", .{});
+        return .empty;
+    }
+
+    // Use the existing show_config.zig approach which we know works
+    var buf = std.ArrayList(u8).init(state.alloc);
+    defer buf.deinit();
+
+    // Try the same approach as show_config.zig
+    const writer = buf.writer();
+    const formatter = @import("formatter.zig").FileFormatter{
+        .alloc = state.alloc,
+        .config = config,
+        .docs = false,
+        .changed = true,
+    };
+
+    // Instead of calling format directly, let's try using std.fmt.format like show_config.zig does
+    std.fmt.format(writer, "{}", .{formatter}) catch |err| {
+        log.err("error formatting config err={}", .{err});
+        return .empty;
+    };
+
+    const result = state.alloc.dupeZ(u8, buf.items) catch |err| {
+        log.err("error duplicating config string err={}", .{err});
+        return .empty;
+    };
+
+    return .fromSlice(result);
+}
+
 /// Sync with ghostty_diagnostic_s
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",
