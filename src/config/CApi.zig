@@ -125,11 +125,6 @@ export fn ghostty_config_set(
         log.err("error changing config err={}", .{err});
         return false;
     };
-
-    self.finalize() catch |err| {
-        log.err("error finalizing config err={}", .{err});
-        return false;
-    };
     return true;
 }
 
