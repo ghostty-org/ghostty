@@ -73,16 +73,12 @@ the public config files of many Ghostty users for examples and inspiration.
 ## Configuration Errors
 
 If your configuration file has any errors, Ghostty does its best to ignore
-them and move on. Configuration errors currently show up in the log. The log
-is written directly to stderr, so it is up to you to figure out how to access
-that for your system (for now). On macOS, you can also use the system `log` CLI
-utility with `log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'`.
+them and move on. Configuration errors will be logged.
 
 ## Debugging Configuration
 
 You can verify that configuration is being properly loaded by looking at the
-debug output of Ghostty. Documentation for how to view the debug output is in
-the "building Ghostty" section at the end of the README.
+debug output of Ghostty.
 
 In the debug output, you should see in the first 20 lines or so messages about
 loading (or not loading) a configuration file, as well as any errors it may have
@@ -93,3 +89,34 @@ will fall back to default values for erroneous keys.
 You can also view the full configuration Ghostty is loading using `ghostty
 +show-config` from the command-line. Use the `--help` flag to additional options
 for that command.
+
+## Logging
+
+Ghostty can write logs to a number of destinations. On all platforms, logging to
+`stderr` is available. Depending on the platform and how Ghostty was launched,
+logs sent to `stderr` may be stored by the system and made available for later
+retrieval.
+
+On Linux if Ghostty is launched by the default `systemd` user service, you can use
+`journald` to see Ghostty's logs: `journalctl --user --unit app-com.mitchellh.ghostty.service`.
+
+On macOS logging to the macOS unified log is available and enabled by default.
+--Use the system `log` CLI to view Ghostty's logs: `sudo log stream level debug
+----predicate 'subsystem=="com.mitchellh.ghostty"'`.
+
+Ghostty's logging can be configured in two ways. The first is by what
+optimization level Ghostty is compiled with. If Ghostty is compiled with `Debug`
+optimizations debug logs will be output to `stderr`. If Ghostty is compiled with
+any other optimization the debug logs will not be output to `stderr`.
+
+Ghostty also checks the `GHOSTTY_LOG` environment variable. It can be used
+to control which destinations receive logs. Ghostty currently defines two
+destinations:
+
+- `stderr` - logging to `stderr`.
+- `macos` - logging to macOS's unified log (has no effect on non-macOS platforms).
+
+Combine values with a comma to enable multiple destinations. Prefix a
+destination with `no-` to disable it. Enabling and disabling destinations
+can be done at the same time. Setting `GHOSTTY_LOG` to `true` will enable all
+destinations. Setting `GHOSTTY_LOG` to `false` will disable all destinations.
