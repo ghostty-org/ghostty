@@ -1190,6 +1190,8 @@ extension EnvironmentValues {
         get { self[GhosttySurfaceViewKey.self] }
         set { self[GhosttySurfaceViewKey.self] = newValue }
     }
+
+    @Entry var ghosttyConfig: Ghostty.Config?
 }
 
 extension View {
