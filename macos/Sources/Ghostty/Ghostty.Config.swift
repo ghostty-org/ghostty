@@ -39,6 +39,29 @@ extension Ghostty {
             }
         }
 
+        init(file: URL?, finalize: Bool) {
+
+            guard
+                let cfg = ghostty_config_new()
+            else {
+                return
+            }
+            if let path = file?.path(percentEncoded: false), FileManager.default.fileExists(atPath: path) {
+                ghostty_config_load_file(cfg, path)
+            }
+            if !isRunningInXcode() {
+                ghostty_config_load_cli_args(cfg)
+            }
+
+            ghostty_config_load_recursive_files(cfg)
+
+            // Finalize to make defaults available
+            if finalize {
+                ghostty_config_finalize(cfg)
+            }
+            self.config = cfg
+        }
+
         init(clone config: ghostty_config_t) {
             self.config = ghostty_config_clone(config)
         }
@@ -713,5 +736,15 @@ extension Ghostty.Config {
             case .none: return false
             }
         }
+    }
+}
+
+// MARK: - Mutating ghostty_config_t
+
+extension Ghostty.Config {
+    func setValue(_ key: String, value: String) -> Bool {
+        guard let config = config else { return false }
+        let result = ghostty_config_set(config, key, UInt(key.count), value, UInt(value.count))
+        return result
     }
 }
