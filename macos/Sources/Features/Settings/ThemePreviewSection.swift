@@ -46,7 +46,7 @@ extension Ghostty {
             }
             .onChange(of: selectedTheme) { newValue in
                 // somehow we need to create a new config in order to take effect
-                let newConfig = Ghostty.Config(file: nil, finalize: true)
+                let newConfig = Ghostty.Config(file: nil, finalize: false)
                 if let newValue, newConfig.setValue("theme", value: newValue.name) {
                     reloadSurface(config: newConfig.config)
                 }
@@ -78,6 +78,7 @@ extension Ghostty {
             }
 
             if let app = (NSApp.delegate as? AppDelegate)?.ghostty.app {
+                ghostty_config_finalize(cfg)
                 ghostty_app_update_config(app, cfg)
             }
             // we don't need to only update current surface
