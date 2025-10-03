@@ -10,6 +10,8 @@
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
+		81CF4BC32E9010070090689F /* Ghostty-Debug.icon in Resources */ = {isa = PBXBuildFile; fileRef = 81CF4BC22E9010070090689F /* Ghostty-Debug.icon */; };
+		81CF4BC42E9010070090689F /* Ghostty-Debug.icon in Resources */ = {isa = PBXBuildFile; fileRef = 81CF4BC22E9010070090689F /* Ghostty-Debug.icon */; };
 		9351BE8E3D22937F003B3499 /* nvim in Resources */ = {isa = PBXBuildFile; fileRef = 9351BE8E2D22937F003B3499 /* nvim */; };
 		A51BFC272B30F1B800E92F16 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A51BFC262B30F1B800E92F16 /* Sparkle */; };
 		A53D0C8E2B53B0EA00305CE6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
@@ -42,6 +44,7 @@
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
+		81CF4BC22E9010070090689F /* Ghostty-Debug.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = "Ghostty-Debug.icon"; path = "../images/Ghostty-Debug.icon"; sourceTree = SOURCE_ROOT; };
 		9351BE8E2D22937F003B3499 /* nvim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = nvim; path = "../zig-out/share/nvim"; sourceTree = "<group>"; };
 		A51BFC282B30F26D00E92F16 /* GhosttyDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyDebug.entitlements; sourceTree = "<group>"; };
 		A546F1132D7B68D7003B11A0 /* locale */ = {isa = PBXFileReference; lastKnownFileType = folder; name = locale; path = "../zig-out/share/locale"; sourceTree = "<group>"; };
@@ -244,6 +247,7 @@
 				A571AB1C2A206FC600248498 /* Ghostty-Info.plist */,
 				A5B30538299BEAAB0047F10C /* Assets.xcassets */,
 				A553F4122E06EB1600257779 /* Ghostty.icon */,
+				81CF4BC22E9010070090689F /* Ghostty-Debug.icon */,
 				A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */,
 				A51BFC282B30F26D00E92F16 /* GhosttyDebug.entitlements */,
 				3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */,
@@ -410,6 +414,7 @@
 				A5985CE62C33060F00C57AD3 /* man in Resources */,
 				9351BE8E3D22937F003B3499 /* nvim in Resources */,
 				A5A1F8852A489D6800D1E8BC /* terminfo in Resources */,
+				81CF4BC32E9010070090689F /* Ghostty-Debug.icon in Resources */,
 				552964E62B34A9B400030505 /* vim in Resources */,
 				FC5218FA2D10FFCE004C93E0 /* zsh in Resources */,
 				A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */,
@@ -420,6 +425,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				81CF4BC42E9010070090689F /* Ghostty-Debug.icon in Resources */,
 				A53D0C952B53B4D800305CE6 /* Assets.xcassets in Resources */,
 				A553F4132E06EB1600257779 /* Ghostty.icon in Resources */,
 			);
@@ -758,7 +764,7 @@
 		A5B30541299BEAAB0047F10C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Ghostty;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "Ghostty-Debug";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -865,7 +871,7 @@
 		A5D449A82B53AE7B000F5B83 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Ghostty;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "Ghostty-Debug";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
