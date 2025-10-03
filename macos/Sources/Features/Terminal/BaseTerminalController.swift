@@ -728,6 +728,10 @@ class BaseTerminalController: NSWindowController,
 
     func cellSizeDidChange(to: NSSize) {
         guard derivedConfig.windowStepResize else { return }
+        // Stage manager can sometimes present windows in such a way that the
+        // cell size is temporarily zero due to the window being tiny. We can't
+        // set content resize increments to this value, so avoid an assertion failure.
+        guard to.width > 0 && to.height > 0 else { return }
         self.window?.contentResizeIncrements = to
     }
 
