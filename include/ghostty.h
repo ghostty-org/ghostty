@@ -451,6 +451,13 @@ typedef struct {
 } ghostty_surface_theme_list_s;
 
 typedef struct {
+  const char* light;
+  size_t light_len;
+  const char* dark;
+  size_t dark_len;
+} ghostty_config_theme_s;
+
+typedef struct {
   uint16_t columns;
   uint16_t rows;
   uint32_t width_px;
@@ -1025,6 +1032,7 @@ void ghostty_config_load_cli_args(ghostty_config_t);
 void ghostty_config_load_default_files(ghostty_config_t);
 void ghostty_config_load_recursive_files(ghostty_config_t);
 void ghostty_config_load_file(ghostty_config_t, const char*);
+ghostty_string_s ghostty_config_export_string(ghostty_config_t);
 void ghostty_config_finalize(ghostty_config_t);
 bool ghostty_config_get(ghostty_config_t, void*, const char*, uintptr_t);
 bool ghostty_config_set(ghostty_config_t, const char*, uintptr_t, const char*, uintptr_t);

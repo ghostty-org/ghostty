@@ -9270,6 +9270,23 @@ pub const Theme = struct {
         try formatter.formatEntry([]const u8, str);
     }
 
+    // ghostty_config_theme_s
+    pub const C = extern struct {
+        light: [*]const u8,
+        light_len: usize,
+        dark: [*]const u8,
+        dark_len: usize,
+    };
+
+    pub fn cval(self: Theme) C {
+        return .{
+            .light = self.light.ptr,
+            .light_len = self.light.len,
+            .dark = self.dark.ptr,
+            .dark_len = self.dark.len,
+        };
+    }
+
     test "parse Theme" {
         const testing = std.testing;
         var arena = ArenaAllocator.init(testing.allocator);

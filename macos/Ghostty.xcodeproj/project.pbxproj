@@ -142,6 +142,7 @@
 				Features/Update/UpdateSimulator.swift,
 				Features/Update/UpdateViewModel.swift,
 				"Ghostty/FullscreenMode+Extension.swift",
+				Ghostty/Ghostty.ConfigFile.swift,
 				Ghostty/Ghostty.Error.swift,
 				Ghostty/Ghostty.Event.swift,
 				Ghostty/Ghostty.Input.swift,

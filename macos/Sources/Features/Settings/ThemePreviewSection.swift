@@ -12,6 +12,7 @@ extension Ghostty {
         @State private var themes = [GhosttyTheme]()
         @State private var selectedTheme: GhosttyTheme?
         @Environment(\.ghosttyConfig) var config
+        @Environment(\.colorScheme) var colorScheme
         var body: some View {
             VStack(alignment: .leading) {
                 ScrollView {
@@ -46,10 +47,17 @@ extension Ghostty {
             }
             .onChange(of: selectedTheme) { newValue in
                 // somehow we need to create a new config in order to take effect
-                let newConfig = Ghostty.Config(file: nil, finalize: false)
-                if let newValue, newConfig.setValue("theme", value: newValue.name) {
-                    reloadSurface(config: newConfig.config)
+//                let newConfig = Ghostty.Config(file: nil, finalize: false)
+                if let newValue, newValue.name != config.theme[colorScheme] {
+                    config.theme[colorScheme] = newValue.name
+                    config.reload()
                 }
+            }
+            .onChange(of: themes) { newValue in
+                selectedTheme = newValue.first(where: { $0.name == config.theme[colorScheme] })
+            }
+            .onChange(of: colorScheme) { newValue in
+                selectedTheme = themes.first(where: { $0.name == config.theme[newValue] })
             }
             .task {
                 await createPreviewSurface()
@@ -70,19 +78,6 @@ extension Ghostty {
             }
             previewHeight = newHeight
             bottomSpace = 2 * Double(size.cell_height_px) / scaleFactorY // one for cursor, one for additional space
-        }
-
-        private func reloadSurface(config: ghostty_config_t?) {
-            guard let cfg = config else {
-                return
-            }
-
-            if let app = (NSApp.delegate as? AppDelegate)?.ghostty.app {
-                ghostty_config_finalize(cfg)
-                ghostty_app_update_config(app, cfg)
-            }
-            // we don't need to only update current surface
-            // ghostty_surface_update_config(surfaceView.surface, cfg)
         }
 
         @MainActor
@@ -119,7 +114,6 @@ extension Ghostty {
 
             let themes = buffer.compactMap(GhosttyTheme.init(_:))
             self.themes = themes
-            selectedTheme = themes.first
         }
     }
 }

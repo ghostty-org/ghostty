@@ -120,8 +120,7 @@ extension Ghostty {
             guard let ghosttyApp = (NSApp.delegate as? AppDelegate)?.ghostty.app else {
                 return
             }
-            let controller = SettingsController(ghosttyApp: ghosttyApp)
-            controller.show(sender: self)
+            SettingsController.controller(for: ghosttyApp).show(sender: self)
             #else
             fatalError("Unsupported platform for opening config file")
             #endif

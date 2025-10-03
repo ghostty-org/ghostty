@@ -9,9 +9,21 @@ import GhosttyKit
 import SwiftUI
 
 class SettingsController: NSWindowController, NSWindowDelegate {
-    private let surfaceView: Ghostty.SurfaceView
+    private static var shared: SettingsController?
 
-    init(ghosttyApp: ghostty_app_t) {
+    static func controller(for ghosttyApp: ghostty_app_t) -> SettingsController {
+        if let shared {
+            return shared
+        } else {
+            let newController = SettingsController(ghosttyApp: ghosttyApp)
+            shared = newController
+            return newController
+        }
+    }
+
+    private let surfaceView: Ghostty.SurfaceView
+    private let config: Ghostty.ConfigFile
+    private init(ghosttyApp: ghostty_app_t) {
         var config = Ghostty.SurfaceConfiguration()
         config.waitAfterCommand = true
         config.command = "sh" // we use sh to remove 'Last login at the top'
@@ -23,12 +35,13 @@ class SettingsController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.tabbingMode = .disallowed
-//        window.titlebarAppearsTransparent = true
-        window.center()
-        window.contentView = NSHostingView(rootView: SettingsView(surfaceView: surfaceView))
+        self.config = .init()
         super.init(window: window)
         windowFrameAutosaveName = "SettingsWindow"
+        window.tabbingMode = .disallowed
+        window.delegate = self
+        window.center()
+        window.contentView = NSHostingView(rootView: SettingsView(surfaceView: surfaceView).environment(\.ghosttyConfig, self.config))
     }
 
     @available(*, unavailable)
@@ -40,5 +53,15 @@ class SettingsController: NSWindowController, NSWindowDelegate {
 
     func show(sender: Any?) {
         window?.makeKeyAndOrderFront(sender)
+    }
+
+    override func close() {
+        window?.performClose(self)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        Task {
+            await config.save()
+        }
     }
 }
