@@ -244,6 +244,39 @@ pub const RenderOptions = struct {
         ) GlyphSize {
             if (!self.doesAnything()) return glyph;
 
+            switch (self.size) {
+                .stretch => {
+                    // Stretched glyphs are usually meant to align across cell
+                    // boundaries, which works best if they're scaled and
+                    // aligned to the grid rather than the face. This is most
+                    // easily done by inserting this little fib in the metrics.
+                    var m = metrics;
+                    m.face_width = @floatFromInt(m.cell_width);
+                    m.face_height = @floatFromInt(m.cell_height);
+                    m.face_y = 0.0;
+
+                    // Negative padding for stretched glyphs is a band-aid to
+                    // avoid gaps due to pixel rounding, but at the cost of
+                    // unsightly overlap artifacts. Since we scale and align to
+                    // the grid rather than the face, we don't need it.
+                    var c = self;
+                    c.pad_bottom = @max(0, c.pad_bottom);
+                    c.pad_top = @max(0, c.pad_top);
+                    c.pad_left = @max(0, c.pad_left);
+                    c.pad_right = @max(0, c.pad_right);
+
+                    return c.constrainInner(glyph, m, constraint_width);
+                },
+                else => return self.constrainInner(glyph, metrics, constraint_width),
+            }
+        }
+
+        fn constrainInner(
+            self: Constraint,
+            glyph: GlyphSize,
+            metrics: Metrics,
+            constraint_width: u2,
+        ) GlyphSize {
             // For extra wide font faces, never stretch glyphs across two cells.
             // This mirrors font_patcher.
             const min_constraint_width: u2 = if ((self.size == .stretch) and (metrics.face_width > 0.9 * metrics.face_height))
@@ -265,15 +298,15 @@ pub const RenderOptions = struct {
                 };
             };
 
-            // The new, constrained glyph size
-            var constrained_glyph = glyph;
-
-            // Apply prescribed scaling
+            // Apply prescribed scaling, preserving the
+            // center bearings of the group bounding box
             const width_factor, const height_factor = self.scale_factors(group, metrics, min_constraint_width);
-            constrained_glyph.width *= width_factor;
-            constrained_glyph.x *= width_factor;
-            constrained_glyph.height *= height_factor;
-            constrained_glyph.y *= height_factor;
+            const center_x = group.x + (group.width / 2);
+            const center_y = group.y + (group.height / 2);
+            group.width *= width_factor;
+            group.height *= height_factor;
+            group.x = center_x - (group.width / 2);
+            group.y = center_y - (group.height / 2);
 
             // NOTE: font_patcher jumps through a lot of hoops at this
             // point to ensure that the glyph remains within the target
@@ -281,27 +314,17 @@ pub const RenderOptions = struct {
             // This is irrelevant here as we're not rounding, we're
             // staying in f64 and heading straight to rendering.
 
-            // Align vertically
-            if (self.align_vertical != .none) {
-                // Vertically scale group bounding box.
-                group.height *= height_factor;
-                group.y *= height_factor;
+            // Apply prescribed alignment
+            group.y = self.aligned_y(group, metrics);
+            group.x = self.aligned_x(group, metrics, min_constraint_width);
 
-                // Calculate offset and shift the glyph
-                constrained_glyph.y += self.offset_vertical(group, metrics);
-            }
-
-            // Align horizontally
-            if (self.align_horizontal != .none) {
-                // Horizontally scale group bounding box.
-                group.width *= width_factor;
-                group.x *= width_factor;
-
-                // Calculate offset and shift the glyph
-                constrained_glyph.x += self.offset_horizontal(group, metrics, min_constraint_width);
-            }
-
-            return constrained_glyph;
+            // Transfer the scaling and alignment back to the glyph and return.
+            return .{
+                .width = width_factor * glyph.width,
+                .height = height_factor * glyph.height,
+                .x = group.x + (group.width * self.relative_x),
+                .y = group.y + (group.height * self.relative_y),
+            };
         }
 
         /// Return width and height scaling factors for this scaling group.
@@ -381,63 +404,88 @@ pub const RenderOptions = struct {
             return .{ width_factor, height_factor };
         }
 
-        /// Return vertical offset needed to align this group
-        fn offset_vertical(
+        /// Return vertical bearing for aligning this group
+        fn aligned_y(
             self: Constraint,
             group: GlyphSize,
             metrics: Metrics,
         ) f64 {
+            if ((self.size == .none) and (self.align_vertical == .none)) {
+                // If we don't have any constraints affecting the vertical axis,
+                // we don't touch vertical alignment.
+                return group.y;
+            }
             // We use face_height and offset by face_y, rather than
             // using cell_height directly, to account for the asymmetry
             // of the pixel cell around the face (a consequence of
             // aligning the baseline with a pixel boundary rather than
             // vertically centering the face).
-            const new_group_y = metrics.face_y + switch (self.align_vertical) {
-                .none => return 0.0,
-                .start => self.pad_bottom * metrics.face_height,
-                .end => end: {
-                    const pad_top_dy = self.pad_top * metrics.face_height;
-                    break :end metrics.face_height - pad_top_dy - group.height;
-                },
-                .center, .center1 => (metrics.face_height - group.height) / 2,
+            const pad_bottom_dy = self.pad_bottom * metrics.face_height;
+            const pad_top_dy = self.pad_top * metrics.face_height;
+            const start_y = metrics.face_y + pad_bottom_dy;
+            const end_y = metrics.face_y + (metrics.face_height - group.height - pad_top_dy);
+            const center_y = (start_y + end_y) / 2;
+            return switch (self.align_vertical) {
+                // NOTE: Even if there is no prescribed alignment, we ensure
+                // that the group doesn't protrude outside the padded cell,
+                // since this is implied by every available size constraint. If
+                // the group is too high we fall back to centering, though if we
+                // hit the .none prong we always have self.size != .none, so
+                // this should never happen.
+                .none => if (end_y < start_y)
+                    center_y
+                else
+                    @max(start_y, @min(group.y, end_y)),
+                .start => start_y,
+                .end => end_y,
+                .center, .center1 => center_y,
             };
-            return new_group_y - group.y;
         }
 
-        /// Return horizontal offset needed to align this group
-        fn offset_horizontal(
+        /// Return horizontal bearing for aligning this group
+        fn aligned_x(
             self: Constraint,
             group: GlyphSize,
             metrics: Metrics,
             min_constraint_width: u2,
         ) f64 {
+            if ((self.size == .none) and (self.align_horizontal == .none)) {
+                // If we don't have any constraints affecting the horizontal
+                // axis, we don't touch horizontal alignment.
+                return group.x;
+            }
             // For multi-cell constraints, we align relative to the span
-            // from the left edge of the first face cell to the right
-            // edge of the last face cell as they sit within the rounded
-            // and adjusted pixel cell (centered if narrower than the
-            // pixel cell, left-aligned if wider).
-            const face_x, const full_face_span = facecalcs: {
-                const cell_width: f64 = @floatFromInt(metrics.cell_width);
-                const full_width: f64 = @floatFromInt(min_constraint_width * metrics.cell_width);
-                const cell_margin = cell_width - metrics.face_width;
-                break :facecalcs .{ @max(0, cell_margin / 2), full_width - cell_margin };
-            };
-            const pad_left_x = self.pad_left * metrics.face_width;
-            const new_group_x = face_x + switch (self.align_horizontal) {
-                .none => return 0.0,
-                .start => pad_left_x,
-                .end => end: {
-                    const pad_right_dx = self.pad_right * metrics.face_width;
-                    break :end @max(pad_left_x, full_face_span - pad_right_dx - group.width);
-                },
-                .center => @max(pad_left_x, (full_face_span - group.width) / 2),
+            // from the left edge of the first cell to the right edge of
+            // the last face cell assuming it's left-aligned within the
+            // rounded and adjusted pixel cell. Any horizontal offset to
+            // center the face within the grid cell is the responsibility
+            // of the backend-specific rendering code, and should be done
+            // after applying constraints.
+            const full_face_span = metrics.face_width + @as(f64, @floatFromInt((min_constraint_width - 1) * metrics.cell_width));
+            const pad_left_dx = self.pad_left * metrics.face_width;
+            const pad_right_dx = self.pad_right * metrics.face_width;
+            const start_x = pad_left_dx;
+            const end_x = full_face_span - group.width - pad_right_dx;
+            return switch (self.align_horizontal) {
+                // NOTE: Even if there is no prescribed alignment, we ensure
+                // that the glyph doesn't protrude outside the padded cell,
+                // since this is implied by every available size constraint. The
+                // left-side bound has priority if the group is too wide, though
+                // if we hit the .none prong we always have self.size != .none,
+                // so this should never happen.
+                .none => @max(start_x, @min(group.x, end_x)),
+                .start => start_x,
+                .end => @max(start_x, end_x),
+                .center => @max(start_x, (start_x + end_x) / 2),
                 // NOTE: .center1 implements the font_patcher rule of centering
                 // in the first cell even for multi-cell constraints. Since glyphs
                 // are not allowed to protrude to the left, this results in the
                 // left-alignment like .start when the glyph is wider than a cell.
-                .center1 => @max(pad_left_x, (metrics.face_width - group.width) / 2),
+                .center1 => center1: {
+                    const end1_x = metrics.face_width - group.width - pad_right_dx;
+                    break :center1 @max(start_x, (start_x + end1_x) / 2);
+                },
             };
-            return new_group_x - group.x;
         }
     };
 };
