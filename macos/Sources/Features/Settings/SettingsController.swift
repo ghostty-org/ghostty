@@ -41,7 +41,10 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         window.delegate = self
         window.center()
-        window.contentView = NSHostingView(rootView: SettingsView(surfaceView: surfaceView).environment(\.ghosttyConfig, self.config))
+        window.contentView = NSHostingView(rootView: SettingsView()
+            .environment(\.ghosttyConfig, self.config)
+            .ghosttySurfaceView(surfaceView)
+        )
     }
 
     @available(*, unavailable)
