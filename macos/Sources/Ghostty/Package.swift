@@ -376,9 +376,19 @@ extension Ghostty {
     }
 
     /// Enum for auto-update-channel config option
-    enum AutoUpdateChannel: String {
+    enum AutoUpdateChannel: String, CaseIterable, Identifiable {
+        var id: Self { self }
         case tip
         case stable
+
+        var description: String {
+            switch self {
+            case .tip:
+                return "Pre-release"
+            case .stable:
+                return "Stable"
+            }
+        }
     }
 }
 
