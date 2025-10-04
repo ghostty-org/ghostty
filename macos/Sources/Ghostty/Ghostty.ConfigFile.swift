@@ -23,6 +23,7 @@ extension Ghostty {
 
         @Ghostty.ConfigEntry("theme") var theme: Ghostty.Theme
         @Ghostty.ConfigEntry("font-family") var fontFamily: [RepeatableItem]
+        @Ghostty.ConfigEntry("auto-update-channel") var updateChannel: AutoUpdateChannel
 
         deinit {
             self.config = nil
