@@ -28,10 +28,11 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         config.waitAfterCommand = true
         config.command = "sh" // we use sh to remove 'Last login at the top'
         config.workingDirectory = Bundle.main.resourcePath
-        surfaceView = .init(ghosttyApp, baseConfig: config)
+        surfaceView = .init(ghosttyApp, baseConfig: config, isFocused: false)
+        surfaceView.isEnabled = false
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .resizable, .unifiedTitleAndToolbar, .fullSizeContentView],
+            styleMask: [.titled, .closable, .unifiedTitleAndToolbar, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -42,7 +43,7 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.center()
         window.contentView = NSHostingView(rootView: SettingsView()
-            .environment(\.ghosttyConfig, self.config)
+            .environmentObject(self.config)
             .ghosttySurfaceView(surfaceView)
         )
     }
@@ -58,13 +59,12 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(sender)
     }
 
-    override func close() {
-        window?.performClose(self)
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        super.performKeyEquivalent(with: event)
     }
 
-    func windowWillClose(_ notification: Notification) {
-        Task {
-            await config.save()
-        }
+    // responds to file menu
+    @objc func close(_ sender: Any) {
+        window?.performClose(sender)
     }
 }

@@ -466,6 +466,18 @@ typedef struct {
 
 // Config types
 
+// config.RepeatableItem
+typedef struct {
+  const char* key;
+  const char* value;
+} ghostty_config_repeatable_item_s;
+
+// config.RepeatableItemList
+typedef struct {
+  const ghostty_config_repeatable_item_s* items;
+  size_t len;
+} ghostty_config_repeatable_item_list_s;
+
 // config.Color
 typedef struct {
   uint8_t r;

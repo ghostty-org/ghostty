@@ -12,7 +12,7 @@ struct SurfacePreviewView: View {
     @State private var themes = [Ghostty.ThemeOption]()
     @State private var selectedLightTheme: Ghostty.ThemeOption?
     @State private var selectedDarkTheme: Ghostty.ThemeOption?
-    @Environment(\.ghosttyConfig) var config
+    @EnvironmentObject var config: Ghostty.ConfigFile
     var body: some View {
         Form {
             // We separate this for now, since ghostty theme will affect appearance, if system is in light mode but ghostty is using dark theme, things start to become tricky...
@@ -36,12 +36,12 @@ struct SurfacePreviewView: View {
                     GeometryReader { geo in
                         if let surfaceView {
                             Ghostty.SurfaceRepresentable(view: surfaceView, size: .init(width: geo.size.width, height: geo.size.height + bottomSpace))
-                                .disabled(true) // Disable interaction for preview
-                                .cornerRadius(8)
+                                .disabled(true)
                         }
                     }
                     .frame(height: previewHeight - bottomSpace, alignment: .top)
                 }
+                .backport.contentMargins(.trailing, 0, for: .scrollIndicators)
                 .frame(height: previewSectionHeight)
                 .opacity(isLoading ? 0 : 1)
                 .overlay {
@@ -53,7 +53,7 @@ struct SurfacePreviewView: View {
             }
         }
         // topPadding + themeSelect + sectionPadding + preview + sectionPadding + bottomPadding
-        .frame(height: 20 + (75 + 10 + 5 + previewSectionHeight + 5) + 20)
+        .frame(height: 20 + (75 + 10 + 5 + previewSectionHeight + 5) + 10)
         .formStyle(.grouped)
         .scrollDisabled(true)
         .frame(maxWidth: .greatestFiniteMagnitude)
@@ -123,7 +123,7 @@ struct SurfacePreviewView: View {
     private func updateTheme(for colorScheme: ColorScheme, selectedTheme: Ghostty.ThemeOption?) async {
         if config.theme[colorScheme].isEmpty, selectedTheme?.name == Ghostty.Theme.defaultValue[colorScheme] {
             // using default value, no need to reload
-        } else if let newValue = selectedTheme, newValue.name != config.theme[colorScheme] {
+        } else if let newValue = selectedTheme/*, newValue.name != config.theme[colorScheme]*/ {
             config.theme[colorScheme] = newValue.name
             config.reload()
             await config.save()
