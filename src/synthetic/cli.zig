@@ -9,6 +9,7 @@ pub const Action = enum {
     ascii,
     osc,
     utf8,
+    code,
 
     /// Returns the struct associated with the action. The struct
     /// should have a few decls:
@@ -23,6 +24,7 @@ pub const Action = enum {
             .ascii => @import("cli/Ascii.zig"),
             .osc => @import("cli/Osc.zig"),
             .utf8 => @import("cli/Utf8.zig"),
+            .code => @import("cli/Code.zig"),
         };
     }
 };
