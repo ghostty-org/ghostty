@@ -274,3 +274,16 @@ extension Array: GhosttyConfigValueConvertible where Element == Ghostty.Repeatab
         map(\.value)
     }
 }
+
+extension Ghostty.AutoUpdateChannel: GhosttyConfigValueConvertible {
+    typealias GhosttyValue = String.GhosttyValue
+
+    init(ghosttyValue: String.GhosttyValue?) {
+        let rawValue = String(ghosttyValue: ghosttyValue)
+        self = Self(rawValue: rawValue) ?? .stable
+    }
+
+    var representedValue: [String] {
+        [rawValue]
+    }
+}
