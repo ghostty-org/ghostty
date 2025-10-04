@@ -134,5 +134,16 @@ extension Ghostty {
                 ghostty_surface_binding_action(surface, cString, UInt(len - 1))
             }
         }
+
+        /// Theme options for this surface.
+        @MainActor
+        func themeOptions() throws -> [ThemeOption] {
+            var theme_list = ghostty_surface_theme_list_s()
+            guard ghostty_surface_get_themes(surface, &theme_list) else {
+                throw Error.apiFailed
+            }
+            let buffer = UnsafeBufferPointer(start: theme_list.themes, count: theme_list.len)
+            return buffer.compactMap(Ghostty.ThemeOption.init(_:))
+        }
     }
 }

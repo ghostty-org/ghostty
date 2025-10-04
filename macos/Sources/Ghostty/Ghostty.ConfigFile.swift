@@ -3,7 +3,7 @@ import SwiftUI
 
 extension Ghostty {
     /// Maps to a ghostty config file and the various operations on that. This is mainly used in Settings.
-    class ConfigFile: ObservableObject, GhosttyConfig {
+    class ConfigFile: ObservableObject, GhosttyConfigObject {
         static let empty = Ghostty.ConfigFile(config: nil)
         // The underlying C pointer to the Ghostty config structure. This
         // should never be accessed directly. Any operations on this should
@@ -21,7 +21,7 @@ extension Ghostty {
 
         @Published var saveError: Swift.Error? = nil
 
-        @Ghostty.ConfigEntry("theme") var theme: Ghostty.Config.Theme
+        @Ghostty.ConfigEntry("theme") var theme: Ghostty.Theme
 
         deinit {
             self.config = nil
@@ -97,53 +97,5 @@ extension Ghostty.ConfigFile {
         guard let config = config else { return "" }
         let exported = ghostty_config_export_string(config)
         return Ghostty.AllocatedString(exported).string
-    }
-}
-
-extension Ghostty.Config {
-    struct Theme: GhosttyConfigValueConvertible {
-        var light: String = ""
-        var dark: String = ""
-
-        subscript(scheme: ColorScheme) -> String {
-            get {
-                switch scheme {
-                case .light:
-                    return light
-                case .dark:
-                    return dark
-                @unknown default:
-                    assertionFailure("New cases for colorScheme should be added here")
-                    return ""
-                }
-            }
-            set {
-                switch scheme {
-                case .light:
-                    light = newValue
-                case .dark:
-                    dark = newValue
-                @unknown default:
-                    assertionFailure("New cases for colorScheme should be added here")
-                }
-            }
-        }
-
-        typealias Pointee = ghostty_config_theme_s
-
-        init(ghosttyPointer: Pointee?) {
-            if let theme = ghosttyPointer {
-                light = String(bytes: UnsafeBufferPointer(start: theme.light, count: theme.light_len).map(UInt8.init(_:)), encoding: .utf8) ?? ""
-                dark = String(bytes: UnsafeBufferPointer(start: theme.dark, count: theme.dark_len).map(UInt8.init(_:)), encoding: .utf8) ?? ""
-            }
-        }
-
-        var description: String {
-            if light == dark {
-                return light
-            } else {
-                return "light:\(light),dark:\(dark)"
-            }
-        }
     }
 }
