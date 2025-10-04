@@ -95,8 +95,10 @@ extension Ghostty.ConfigFile {
 
     @MainActor
     func export() -> String {
-        guard let config = config else { return "" }
-        let exported = ghostty_config_export_string(config)
-        return Ghostty.AllocatedString(exported).string
+        guard
+            let config = config,
+            let exported = ghostty_config_export_string(config)
+        else { return "" }
+        return String(cString: exported)
     }
 }
