@@ -14,9 +14,8 @@ struct SettingsView: View {
         } detail: {
             switch currentCategory {
             case .general:
-                ScrollView {
-                    Text(currentCategory.rawValue)
-                }.navigationTitle(currentCategory.rawValue)
+                GeneralContentView()
+                    .navigationTitle(currentCategory.rawValue)
             case .themes:
                 ThemeContentView()
                     .navigationTitle(currentCategory.rawValue)
