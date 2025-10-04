@@ -47,8 +47,6 @@ struct FontPicker: View {
         } else {
             config.fontFamily[0].value = familyName
         }
-
-        config.reload()
     }
 }
 
