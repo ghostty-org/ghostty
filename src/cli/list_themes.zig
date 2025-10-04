@@ -137,7 +137,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
         },
     };
 
-    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(std.io.getStdOut().handle)) {
+    if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
         try preview(gpa_alloc, themes, opts.color);
         return 0;
     }
