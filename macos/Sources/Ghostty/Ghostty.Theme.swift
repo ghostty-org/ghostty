@@ -82,11 +82,11 @@ extension Ghostty {
             self.dark = dark
         }
 
-        var description: String {
+        var representedValue: [String] {
             guard light != dark, !light.isEmpty, !dark.isEmpty else {
-                return light.isEmpty ? dark : light
+                return [light.isEmpty ? dark : light]
             }
-            return "light:\(light),dark:\(dark)"
+            return ["light:\(light),dark:\(dark)"]
         }
     }
 }

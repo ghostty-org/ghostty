@@ -1,8 +1,8 @@
+import GhosttyKit
 import os
 import SwiftUI
-import GhosttyKit
 
-struct Ghostty {
+enum Ghostty {
     // The primary logger used by the GhosttyKit libraries.
     static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier!,
@@ -78,7 +78,7 @@ extension Ghostty {
         private let cString: ghostty_string_s
 
         init(_ c: ghostty_string_s) {
-            self.cString = c
+            cString = c
         }
 
         var string: String {
@@ -91,6 +91,29 @@ extension Ghostty {
             ghostty_string_free(cString)
         }
     }
+
+    struct RepeatableItem: Identifiable {
+        var id: String { key + value }
+        let key: String
+        var value: String
+
+        init(key: String, value: String) {
+            self.key = key
+            self.value = value
+        }
+
+        init(_ c: ghostty_config_repeatable_item_s) {
+            key = String(cString: c.key)
+            value = String(cString: c.value)
+        }
+    }
+}
+
+extension Array where Element == Ghostty.RepeatableItem {
+    init(_ c: ghostty_config_repeatable_item_list_s) {
+        let buffer = UnsafeBufferPointer(start: c.items, count: c.len)
+        self = buffer.map(Element.init(_:))
+    }
 }
 
 extension Ghostty {
@@ -100,7 +123,7 @@ extension Ghostty {
         case toggle
 
         static func from(_ c: ghostty_action_float_window_e) -> Self? {
-            switch (c) {
+            switch c {
             case GHOSTTY_FLOAT_WINDOW_ON:
                 return .on
 
@@ -122,7 +145,7 @@ extension Ghostty {
         case toggle
 
         static func from(_ c: ghostty_action_secure_input_e) -> Self? {
-            switch (c) {
+            switch c {
             case GHOSTTY_SECURE_INPUT_ON:
                 return .on
 
@@ -144,7 +167,7 @@ extension Ghostty {
 
         /// Initialize from a Ghostty API enum.
         static func from(direction: ghostty_action_goto_split_e) -> Self? {
-            switch (direction) {
+            switch direction {
             case GHOSTTY_GOTO_SPLIT_PREVIOUS:
                 return .previous
 
@@ -169,7 +192,7 @@ extension Ghostty {
         }
 
         func toNative() -> ghostty_action_goto_split_e {
-            switch (self) {
+            switch self {
             case .previous:
                 return GHOSTTY_GOTO_SPLIT_PREVIOUS
 
@@ -196,30 +219,30 @@ extension Ghostty {
         case up, down, left, right
 
         static func from(direction: ghostty_action_resize_split_direction_e) -> Self? {
-            switch (direction) {
+            switch direction {
             case GHOSTTY_RESIZE_SPLIT_UP:
-                return .up;
+                return .up
             case GHOSTTY_RESIZE_SPLIT_DOWN:
-                return .down;
+                return .down
             case GHOSTTY_RESIZE_SPLIT_LEFT:
-                return .left;
+                return .left
             case GHOSTTY_RESIZE_SPLIT_RIGHT:
-                return .right;
+                return .right
             default:
                 return nil
             }
         }
 
         func toNative() -> ghostty_action_resize_split_direction_e {
-            switch (self) {
+            switch self {
             case .up:
-                return GHOSTTY_RESIZE_SPLIT_UP;
+                return GHOSTTY_RESIZE_SPLIT_UP
             case .down:
-                return GHOSTTY_RESIZE_SPLIT_DOWN;
+                return GHOSTTY_RESIZE_SPLIT_DOWN
             case .left:
-                return GHOSTTY_RESIZE_SPLIT_LEFT;
+                return GHOSTTY_RESIZE_SPLIT_LEFT
             case .right:
-                return GHOSTTY_RESIZE_SPLIT_RIGHT;
+                return GHOSTTY_RESIZE_SPLIT_RIGHT
             }
         }
     }
@@ -268,7 +291,7 @@ extension Ghostty {
 
         /// The text to show in the clipboard confirmation prompt for a given request type
         func text() -> String {
-            switch (self) {
+            switch self {
             case .paste:
                 return """
                 Pasting this text to the terminal may be dangerous as it looks like some commands may be executed.
@@ -287,7 +310,7 @@ extension Ghostty {
         }
 
         static func from(request: ghostty_clipboard_request_e) -> ClipboardRequest? {
-            switch (request) {
+            switch request {
             case GHOSTTY_CLIPBOARD_REQUEST_PASTE:
                 return .paste
             case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ:
@@ -482,4 +505,4 @@ extension Ghostty.Notification {
 }
 
 // Make the input enum hashable.
-extension ghostty_input_key_e : @retroactive Hashable {}
+extension ghostty_input_key_e: @retroactive Hashable {}

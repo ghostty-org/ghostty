@@ -18,7 +18,7 @@ struct SettingsView: View {
                     Text(currentCategory.rawValue)
                 }.navigationTitle(currentCategory.rawValue)
             case .themes:
-                ThemePreviewContentView()
+                ThemeContentView()
                     .navigationTitle(currentCategory.rawValue)
             }
         }

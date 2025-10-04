@@ -7,15 +7,16 @@ protocol GhosttyConfigObject: AnyObject {
     var config: ghostty_config_t? { get }
 }
 
-protocol GhosttyConfigValueConvertible: CustomStringConvertible {
+protocol GhosttyConfigValueConvertible {
     associatedtype GhosttyValue
     init(ghosttyValue: GhosttyValue?)
+    var representedValue: [String] { get }
 }
 
 extension Ghostty {
     // This could be turned into a macro
     @propertyWrapper
-    struct ConfigEntry<Value: GhosttyConfigValueConvertible> {
+    struct ConfigEntry<Value: GhosttyConfigValueConvertible>: DynamicProperty {
         static subscript<T: GhosttyConfigObject>(
             _enclosingInstance instance: T,
             wrapped _: ReferenceWritableKeyPath<T, Value>,
@@ -35,7 +36,7 @@ extension Ghostty {
                 guard result, let v else {
                     return instance[keyPath: storageKeyPath].storage.value
                 }
-                info.needsUpdate = false
+                instance[keyPath: storageKeyPath].info.needsUpdate = false
                 let value = Value(ghosttyValue: v)
                 if let publisher = (instance as? any ObservableObject)?.objectWillChange as? ObservableObjectPublisher {
                     DispatchQueue.main.async {
@@ -53,16 +54,18 @@ extension Ghostty {
                     }
                 }
                 instance[keyPath: storageKeyPath].storage.value = newValue
-                let key = instance[keyPath: storageKeyPath].info.key
-                let stringValue = String(describing: newValue)
                 guard let cfg = instance.config else {
                     return
                 }
-                ghostty_config_set(cfg, key, UInt(key.count), stringValue, UInt(stringValue.count))
+                let key = instance[keyPath: storageKeyPath].info.key
+                ghostty_config_set(cfg, key, UInt(key.count), "", 0) // reset
+                for value in newValue.representedValue {
+                    ghostty_config_set(cfg, key, UInt(key.count), value, UInt(value.count))
+                }
             }
         }
 
-        class Info: Identifiable {
+        struct Info: Identifiable {
             var id: String { key }
             fileprivate var needsUpdate = true
             let key: String
@@ -82,7 +85,7 @@ extension Ghostty {
         }
 
         private var storage = CurrentValueSubject<Value, Never>(Value(ghosttyValue: nil))
-        private var info: Info
+        @State private var info: Info
 
         var projectedValue: AnyPublisher<Value, Never> {
             storage.eraseToAnyPublisher()
@@ -116,6 +119,10 @@ extension Optional: GhosttyConfigValueConvertible where Wrapped: GhosttyConfigVa
         }
         self = .some(Wrapped(ghosttyValue: pointer))
     }
+
+    var representedValue: [String] {
+        self?.representedValue ?? []
+    }
 }
 
 extension String: GhosttyConfigValueConvertible {
@@ -128,6 +135,15 @@ extension String: GhosttyConfigValueConvertible {
         // If you want extra safety, you can use `String(validatingUTF8:) ?? ""`
         self = String(cString: p)
     }
+
+    var representedValue: [String] {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return []
+        } else {
+            return [trimmed]
+        }
+    }
 }
 
 extension Bool: GhosttyConfigValueConvertible {
@@ -136,12 +152,20 @@ extension Bool: GhosttyConfigValueConvertible {
     init(ghosttyValue: Bool?) {
         self = ghosttyValue ?? false
     }
+
+    var representedValue: [String] {
+        ["\(self)"]
+    }
 }
 
 extension UInt: GhosttyConfigValueConvertible {
     typealias GhosttyValue = Self
     init(ghosttyValue: UInt?) {
         self = ghosttyValue ?? .zero
+    }
+
+    var representedValue: [String] {
+        ["\(self)"]
     }
 }
 
@@ -150,6 +174,10 @@ extension Double: GhosttyConfigValueConvertible {
 
     init(ghosttyValue: Double?) {
         self = ghosttyValue ?? 0
+    }
+
+    var representedValue: [String] {
+        [formatted(.number.precision(.fractionLength(3)))]
     }
 }
 
@@ -165,5 +193,40 @@ extension Color: GhosttyConfigValueConvertible {
             green: Double(color.g) / 255,
             blue: Double(color.b) / 255
         )
+    }
+
+    var representedValue: [String] {
+        let osColor = OSColor(self)
+        guard let components = osColor.cgColor.components, components.count >= 3 else {
+            return []
+        }
+        let r = Float(components[0])
+        let g = Float(components[1])
+        let b = Float(components[2])
+        var a = Float(1.0)
+
+        if components.count >= 4 {
+            a = Float(components[3])
+        }
+
+        return [String(format: "%02lX%02lX%02lX%02lX", lroundf(r * 255), lroundf(g * 255), lroundf(b * 255), lroundf(a * 255))]
+    }
+}
+
+// MARK: - Ghostty Bridge Types
+
+extension Array: GhosttyConfigValueConvertible where Element == Ghostty.RepeatableItem {
+    typealias GhosttyValue = ghostty_config_repeatable_item_list_s
+
+    init(ghosttyValue: ghostty_config_repeatable_item_list_s?) {
+        guard let list = ghosttyValue else {
+            self = []
+            return
+        }
+        self = .init(list)
+    }
+
+    var representedValue: [String] {
+        map(\.value)
     }
 }
