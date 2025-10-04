@@ -30,8 +30,13 @@ extension Ghostty {
                 // read from config once
                 var v: Value.GhosttyValue?
                 let key = info.key
+
+                // finalise a temporary config to get default values
+                let tempCfg = ghostty_config_clone(cfg)
+                ghostty_config_finalize(tempCfg)
+
                 let result = withUnsafeMutablePointer(to: &v) { p in
-                    ghostty_config_get(cfg, p, key, UInt(key.count))
+                    ghostty_config_get(tempCfg, p, key, UInt(key.count))
                 }
                 guard result, let v else {
                     return instance[keyPath: storageKeyPath].storage.value
