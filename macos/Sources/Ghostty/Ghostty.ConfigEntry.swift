@@ -7,6 +7,37 @@ protocol GhosttyConfigObject: AnyObject {
     var config: ghostty_config_t? { get }
 }
 
+extension GhosttyConfigObject {
+    @MainActor
+    func reload(for preferredApp: ghostty_app_t? = nil) {
+        guard let cfg = config else {
+            return
+        }
+
+        // we only finalise config temporarily = hard reload
+        let newCfg = ghostty_config_clone(cfg)
+        if let app = preferredApp ?? (NSApp.delegate as? AppDelegate)?.ghostty.app {
+            ghostty_config_finalize(newCfg)
+            ghostty_app_update_config(app, newCfg)
+        }
+    }
+
+    func setValue(_ key: String, value: String) -> Bool {
+        guard let config = config else { return false }
+        let result = ghostty_config_set(config, key, UInt(key.count), value, UInt(value.count))
+        return result
+    }
+
+    @MainActor
+    func export() -> String {
+        guard
+            let config = config,
+            let exported = ghostty_config_export_string(config)
+        else { return "" }
+        return String(cString: exported)
+    }
+}
+
 protocol GhosttyConfigValueConvertible {
     associatedtype GhosttyValue
     init(ghosttyValue: GhosttyValue?)
@@ -62,10 +93,16 @@ extension Ghostty {
                 guard let cfg = instance.config else {
                     return
                 }
-                let key = instance[keyPath: storageKeyPath].info.key
+                let info = instance[keyPath: storageKeyPath].info
+                let key = info.key
                 ghostty_config_set(cfg, key, UInt(key.count), "", 0) // reset
                 for value in newValue.representedValue {
                     ghostty_config_set(cfg, key, UInt(key.count), value, UInt(value.count))
+                }
+                if info.reloadOnSet {
+                    DispatchQueue.main.async {
+                        instance.reload()
+                    }
                 }
             }
         }
@@ -75,10 +112,12 @@ extension Ghostty {
             fileprivate var needsUpdate = true
             let key: String
             let tip: String?
+            let reloadOnSet: Bool
 
-            init(key: String, tip: String?) {
+            init(key: String, tip: String?, reloadOnSet: Bool) {
                 self.key = key
                 self.tip = tip
+                self.reloadOnSet = reloadOnSet
             }
         }
 
@@ -96,8 +135,8 @@ extension Ghostty {
             storage.eraseToAnyPublisher()
         }
 
-        init(_ key: String, tip: String? = nil) {
-            info = .init(key: key, tip: tip)
+        init(_ key: String, tip: String? = nil, reload: Bool = true) {
+            info = .init(key: key, tip: tip, reloadOnSet: reload)
         }
     }
 }
