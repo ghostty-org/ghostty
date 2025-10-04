@@ -125,8 +125,6 @@ struct SurfacePreviewView: View {
             // using default value, no need to reload
         } else if let newValue = selectedTheme/*, newValue.name != config.theme[colorScheme]*/ {
             config.theme[colorScheme] = newValue.name
-            config.reload()
-            await config.save()
         }
     }
 

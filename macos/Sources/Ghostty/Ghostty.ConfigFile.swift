@@ -57,20 +57,6 @@ extension Ghostty {
             self.init(config: cfg)
         }
 
-        @MainActor
-        func reload(for preferredApp: ghostty_app_t? = nil) {
-            guard let cfg = config else {
-                return
-            }
-
-            // we only finalise config temporarily = hard reload
-            let newCfg = ghostty_config_clone(cfg)
-            if let app = preferredApp ?? (NSApp.delegate as? AppDelegate)?.ghostty.app {
-                ghostty_config_finalize(newCfg)
-                ghostty_app_update_config(app, newCfg)
-            }
-        }
-
         @concurrent func save() async {
             do {
                 let content = await MainActor.run { export() }
@@ -85,20 +71,3 @@ extension Ghostty {
 }
 
 // MARK: - Mutating ghostty_config_t
-
-extension Ghostty.ConfigFile {
-    func setValue(_ key: String, value: String) -> Bool {
-        guard let config = config else { return false }
-        let result = ghostty_config_set(config, key, UInt(key.count), value, UInt(value.count))
-        return result
-    }
-
-    @MainActor
-    func export() -> String {
-        guard
-            let config = config,
-            let exported = ghostty_config_export_string(config)
-        else { return "" }
-        return String(cString: exported)
-    }
-}
