@@ -4772,12 +4772,24 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_to_top => {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.io.terminal.active_screen == .alternate) return false;
+            }
+
             self.io.queueMessage(.{
                 .scroll_viewport = .{ .top = {} },
             }, .unlocked);
         },
 
         .scroll_to_bottom => {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.io.terminal.active_screen == .alternate) return false;
+            }
+
             self.io.queueMessage(.{
                 .scroll_viewport = .{ .bottom = {} },
             }, .unlocked);
@@ -4786,12 +4798,21 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .scroll_to_selection => {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
+
+            if (self.io.terminal.active_screen == .alternate) return false;
+
             const sel = self.io.terminal.screen.selection orelse return false;
             const tl = sel.topLeft(&self.io.terminal.screen);
             self.io.terminal.screen.scroll(.{ .pin = tl });
         },
 
         .scroll_page_up => {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.io.terminal.active_screen == .alternate) return false;
+            }
+
             const rows: isize = @intCast(self.size.grid().rows);
             self.io.queueMessage(.{
                 .scroll_viewport = .{ .delta = -1 * rows },
@@ -4799,6 +4820,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_page_down => {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.io.terminal.active_screen == .alternate) return false;
+            }
+
             const rows: isize = @intCast(self.size.grid().rows);
             self.io.queueMessage(.{
                 .scroll_viewport = .{ .delta = rows },
@@ -4806,6 +4833,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_page_fractional => |fraction| {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.io.terminal.active_screen == .alternate) return false;
+            }
+
             const rows: f32 = @floatFromInt(self.size.grid().rows);
             const delta: isize = @intFromFloat(@trunc(fraction * rows));
             self.io.queueMessage(.{
@@ -4814,6 +4847,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_page_lines => |lines| {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.io.terminal.active_screen == .alternate) return false;
+            }
+
             self.io.queueMessage(.{
                 .scroll_viewport = .{ .delta = lines },
             }, .unlocked);
