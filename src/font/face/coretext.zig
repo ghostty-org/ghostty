@@ -363,7 +363,11 @@ pub const Face = struct {
         // We center all glyphs within the pixel-rounded and adjusted
         // cell width if it's larger than the face width, so that they
         // aren't weirdly off to the left.
-        if (metrics.face_width < cell_width) {
+        //
+        // We don't do this if the glyph has a stretch constraint,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
             // We add half the difference to re-center.
             x += (cell_width - metrics.face_width) / 2;
         }
@@ -376,18 +380,6 @@ pub const Face = struct {
             height = cell_height - @round(cell_height - height - y) - @round(y);
             x = @round(x);
             y = @round(y);
-        }
-
-        // We center all glyphs within the pixel-rounded and adjusted
-        // cell width if it's larger than the face width, so that they
-        // aren't weirdly off to the left.
-        //
-        // We don't do this if the glyph has a stretch constraint,
-        // since in that case the position was already calculated with the
-        // new cell width in mind.
-        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
-            // We add half the difference to re-center.
-            x += (cell_width - metrics.face_width) / 2;
         }
 
         // We make an assumption that font smoothing ("thicken")

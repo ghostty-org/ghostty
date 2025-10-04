@@ -1177,43 +1177,6 @@ test "color emoji" {
         const glyph_id = ft_font.glyphIndex('🥸').?;
         try testing.expect(ft_font.isColorGlyph(glyph_id));
     }
-
-    // resize
-    // TODO: Comprehensive tests for constraints,
-    //       this is just an adapted legacy test.
-    {
-        const glyph = try ft_font.renderGlyph(
-            alloc,
-            &atlas,
-            ft_font.glyphIndex('🥸').?,
-            .{
-                .grid_metrics = .{
-                    .cell_width = 13,
-                    .cell_height = 24,
-                    .cell_baseline = 0,
-                    .underline_position = 0,
-                    .underline_thickness = 0,
-                    .strikethrough_position = 0,
-                    .strikethrough_thickness = 0,
-                    .overline_position = 0,
-                    .overline_thickness = 0,
-                    .box_thickness = 0,
-                    .cursor_height = 0,
-                    .icon_height = 0,
-                    .face_width = 13,
-                    .face_height = 24,
-                    .face_y = 0,
-                },
-                .constraint_width = 2,
-                .constraint = .{
-                    .size = .fit,
-                    .align_horizontal = .center,
-                    .align_vertical = .center,
-                },
-            },
-        );
-        try testing.expectEqual(@as(u32, 24), glyph.height);
-    }
 }
 
 test "mono to bgra" {

@@ -507,3 +507,196 @@ test "Variation.Id: slnt should be 1936486004" {
     try testing.expectEqual(@as(u32, 1936486004), @as(u32, @bitCast(id)));
     try testing.expectEqualStrings("slnt", &(id.str()));
 }
+
+test "Constraints" {
+    const comparison = @import("../datastruct/comparison.zig");
+    const getConstraint = @import("nerd_font_attributes.zig").getConstraint;
+
+    // Hardcoded data matches metrics from CoreText at size 12 and DPI 96.
+
+    // Define grid metrics (matches font-family = JetBrains Mono)
+    const metrics: Metrics = .{
+        .cell_width = 10,
+        .cell_height = 22,
+        .cell_baseline = 5,
+        .underline_position = 19,
+        .underline_thickness = 1,
+        .strikethrough_position = 12,
+        .strikethrough_thickness = 1,
+        .overline_position = 0,
+        .overline_thickness = 1,
+        .box_thickness = 1,
+        .cursor_thickness = 1,
+        .cursor_height = 22,
+        .icon_height = 44.48 / 3.0,
+        .face_width = 9.6,
+        .face_height = 21.12,
+        .face_y = 0.2,
+    };
+
+    // ASCII (no constraint).
+    {
+        const constraint: RenderOptions.Constraint = .none;
+
+        // BBox of 'x' from JetBrains Mono.
+        const glyph_x: GlyphSize = .{
+            .width = 6.784,
+            .height = 15.28,
+            .x = 1.408,
+            .y = 4.84,
+        };
+
+        // Any constraint width: do nothing.
+        inline for (.{ 1, 2 }) |constraint_width| {
+            try comparison.expectApproxEqual(
+                glyph_x,
+                constraint.constrain(glyph_x, metrics, constraint_width),
+            );
+        }
+    }
+
+    // Symbol (same constraint as hardcoded in Renderer.addGlyph).
+    {
+        const constraint: RenderOptions.Constraint = .{ .size = .fit };
+
+        // BBox of '■' (0x25A0 black square) from Iosevka.
+        // NOTE: This glyph is designed to span two cells.
+        const glyph_25A0: GlyphSize = .{
+            .width = 10.272,
+            .height = 10.272,
+            .x = 2.864,
+            .y = 5.304,
+        };
+
+        // Constraint width 1: scale down and shift to fit a single cell.
+        try comparison.expectApproxEqual(
+            GlyphSize{
+                .width = metrics.face_width,
+                .height = metrics.face_width,
+                .x = 0,
+                .y = 5.64,
+            },
+            constraint.constrain(glyph_25A0, metrics, 1),
+        );
+
+        // Constraint width 2: do nothing.
+        try comparison.expectApproxEqual(
+            glyph_25A0,
+            constraint.constrain(glyph_25A0, metrics, 2),
+        );
+    }
+
+    // Emoji (same constraint as hardcoded in SharedGrid.renderGlyph).
+    {
+        const constraint: RenderOptions.Constraint = .{
+            .size = .cover,
+            .align_horizontal = .center,
+            .align_vertical = .center,
+            .pad_left = 0.025,
+            .pad_right = 0.025,
+        };
+
+        // BBox of '🥸' (0x1F978) from Apple Color Emoji.
+        const glyph_1F978: GlyphSize = .{
+            .width = 20,
+            .height = 20,
+            .x = 0.46,
+            .y = 1,
+        };
+
+        // Constraint width 2: scale to cover two cells with padding, center;
+        try comparison.expectApproxEqual(
+            GlyphSize{
+                .width = 18.72,
+                .height = 18.72,
+                .x = 0.44,
+                .y = 1.4,
+            },
+            constraint.constrain(glyph_1F978, metrics, 2),
+        );
+    }
+
+    // Nerd Font default.
+    {
+        const constraint = getConstraint(0xea61).?;
+
+        // Verify that this is the constraint we expect.
+        try std.testing.expectEqual(.fit_cover1, constraint.size);
+        try std.testing.expectEqual(.icon, constraint.height);
+        try std.testing.expectEqual(.center1, constraint.align_horizontal);
+        try std.testing.expectEqual(.center1, constraint.align_vertical);
+
+        // BBox of '' (0xEA61 nf-cod-lightbulb) from Symbols Only.
+        // NOTE: This icon is part of a group, so the
+        // constraint applies to a larger bounding box.
+        const glyph_EA61: GlyphSize = .{
+            .width = 9.015625,
+            .height = 13.015625,
+            .x = 3.015625,
+            .y = 3.76525,
+        };
+
+        // Constraint width 1: scale and shift group to fit a single cell.
+        try comparison.expectApproxEqual(
+            GlyphSize{
+                .width = 7.2125,
+                .height = 10.4125,
+                .x = 0.8125,
+                .y = 5.950695224719102,
+            },
+            constraint.constrain(glyph_EA61, metrics, 1),
+        );
+
+        // Constraint width 2: no scaling; left-align and vertically center group.
+        try comparison.expectApproxEqual(
+            GlyphSize{
+                .width = glyph_EA61.width,
+                .height = glyph_EA61.height,
+                .x = 1.015625,
+                .y = 4.7483690308988775,
+            },
+            constraint.constrain(glyph_EA61, metrics, 2),
+        );
+    }
+
+    // Nerd Font stretch.
+    {
+        const constraint = getConstraint(0xe0c0).?;
+
+        // Verify that this is the constraint we expect.
+        try std.testing.expectEqual(.stretch, constraint.size);
+        try std.testing.expectEqual(.cell, constraint.height);
+        try std.testing.expectEqual(.start, constraint.align_horizontal);
+        try std.testing.expectEqual(.center1, constraint.align_vertical);
+
+        // BBox of ' ' (0xE0C0 nf-ple-flame_thick) from Symbols Only.
+        const glyph_E0C0: GlyphSize = .{
+            .width = 16.796875,
+            .height = 16.46875,
+            .x = -0.796875,
+            .y = 1.7109375,
+        };
+
+        // Constraint width 1: stretch and position to exactly cover one cell.
+        try comparison.expectApproxEqual(
+            GlyphSize{
+                .width = @floatFromInt(metrics.cell_width),
+                .height = @floatFromInt(metrics.cell_height),
+                .x = 0,
+                .y = 0,
+            },
+            constraint.constrain(glyph_E0C0, metrics, 1),
+        );
+
+        // Constraint width 1: stretch and position to exactly cover two cells.
+        try comparison.expectApproxEqual(
+            GlyphSize{
+                .width = @floatFromInt(2 * metrics.cell_width),
+                .height = @floatFromInt(metrics.cell_height),
+                .x = 0,
+                .y = 0,
+            },
+            constraint.constrain(glyph_E0C0, metrics, 2),
+        );
+    }
+}
