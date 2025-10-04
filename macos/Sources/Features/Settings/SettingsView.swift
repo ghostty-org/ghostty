@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @State var currentCategory: SettingsCategory = .general
-    let surfaceView: Ghostty.SurfaceView
     @State var presentedCategories: [SettingsCategory] = [.general]
     var body: some View {
         NavigationSplitView {
@@ -19,7 +18,7 @@ struct SettingsView: View {
                     Text(currentCategory.rawValue)
                 }.navigationTitle(currentCategory.rawValue)
             case .themes:
-                ThemePreviewContentView(surfaceView: surfaceView)
+                ThemePreviewContentView()
                     .navigationTitle(currentCategory.rawValue)
             }
         }

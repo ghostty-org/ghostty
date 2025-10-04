@@ -1,15 +1,10 @@
-import Cocoa
 import GhosttyKit
 import SwiftUI
 
 struct ThemePreviewContentView: View {
-    let surfaceView: Ghostty.SurfaceView
-
     var body: some View {
-        Ghostty.ThemePreviewSection(surfaceView: surfaceView)
-            .padding()
+        SurfacePreviewView()
         Form {
-            // Header with theme selector
             HStack {
                 Text("Theme Preview")
                     .font(.title2)
