@@ -144,6 +144,7 @@
 		A5E408452E0483FD0035FEAC /* KeybindIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E408442E0483F80035FEAC /* KeybindIntent.swift */; };
 		A5E408472E04852B0035FEAC /* InputIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E408462E0485270035FEAC /* InputIntent.swift */; };
 		A5F9A1F22E7C7301005AFACE /* SurfaceProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F9A1F12E7C7301005AFACE /* SurfaceProgressBar.swift */; };
+		A5FB3A882E942A1B00A919E5 /* SurfaceProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F9A1F12E7C7301005AFACE /* SurfaceProgressBar.swift */; };
 		A5FEB3002ABB69450068369E /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FEB2FF2ABB69450068369E /* main.swift */; };
 		AEE8B3452B9AA39600260C5E /* NSPasteboard+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */; };
 		C159E81D2B66A06B00FDFE9C /* OSColor+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */; };
@@ -990,6 +991,7 @@
 				A53D0C942B53B43700305CE6 /* iOSApp.swift in Sources */,
 				A514C8D72B54A16400493A16 /* Ghostty.Config.swift in Sources */,
 				A5333E232B5A219A008AEFF7 /* SurfaceView.swift in Sources */,
+				A5FB3A882E942A1B00A919E5 /* SurfaceProgressBar.swift in Sources */,
 				A5333E202B5A2111008AEFF7 /* SurfaceView_UIKit.swift in Sources */,
 				A5333E1D2B5A1CE3008AEFF7 /* CrossKit.swift in Sources */,
 				A5D689BE2E654D98002E2346 /* Ghostty.Action.swift in Sources */,
