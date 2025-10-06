@@ -49,10 +49,10 @@
     "url": "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
     "hash": "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA="
   },
-  "N-V-__8AANodAwDnyHwhlOv5cVRn2rx_dTvija-wy5YtTw1B": {
+  "N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y": {
     "name": "iterm2_themes",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-20250915-162204-b1fe546.tgz",
-    "hash": "sha256-6rKNFpaUvSbvNZ0/+u0h4I/RRaV5V7xIPQ9y7eNVbCA="
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz",
+    "hash": "sha256-GsEWVt4wMzp6+7N5I+QVuhCVJ70cFrdADwUds59AKnw="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",
