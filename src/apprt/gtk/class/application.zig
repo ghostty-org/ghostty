@@ -462,12 +462,16 @@ pub const Application = extern struct {
                 }
 
                 // If we have no windows attached to our app, also quit.
-                if (priv.requested_window and @as(
-                    ?*glib.List,
-                    self.as(gtk.Application).getWindows(),
-                ) == null) {
-                    log.debug("must_quit due to no app windows", .{});
-                    break :q true;
+                // We only do this if we don't have the closed delay set,
+                // because with the closed delay set we'll exit eventually.
+                if (config.@"quit-after-last-window-closed-delay" == null) {
+                    if (priv.requested_window and @as(
+                        ?*glib.List,
+                        self.as(gtk.Application).getWindows(),
+                    ) == null) {
+                        log.debug("must_quit due to no app windows", .{});
+                        break :q true;
+                    }
                 }
 
                 // No quit conditions met
