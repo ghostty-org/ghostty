@@ -52,8 +52,8 @@
 
   <releases>
     <!-- TODO: Generate this automatically -->
-    <release version="1.0.1" date="2024-12-31">
-        <url type="details">https://ghostty.org/docs/install/release-notes/1-0-1</url>
+    <release version="1.2.1" date="2025-10-06">
+        <url type="details">https://ghostty.org/docs/install/release-notes/1-2-1</url>
     </release>
   </releases>
 </component>
