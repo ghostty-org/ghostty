@@ -18,6 +18,7 @@ pub const Buffer = @import("Buffer.zig");
 pub const Framebuffer = @import("Framebuffer.zig");
 pub const Renderbuffer = @import("Renderbuffer.zig");
 pub const Program = @import("Program.zig");
+pub const Sampler = @import("Sampler.zig");
 pub const Shader = @import("Shader.zig");
 pub const Texture = @import("Texture.zig");
 pub const VertexArray = @import("VertexArray.zig");

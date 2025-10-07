@@ -61,6 +61,11 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         end
     end
 
+    # Add Ghostty binary to PATH if the path feature is enabled
+    if contains path $features; and test -n "$GHOSTTY_BIN_DIR"
+        fish_add_path --append "$GHOSTTY_BIN_DIR"
+    end
+
     # When using sudo shell integration feature, ensure $TERMINFO is set
     # and `sudo` is not already a function or alias
     if contains sudo $features; and test -n "$TERMINFO"; and test "file" = (type -t sudo 2> /dev/null; or echo "x")

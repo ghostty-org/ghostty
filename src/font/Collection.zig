@@ -19,6 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
+const comparison = @import("../datastruct/comparison.zig");
 const font = @import("main.zig");
 const options = font.options;
 const DeferredFace = font.DeferredFace;
@@ -222,12 +223,13 @@ fn getFaceFromEntry(
 
             // Calculate the scale factor for this
             // entry now that we have a loaded face.
-            entry.scale_factor = .{
-                .scale = self.scaleFactor(
+            if (entry.scale_factor == .adjustment) {
+                const factor = self.scaleFactor(
                     face.getMetrics(),
                     entry.scale_factor.adjustment,
-                ),
-            };
+                );
+                entry.scale_factor = .{ .scale = factor };
+            }
 
             // If our scale factor is something other
             // than 1.0 then we need to resize the face.
@@ -1199,7 +1201,7 @@ test "metrics" {
 
     try c.updateMetrics();
 
-    try std.testing.expectEqual(font.Metrics{
+    try comparison.expectApproxEqual(font.Metrics{
         .cell_width = 8,
         // The cell height is 17 px because the calculation is
         //
@@ -1213,6 +1215,9 @@ test "metrics" {
         // and 1em should be the point size * dpi scale, so 12 * (96/72)
         // which is 16, and 16 * 1.049 = 16.784, which finally is rounded
         // to 17.
+        //
+        // The icon height is (2 * cap_height + face_height) / 3
+        // = (2 * 623 + 1049) / 3 = 765, and 16 * 0.765 = 12.24.
         .cell_height = 17,
         .cell_baseline = 3,
         .underline_position = 17,
@@ -1223,12 +1228,15 @@ test "metrics" {
         .overline_thickness = 1,
         .box_thickness = 1,
         .cursor_height = 17,
-        .icon_height = 11,
+        .icon_height = 12.24,
+        .face_width = 8.0,
+        .face_height = 16.784,
+        .face_y = -0.04,
     }, c.metrics);
 
     // Resize should change metrics
     try c.setSize(.{ .points = 24, .xdpi = 96, .ydpi = 96 });
-    try std.testing.expectEqual(font.Metrics{
+    try comparison.expectApproxEqual(font.Metrics{
         .cell_width = 16,
         .cell_height = 34,
         .cell_baseline = 6,
@@ -1240,7 +1248,10 @@ test "metrics" {
         .overline_thickness = 2,
         .box_thickness = 2,
         .cursor_height = 34,
-        .icon_height = 23,
+        .icon_height = 24.48,
+        .face_width = 16.0,
+        .face_height = 33.568,
+        .face_y = -0.08,
     }, c.metrics);
 }
 
@@ -1368,4 +1379,134 @@ test "adjusted sizes" {
             0.5,
         );
     }
+}
+
+test "face metrics" {
+    // The web canvas backend doesn't calculate face metrics, only cell metrics
+    if (options.backend != .web_canvas) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const narrowFont = font.embedded.cozette;
+    const wideFont = font.embedded.geist_mono;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var c = init();
+    defer c.deinit(alloc);
+    const size: DesiredSize = .{ .points = 12, .xdpi = 96, .ydpi = 96 };
+    c.load_options = .{ .library = lib, .size = size };
+
+    const narrowIndex = try c.add(alloc, try .init(
+        lib,
+        narrowFont,
+        .{ .size = size },
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+    const wideIndex = try c.add(alloc, try .init(
+        lib,
+        wideFont,
+        .{ .size = size },
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    const narrowMetrics: font.Metrics.FaceMetrics = (try c.getFace(narrowIndex)).getMetrics();
+    const wideMetrics: font.Metrics.FaceMetrics = (try c.getFace(wideIndex)).getMetrics();
+
+    // Verify provided/measured metrics. Measured
+    // values are backend-dependent due to hinting.
+    const narrowMetricsExpected = font.Metrics.FaceMetrics{
+        .px_per_em = 16.0,
+        .cell_width = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 8.0,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 7.3828125,
+            .web_canvas => unreachable,
+        },
+        .ascent = 12.3046875,
+        .descent = -3.6953125,
+        .line_gap = 0.0,
+        .underline_position = -1.2265625,
+        .underline_thickness = 1.2265625,
+        .strikethrough_position = 6.15625,
+        .strikethrough_thickness = 1.234375,
+        .cap_height = 9.84375,
+        .ex_height = 7.3828125,
+        .ascii_height = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 18.0625,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 16.0,
+            .web_canvas => unreachable,
+        },
+    };
+    const wideMetricsExpected = font.Metrics.FaceMetrics{
+        .px_per_em = 16.0,
+        .cell_width = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 10.0,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 9.6,
+            .web_canvas => unreachable,
+        },
+        .ascent = 14.72,
+        .descent = -3.52,
+        .line_gap = 1.6,
+        .underline_position = -1.6,
+        .underline_thickness = 0.8,
+        .strikethrough_position = 4.24,
+        .strikethrough_thickness = 0.8,
+        .cap_height = 11.36,
+        .ex_height = 8.48,
+        .ascii_height = switch (options.backend) {
+            .freetype,
+            .fontconfig_freetype,
+            .coretext_freetype,
+            => 16.0,
+            .coretext,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            => 15.472000000000001,
+            .web_canvas => unreachable,
+        },
+    };
+
+    inline for (
+        .{ narrowMetricsExpected, wideMetricsExpected },
+        .{ narrowMetrics, wideMetrics },
+    ) |metricsExpected, metricsActual| {
+        try comparison.expectApproxEqual(metricsExpected, metricsActual);
+    }
+
+    // Verify estimated metrics. icWidth() should equal the smaller of
+    // 2 * cell_width and ascii_height. For a narrow (wide) font, the
+    // smaller quantity is the former (latter).
+    try std.testing.expectEqual(
+        2 * narrowMetrics.cell_width,
+        narrowMetrics.icWidth(),
+    );
+    try std.testing.expectEqual(
+        wideMetrics.ascii_height,
+        wideMetrics.icWidth(),
+    );
 }

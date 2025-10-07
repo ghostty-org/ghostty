@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const options = @import("build_options");
 
 extern "c" fn ghostty_simd_index_of(
     needle: u8,
@@ -8,8 +9,16 @@ extern "c" fn ghostty_simd_index_of(
 ) usize;
 
 pub fn indexOf(input: []const u8, needle: u8) ?usize {
-    const result = ghostty_simd_index_of(needle, input.ptr, input.len);
-    return if (result == input.len) null else result;
+    if (comptime options.simd) {
+        const result = ghostty_simd_index_of(needle, input.ptr, input.len);
+        return if (result == input.len) null else result;
+    }
+
+    return indexOfScalar(input, needle);
+}
+
+fn indexOfScalar(input: []const u8, needle: u8) ?usize {
+    return std.mem.indexOfScalar(u8, input, needle);
 }
 
 test "indexOf" {

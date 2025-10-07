@@ -23,6 +23,7 @@ pub const args = @import("args.zig");
 pub const cgroup = @import("cgroup.zig");
 pub const hostname = @import("hostname.zig");
 pub const i18n = @import("i18n.zig");
+pub const path = @import("path.zig");
 pub const passwd = @import("passwd.zig");
 pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");
@@ -65,6 +66,7 @@ pub const getKernelInfo = kernel_info.getKernelInfo;
 
 test {
     _ = i18n;
+    _ = path;
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;

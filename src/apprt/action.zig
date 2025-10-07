@@ -295,6 +295,9 @@ pub const Action = union(Key) {
     /// Show the on-screen keyboard.
     show_on_screen_keyboard,
 
+    /// A command has finished,
+    command_finished: CommandFinished,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -350,6 +353,7 @@ pub const Action = union(Key) {
         show_child_exited,
         progress_report,
         show_on_screen_keyboard,
+        command_finished,
     };
 
     /// Sync with: ghostty_action_u
@@ -569,6 +573,15 @@ pub const SetTitle = struct {
             .title = self.title.ptr,
         };
     }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: *std.Io.Writer,
+    ) !void {
+        try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.title });
+    }
 };
 
 pub const Pwd = struct {
@@ -583,6 +596,15 @@ pub const Pwd = struct {
         return .{
             .pwd = self.pwd.ptr,
         };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: *std.Io.Writer,
+    ) !void {
+        try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.pwd });
     }
 };
 
@@ -602,6 +624,19 @@ pub const DesktopNotification = struct {
             .title = self.title.ptr,
             .body = self.body.ptr,
         };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: *std.Io.Writer,
+    ) !void {
+        try writer.print("{s}{{ title: {s}, body: {s} }}", .{
+            @typeName(@This()),
+            value.title,
+            value.body,
+        });
     }
 };
 
@@ -709,4 +744,22 @@ pub const CloseTabMode = enum(c_int) {
     this,
     /// Close all other tabs.
     other,
+};
+
+pub const CommandFinished = struct {
+    exit_code: ?u8,
+    duration: configpkg.Config.Duration,
+
+    /// sync with ghostty_action_command_finished_s in ghostty.h
+    pub const C = extern struct {
+        exit_code: i16,
+        duration: u64,
+    };
+
+    pub fn cval(self: CommandFinished) C {
+        return .{
+            .exit_code = self.exit_code orelse -1,
+            .duration = self.duration.duration,
+        };
+    }
 };

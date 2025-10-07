@@ -50,7 +50,7 @@ pub const Command = struct {
 
         return .{
             .action_key = @tagName(self.action),
-            .action = std.fmt.comptimePrint("{s}", .{self.action}),
+            .action = std.fmt.comptimePrint("{t}", .{self.action}),
             .title = self.title,
             .description = self.description,
         };
@@ -94,6 +94,7 @@ pub const defaults: []const Command = defaults: {
 
 /// Defaults in C-compatible form.
 pub const defaultsC: []const Command.C = defaults: {
+    @setEvalBranchQuota(100_000);
     var result: [defaults.len]Command.C = undefined;
     for (defaults, 0..) |cmd, i| result[i] = cmd.comptimeCval();
     const final = result;
@@ -472,13 +473,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Quit the application.",
         }},
 
+        .text => comptime &.{.{
+            .action = .{ .text = "👻" },
+            .title = "Ghostty",
+            .description = "Put a little Ghostty in your terminal.",
+        }},
+
         // No commands because they're parameterized and there
         // aren't obvious values users would use. It is possible that
         // these may have commands in the future if there are very
         // common values that users tend to use.
         .csi,
         .esc,
-        .text,
         .cursor_key,
         .set_font_size,
         .scroll_page_fractional,

@@ -697,6 +697,19 @@ pub const Window = extern struct {
         var it = tree.iterator();
         while (it.next()) |entry| {
             const surface = entry.view;
+            // Before adding any new signal handlers, disconnect any that we may
+            // have added before. Otherwise we may get multiple handlers for the
+            // same signal.
+            _ = gobject.signalHandlersDisconnectMatched(
+                surface.as(gobject.Object),
+                .{ .data = true },
+                0,
+                0,
+                null,
+                null,
+                self,
+            );
+
             _ = Surface.signals.@"present-request".connect(
                 surface,
                 *Self,
@@ -1489,6 +1502,13 @@ pub const Window = extern struct {
         const priv = self.private();
         if (priv.tab_view.getNPages() == 0) {
             // If we have no pages left then we want to close window.
+
+            // If the tab overview is open, then we don't close the window
+            // because its a rather abrupt experience. This also fixes an
+            // issue where dragging out the last tab in the tab overview
+            // won't cause Ghostty to exit.
+            if (priv.tab_overview.getOpen() != 0) return;
+
             self.as(gtk.Window).close();
         }
     }

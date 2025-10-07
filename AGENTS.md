@@ -13,9 +13,17 @@ A file for [guiding coding agents](https://agents.md/).
 ## Directory Structure
 
 - Shared Zig core: `src/`
-- C API: `include/ghostty.h`
+- C API: `include`
 - macOS app: `macos/`
 - GTK (Linux and FreeBSD) app: `src/apprt/gtk`
+
+## libghostty-vt
+
+- Build: `zig build lib-vt`
+- Test: `zig build test-lib-vt`
+- Test filter: `zig build test-lib-vt -Dtest-filter=<test name>`
+- When working on libghostty-vt, do not build the full app.
+- For C only changes, don't run the Zig tests. Build all the examples.
 
 ## macOS App
 

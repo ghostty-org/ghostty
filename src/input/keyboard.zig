@@ -1,5 +1,5 @@
 const std = @import("std");
-const OptionAsAlt = @import("../config.zig").OptionAsAlt;
+const OptionAsAlt = @import("config.zig").OptionAsAlt;
 
 /// Keyboard layouts.
 ///

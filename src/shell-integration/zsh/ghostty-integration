@@ -220,6 +220,13 @@ _ghostty_deferred_init() {
 	  builtin print -rnu $_ghostty_fd \$'\\e[0 q'"
     fi
 
+    # Add Ghostty binary to PATH if the path feature is enabled
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"path"* ]] && [[ -n "$GHOSTTY_BIN_DIR" ]]; then
+      if [[ ":$PATH:" != *":$GHOSTTY_BIN_DIR:"* ]]; then
+        builtin export PATH="$PATH:$GHOSTTY_BIN_DIR"
+      fi
+    fi
+
     # Sudo
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* ]] && [[ -n "$TERMINFO" ]]; then
       # Wrap `sudo` command to ensure Ghostty terminfo is preserved

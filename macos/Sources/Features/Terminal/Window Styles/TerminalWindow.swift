@@ -49,6 +49,14 @@ class TerminalWindow: NSWindow {
 
         // Setup our initial config
         derivedConfig = .init(config)
+        
+        // If there is a hardcoded title in the configuration, we set that
+        // immediately. Future `set_title` apprt actions will override this
+        // if necessary but this ensures our window loads with the proper
+        // title immediately rather than on another event loop tick (see #5934)
+        if let title = derivedConfig.title {
+            self.title = title
+        }
 
         // If window decorations are disabled, remove our title
         if (!config.windowDecorations) { styleMask.remove(.titled) }
@@ -408,11 +416,19 @@ class TerminalWindow: NSWindow {
             return
         }
 
-        // Orient based on the top left of the primary monitor
-        let frame = screen.visibleFrame
-        setFrameOrigin(.init(
-            x: frame.minX + CGFloat(x),
-            y: frame.maxY - (CGFloat(y) + frame.height)))
+        // Convert top-left coordinates to bottom-left origin using our utility extension
+        let origin = screen.origin(
+            fromTopLeftOffsetX: CGFloat(x),
+            offsetY: CGFloat(y),
+            windowSize: frame.size)
+        
+        // Clamp the origin to ensure the window stays fully visible on screen
+        var safeOrigin = origin
+        let vf = screen.visibleFrame
+        safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
+        safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
+        
+        setFrameOrigin(safeOrigin)
     }
 
     private func hideWindowButtons() {
@@ -424,17 +440,20 @@ class TerminalWindow: NSWindow {
     // MARK: Config
 
     struct DerivedConfig {
+        let title: String?
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
 
         init() {
+            self.title = nil
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
         }
 
         init(_ config: Ghostty.Config) {
+            self.title = config.title
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons

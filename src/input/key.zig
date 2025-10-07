@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const cimgui = @import("cimgui");
-const config = @import("../config.zig");
+const OptionAsAlt = @import("config.zig").OptionAsAlt;
 
 /// A generic key input event. This is the information that is necessary
 /// regardless of apprt in order to generate the proper terminal
@@ -146,7 +146,7 @@ pub const Mods = packed struct(Mods.Backing) {
     /// Return the mods to use for key translation. This handles settings
     /// like macos-option-as-alt. The translation mods should be used for
     /// translation but never sent back in for the key callback.
-    pub fn translation(self: Mods, option_as_alt: config.OptionAsAlt) Mods {
+    pub fn translation(self: Mods, option_as_alt: OptionAsAlt) Mods {
         var result = self;
 
         // macos-option-as-alt for darwin

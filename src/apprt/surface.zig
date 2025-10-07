@@ -96,6 +96,14 @@ pub const Message = union(enum) {
     /// Report the progress of an action using a GUI element
     progress_report: terminal.osc.Command.ProgressReport,
 
+    /// A command has started in the shell, start a timer.
+    start_command,
+
+    /// A command has finished in the shell, stop the timer and send out
+    /// notifications as appropriate. The optional u8 is the exit code
+    /// of the command.
+    stop_command: ?u8,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 

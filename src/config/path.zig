@@ -79,7 +79,7 @@ pub const Path = union(enum) {
     }
 
     /// Used by formatter.
-    pub fn formatEntry(self: *const Path, formatter: anytype) !void {
+    pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
             .optional => |path| std.fmt.bufPrint(
@@ -154,10 +154,11 @@ pub const Path = union(enum) {
                 &buf,
             ) catch |err| {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "error expanding home directory for path {s}: {}",
                         .{ path, err },
+                        0,
                     ),
                 });
 
@@ -194,10 +195,11 @@ pub const Path = union(enum) {
             }
 
             try diags.append(arena_alloc, .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "error resolving file path {s}: {}",
                     .{ path, err },
+                    0,
                 ),
             });
 
@@ -306,7 +308,7 @@ pub const Path = union(enum) {
 
     test "formatConfig single item" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -315,13 +317,13 @@ pub const Path = union(enum) {
 
         var item: Path = undefined;
         try item.parseCLI(alloc, "A");
-        try item.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\n", buf.items);
+        try item.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
     test "formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -331,8 +333,8 @@ pub const Path = union(enum) {
         var item: Path = undefined;
         try item.parseCLI(alloc, "A");
         try item.parseCLI(alloc, "?B");
-        try item.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = ?B\n", buf.items);
+        try item.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = ?B\n", buf.written());
     }
 };
 
@@ -382,7 +384,7 @@ pub const RepeatablePath = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: RepeatablePath, formatter: anytype) !void {
+    pub fn formatEntry(self: RepeatablePath, formatter: formatterpkg.EntryFormatter) !void {
         if (self.value.items.len == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -453,17 +455,17 @@ pub const RepeatablePath = struct {
 
     test "formatConfig empty" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: RepeatablePath = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = \n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
     test "formatConfig single item" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -472,13 +474,13 @@ pub const RepeatablePath = struct {
 
         var list: RepeatablePath = .{};
         try list.parseCLI(alloc, "A");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
     test "formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -488,7 +490,7 @@ pub const RepeatablePath = struct {
         var list: RepeatablePath = .{};
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "?B");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\na = ?B\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\na = ?B\n", buf.written());
     }
 };

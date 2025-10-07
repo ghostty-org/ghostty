@@ -314,17 +314,14 @@ extension Ghostty {
 
         var macosCustomIcon: String {
             #if os(macOS)
-            let homeDirURL = FileManager.default.homeDirectoryForCurrentUser
-            let ghosttyConfigIconPath = homeDirURL.appendingPathComponent(
-                ".config/ghostty/Ghostty.icns",
-                conformingTo: .fileURL).path()
-            let defaultValue = ghosttyConfigIconPath
+            let defaultValue = NSString("~/.config/ghostty/Ghostty.icns").expandingTildeInPath
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>? = nil
             let key = "macos-custom-icon"
             guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
             guard let ptr = v else { return defaultValue }
-            return String(cString: ptr)
+            guard let path = NSString(utf8String: ptr) else { return defaultValue }
+            return path.expandingTildeInPath
             #else
             return ""
             #endif
@@ -625,6 +622,7 @@ extension Ghostty.Config {
         static let audio = BellFeatures(rawValue: 1 << 1)
         static let attention = BellFeatures(rawValue: 1 << 2)
         static let title = BellFeatures(rawValue: 1 << 3)
+        static let border = BellFeatures(rawValue: 1 << 4)
     }
     
     enum MacDockDropBehavior: String {

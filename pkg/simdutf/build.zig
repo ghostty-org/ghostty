@@ -20,11 +20,11 @@ pub fn build(b: *std.Build) !void {
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
     // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
     // (See root Ghostty build.zig on why we do this)
-    try flags.appendSlice(&.{"-DSIMDUTF_IMPLEMENTATION_ICELAKE=0"});
+    try flags.appendSlice(b.allocator, &.{"-DSIMDUTF_IMPLEMENTATION_ICELAKE=0"});
 
     lib.addCSourceFiles(.{
         .flags = flags.items,

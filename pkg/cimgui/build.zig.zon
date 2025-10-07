@@ -10,6 +10,7 @@
             // ocornut/imgui
             .url = "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
             .hash = "N-V-__8AAH0GaQC8a52s6vfIxg88OZgFgEW6DFxfSK4lX_l3",
+            .lazy = true,
         },
 
         .apple_sdk = .{ .path = "../apple-sdk" },

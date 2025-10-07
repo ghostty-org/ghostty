@@ -319,17 +319,6 @@ pub const Face = struct {
             rect.origin.y -= line_width / 2;
         };
 
-        // We make an assumption that font smoothing ("thicken")
-        // adds no more than 1 extra pixel to any edge. We don't
-        // add extra size if it's a sbix color font though, since
-        // bitmaps aren't affected by smoothing.
-        if (opts.thicken and !sbix) {
-            rect.size.width += 2.0;
-            rect.size.height += 2.0;
-            rect.origin.x -= 1.0;
-            rect.origin.y -= 1.0;
-        }
-
         // If our rect is smaller than a quarter pixel in either axis
         // then it has no outlines or they're too small to render.
         //
@@ -349,14 +338,7 @@ pub const Face = struct {
         const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
         // Next we apply any constraints to get the final size of the glyph.
-        var constraint = opts.constraint;
-
-        // We eliminate any negative vertical padding since these overlap
-        // values aren't needed  with how precisely we apply constraints,
-        // and they can lead to extra height that looks bad for things like
-        // powerline glyphs.
-        constraint.pad_top = @max(0.0, constraint.pad_top);
-        constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+        const constraint = opts.constraint;
 
         // We need to add the baseline position before passing to the constrain
         // function since it operates on cell-relative positions, not baseline.
@@ -378,6 +360,18 @@ pub const Face = struct {
         var width = glyph_size.width;
         var height = glyph_size.height;
 
+        // We center all glyphs within the pixel-rounded and adjusted
+        // cell width if it's larger than the face width, so that they
+        // aren't weirdly off to the left.
+        //
+        // We don't do this if the glyph has a stretch constraint,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
+            // We add half the difference to re-center.
+            x += (cell_width - metrics.face_width) / 2;
+        }
+
         // If this is a bitmap glyph, it will always render as full pixels,
         // not fractional pixels, so we need to quantize its position and
         // size accordingly to align to full pixels so we get good results.
@@ -388,25 +382,16 @@ pub const Face = struct {
             y = @round(y);
         }
 
-        // If the cell width was adjusted wider, we re-center all glyphs
-        // in the new width, so that they aren't weirdly off to the left.
-        if (metrics.original_cell_width) |original| recenter: {
-            // We don't do this if the constraint has a horizontal alignment,
-            // since in that case the position was already calculated with the
-            // new cell width in mind.
-            if (opts.constraint.align_horizontal != .none) break :recenter;
-
-            // If the original width was wider then we don't do anything.
-            if (original >= metrics.cell_width) break :recenter;
-
-            // We add half the difference to re-center.
-            x += (cell_width - @as(f64, @floatFromInt(original))) / 2;
-        }
+        // We make an assumption that font smoothing ("thicken")
+        // adds no more than 1 extra pixel to any edge. We don't
+        // add extra size if it's a sbix color font though, since
+        // bitmaps aren't affected by smoothing.
+        const canvas_padding: u32 = if (opts.thicken and !sbix) 1 else 0;
 
         // Our whole-pixel bearings for the final glyph.
         // The fractional portion will be included in the rasterized position.
-        const px_x: i32 = @intFromFloat(@floor(x));
-        const px_y: i32 = @intFromFloat(@floor(y));
+        const px_x = @as(i32, @intFromFloat(@floor(x))) - @as(i32, @intCast(canvas_padding));
+        const px_y = @as(i32, @intFromFloat(@floor(y))) - @as(i32, @intCast(canvas_padding));
 
         // We keep track of the fractional part of the pixel bearings, which
         // we will add as an offset when rasterizing to make sure we get the
@@ -416,9 +401,9 @@ pub const Face = struct {
 
         // Add the fractional pixel to the width and height and take
         // the ceiling to get a canvas size that will definitely fit
-        // our drawn glyph, including the fractional offset.
-        const px_width: u32 = @intFromFloat(@ceil(width + frac_x));
-        const px_height: u32 = @intFromFloat(@ceil(height + frac_y));
+        // our drawn glyph, including the fractional offset and font smoothing.
+        const px_width = @as(u32, @intFromFloat(@ceil(width + frac_x))) + (2 * canvas_padding);
+        const px_height = @as(u32, @intFromFloat(@ceil(height + frac_y))) + (2 * canvas_padding);
 
         // Settings that are specific to if we are rendering text or emoji.
         const color: struct {
@@ -529,8 +514,8 @@ pub const Face = struct {
         // `drawGlyphs`, we pass the negated bearings.
         context.translateCTM(
             ctx,
-            frac_x,
-            frac_y,
+            frac_x + @as(f64, @floatFromInt(canvas_padding)),
+            frac_y + @as(f64, @floatFromInt(canvas_padding)),
         );
 
         // Scale the drawing context so that when we draw
@@ -775,7 +760,10 @@ pub const Face = struct {
         // Cell width is calculated by calculating the widest width of the
         // visible ASCII characters. Usually 'M' is widest but we just take
         // whatever is widest.
-        const cell_width: f64 = cell_width: {
+        //
+        // ASCII height is calculated as the height of the overall bounding
+        // box of the same characters.
+        const cell_width: f64, const ascii_height: f64 = measurements: {
             // Build a comptime array of all the ASCII chars
             const unichars = comptime unichars: {
                 const len = 127 - 32;
@@ -803,7 +791,10 @@ pub const Face = struct {
                 max = @max(advances[i].width, max);
             }
 
-            break :cell_width max;
+            // Get the overall bounding rect for the glyphs
+            const rect = ct_font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
+
+            break :measurements .{ max, rect.size.height };
         };
 
         // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
@@ -864,6 +855,7 @@ pub const Face = struct {
 
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ascii_height = ascii_height,
             .ic_width = ic_width,
         };
     }

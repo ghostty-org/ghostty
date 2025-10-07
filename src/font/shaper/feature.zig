@@ -201,7 +201,7 @@ pub const Feature = struct {
         self: Feature,
         comptime layout: []const u8,
         opts: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
         _ = layout;
         _ = opts;
@@ -262,7 +262,7 @@ pub const FeatureList = struct {
         self: FeatureList,
         comptime layout: []const u8,
         opts: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
         for (self.features.items, 0..) |feature, i| {
             try feature.format(layout, opts, writer);

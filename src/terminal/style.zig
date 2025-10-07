@@ -60,7 +60,7 @@ pub const Style = struct {
             self: Color,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
-            writer: anytype,
+            writer: *std.Io.Writer,
         ) !void {
             _ = fmt;
             _ = options;
@@ -228,7 +228,7 @@ pub const Style = struct {
         self: Style,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
         _ = fmt;
         _ = options;

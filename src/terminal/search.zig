@@ -55,7 +55,7 @@ pub const PageListSearch = struct {
         needle: []const u8,
     ) Allocator.Error!PageListSearch {
         var window = try SlidingWindow.init(alloc, needle);
-        errdefer window.deinit(alloc);
+        errdefer window.deinit();
 
         return .{
             .list = list,
@@ -63,16 +63,13 @@ pub const PageListSearch = struct {
         };
     }
 
-    pub fn deinit(self: *PageListSearch, alloc: Allocator) void {
-        self.window.deinit(alloc);
+    pub fn deinit(self: *PageListSearch) void {
+        self.window.deinit();
     }
 
     /// Find the next match for the needle in the pagelist. This returns
     /// null when there are no more matches.
-    pub fn next(
-        self: *PageListSearch,
-        alloc: Allocator,
-    ) Allocator.Error!?Selection {
+    pub fn next(self: *PageListSearch) Allocator.Error!?Selection {
         // Try to search for the needle in the window. If we find a match
         // then we can return that and we're done.
         if (self.window.next()) |sel| return sel;
@@ -89,7 +86,7 @@ pub const PageListSearch = struct {
         // until we find a match or we reach the end of the pagelist.
         // This append then next pattern limits memory usage of the window.
         while (node_) |node| : (node_ = node.next) {
-            try self.window.append(alloc, node);
+            try self.window.append(node);
             if (self.window.next()) |sel| return sel;
         }
 
@@ -115,6 +112,14 @@ pub const PageListSearch = struct {
 /// and repeat the process. This will always maintain the minimum
 /// required memory to search for the needle.
 const SlidingWindow = struct {
+    /// The allocator to use for all the data within this window. We
+    /// store this rather than passing it around because its already
+    /// part of multiple elements (eg. Meta's CellMap) and we want to
+    /// ensure we always use a consistent allocator. Additionally, only
+    /// a small amount of sliding windows are expected to be in use
+    /// at any one time so the memory overhead isn't that large.
+    alloc: Allocator,
+
     /// The data buffer is a circular buffer of u8 that contains the
     /// encoded page text that we can use to search for the needle.
     data: DataBuf,
@@ -163,6 +168,7 @@ const SlidingWindow = struct {
         errdefer alloc.free(overlap_buf);
 
         return .{
+            .alloc = alloc,
             .data = data,
             .meta = meta,
             .needle = needle,
@@ -170,13 +176,13 @@ const SlidingWindow = struct {
         };
     }
 
-    pub fn deinit(self: *SlidingWindow, alloc: Allocator) void {
-        alloc.free(self.overlap_buf);
-        self.data.deinit(alloc);
+    pub fn deinit(self: *SlidingWindow) void {
+        self.alloc.free(self.overlap_buf);
+        self.data.deinit(self.alloc);
 
         var meta_it = self.meta.iterator(.forward);
         while (meta_it.next()) |meta| meta.deinit();
-        self.meta.deinit(alloc);
+        self.meta.deinit(self.alloc);
     }
 
     /// Clear all data but retain allocated capacity.
@@ -206,7 +212,10 @@ const SlidingWindow = struct {
 
         // Search the first slice for the needle.
         if (std.mem.indexOf(u8, slices[0], self.needle)) |idx| {
-            return self.selection(idx, self.needle.len);
+            return self.selection(
+                idx,
+                self.needle.len,
+            );
         }
 
         // Search the overlap buffer for the needle.
@@ -244,7 +253,10 @@ const SlidingWindow = struct {
 
         // Search the last slice for the needle.
         if (std.mem.indexOf(u8, slices[1], self.needle)) |idx| {
-            return self.selection(slices[0].len + idx, self.needle.len);
+            return self.selection(
+                slices[0].len + idx,
+                self.needle.len,
+            );
         }
 
         // No match. We keep `needle.len - 1` bytes available to
@@ -254,15 +266,15 @@ const SlidingWindow = struct {
             var saved: usize = 0;
             while (meta_it.next()) |meta| {
                 const needed = self.needle.len - 1 - saved;
-                if (meta.cell_map.items.len >= needed) {
+                if (meta.cell_map.map.items.len >= needed) {
                     // We save up to this meta. We set our data offset
                     // to exactly where it needs to be to continue
                     // searching.
-                    self.data_offset = meta.cell_map.items.len - needed;
+                    self.data_offset = meta.cell_map.map.items.len - needed;
                     break;
                 }
 
-                saved += meta.cell_map.items.len;
+                saved += meta.cell_map.map.items.len;
             } else {
                 // If we exited the while loop naturally then we
                 // never got the amount we needed and so there is
@@ -284,7 +296,7 @@ const SlidingWindow = struct {
             var prune_data_len: usize = 0;
             for (0..prune_count) |_| {
                 const meta = meta_it.next().?;
-                prune_data_len += meta.cell_map.items.len;
+                prune_data_len += meta.cell_map.map.items.len;
                 meta.deinit();
             }
             self.meta.deleteOldest(prune_count);
@@ -384,16 +396,16 @@ const SlidingWindow = struct {
             // meta_i is the index we expect to find the match in the
             // cell map within this meta if it contains it.
             const meta_i = idx - offset.*;
-            if (meta_i >= meta.cell_map.items.len) {
+            if (meta_i >= meta.cell_map.map.items.len) {
                 // This meta doesn't contain the match. This means we
                 // can also prune this set of data because we only look
                 // forward.
-                offset.* += meta.cell_map.items.len;
+                offset.* += meta.cell_map.map.items.len;
                 continue;
             }
 
             // We found the meta that contains the start of the match.
-            const map = meta.cell_map.items[meta_i];
+            const map = meta.cell_map.map.items[meta_i];
             return .{
                 .node = meta.node,
                 .y = map.y,
@@ -411,13 +423,15 @@ const SlidingWindow = struct {
     /// via a search (via next()).
     pub fn append(
         self: *SlidingWindow,
-        alloc: Allocator,
         node: *PageList.List.Node,
     ) Allocator.Error!void {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
-            .cell_map = .init(alloc),
+            .cell_map = .{
+                .alloc = self.alloc,
+                .map = .empty,
+            },
         };
         errdefer meta.deinit();
 
@@ -425,27 +439,27 @@ const SlidingWindow = struct {
         // temporary memory, and then copy it into our circular buffer.
         // In the future, we should benchmark and see if we can encode
         // directly into the circular buffer.
-        var encoded: std.ArrayListUnmanaged(u8) = .{};
-        defer encoded.deinit(alloc);
+        var encoded: std.Io.Writer.Allocating = .init(self.alloc);
+        defer encoded.deinit();
 
         // Encode the page into the buffer.
         const page: *const Page = &meta.node.data;
         _ = page.encodeUtf8(
-            encoded.writer(alloc),
+            &encoded.writer,
             .{ .cell_map = &meta.cell_map },
         ) catch {
             // writer uses anyerror but the only realistic error on
             // an ArrayList is out of memory.
             return error.OutOfMemory;
         };
-        assert(meta.cell_map.items.len == encoded.items.len);
+        assert(meta.cell_map.map.items.len == encoded.written().len);
 
         // Ensure our buffers are big enough to store what we need.
-        try self.data.ensureUnusedCapacity(alloc, encoded.items.len);
-        try self.meta.ensureUnusedCapacity(alloc, 1);
+        try self.data.ensureUnusedCapacity(self.alloc, encoded.written().len);
+        try self.meta.ensureUnusedCapacity(self.alloc, 1);
 
         // Append our new node to the circular buffer.
-        try self.data.appendSlice(encoded.items);
+        try self.data.appendSlice(encoded.written());
         try self.meta.append(meta);
 
         self.assertIntegrity();
@@ -462,7 +476,7 @@ const SlidingWindow = struct {
         // Integrity check: verify our data matches our metadata exactly.
         var meta_it = self.meta.iterator(.forward);
         var data_len: usize = 0;
-        while (meta_it.next()) |m| data_len += m.cell_map.items.len;
+        while (meta_it.next()) |m| data_len += m.cell_map.map.items.len;
         assert(data_len == self.data.len());
 
         // Integrity check: verify our data offset is within bounds.
@@ -480,11 +494,11 @@ test "PageListSearch single page" {
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
 
     var search = try PageListSearch.init(alloc, &s.pages, "boo!");
-    defer search.deinit(alloc);
+    defer search.deinit();
 
     // We should be able to find two matches.
     {
-        const sel = (try search.next(alloc)).?;
+        const sel = (try search.next()).?;
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 0,
@@ -495,7 +509,7 @@ test "PageListSearch single page" {
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     {
-        const sel = (try search.next(alloc)).?;
+        const sel = (try search.next()).?;
         try testing.expectEqual(point.Point{ .active = .{
             .x = 19,
             .y = 0,
@@ -505,8 +519,8 @@ test "PageListSearch single page" {
             .y = 0,
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
-    try testing.expect((try search.next(alloc)) == null);
-    try testing.expect((try search.next(alloc)) == null);
+    try testing.expect((try search.next()) == null);
+    try testing.expect((try search.next()) == null);
 }
 
 test "SlidingWindow empty on init" {
@@ -514,7 +528,7 @@ test "SlidingWindow empty on init" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
+    defer w.deinit();
     try testing.expectEqual(0, w.data.len());
     try testing.expectEqual(0, w.meta.len());
 }
@@ -524,7 +538,7 @@ test "SlidingWindow single append" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -533,7 +547,7 @@ test "SlidingWindow single append" {
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
+    try w.append(node);
 
     // We should be able to find two matches.
     {
@@ -567,7 +581,7 @@ test "SlidingWindow single append no match" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "nope!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -576,7 +590,7 @@ test "SlidingWindow single append no match" {
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
+    try w.append(node);
 
     // No matches
     try testing.expect(w.next() == null);
@@ -591,7 +605,7 @@ test "SlidingWindow two pages" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -609,8 +623,8 @@ test "SlidingWindow two pages" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
-    try w.append(alloc, node.next.?);
+    try w.append(node);
+    try w.append(node.next.?);
 
     // Search should find two matches
     {
@@ -644,7 +658,7 @@ test "SlidingWindow two pages match across boundary" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "hello, world");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -661,8 +675,8 @@ test "SlidingWindow two pages match across boundary" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
-    try w.append(alloc, node.next.?);
+    try w.append(node);
+    try w.append(node.next.?);
 
     // Search should find a match
     {
@@ -688,7 +702,7 @@ test "SlidingWindow two pages no match prunes first page" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "nope!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -706,8 +720,8 @@ test "SlidingWindow two pages no match prunes first page" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
-    try w.append(alloc, node.next.?);
+    try w.append(node);
+    try w.append(node.next.?);
 
     // Search should find nothing
     try testing.expect(w.next() == null);
@@ -737,18 +751,18 @@ test "SlidingWindow two pages no match keeps both pages" {
     try s.testWriteString("hello. boo!");
 
     // Imaginary needle for search. Doesn't match!
-    var needle_list = std.ArrayList(u8).init(alloc);
-    defer needle_list.deinit();
-    try needle_list.appendNTimes('x', first_page_rows * s.pages.cols);
+    var needle_list: std.ArrayList(u8) = .empty;
+    defer needle_list.deinit(alloc);
+    try needle_list.appendNTimes(alloc, 'x', first_page_rows * s.pages.cols);
     const needle: []const u8 = needle_list.items;
 
     var w = try SlidingWindow.init(alloc, needle);
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
-    try w.append(alloc, node.next.?);
+    try w.append(node);
+    try w.append(node.next.?);
 
     // Search should find nothing
     try testing.expect(w.next() == null);
@@ -763,7 +777,7 @@ test "SlidingWindow single append across circular buffer boundary" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "abc");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -776,8 +790,8 @@ test "SlidingWindow single append across circular buffer boundary" {
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
-    try w.append(alloc, node);
+    try w.append(node);
+    try w.append(node);
     {
         // No wrap around yet
         const slices = w.data.getPtrSlice(0, w.data.len());
@@ -793,7 +807,7 @@ test "SlidingWindow single append across circular buffer boundary" {
     w.needle = "boo";
 
     // Add new page, now wraps
-    try w.append(alloc, node);
+    try w.append(node);
     {
         const slices = w.data.getPtrSlice(0, w.data.len());
         try testing.expect(slices[0].len > 0);
@@ -818,7 +832,7 @@ test "SlidingWindow single append match on boundary" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "abcd");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -831,8 +845,8 @@ test "SlidingWindow single append match on boundary" {
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(alloc, node);
-    try w.append(alloc, node);
+    try w.append(node);
+    try w.append(node);
     {
         // No wrap around yet
         const slices = w.data.getPtrSlice(0, w.data.len());
@@ -848,7 +862,7 @@ test "SlidingWindow single append match on boundary" {
     w.needle = "boo!";
 
     // Add new page, now wraps
-    try w.append(alloc, node);
+    try w.append(node);
     {
         const slices = w.data.getPtrSlice(0, w.data.len());
         try testing.expect(slices[0].len > 0);

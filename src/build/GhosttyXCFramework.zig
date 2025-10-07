@@ -5,11 +5,10 @@ const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const GhosttyLib = @import("GhosttyLib.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
+const Target = @import("xcframework.zig").Target;
 
 xcframework: *XCFrameworkStep,
 target: Target,
-
-pub const Target = enum { native, universal };
 
 pub fn init(
     b: *std.Build,

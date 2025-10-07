@@ -233,6 +233,21 @@ class BaseTerminalController: NSWindowController,
         return newView
     }
 
+    /// Move focus to a surface view.
+    func focusSurface(_ view: Ghostty.SurfaceView) {
+        // Check if target surface is in our tree
+        guard surfaceTree.contains(view) else { return }
+
+        // Move focus to the target surface and activate the window/app
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view)
+            view.window?.makeKeyAndOrderFront(nil)
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+    }
+
     /// Called when the surfaceTree variable changed.
     ///
     /// Subclasses should call super first.
@@ -688,6 +703,8 @@ class BaseTerminalController: NSWindowController,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
+                .combineLatest(titleSurface.$bell)
+                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -695,8 +712,17 @@ class BaseTerminalController: NSWindowController,
             titleDidChange(to: "👻")
         }
     }
+    
+    private func computeTitle(title: String, bell: Bool) -> String {
+        var result = title
+        if (bell && ghostty.config.bellFeatures.contains(.title)) {
+            result = "🔔 \(result)"
+        }
 
-    func titleDidChange(to: String) {
+        return result
+    }
+
+    private func titleDidChange(to: String) {
         guard let window else { return }
         
         // Set the main window title
@@ -717,6 +743,10 @@ class BaseTerminalController: NSWindowController,
 
     func cellSizeDidChange(to: NSSize) {
         guard derivedConfig.windowStepResize else { return }
+        // Stage manager can sometimes present windows in such a way that the
+        // cell size is temporarily zero due to the window being tiny. We can't
+        // set content resize increments to this value, so avoid an assertion failure.
+        guard to.width > 0 && to.height > 0 else { return }
         self.window?.contentResizeIncrements = to
     }
 
@@ -862,14 +892,6 @@ class BaseTerminalController: NSWindowController,
 
         // Everything beyond here is setting up the window
         guard let window else { return }
-
-        // If there is a hardcoded title in the configuration, we set that
-        // immediately. Future `set_title` apprt actions will override this
-        // if necessary but this ensures our window loads with the proper
-        // title immediately rather than on another event loop tick (see #5934)
-        if let title = derivedConfig.title {
-            window.title = title
-        }
 
         // We always initialize our fullscreen style to native if we can because
         // initialization sets up some state (i.e. observers). If its set already
@@ -1072,20 +1094,17 @@ class BaseTerminalController: NSWindowController,
     }
 
     private struct DerivedConfig {
-        let title: String?
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
 
         init() {
-            self.title = nil
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
         }
 
         init(_ config: Ghostty.Config) {
-            self.title = config.title
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse

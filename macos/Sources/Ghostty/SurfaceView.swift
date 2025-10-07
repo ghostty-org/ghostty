@@ -57,15 +57,6 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
 
-        var title: String {
-            var result = surfaceView.title
-            if (surfaceView.bell && ghostty.config.bellFeatures.contains(.title)) {
-                result = "🔔 \(result)"
-            }
-
-            return result
-        }
-
         var body: some View {
             let center = NotificationCenter.default
 
@@ -114,11 +105,17 @@ extension Ghostty {
                 }
                 .ghosttySurfaceView(surfaceView)
                 
-                // Progress report overlay
-                if let progressReport = surfaceView.progressReport {
-                    ProgressReportOverlay(report: progressReport)
+                // Progress report
+                if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
+                    VStack(spacing: 0) {
+                        SurfaceProgressBar(report: progressReport)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
                 }
-
+                
 #if canImport(AppKit)
                 // If we are in the middle of a key sequence, then we show a visual element. We only
                 // support this on macOS currently although in theory we can support mobile with keyboards!
@@ -201,6 +198,11 @@ extension Ghostty {
                     SecureInputOverlay()
                 }
                 #endif
+                
+                // Show bell border if enabled
+                if (ghostty.config.bellFeatures.contains(.border)) {
+                    BellBorderOverlay(bell: surfaceView.bell)
+                }
 
                 // If our surface is not healthy, then we render an error view over it.
                 if (!surfaceView.healthy) {
@@ -272,48 +274,7 @@ extension Ghostty {
         }
     }
 
-    // Progress report overlay that shows a progress bar at the top of the terminal
-    struct ProgressReportOverlay: View {
-        let report: Action.ProgressReport
-        
-        @ViewBuilder
-        private var progressBar: some View {
-            if let progress = report.progress {
-                // Determinate progress bar
-                ProgressView(value: Double(progress), total: 100)
-                    .progressViewStyle(.linear)
-                    .tint(report.state == .error ? .red : report.state == .pause ? .orange : nil)
-                    .animation(.easeInOut(duration: 0.2), value: progress)
-            } else {
-                // Indeterminate states
-                switch report.state {
-                case .indeterminate:
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                case .error:
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                        .tint(.red)
-                case .pause:
-                    Rectangle().fill(Color.orange)
-                default:
-                    EmptyView()
-                }
-            }
-        }
-        
-        var body: some View {
-            VStack(spacing: 0) {
-                progressBar
-                    .scaleEffect(x: 1, y: 0.5, anchor: .center)
-                    .frame(height: 2)
-                
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .allowsHitTesting(false)
-        }
-    }
+
 
     // This is the resize overlay that shows on top of a surface to show the current
     // size during a resize operation.
@@ -567,6 +528,22 @@ extension Ghostty {
                     }
                 }
             }
+        }
+    }
+
+    /// Visual overlay that shows a border around the edges when the bell rings with border feature enabled.
+    struct BellBorderOverlay: View {
+        let bell: Bool
+        
+        var body: some View {
+            Rectangle()
+                .strokeBorder(
+                    Color(red: 1.0, green: 0.8, blue: 0.0).opacity(0.5),
+                    lineWidth: 3
+                )
+                .allowsHitTesting(false)
+                .opacity(bell ? 1.0 : 0.0)
+                .animation(.easeInOut(duration: 0.3), value: bell)
         }
     }
 

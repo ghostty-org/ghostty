@@ -23,7 +23,7 @@ pub fn destroy(self: *Utf8, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn run(self: *Utf8, writer: anytype, rand: std.Random) !void {
+pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
     _ = self;
 
     var gen: synthetic.Utf8 = .{
@@ -34,10 +34,10 @@ pub fn run(self: *Utf8, writer: anytype, rand: std.Random) !void {
     while (true) {
         const data = try gen.next(&buf);
         writer.writeAll(data) catch |err| {
-            const Error = error{ NoSpaceLeft, BrokenPipe } || @TypeOf(err);
+            const Error = error{ WriteFailed, BrokenPipe } || @TypeOf(err);
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed
-                error.NoSpaceLeft => return, // fixed buffer full
+                error.WriteFailed => return, // fixed buffer full
                 else => return err,
             }
         };
@@ -55,8 +55,6 @@ test Utf8 {
     const rand = prng.random();
 
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
-
-    try impl.run(writer, rand);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try impl.run(&writer, rand);
 }

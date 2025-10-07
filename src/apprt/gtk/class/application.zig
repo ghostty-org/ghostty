@@ -42,6 +42,70 @@ const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
+/// Function used to funnel GLib/GObject/GTK log messages into Zig's logging
+/// system rather than just getting dumped directly to stderr.
+fn glibLogWriterFunction(
+    level: glib.LogLevelFlags,
+    fields: [*]const glib.LogField,
+    n_fields: usize,
+    _: ?*anyopaque,
+) callconv(.c) glib.LogWriterOutput {
+    const glib_log = std.log.scoped(.glib);
+
+    var message_: ?[]const u8 = null;
+    var domain_: ?[]const u8 = null;
+    for (0..n_fields) |i| {
+        const field = fields[i];
+        const k = std.mem.span(field.f_key orelse continue);
+        const v: []const u8 = v: {
+            if (field.f_length >= 0) {
+                const v: [*]const u8 = @ptrCast(field.f_value orelse continue);
+                break :v v[0..@intCast(field.f_length)];
+            }
+            const v: [*:0]const u8 = @ptrCast(field.f_value orelse continue);
+            break :v std.mem.span(v);
+        };
+        if (std.mem.eql(u8, k, "MESSAGE")) {
+            message_ = v;
+            continue;
+        }
+        if (std.mem.eql(u8, k, "GLIB_DOMAIN")) {
+            domain_ = v;
+            continue;
+        }
+    }
+
+    const message = message_ orelse return .unhandled;
+    const domain = domain_ orelse "«unknown»";
+
+    if (level.level_error) {
+        glib_log.err("ERROR: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_critical) {
+        glib_log.err("CRITICAL: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_warning) {
+        glib_log.warn("WARNING: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_message) {
+        glib_log.info("MESSAGE: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_info) {
+        glib_log.info("INFO: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_debug) {
+        glib_log.debug("DEBUG: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    glib_log.debug("UNKNOWN: {s}: {s}", .{ domain, message });
+    return .handled;
+}
+
 /// The primary entrypoint for the Ghostty GTK application.
 ///
 /// This requires a `ghostty.App` and `ghostty.Config` and takes
@@ -176,6 +240,10 @@ pub const Application = extern struct {
         core_app: *CoreApp,
     ) Allocator.Error!*Self {
         const alloc = core_app.alloc;
+
+        // Capture GLib/GObject/GTK log messages and funnel them through Zig's
+        // logging system rather than just getting dumped directly to stderr.
+        _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
         // Log our GTK versions
         gtk_version.logVersion();
@@ -456,13 +524,23 @@ pub const Application = extern struct {
                 if (!config.@"quit-after-last-window-closed") break :q false;
 
                 // If the quit timer has expired, quit.
-                if (priv.quit_timer == .expired) break :q true;
+                if (priv.quit_timer == .expired) {
+                    log.debug("must_quit due to quit timer expired", .{});
+                    break :q true;
+                }
 
                 // If we have no windows attached to our app, also quit.
-                if (priv.requested_window and @as(
-                    ?*glib.List,
-                    self.as(gtk.Application).getWindows(),
-                ) == null) break :q true;
+                // We only do this if we don't have the closed delay set,
+                // because with the closed delay set we'll exit eventually.
+                if (config.@"quit-after-last-window-closed-delay" == null) {
+                    if (priv.requested_window and @as(
+                        ?*glib.List,
+                        self.as(gtk.Application).getWindows(),
+                    ) == null) {
+                        log.debug("must_quit due to no app windows", .{});
+                        break :q true;
+                    }
+                }
 
                 // No quit conditions met
                 break :q false;
@@ -639,6 +717,7 @@ pub const Application = extern struct {
             .toggle_command_palette => return Action.toggleCommandPalette(target),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
+            .command_finished => return Action.commandFinished(target, value),
 
             // Unimplemented
             .secure_input,
@@ -731,15 +810,19 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadRuntimeCss(self: *Self) Allocator.Error!void {
+    fn loadRuntimeCss(self: *Self) (Allocator.Error || std.Io.Writer.Error)!void {
         const alloc = self.allocator();
 
         const config = self.private().config.get();
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(alloc, 2048);
-        defer buf.deinit(alloc);
+        var buf: std.Io.Writer.Allocating = try .initCapacity(alloc, 2048);
+        defer buf.deinit();
 
-        const writer = buf.writer(alloc);
+        const writer = &buf.writer;
+
+        // Load standard css first as it can override some of the user configured styling.
+        try loadRuntimeCss414(config, writer);
+        try loadRuntimeCss416(config, writer);
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -779,13 +862,11 @@ pub const Application = extern struct {
             , .{ .font_family = font_family });
         }
 
-        try loadRuntimeCss414(config, &writer);
-        try loadRuntimeCss416(config, &writer);
-
         // ensure that we have a sentinel
         try writer.writeByte(0);
 
-        const data = buf.items[0 .. buf.items.len - 1 :0];
+        const data_ = buf.written();
+        const data = data_[0 .. data_.len - 1 :0];
 
         log.debug("runtime CSS is {d} bytes", .{data.len + 1});
 
@@ -799,8 +880,8 @@ pub const Application = extern struct {
     /// Load runtime CSS for older than GTK 4.16
     fn loadRuntimeCss414(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -835,8 +916,8 @@ pub const Application = extern struct {
     /// Load runtime for GTK 4.16 and newer
     fn loadRuntimeCss416(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeUntil(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -968,7 +1049,7 @@ pub const Application = extern struct {
             defer file.close();
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = try file.reader().readAllAlloc(
+            const contents = try file.readToEndAlloc(
                 alloc,
                 5 * 1024 * 1024, // 5MB,
             );
@@ -1039,8 +1120,8 @@ pub const Application = extern struct {
             // This should really never, never happen. Its not critical enough
             // to actually crash, but this is a bug somewhere. An accelerator
             // for a trigger can't possibly be more than 1024 bytes.
-            error.NoSpaceLeft => {
-                log.warn("accelerator somehow longer than 1024 bytes: {}", .{trigger});
+            error.WriteFailed => {
+                log.warn("accelerator somehow longer than 1024 bytes: {f}", .{trigger});
                 return;
             },
         };
@@ -1086,7 +1167,7 @@ pub const Application = extern struct {
         // just stuck with the old CSS but we don't want to fail the entire
         // config change operation.
         self.loadRuntimeCss() catch |err| switch (err) {
-            error.OutOfMemory => log.warn(
+            error.WriteFailed, error.OutOfMemory => log.warn(
                 "out of memory loading runtime CSS, no runtime CSS applied",
                 .{},
             ),
@@ -1749,13 +1830,13 @@ const Action = struct {
         target: apprt.Target,
         n: apprt.action.DesktopNotification,
     ) void {
-        // TODO: We should move the surface target to a function call
-        // on Surface and emit a signal that embedders can connect to. This
-        // will let us handle notifications differently depending on where
-        // a surface is presented. At the time of writing this, we always
-        // want to show the notification AND the logic below was directly
-        // ported from "legacy" GTK so this is fine, but I want to leave this
-        // note so we can do it one day.
+        switch (target) {
+            .app => {},
+            .surface => |v| {
+                v.rt_surface.gobj().sendDesktopNotification(n.title, n.body);
+                return;
+            },
+        }
 
         // Set a default title if we don't already have one
         const t = switch (n.title.len) {
@@ -1770,14 +1851,9 @@ const Action = struct {
         const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
-
-        const pointer = glib.Variant.newUint64(switch (target) {
-            .app => 0,
-            .surface => |v| @intFromPtr(v),
-        });
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
-            pointer,
+            glib.Variant.newUint64(0),
         );
 
         // We set the notification ID to the body content. If the content is the
@@ -2379,6 +2455,15 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().controlInspector(value);
+            },
+        }
+    }
+
+    pub fn commandFinished(target: apprt.Target, value: apprt.Action.Value(.command_finished)) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().commandFinished(value);
             },
         }
     }

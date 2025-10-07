@@ -591,6 +591,17 @@ const Subprocess = struct {
     flatpak_command: ?FlatpakHostCommand = null,
     linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
 
+    const ArgsFormatter = struct {
+        args: []const [:0]const u8,
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            for (this.args, 0..) |a, i| {
+                if (i > 0) try writer.writeAll(", ");
+                try writer.print("`{s}`", .{a});
+            }
+        }
+    };
+
     /// Initialize the subprocess. This will NOT start it, this only sets
     /// up the internal state necessary to start it later.
     pub fn init(gpa: Allocator, cfg: Config) !Subprocess {
@@ -897,7 +908,7 @@ const Subprocess = struct {
             self.pty = null;
         };
 
-        log.debug("starting command command={s}", .{self.args});
+        log.debug("starting command command={f}", .{ArgsFormatter{ .args = self.args }});
 
         // If we can't access the cwd, then don't set any cwd and inherit.
         // This is important because our cwd can be set by the shell (OSC 7)
@@ -960,7 +971,7 @@ const Subprocess = struct {
             const pid = try cmd.spawn(alloc);
             errdefer killCommandFlatpak(cmd);
 
-            log.info("started subcommand on host via flatpak API path={s} pid={?}", .{
+            log.info("started subcommand on host via flatpak API path={s} pid={}", .{
                 self.args[0],
                 pid,
             });
@@ -1157,7 +1168,7 @@ const Subprocess = struct {
                         const res = posix.waitpid(pid, std.c.W.NOHANG);
                         log.debug("waitpid result={}", .{res.pid});
                         if (res.pid != 0) break;
-                        std.time.sleep(10 * std.time.ns_per_ms);
+                        std.Thread.sleep(10 * std.time.ns_per_ms);
                     }
                 },
             }
@@ -1180,7 +1191,7 @@ const Subprocess = struct {
             const pgid = c.getpgid(pid);
             if (pgid == my_pgid) {
                 log.warn("pgid is our own, retrying", .{});
-                std.time.sleep(10 * std.time.ns_per_ms);
+                std.Thread.sleep(10 * std.time.ns_per_ms);
                 continue;
             }
 
@@ -1429,7 +1440,7 @@ fn execCommand(
             // grow if necessary for a longer command (uncommon).
             9,
         );
-        defer args.deinit();
+        defer args.deinit(alloc);
 
         // The reason for executing login this way is unclear. This
         // comment will attempt to explain but prepare for a truly
@@ -1476,40 +1487,41 @@ fn execCommand(
         // macOS.
         //
         // Awesome.
-        try args.append("/usr/bin/login");
-        if (hush) try args.append("-q");
-        try args.append("-flp");
-        try args.append(username);
+        try args.append(alloc, "/usr/bin/login");
+        if (hush) try args.append(alloc, "-q");
+        try args.append(alloc, "-flp");
+        try args.append(alloc, username);
 
         switch (command) {
             // Direct args can be passed directly to login, since
             // login uses execvp we don't need to worry about PATH
             // searching.
-            .direct => |v| try args.appendSlice(v),
+            .direct => |v| try args.appendSlice(alloc, v),
 
             .shell => |v| {
                 // Use "exec" to replace the bash process with
                 // our intended command so we don't have a parent
                 // process hanging around.
-                const cmd = try std.fmt.allocPrintZ(
+                const cmd = try std.fmt.allocPrintSentinel(
                     alloc,
                     "exec -l {s}",
                     .{v},
+                    0,
                 );
 
                 // We execute bash with "--noprofile --norc" so that it doesn't
                 // load startup files so that (1) our shell integration doesn't
                 // break and (2) user configuration doesn't mess this process
                 // up.
-                try args.append("/bin/bash");
-                try args.append("--noprofile");
-                try args.append("--norc");
-                try args.append("-c");
-                try args.append(cmd);
+                try args.append(alloc, "/bin/bash");
+                try args.append(alloc, "--noprofile");
+                try args.append(alloc, "--norc");
+                try args.append(alloc, "-c");
+                try args.append(alloc, cmd);
             },
         }
 
-        return try args.toOwnedSlice();
+        return try args.toOwnedSlice(alloc);
     }
 
     return switch (command) {
@@ -1518,7 +1530,7 @@ fn execCommand(
 
         .shell => |v| shell: {
             var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 4);
-            defer args.deinit();
+            defer args.deinit(alloc);
 
             if (comptime builtin.os.tag == .windows) {
                 // We run our shell wrapped in `cmd.exe` so that we don't have
@@ -1539,21 +1551,21 @@ fn execCommand(
                     "cmd.exe",
                 });
 
-                try args.append(cmd);
-                try args.append("/C");
+                try args.append(alloc, cmd);
+                try args.append(alloc, "/C");
             } else {
                 // We run our shell wrapped in `/bin/sh` so that we don't have
                 // to parse the command line ourselves if it has arguments.
                 // Additionally, some environments (NixOS, I found) use /bin/sh
                 // to setup some environment variables that are important to
                 // have set.
-                try args.append("/bin/sh");
-                if (internal_os.isFlatpak()) try args.append("-l");
-                try args.append("-c");
+                try args.append(alloc, "/bin/sh");
+                if (internal_os.isFlatpak()) try args.append(alloc, "-l");
+                try args.append(alloc, "-c");
             }
 
-            try args.append(v);
-            break :shell try args.toOwnedSlice();
+            try args.append(alloc, v);
+            break :shell try args.toOwnedSlice(alloc);
         },
     };
 }

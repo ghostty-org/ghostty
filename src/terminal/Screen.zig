@@ -1,7 +1,7 @@
 const Screen = @This();
 
 const std = @import("std");
-const build_config = @import("../build_config.zig");
+const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ansi = @import("ansi.zig");
@@ -23,6 +23,8 @@ const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 const Cell = pagepkg.Cell;
 const Pin = PageList.Pin;
+
+pub const CursorStyle = @import("cursor.zig").Style;
 
 const log = std.log.scoped(.screen);
 
@@ -64,7 +66,10 @@ protected_mode: ansi.ProtectedMode = .off,
 kitty_keyboard: kitty.KeyFlagStack = .{},
 
 /// Kitty graphics protocol state.
-kitty_images: kitty.graphics.ImageStorage = .{},
+kitty_images: if (build_options.kitty_graphics)
+    kitty.graphics.ImageStorage
+else
+    struct {} = .{},
 
 /// Dirty flags for the renderer.
 dirty: Dirty = .{},
@@ -141,22 +146,6 @@ pub const Cursor = struct {
     }
 };
 
-/// The visual style of the cursor. Whether or not it blinks
-/// is determined by mode 12 (modes.zig). This mode is synchronized
-/// with CSI q, the same as xterm.
-pub const CursorStyle = enum {
-    bar, // DECSCUSR 5, 6
-    block, // DECSCUSR 1, 2
-    underline, // DECSCUSR 3, 4
-
-    /// The cursor styles below aren't known by DESCUSR and are custom
-    /// implemented in Ghostty. They are reported as some standard style
-    /// if requested, though.
-    /// Hollow block cursor. This is a block cursor with the center empty.
-    /// Reported as DECSCUSR 1 or 2 (block).
-    block_hollow,
-};
-
 /// Saved cursor state.
 pub const SavedCursor = struct {
     x: size.CellCountInt,
@@ -222,7 +211,9 @@ pub fn init(
 }
 
 pub fn deinit(self: *Screen) void {
-    self.kitty_images.deinit(self.alloc, self);
+    if (comptime build_options.kitty_graphics) {
+        self.kitty_images.deinit(self.alloc, self);
+    }
     self.cursor.deinit(self.alloc);
     self.pages.deinit();
 }
@@ -232,7 +223,7 @@ pub fn deinit(self: *Screen) void {
 /// tests. This only asserts the screen specific data so callers should
 /// ensure they're also calling page integrity checks if necessary.
 pub fn assertIntegrity(self: *const Screen) void {
-    if (build_config.slow_runtime_safety) {
+    if (build_options.slow_runtime_safety) {
         // We don't run integrity checks on Valgrind because its soooooo slow,
         // Valgrind is our integrity checker, and we run these during unit
         // tests (non-Valgrind) anyways so we're verifying anyways.
@@ -283,9 +274,11 @@ pub fn reset(self: *Screen) void {
         .page_cell = cursor_rac.cell,
     };
 
-    // Reset kitty graphics storage
-    self.kitty_images.deinit(self.alloc, self);
-    self.kitty_images = .{ .dirty = true };
+    if (comptime build_options.kitty_graphics) {
+        // Reset kitty graphics storage
+        self.kitty_images.deinit(self.alloc, self);
+        self.kitty_images = .{ .dirty = true };
+    }
 
     // Reset our basic state
     self.saved_cursor = null;
@@ -540,13 +533,13 @@ pub fn adjustCapacity(
     return new_node;
 }
 
-pub fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
+pub inline fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
     assert(self.cursor.x + n < self.pages.cols);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     return @ptrCast(cell + n);
 }
 
-pub fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
+pub inline fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
     assert(self.cursor.x >= n);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     return @ptrCast(cell - n);
@@ -704,8 +697,10 @@ pub fn cursorDownScroll(self: *Screen) !void {
     assert(self.cursor.y == self.pages.rows - 1);
     defer self.assertIntegrity();
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.kitty_images.dirty = true;
+    }
 
     // If we have no scrollback, then we shift all our rows instead.
     if (self.no_scrollback) {
@@ -772,7 +767,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
 
         // These assertions help catch some pagelist math errors. Our
         // x/y should be unchanged after the grow.
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             const active = self.pages.pointFromPin(
                 .active,
                 page_pin,
@@ -964,7 +959,7 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
 
 /// Move the cursor down if we're not at the bottom of the screen. Otherwise
 /// scroll. Currently only used for testing.
-fn cursorDownOrScroll(self: *Screen) !void {
+inline fn cursorDownOrScroll(self: *Screen) !void {
     if (self.cursor.y + 1 < self.pages.rows) {
         self.cursorDown(1);
     } else {
@@ -1039,7 +1034,7 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
 /// page than the old AND we have a style or hyperlink set. In that case,
 /// we must release our old one and insert the new one, since styles are
 /// stored per-page.
-fn cursorChangePin(self: *Screen, new: Pin) void {
+inline fn cursorChangePin(self: *Screen, new: Pin) void {
     // Moving the cursor affects text run splitting (ligatures) so
     // we must mark the old and new page dirty. We do this as long
     // as the pins are not equal
@@ -1113,7 +1108,7 @@ fn cursorChangePin(self: *Screen, new: Pin) void {
 
 /// Mark the cursor position as dirty.
 /// TODO: test
-pub fn cursorMarkDirty(self: *Screen) void {
+pub inline fn cursorMarkDirty(self: *Screen) void {
     self.cursor.page_pin.markDirty();
 }
 
@@ -1165,13 +1160,15 @@ pub const Scroll = union(enum) {
 };
 
 /// Scroll the viewport of the terminal grid.
-pub fn scroll(self: *Screen, behavior: Scroll) void {
+pub inline fn scroll(self: *Screen, behavior: Scroll) void {
     defer self.assertIntegrity();
 
-    // No matter what, scrolling marks our image state as dirty since
-    // it could move placements. If there are no placements or no images
-    // this is still a very cheap operation.
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // No matter what, scrolling marks our image state as dirty since
+        // it could move placements. If there are no placements or no images
+        // this is still a very cheap operation.
+        self.kitty_images.dirty = true;
+    }
 
     switch (behavior) {
         .active => self.pages.scroll(.{ .active = {} }),
@@ -1184,27 +1181,29 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
 
 /// See PageList.scrollClear. In addition to that, we reset the cursor
 /// to be on top.
-pub fn scrollClear(self: *Screen) !void {
+pub inline fn scrollClear(self: *Screen) !void {
     defer self.assertIntegrity();
 
     try self.pages.scrollClear();
     self.cursorReload();
 
-    // No matter what, scrolling marks our image state as dirty since
-    // it could move placements. If there are no placements or no images
-    // this is still a very cheap operation.
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // No matter what, scrolling marks our image state as dirty since
+        // it could move placements. If there are no placements or no images
+        // this is still a very cheap operation.
+        self.kitty_images.dirty = true;
+    }
 }
 
 /// Returns true if the viewport is scrolled to the bottom of the screen.
-pub fn viewportIsBottom(self: Screen) bool {
+pub inline fn viewportIsBottom(self: Screen) bool {
     return self.pages.viewport == .active;
 }
 
 /// Erase the region specified by tl and br, inclusive. This will physically
 /// erase the rows meaning the memory will be reclaimed (if the underlying
 /// page is empty) and other rows will be shifted up.
-pub fn eraseRows(
+pub inline fn eraseRows(
     self: *Screen,
     tl: point.Point,
     bl: ?point.Point,
@@ -1313,14 +1312,16 @@ pub fn clearCells(
         if (cells.len == self.pages.cols) row.styled = false;
     }
 
-    if (row.kitty_virtual_placeholder and
-        cells.len == self.pages.cols)
-    {
-        for (cells) |c| {
-            if (c.codepoint() == kitty.graphics.unicode.placeholder) {
-                break;
-            }
-        } else row.kitty_virtual_placeholder = false;
+    if (comptime build_options.kitty_graphics) {
+        if (row.kitty_virtual_placeholder and
+            cells.len == self.pages.cols)
+        {
+            for (cells) |c| {
+                if (c.codepoint() == kitty.graphics.unicode.placeholder) {
+                    break;
+                }
+            } else row.kitty_virtual_placeholder = false;
+        }
     }
 
     @memset(cells, self.blankCell());
@@ -1538,7 +1539,7 @@ pub fn splitCellBoundary(
 
 /// Returns the blank cell to use when doing terminal operations that
 /// require preserving the bg color.
-pub fn blankCell(self: *const Screen) Cell {
+pub inline fn blankCell(self: *const Screen) Cell {
     if (self.cursor.style_id == style.default_id) return .{};
     return self.cursor.style.bgCell() orelse .{};
 }
@@ -1556,7 +1557,7 @@ pub fn blankCell(self: *const Screen) Cell {
 /// probably means the system is in trouble anyways. I'd like to improve this
 /// in the future but it is not a priority particularly because this scenario
 /// (resize) is difficult.
-pub fn resize(
+pub inline fn resize(
     self: *Screen,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
@@ -1567,7 +1568,7 @@ pub fn resize(
 /// Resize the screen without any reflow. In this mode, columns/rows will
 /// be truncated as they are shrunk. If they are grown, the new space is filled
 /// with zeros.
-pub fn resizeWithoutReflow(
+pub inline fn resizeWithoutReflow(
     self: *Screen,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
@@ -1584,8 +1585,10 @@ fn resizeInternal(
 ) !void {
     defer self.assertIntegrity();
 
-    // No matter what we mark our image state as dirty
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // No matter what we mark our image state as dirty
+        self.kitty_images.dirty = true;
+    }
 
     // Release the cursor style while resizing just
     // in case the cursor ends up on a different page.
@@ -2165,17 +2168,21 @@ pub const SelectionString = struct {
 /// Returns the raw text associated with a selection. This will unwrap
 /// soft-wrapped edges. The returned slice is owned by the caller and allocated
 /// using alloc, not the allocator associated with the screen (unless they match).
-pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) ![:0]const u8 {
+pub fn selectionString(
+    self: *Screen,
+    alloc: Allocator,
+    opts: SelectionString,
+) ![:0]const u8 {
     // Use an ArrayList so that we can grow the array as we go. We
     // build an initial capacity of just our rows in our selection times
     // columns. It can be more or less based on graphemes, newlines, etc.
-    var strbuilder = std.ArrayList(u8).init(alloc);
-    defer strbuilder.deinit();
+    var strbuilder: std.ArrayList(u8) = .empty;
+    defer strbuilder.deinit(alloc);
 
     // If we're building a stringmap, create our builder for the pins.
     const MapBuilder = std.ArrayList(Pin);
-    var mapbuilder: ?MapBuilder = if (opts.map != null) MapBuilder.init(alloc) else null;
-    defer if (mapbuilder) |*b| b.deinit();
+    var mapbuilder: ?MapBuilder = if (opts.map != null) .empty else null;
+    defer if (mapbuilder) |*b| b.deinit(alloc);
 
     const sel_ordered = opts.sel.ordered(self, .forward);
     const sel_start: Pin = start: {
@@ -2232,9 +2239,9 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const raw: u21 = if (cell.hasText()) cell.content.codepoint else 0;
                     const char = if (raw > 0) raw else ' ';
                     const encode_len = try std.unicode.utf8Encode(char, &buf);
-                    try strbuilder.appendSlice(buf[0..encode_len]);
+                    try strbuilder.appendSlice(alloc, buf[0..encode_len]);
                     if (mapbuilder) |*b| {
-                        for (0..encode_len) |_| try b.append(.{
+                        for (0..encode_len) |_| try b.append(alloc, .{
                             .node = chunk.node,
                             .y = @intCast(y),
                             .x = @intCast(x),
@@ -2245,9 +2252,9 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const cps = chunk.node.data.lookupGrapheme(cell).?;
                     for (cps) |cp| {
                         const encode_len = try std.unicode.utf8Encode(cp, &buf);
-                        try strbuilder.appendSlice(buf[0..encode_len]);
+                        try strbuilder.appendSlice(alloc, buf[0..encode_len]);
                         if (mapbuilder) |*b| {
-                            for (0..encode_len) |_| try b.append(.{
+                            for (0..encode_len) |_| try b.append(alloc, .{
                                 .node = chunk.node,
                                 .y = @intCast(y),
                                 .x = @intCast(x),
@@ -2262,8 +2269,8 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
             if (!is_final_row and
                 (!row.wrap or sel_ordered.rectangle))
             {
-                try strbuilder.append('\n');
-                if (mapbuilder) |*b| try b.append(.{
+                try strbuilder.append(alloc, '\n');
+                if (mapbuilder) |*b| try b.append(alloc, .{
                     .node = chunk.node,
                     .y = @intCast(y),
                     .x = chunk.node.data.size.cols - 1,
@@ -2278,11 +2285,11 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
 
     // If we have a mapbuilder, we need to setup our string map.
     if (mapbuilder) |*b| {
-        var strclone = try strbuilder.clone();
-        defer strclone.deinit();
-        const str = try strclone.toOwnedSliceSentinel(0);
+        var strclone = try strbuilder.clone(alloc);
+        defer strclone.deinit(alloc);
+        const str = try strclone.toOwnedSliceSentinel(alloc, 0);
         errdefer alloc.free(str);
-        const map = try b.toOwnedSlice();
+        const map = try b.toOwnedSlice(alloc);
         errdefer alloc.free(map);
         opts.map.?.* = .{ .string = str, .map = map };
     }
@@ -2303,7 +2310,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
             const i = strbuilder.items.len;
             strbuilder.items.len += trimmed.len;
             std.mem.copyForwards(u8, strbuilder.items[i..], trimmed);
-            try strbuilder.append('\n');
+            try strbuilder.append(alloc, '\n');
         }
 
         // Remove all trailing newlines
@@ -2314,7 +2321,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     }
 
     // Get our final string
-    const string = try strbuilder.toOwnedSliceSentinel(0);
+    const string = try strbuilder.toOwnedSliceSentinel(alloc, 0);
     errdefer alloc.free(string);
 
     return string;
@@ -2899,7 +2906,7 @@ pub fn promptPath(
 /// one byte at a time.
 pub fn dumpString(
     self: *const Screen,
-    writer: anytype,
+    writer: *std.Io.Writer,
     opts: PageList.EncodeUtf8Options,
 ) anyerror!void {
     try self.pages.encodeUtf8(writer, opts);
@@ -2912,10 +2919,10 @@ pub fn dumpStringAlloc(
     alloc: Allocator,
     tl: point.Point,
 ) ![]const u8 {
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    try self.dumpString(builder.writer(), .{
+    try self.dumpString(&builder.writer, .{
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = false,
@@ -2931,10 +2938,10 @@ pub fn dumpStringAllocUnwrapped(
     alloc: Allocator,
     tl: point.Point,
 ) ![]const u8 {
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    try self.dumpString(builder.writer(), .{
+    try self.dumpString(&builder.writer, .{
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = true,
@@ -9027,33 +9034,33 @@ test "Screen UTF8 cell map with newlines" {
 
     var cell_map = Page.CellMap.init(alloc);
     defer cell_map.deinit();
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
-    try s.dumpString(builder.writer(), .{
+    try s.dumpString(&builder.writer, .{
         .tl = s.pages.getTopLeft(.screen),
         .br = s.pages.getBottomRight(.screen),
         .cell_map = &cell_map,
     });
 
-    try testing.expectEqual(7, builder.items.len);
-    try testing.expectEqualStrings("A\n\nB\n\nC", builder.items);
-    try testing.expectEqual(builder.items.len, cell_map.items.len);
+    try testing.expectEqual(7, builder.written().len);
+    try testing.expectEqualStrings("A\n\nB\n\nC", builder.written());
+    try testing.expectEqual(builder.written().len, cell_map.map.items.len);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 0,
-    }, cell_map.items[0]);
+    }, cell_map.map.items[0]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 1,
         .y = 0,
-    }, cell_map.items[1]);
+    }, cell_map.map.items[1]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 1,
-    }, cell_map.items[2]);
+    }, cell_map.map.items[2]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 2,
-    }, cell_map.items[3]);
+    }, cell_map.map.items[3]);
 }
 
 test "Screen UTF8 cell map with blank prefix" {
@@ -9065,32 +9072,32 @@ test "Screen UTF8 cell map with blank prefix" {
     s.cursorAbsolute(2, 1);
     try s.testWriteString("B");
 
-    var cell_map = Page.CellMap.init(alloc);
+    var cell_map: Page.CellMap = .init(alloc);
     defer cell_map.deinit();
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
-    try s.dumpString(builder.writer(), .{
+    try s.dumpString(&builder.writer, .{
         .tl = s.pages.getTopLeft(.screen),
         .br = s.pages.getBottomRight(.screen),
         .cell_map = &cell_map,
     });
 
-    try testing.expectEqualStrings("\n  B", builder.items);
-    try testing.expectEqual(builder.items.len, cell_map.items.len);
+    try testing.expectEqualStrings("\n  B", builder.written());
+    try testing.expectEqual(builder.written().len, cell_map.map.items.len);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 0,
-    }, cell_map.items[0]);
+    }, cell_map.map.items[0]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 1,
-    }, cell_map.items[1]);
+    }, cell_map.map.items[1]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 1,
         .y = 1,
-    }, cell_map.items[2]);
+    }, cell_map.map.items[2]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 2,
         .y = 1,
-    }, cell_map.items[3]);
+    }, cell_map.map.items[3]);
 }

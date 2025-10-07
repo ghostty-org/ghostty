@@ -184,8 +184,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
-        } ?? all.last
+        } ?? lastMain ?? all.last
     }
+    
+    // The last controller to be main. We use this when paired with "preferredParent"
+    // to find the preferred window to attach new tabs, perform actions, etc. We
+    // always prefer the main window but if there isn't any (because we're triggered
+    // by something like an App Intent) then we prefer the most previous main.
+    static private(set) weak var lastMain: TerminalController? = nil
 
     /// The "new window" action.
     static func newWindow(
@@ -1036,6 +1042,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let window {
             LastWindowPosition.shared.save(window)
         }
+        
+        // Remember our last main
+        Self.lastMain = self
     }
 
     // Called when the window will be encoded. We handle the data encoding here in the

@@ -4,7 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Config = @import("Config.zig");
 const gresource = @import("../apprt/gtk/build/gresource.zig");
-const internal_os = @import("../os/main.zig");
+const locales = @import("../os/i18n_locales.zig").locales;
 
 const domain = "com.mitchellh.ghostty";
 
@@ -18,10 +18,10 @@ update_step: *std.Build.Step,
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
     _ = cfg;
 
-    var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
-    defer steps.deinit();
+    var steps: std.ArrayList(*std.Build.Step) = .empty;
+    defer steps.deinit(b.allocator);
 
-    inline for (internal_os.i18n.locales) |locale| {
+    inline for (locales) |locale| {
         // There is no encoding suffix in the LC_MESSAGES path on FreeBSD,
         // so we need to remove it from `locale` to have a correct destination string.
         // (/usr/local/share/locale/en_AU/LC_MESSAGES)
@@ -33,7 +33,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
         const msgfmt = b.addSystemCommand(&.{ "msgfmt", "-o", "-" });
         msgfmt.addFileArg(b.path("po/" ++ locale ++ ".po"));
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             msgfmt.captureStdOut(),
             std.fmt.comptimePrint(
                 "share/locale/{s}/LC_MESSAGES/{s}.mo",
@@ -45,7 +45,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
     return .{
         .owner = b,
         .update_step = try createUpdateStep(b),
-        .steps = try steps.toOwnedSlice(),
+        .steps = try steps.toOwnedSlice(b.allocator),
     };
 }
 
@@ -155,7 +155,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "po/" ++ domain ++ ".pot",
     );
 
-    inline for (internal_os.i18n.locales) |locale| {
+    inline for (locales) |locale| {
         const msgmerge = b.addSystemCommand(&.{ "msgmerge", "--quiet", "--no-fuzzy-matching" });
         msgmerge.addFileArg(b.path("po/" ++ locale ++ ".po"));
         msgmerge.addFileArg(xgettext.captureStdOut());

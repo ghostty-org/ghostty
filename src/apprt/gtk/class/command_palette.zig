@@ -485,10 +485,11 @@ const Command = extern struct {
 
         const command = priv.command orelse return null;
 
-        priv.action_key = std.fmt.allocPrintZ(
+        priv.action_key = std.fmt.allocPrintSentinel(
             priv.arena.allocator(),
-            "{}",
+            "{f}",
             .{command.action},
+            0,
         ) catch null;
 
         return priv.action_key;

@@ -1023,45 +1023,33 @@ pub fn SplitTree(comptime V: type) type {
         }
 
         /// Format the tree in a human-readable format. By default this will
-        /// output a diagram followed by a textual representation. This can
-        /// be controlled via the formatting string:
-        ///
-        ///   - `diagram` - Output a diagram of the split tree only.
-        ///   - `text` - Output a textual representation of the split tree only.
-        ///   - Empty - Output both a diagram and a textual representation.
-        ///
+        /// output a diagram followed by a textual representation.
         pub fn format(
             self: *const Self,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
+            writer: *std.Io.Writer,
         ) !void {
-            _ = options;
-
             if (self.nodes.len == 0) {
                 try writer.writeAll("empty");
                 return;
             }
-
-            if (std.mem.eql(u8, fmt, "diagram")) {
-                self.formatDiagram(writer) catch
-                    try writer.writeAll("failed to draw split tree diagram");
-            } else if (std.mem.eql(u8, fmt, "text")) {
-                try self.formatText(writer, .root, 0);
-            } else if (fmt.len == 0) {
-                self.formatDiagram(writer) catch {};
-                try self.formatText(writer, .root, 0);
-            } else {
-                return error.InvalidFormat;
-            }
+            self.formatDiagram(writer) catch {};
+            try self.formatText(writer);
         }
 
-        fn formatText(
-            self: *const Self,
-            writer: anytype,
+        pub fn formatText(self: Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            if (self.nodes.len == 0) {
+                try writer.writeAll("empty");
+                return;
+            }
+            try self.formatTextInner(writer, .root, 0);
+        }
+
+        fn formatTextInner(
+            self: Self,
+            writer: *std.Io.Writer,
             current: Node.Handle,
             depth: usize,
-        ) !void {
+        ) std.Io.Writer.Error!void {
             for (0..depth) |_| try writer.writeAll("  ");
 
             if (self.zoomed) |zoomed| if (zoomed == current) {
@@ -1075,20 +1063,25 @@ pub fn SplitTree(comptime V: type) type {
                     try writer.print("leaf: {d}\n", .{current}),
 
                 .split => |s| {
-                    try writer.print("split (layout: {s}, ratio: {d:.2})\n", .{
-                        @tagName(s.layout),
+                    try writer.print("split (layout: {t}, ratio: {d:.2})\n", .{
+                        s.layout,
                         s.ratio,
                     });
-                    try self.formatText(writer, s.left, depth + 1);
-                    try self.formatText(writer, s.right, depth + 1);
+                    try self.formatTextInner(writer, s.left, depth + 1);
+                    try self.formatTextInner(writer, s.right, depth + 1);
                 },
             }
         }
 
-        fn formatDiagram(
-            self: *const Self,
-            writer: anytype,
-        ) !void {
+        pub fn formatDiagram(
+            self: Self,
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            if (self.nodes.len == 0) {
+                try writer.writeAll("empty");
+                return;
+            }
+
             // Use our arena's GPA to allocate some intermediate memory.
             // Requiring allocation for formatting is nasty but this is really
             // only used for debugging and testing and shouldn't hit OOM
@@ -1099,7 +1092,7 @@ pub fn SplitTree(comptime V: type) type {
 
             // Get our spatial representation.
             const sp = spatial: {
-                const sp = try self.spatial(alloc);
+                const sp = self.spatial(alloc) catch return error.WriteFailed;
 
                 // Scale our spatial representation to have minimum width/height 1.
                 var min_w: f16 = 1;
@@ -1111,7 +1104,7 @@ pub fn SplitTree(comptime V: type) type {
 
                 const ratio_w: f16 = 1 / min_w;
                 const ratio_h: f16 = 1 / min_h;
-                const slots = try alloc.dupe(Spatial.Slot, sp.slots);
+                const slots = alloc.dupe(Spatial.Slot, sp.slots) catch return error.WriteFailed;
                 for (slots) |*slot| {
                     slot.x *= ratio_w;
                     slot.y *= ratio_h;
@@ -1168,9 +1161,9 @@ pub fn SplitTree(comptime V: type) type {
                 width *= cell_width;
                 height *= cell_height;
 
-                const rows = try alloc.alloc([]u8, height);
+                const rows = alloc.alloc([]u8, height) catch return error.WriteFailed;
                 for (0..rows.len) |y| {
-                    rows[y] = try alloc.alloc(u8, width + 1);
+                    rows[y] = alloc.alloc(u8, width + 1) catch return error.WriteFailed;
                     @memset(rows[y], ' ');
                     rows[y][width] = '\n';
                 }
@@ -1223,7 +1216,7 @@ pub fn SplitTree(comptime V: type) type {
                 const label: []const u8 = if (@hasDecl(View, "splitTreeLabel"))
                     node.leaf.splitTreeLabel()
                 else
-                    try std.fmt.bufPrint(&buf, "{d}", .{handle});
+                    std.fmt.bufPrint(&buf, "{d}", .{handle}) catch return error.WriteFailed;
 
                 // Draw the handle in the center
                 const x_mid = width / 2 + x;
@@ -1231,7 +1224,7 @@ pub fn SplitTree(comptime V: type) type {
                 const label_width = label.len;
                 const label_start = x_mid - label_width / 2;
                 const row = grid[y_mid][label_start..];
-                _ = try std.fmt.bufPrint(row, "{s}", .{label});
+                _ = std.fmt.bufPrint(row, "{s}", .{label}) catch return error.WriteFailed;
             }
 
             // Output every row
@@ -1339,7 +1332,7 @@ test "SplitTree: empty tree" {
     var t: TestTree = .empty;
     defer t.deinit();
 
-    const str = try std.fmt.allocPrint(alloc, "{}", .{t});
+    const str = try std.fmt.allocPrint(alloc, "{f}", .{t});
     defer alloc.free(str);
     try testing.expectEqualStrings(str,
         \\empty
@@ -1353,7 +1346,7 @@ test "SplitTree: single node" {
     var t: TestTree = try .init(alloc, &v);
     defer t.deinit();
 
-    const str = try std.fmt.allocPrint(alloc, "{diagram}", .{t});
+    const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(t, .formatDiagram)});
     defer alloc.free(str);
     try testing.expectEqualStrings(str,
         \\+---+
@@ -1383,7 +1376,7 @@ test "SplitTree: split horizontal" {
     defer t3.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{}", .{t3});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{t3});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---++---+
@@ -1415,7 +1408,7 @@ test "SplitTree: split horizontal" {
     defer t4.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{}", .{t4});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{t4});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+--------++---++---+
@@ -1449,7 +1442,7 @@ test "SplitTree: split horizontal" {
     defer t5.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{}", .{t5});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{t5});
         defer alloc.free(str);
         try testing.expectEqualStrings(
             \\+------------------++--------++---++---+
@@ -1547,7 +1540,7 @@ test "SplitTree: split vertical" {
     );
     defer t3.deinit();
 
-    const str = try std.fmt.allocPrint(alloc, "{diagram}", .{t3});
+    const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(t3, .formatDiagram)});
     defer alloc.free(str);
     try testing.expectEqualStrings(str,
         \\+---+
@@ -1583,7 +1576,7 @@ test "SplitTree: split horizontal with zero ratio" {
     const split = splitAB;
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---+
@@ -1617,7 +1610,7 @@ test "SplitTree: split vertical with zero ratio" {
     const split = splitAB;
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---+
@@ -1651,7 +1644,7 @@ test "SplitTree: split horizontal with full width" {
     const split = splitAB;
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---+
@@ -1685,7 +1678,7 @@ test "SplitTree: split vertical with full width" {
     const split = splitAB;
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---+
@@ -1727,7 +1720,7 @@ test "SplitTree: remove leaf" {
     );
     defer t4.deinit();
 
-    const str = try std.fmt.allocPrint(alloc, "{diagram}", .{t4});
+    const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(t4, .formatDiagram)});
     defer alloc.free(str);
     try testing.expectEqualStrings(str,
         \\+---+
@@ -1772,7 +1765,7 @@ test "SplitTree: split twice, remove intermediary" {
     defer split2.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split2});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split2, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---++---+
@@ -1798,7 +1791,7 @@ test "SplitTree: split twice, remove intermediary" {
     defer split3.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split3});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split3, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---+
@@ -1883,7 +1876,7 @@ test "SplitTree: spatial goto" {
     const split = splitBD;
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---++---+
@@ -1943,7 +1936,7 @@ test "SplitTree: spatial goto" {
     defer equal.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{equal});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(equal, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---++---+
@@ -1979,7 +1972,7 @@ test "SplitTree: resize" {
     defer split.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+---++---+
@@ -2005,7 +1998,7 @@ test "SplitTree: resize" {
             0.25,
         );
         defer resized.deinit();
-        const str = try std.fmt.allocPrint(alloc, "{diagram}", .{resized});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\+-------------++---+
@@ -2026,7 +2019,7 @@ test "SplitTree: clone empty tree" {
     defer t2.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{}", .{t2});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{t2});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\empty
@@ -2064,7 +2057,7 @@ test "SplitTree: zoom" {
     });
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{text}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatText)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\split (layout: horizontal, ratio: 0.50)
@@ -2079,7 +2072,7 @@ test "SplitTree: zoom" {
     defer clone.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{text}", .{clone});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(clone, .formatText)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\split (layout: horizontal, ratio: 0.50)
@@ -2122,7 +2115,7 @@ test "SplitTree: split resets zoom" {
     defer split.deinit();
 
     {
-        const str = try std.fmt.allocPrint(alloc, "{text}", .{split});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(split, .formatText)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\split (layout: horizontal, ratio: 0.50)
@@ -2178,7 +2171,7 @@ test "SplitTree: remove and zoom" {
         defer removed.deinit();
         try testing.expect(removed.zoomed == null);
 
-        const str = try std.fmt.allocPrint(alloc, "{text}", .{removed});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(removed, .formatText)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\leaf: B
@@ -2201,7 +2194,7 @@ test "SplitTree: remove and zoom" {
         );
         defer removed.deinit();
 
-        const str = try std.fmt.allocPrint(alloc, "{text}", .{removed});
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(removed, .formatText)});
         defer alloc.free(str);
         try testing.expectEqualStrings(str,
             \\(zoomed) leaf: A

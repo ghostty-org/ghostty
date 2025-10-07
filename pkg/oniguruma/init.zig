@@ -6,7 +6,7 @@ const errors = @import("errors.zig");
 /// the encodings that the program will use.
 pub fn init(encs: []const *Encoding) !void {
     _ = try errors.convertError(c.onig_initialize(
-        @constCast(@ptrCast(@alignCast(encs.ptr))),
+        @ptrCast(@alignCast(@constCast(encs.ptr))),
         @intCast(encs.len),
     ));
 }

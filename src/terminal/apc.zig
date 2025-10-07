@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
@@ -33,17 +34,22 @@ pub const Handler = struct {
             .identify => {
                 switch (byte) {
                     // Kitty graphics protocol
-                    'G' => self.state = .{ .kitty = kitty_gfx.CommandParser.init(alloc) },
+                    'G' => self.state = if (comptime build_options.kitty_graphics)
+                        .{ .kitty = kitty_gfx.CommandParser.init(alloc) }
+                    else
+                        .{ .ignore = {} },
 
                     // Unknown
                     else => self.state = .{ .ignore = {} },
                 }
             },
 
-            .kitty => |*p| p.feed(byte) catch |err| {
-                log.warn("kitty graphics protocol error: {}", .{err});
-                self.state = .{ .ignore = {} };
-            },
+            .kitty => |*p| if (comptime build_options.kitty_graphics) {
+                p.feed(byte) catch |err| {
+                    log.warn("kitty graphics protocol error: {}", .{err});
+                    self.state = .{ .ignore = {} };
+                };
+            } else unreachable,
         }
     }
 
@@ -57,7 +63,11 @@ pub const Handler = struct {
             .inactive => unreachable,
             .ignore, .identify => null,
             .kitty => |*p| kitty: {
-                const command = p.complete() catch |err| {
+                if (comptime !build_options.kitty_graphics) unreachable;
+
+                // Use the same allocator that was used to create the parser.
+                const alloc = p.arena.child_allocator;
+                const command = p.complete(alloc) catch |err| {
                     log.warn("kitty graphics protocol error: {}", .{err});
                     break :kitty null;
                 };
@@ -81,23 +91,35 @@ pub const State = union(enum) {
     identify: void,
 
     /// Kitty graphics protocol
-    kitty: kitty_gfx.CommandParser,
+    kitty: if (build_options.kitty_graphics)
+        kitty_gfx.CommandParser
+    else
+        void,
 
     pub fn deinit(self: *State) void {
         switch (self.*) {
             .inactive, .ignore, .identify => {},
-            .kitty => |*v| v.deinit(),
+            .kitty => |*v| if (comptime build_options.kitty_graphics)
+                v.deinit()
+            else
+                unreachable,
         }
     }
 };
 
 /// Possible APC commands.
 pub const Command = union(enum) {
-    kitty: kitty_gfx.Command,
+    kitty: if (build_options.kitty_graphics)
+        kitty_gfx.Command
+    else
+        void,
 
     pub fn deinit(self: *Command, alloc: Allocator) void {
         switch (self.*) {
-            .kitty => |*v| v.deinit(alloc),
+            .kitty => |*v| if (comptime build_options.kitty_graphics)
+                v.deinit(alloc)
+            else
+                unreachable,
         }
     }
 };
@@ -113,6 +135,8 @@ test "unknown APC command" {
 }
 
 test "garbage Kitty command" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -123,6 +147,8 @@ test "garbage Kitty command" {
 }
 
 test "Kitty command with overflow u32" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -133,6 +159,8 @@ test "Kitty command with overflow u32" {
 }
 
 test "Kitty command with overflow i32" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -143,6 +171,8 @@ test "Kitty command with overflow i32" {
 }
 
 test "valid Kitty command" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

@@ -8,6 +8,7 @@
         .spirv_cross = .{
             .url = "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz",
             .hash = "N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv",
+            .lazy = true,
         },
 
         .apple_sdk = .{ .path = "../apple-sdk" },

@@ -6,11 +6,14 @@ template $GhosttySurfaceTitleDialog: Adw.AlertDialog {
   body: _("Leave blank to restore the default title.");
 
   responses [
-    cancel: _("Cancel") suggested,
-    ok: _("OK") destructive,
+    cancel: _("Cancel"),
+    ok: _("OK") suggested,
   ]
 
+  default-response: "ok";
   focus-widget: entry;
 
-  extra-child: Entry entry {};
+  extra-child: Entry entry {
+    activates-default: true;
+  };
 }

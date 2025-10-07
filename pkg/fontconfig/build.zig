@@ -82,9 +82,9 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     lib.addIncludePath(b.path("override/include"));
     module.addIncludePath(b.path("override/include"));
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-DHAVE_DIRENT_H",
         "-DHAVE_FCNTL_H",
         "-DHAVE_STDLIB_H",
@@ -129,12 +129,12 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     });
 
     switch (target.result.ptrBitWidth()) {
-        32 => try flags.appendSlice(&.{
+        32 => try flags.appendSlice(b.allocator, &.{
             "-DSIZEOF_VOID_P=4",
             "-DALIGNOF_VOID_P=4",
         }),
 
-        64 => try flags.appendSlice(&.{
+        64 => try flags.appendSlice(b.allocator, &.{
             "-DSIZEOF_VOID_P=8",
             "-DALIGNOF_VOID_P=8",
         }),
@@ -142,14 +142,14 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         else => @panic("unsupported arch"),
     }
     if (target.result.os.tag == .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DFC_CACHEDIR=\"LOCAL_APPDATA_FONTCONFIG_CACHE\"",
             "-DFC_TEMPLATEDIR=\"c:/share/fontconfig/conf.avail\"",
             "-DCONFIGDIR=\"c:/etc/fonts/conf.d\"",
             "-DFC_DEFAULT_FONTS=\"\\t<dir>WINDOWSFONTDIR</dir>\\n\\t<dir>WINDOWSUSERFONTDIR</dir>\\n\"",
         });
     } else {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DHAVE_FSTATFS",
             "-DHAVE_FSTATVFS",
             "-DHAVE_GETOPT",
@@ -173,13 +173,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         });
 
         if (target.result.os.tag == .freebsd) {
-            try flags.appendSlice(&.{
+            try flags.appendSlice(b.allocator, &.{
                 "-DFC_TEMPLATEDIR=\"/usr/local/etc/fonts/conf.avail\"",
                 "-DFONTCONFIG_PATH=\"/usr/local/etc/fonts\"",
                 "-DCONFIGDIR=\"/usr/local/etc/fonts/conf.d\"",
             });
         } else {
-            try flags.appendSlice(&.{
+            try flags.appendSlice(b.allocator, &.{
                 "-DFC_TEMPLATEDIR=\"/usr/share/fontconfig/conf.avail\"",
                 "-DFONTCONFIG_PATH=\"/etc/fonts\"",
                 "-DCONFIGDIR=\"/usr/local/fontconfig/conf.d\"",
@@ -187,7 +187,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         }
 
         if (target.result.os.tag == .linux) {
-            try flags.appendSlice(&.{
+            try flags.appendSlice(b.allocator, &.{
                 "-DHAVE_SYS_STATFS_H",
                 "-DHAVE_SYS_VFS_H",
             });
@@ -214,14 +214,14 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     // Libxml2
     _ = b.systemIntegrationOption("libxml2", .{}); // So it shows up in help
     if (libxml2_enabled) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DENABLE_LIBXML2",
             "-DLIBXML_STATIC",
             "-DLIBXML_PUSH_ENABLED",
         });
         if (target.result.os.tag == .windows) {
             // NOTE: this should be defined on all targets
-            try flags.appendSlice(&.{
+            try flags.appendSlice(b.allocator, &.{
                 "-Werror=implicit-function-declaration",
             });
         }

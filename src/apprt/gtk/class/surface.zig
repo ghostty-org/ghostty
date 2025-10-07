@@ -9,6 +9,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
+const build_config = @import("../../../build_config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
@@ -31,6 +32,7 @@ const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
+const i18n = @import("../../../os/i18n.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -50,6 +52,13 @@ pub const Surface = extern struct {
     pub const Tree = datastruct.SplitTree(Self);
 
     pub const properties = struct {
+        /// This property is set to true when the bell is ringing. Note that
+        /// this property will only emit a changed signal when there is a
+        /// full state change. If a bell is ringing and another bell event
+        /// comes through, the change notification will NOT be emitted.
+        ///
+        /// If you need to know every scenario the bell is triggered,
+        /// listen to the `bell` signal instead.
         pub const @"bell-ringing" = struct {
             pub const name = "bell-ringing";
             const impl = gobject.ext.defineProperty(
@@ -274,9 +283,40 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"is-split" = struct {
+            pub const name = "is-split";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "is_split",
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
+        /// Emitted whenever the bell event is received. Unlike the
+        /// `bell-ringing` property, this is emitted every time the event
+        /// is received and not just on state changes.
+        pub const bell = struct {
+            pub const name = "bell";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
         /// Emitted whenever the surface would like to be closed for any
         /// reason.
         ///
@@ -502,6 +542,12 @@ pub const Surface = extern struct {
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
 
+        // True if the current surface is a split, this is used to apply
+        // unfocused-split-* options
+        is_split: bool = false,
+
+        action_group: ?*gio.SimpleActionGroup = null,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -598,6 +644,16 @@ pub const Surface = extern struct {
         };
 
         return @intFromBool(config.@"bell-features".border);
+    }
+
+    /// Callback used to determine whether unfocused-split-fill / unfocused-split-opacity
+    /// should be applied to the surface
+    fn closureShouldUnfocusedSplitBeShown(
+        _: *Self,
+        focused: c_int,
+        is_split: c_int,
+    ) callconv(.c) c_int {
+        return @intFromBool(focused == 0 and is_split != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -754,6 +810,65 @@ pub const Surface = extern struct {
             .{},
             null,
         );
+    }
+
+    pub fn commandFinished(self: *Self, value: apprt.Action.Value(.command_finished)) bool {
+        const app = Application.default();
+        const alloc = app.allocator();
+        const priv: *Private = self.private();
+
+        const notify_next_command_finish = notify: {
+            const simple_action_group = priv.action_group orelse break :notify false;
+            const action_group = simple_action_group.as(gio.ActionGroup);
+            const state = action_group.getActionState("notify-on-next-command-finish") orelse break :notify false;
+            const bool_variant_type = glib.ext.VariantType.newFor(bool);
+            defer bool_variant_type.free();
+            if (state.isOfType(bool_variant_type) == 0) break :notify false;
+            const notify = state.getBoolean() != 0;
+            action_group.changeActionState("notify-on-next-command-finish", glib.Variant.newBoolean(@intFromBool(false)));
+            break :notify notify;
+        };
+
+        const config = priv.config orelse return false;
+
+        const cfg = config.get();
+
+        if (!notify_next_command_finish) {
+            if (cfg.@"notify-on-command-finish" == .never) return true;
+            if (cfg.@"notify-on-command-finish" == .unfocused and self.getFocused()) return true;
+        }
+
+        const action = cfg.@"notify-on-command-finish-action";
+
+        if (action.bell) self.setBellRinging(true);
+
+        if (action.notify) notify: {
+            const title_ = title: {
+                const exit_code = value.exit_code orelse break :title i18n._("Command Finished");
+                if (exit_code == 0) break :title i18n._("Command Succeeded");
+                break :title i18n._("Command Failed");
+            };
+            const title = std.mem.span(title_);
+            const body = body: {
+                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintSentinel(
+                    alloc,
+                    "Command took {f}.",
+                    .{value.duration.round(std.time.ns_per_ms)},
+                    0,
+                ) catch break :notify;
+                break :body std.fmt.allocPrintSentinel(
+                    alloc,
+                    "Command took {f} and exited with code {d}.",
+                    .{ value.duration.round(std.time.ns_per_ms), exit_code },
+                    0,
+                ) catch break :notify;
+            };
+            defer alloc.free(body);
+
+            self.sendDesktopNotification(title, body);
+        }
+
+        return true;
     }
 
     /// Key press event (press or release).
@@ -1227,19 +1342,11 @@ pub const Surface = extern struct {
 
         // Unset environment varies set by snaps if we're running in a snap.
         // This allows Ghostty to further launch additional snaps.
-        if (env.get("SNAP")) |_| {
-            env.remove("SNAP");
-            env.remove("DRIRC_CONFIGDIR");
-            env.remove("__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS");
-            env.remove("__EGL_VENDOR_LIBRARY_DIRS");
-            env.remove("LD_LIBRARY_PATH");
-            env.remove("LIBGL_DRIVERS_PATH");
-            env.remove("LIBVA_DRIVERS_PATH");
-            env.remove("VK_LAYER_PATH");
-            env.remove("XLOCALEDIR");
-            env.remove("GDK_PIXBUF_MODULEDIR");
-            env.remove("GDK_PIXBUF_MODULE_FILE");
-            env.remove("GTK_PATH");
+        if (comptime build_config.snap) {
+            if (env.get("SNAP") != null) try filterSnapPaths(
+                alloc,
+                &env,
+            );
         }
 
         // This is a hack because it ties ourselves (optionally) to the
@@ -1251,6 +1358,77 @@ pub const Surface = extern struct {
         }
 
         return env;
+    }
+
+    /// Filter out environment variables that start with forbidden prefixes.
+    fn filterSnapPaths(gpa: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
+        comptime assert(build_config.snap);
+
+        const snap_vars = [_][]const u8{
+            "SNAP",
+            "SNAP_USER_COMMON",
+            "SNAP_USER_DATA",
+            "SNAP_DATA",
+            "SNAP_COMMON",
+        };
+
+        // Use an arena because everything in this function is temporary.
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var env_to_remove: std.ArrayList([]const u8) = .empty;
+        var env_to_update: std.ArrayList(struct {
+            key: []const u8,
+            value: []const u8,
+        }) = .empty;
+
+        var it = env_map.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+
+            // Ignore fields we set ourself
+            if (std.mem.eql(u8, key, "TERMINFO")) continue;
+            if (std.mem.startsWith(u8, key, "GHOSTTY")) continue;
+
+            // Any env var starting with SNAP must be removed
+            if (std.mem.startsWith(u8, key, "SNAP_")) {
+                try env_to_remove.append(alloc, key);
+                continue;
+            }
+
+            var filtered_paths: std.ArrayList([]const u8) = .empty;
+            var modified = false;
+            var paths = std.mem.splitAny(u8, value, ":");
+            while (paths.next()) |path| {
+                var include = true;
+                for (snap_vars) |k| if (env_map.get(k)) |snap_path| {
+                    if (snap_path.len == 0) continue;
+                    if (std.mem.startsWith(u8, path, snap_path)) {
+                        include = false;
+                        modified = true;
+                        break;
+                    }
+                };
+                if (include) try filtered_paths.append(alloc, path);
+            }
+
+            if (modified) {
+                if (filtered_paths.items.len > 0) {
+                    const new_value = try std.mem.join(alloc, ":", filtered_paths.items);
+                    try env_to_update.append(alloc, .{ .key = key, .value = new_value });
+                } else {
+                    try env_to_remove.append(alloc, key);
+                }
+            }
+        }
+
+        for (env_to_update.items) |item| try env_map.put(
+            item.key,
+            item.value,
+        );
+        for (env_to_remove.items) |key| _ = env_map.remove(key);
     }
 
     pub fn clipboardRequest(
@@ -1284,6 +1462,34 @@ pub const Surface = extern struct {
     pub fn grabFocus(self: *Self) void {
         const priv = self.private();
         _ = priv.gl_area.as(gtk.Widget).grabFocus();
+    }
+
+    pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
+        const app = Application.default();
+
+        const t = switch (title.len) {
+            0 => "Ghostty",
+            else => title,
+        };
+
+        const notification = gio.Notification.new(t);
+        defer notification.unref();
+        notification.setBody(body);
+
+        const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
+        defer icon.unref();
+        notification.setIcon(icon.as(gio.Icon));
+
+        const pointer = glib.Variant.newUint64(@intFromPtr(self));
+        notification.setDefaultActionAndTargetValue(
+            "app.present-surface",
+            pointer,
+        );
+
+        // We set the notification ID to the body content. If the content is the
+        // same, this notification may replace a previous notification
+        const gio_app = app.as(gio.Application);
+        gio_app.sendNotification(body, notification);
     }
 
     //---------------------------------------------------------------
@@ -1342,11 +1548,23 @@ pub const Surface = extern struct {
     }
 
     fn initActionMap(self: *Self) void {
+        const priv: *Private = self.private();
+
         const actions = [_]ext.actions.Action(Self){
-            .init("prompt-title", actionPromptTitle, null),
+            .init(
+                "prompt-title",
+                actionPromptTitle,
+                null,
+            ),
+            .initStateful(
+                "notify-on-next-command-finish",
+                actionNotifyOnNextCommandFinish,
+                null,
+                glib.Variant.newBoolean(@intFromBool(false)),
+            ),
         };
 
-        ext.actions.addAsGroup(Self, self, "surface", &actions);
+        priv.action_group = ext.actions.addAsGroup(Self, self, "surface", &actions);
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1408,7 +1626,7 @@ pub const Surface = extern struct {
             priv.core_surface = null;
         }
         if (priv.mouse_hover_url) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
         }
         if (priv.default_size) |v| {
@@ -1424,15 +1642,15 @@ pub const Surface = extern struct {
             priv.min_size = null;
         }
         if (priv.pwd) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.pwd = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
         if (priv.title_override) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
         self.clearCgroup();
@@ -1456,7 +1674,7 @@ pub const Surface = extern struct {
     /// title. For manually set titles see `setTitleOverride`.
     pub fn setTitle(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title = null;
         if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
@@ -1466,7 +1684,7 @@ pub const Surface = extern struct {
     /// unless this is unset (null).
     pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title_override) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title_override = null;
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
@@ -1480,7 +1698,7 @@ pub const Surface = extern struct {
     /// Set the pwd for this surface, copies the value.
     pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.pwd) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.pwd) |v| glib.free(@ptrCast(@constCast(v)));
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -1565,7 +1783,7 @@ pub const Surface = extern struct {
 
     pub fn setMouseHoverUrl(self: *Self, url: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.mouse_hover_url) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.mouse_hover_url) |v| glib.free(@ptrCast(@constCast(v)));
         priv.mouse_hover_url = null;
         if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);
@@ -1576,6 +1794,16 @@ pub const Surface = extern struct {
     }
 
     pub fn setBellRinging(self: *Self, ringing: bool) void {
+        // Prevent duplicate change notifications if the signals we emit
+        // in this function cause this state to change again.
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+
+        // Logic around bell reaction happens on every event even if we're
+        // already in the ringing state.
+        if (ringing) self.ringBell();
+
+        // Property change only happens on actual state change
         const priv = self.private();
         if (priv.bell_ringing == ringing) return;
         priv.bell_ringing = ringing;
@@ -1760,20 +1988,26 @@ pub const Surface = extern struct {
         self.as(gtk.Widget).setCursorFromName(name.ptr);
     }
 
-    fn propBellRinging(
-        self: *Self,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
+    /// Handle bell features that need to happen every time a BEL is received
+    /// Currently this is audio and system but this could change in the future.
+    fn ringBell(self: *Self) void {
         const priv = self.private();
-        if (!priv.bell_ringing) return;
+
+        // Emit the signal
+        signals.bell.impl.emit(
+            self,
+            null,
+            .{},
+            null,
+        );
 
         // Activate actions if they exist
         _ = self.as(gtk.Widget).activateAction("tab.ring-bell", null);
         _ = self.as(gtk.Widget).activateAction("win.ring-bell", null);
 
-        // Do our sound
         const config = if (priv.config) |c| c.get() else return;
+
+        // Do our sound
         if (config.@"bell-features".audio) audio: {
             const config_path = config.@"bell-audio-path" orelse break :audio;
             const path, const required = switch (config_path) {
@@ -1832,6 +2066,20 @@ pub const Surface = extern struct {
         };
     }
 
+    pub fn actionNotifyOnNextCommandFinish(
+        action: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        _: *Self,
+    ) callconv(.c) void {
+        const state = action.as(gio.Action).getState() orelse glib.Variant.newBoolean(@intFromBool(false));
+        defer state.unref();
+        const bool_variant_type = glib.ext.VariantType.newFor(bool);
+        defer bool_variant_type.free();
+        if (state.isOfType(bool_variant_type) == 0) return;
+        const value = state.getBoolean() != 0;
+        action.setState(glib.Variant.newBoolean(@intFromBool(!value)));
+    }
+
     fn childExitedClose(
         _: *ChildExited,
         self: *Self,
@@ -1869,13 +2117,11 @@ pub const Surface = extern struct {
         const alloc = Application.default().allocator();
 
         if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
 
             const list: ?*glib.SList = list: {
                 const unboxed = value.getBoxed() orelse return 0;
@@ -1903,7 +2149,7 @@ pub const Surface = extern struct {
                 }
             }
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -1916,13 +2162,11 @@ pub const Surface = extern struct {
             const object = value.getObject() orelse return 0;
             const file = gobject.ext.cast(gio.File, object) orelse return 0;
             const path = file.getPath() orelse return 0;
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
             writer.writeAll(std.mem.span(path)) catch |err| {
                 log.err("unable to write path to buffer: {}", .{err});
                 return 0;
@@ -1932,7 +2176,7 @@ pub const Surface = extern struct {
                 return 0;
             };
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -2761,8 +3005,8 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
-            class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
+            class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -2781,9 +3025,11 @@ pub const Surface = extern struct {
                 properties.title.impl,
                 properties.@"title-override".impl,
                 properties.zoom.impl,
+                properties.@"is-split".impl,
             });
 
             // Signals
+            signals.bell.impl.register(.{});
             signals.@"close-request".impl.register(.{});
             signals.@"clipboard-read".impl.register(.{});
             signals.@"clipboard-write".impl.register(.{});

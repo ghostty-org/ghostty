@@ -9,8 +9,13 @@ const fastmem = @import("../../fastmem.zig");
 const command = @import("graphics_command.zig");
 const point = @import("../point.zig");
 const PageList = @import("../PageList.zig");
-const internal_os = @import("../../os/main.zig");
 const wuffs = @import("wuffs");
+
+const temp_dir = struct {
+    const TempDir = @import("../../os/TempDir.zig");
+    const allocTmpDir = @import("../../os/file.zig").allocTmpDir;
+    const freeTmpDir = @import("../../os/file.zig").freeTmpDir;
+};
 
 const log = std.log.scoped(.kitty_gfx);
 
@@ -254,15 +259,16 @@ pub const LoadingImage = struct {
             };
         }
 
-        var buf_reader = std.io.bufferedReader(file.reader());
-        const reader = buf_reader.reader();
+        var buf: [4096]u8 = undefined;
+        var buf_reader = file.reader(&buf);
+        const reader = &buf_reader.interface;
 
         // Read the file
-        var managed = std.ArrayList(u8).init(alloc);
-        errdefer managed.deinit();
+        var managed: std.ArrayList(u8) = .empty;
+        errdefer managed.deinit(alloc);
         const size: usize = if (t.size > 0) @min(t.size, max_size) else max_size;
-        reader.readAllArrayList(&managed, size) catch |err| {
-            log.warn("failed to read temporary file: {}", .{err});
+        reader.appendRemaining(alloc, &managed, .limited(size)) catch {
+            log.warn("failed to read temporary file: {?}", .{buf_reader.err});
             return error.InvalidData;
         };
 
@@ -276,8 +282,8 @@ pub const LoadingImage = struct {
     fn isPathInTempDir(path: []const u8) bool {
         if (std.mem.startsWith(u8, path, "/tmp")) return true;
         if (std.mem.startsWith(u8, path, "/dev/shm")) return true;
-        if (internal_os.allocTmpDir(std.heap.page_allocator)) |dir| {
-            defer internal_os.freeTmpDir(std.heap.page_allocator, dir);
+        if (temp_dir.allocTmpDir(std.heap.page_allocator)) |dir| {
+            defer temp_dir.freeTmpDir(std.heap.page_allocator, dir);
             if (std.mem.startsWith(u8, path, dir)) return true;
 
             // The temporary dir is sometimes a symlink. On macOS for
@@ -397,14 +403,15 @@ pub const LoadingImage = struct {
 
     fn decompressZlib(self: *LoadingImage, alloc: Allocator) !void {
         // Open our zlib stream
-        var fbs = std.io.fixedBufferStream(self.data.items);
-        var stream = std.compress.zlib.decompressor(fbs.reader());
+        var buf: [std.compress.flate.max_window_len]u8 = undefined;
+        var reader: std.Io.Reader = .fixed(self.data.items);
+        var stream: std.compress.flate.Decompress = .init(&reader, .zlib, &buf);
 
         // Write it to an array list
-        var list = std.ArrayList(u8).init(alloc);
-        errdefer list.deinit();
-        stream.reader().readAllArrayList(&list, max_size) catch |err| {
-            log.warn("failed to read decompressed data: {}", .{err});
+        var list: std.ArrayList(u8) = .empty;
+        errdefer list.deinit(alloc);
+        stream.reader.appendRemaining(alloc, &list, .limited(max_size)) catch {
+            log.warn("failed to read decompressed data: {?}", .{stream.err});
             return error.DecompressionFailed;
         };
 
@@ -690,7 +697,7 @@ test "image load: temporary file without correct path" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var tmp_dir = try internal_os.TempDir.init();
+    var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
     try tmp_dir.dir.writeFile(.{
@@ -723,7 +730,7 @@ test "image load: rgb, not compressed, temporary file" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var tmp_dir = try internal_os.TempDir.init();
+    var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
     try tmp_dir.dir.writeFile(.{
@@ -760,7 +767,7 @@ test "image load: rgb, not compressed, regular file" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var tmp_dir = try internal_os.TempDir.init();
+    var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
     try tmp_dir.dir.writeFile(.{
@@ -795,7 +802,7 @@ test "image load: png, not compressed, regular file" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var tmp_dir = try internal_os.TempDir.init();
+    var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-png-none-50x76-2147483647-raw.data");
     try tmp_dir.dir.writeFile(.{

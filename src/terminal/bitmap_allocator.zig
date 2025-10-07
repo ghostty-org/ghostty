@@ -34,7 +34,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             assert(std.math.isPowerOfTwo(chunk_size));
         }
 
-        pub const base_align = @alignOf(u64);
+        pub const base_align: std.mem.Alignment = .fromByteUnits(@alignOf(u64));
         pub const bitmap_bit_size = @bitSizeOf(u64);
 
         /// The bitmap of available chunks. Each bit represents a chunk. A
@@ -49,7 +49,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
 
         /// Initialize the allocator map with a given buf and memory layout.
         pub fn init(buf: OffsetBuf, l: Layout) Self {
-            assert(@intFromPtr(buf.start()) % base_align == 0);
+            assert(base_align.check(@intFromPtr(buf.start())));
 
             // Initialize our bitmaps to all 1s to note that all chunks are free.
             const bitmap = buf.member(u64, l.bitmap_start);
@@ -92,7 +92,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
                 return error.OutOfMemory;
 
             const chunks = self.chunks.ptr(base);
-            const ptr: [*]T = @alignCast(@ptrCast(&chunks[idx * chunk_size]));
+            const ptr: [*]T = @ptrCast(@alignCast(&chunks[idx * chunk_size]));
             return ptr[0..n];
         }
 

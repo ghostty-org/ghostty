@@ -3,6 +3,7 @@
   lib,
   stdenv,
   bashInteractive,
+  doxygen,
   nushell,
   appstream,
   flatpak-builder,
@@ -89,6 +90,7 @@ in
     packages =
       [
         # For builds
+        doxygen
         jq
         llvmPackages_latest.llvm
         minisign

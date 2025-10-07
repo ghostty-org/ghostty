@@ -140,7 +140,7 @@ pub const GlobalState = struct {
             std.log.info("dependency fontconfig={d}", .{fontconfig.version()});
         }
         std.log.info("renderer={}", .{renderer.Renderer});
-        std.log.info("libxev default backend={s}", .{@tagName(xev.backend)});
+        std.log.info("libxev default backend={t}", .{xev.backend});
 
         // As early as possible, initialize our resource limits.
         self.rlimits = .init();
@@ -206,7 +206,7 @@ pub const GlobalState = struct {
 
         var sa: p.Sigaction = .{
             .handler = .{ .handler = p.SIG.IGN },
-            .mask = p.empty_sigset,
+            .mask = p.sigemptyset(),
             .flags = 0,
         };
 

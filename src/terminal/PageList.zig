@@ -4,7 +4,7 @@
 const PageList = @This();
 
 const std = @import("std");
-const build_config = @import("../build_config.zig");
+const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fastmem = @import("../fastmem.zig");
@@ -56,7 +56,7 @@ const std_size = Page.layout(std_capacity).total_size;
 /// allocator because we need memory that is zero-initialized and page-aligned.
 const PagePool = std.heap.MemoryPoolAligned(
     [std_size]u8,
-    std.heap.page_size_min,
+    .fromByteUnits(std.heap.page_size_min),
 );
 
 /// List of pins, known as "tracked" pins. These are pins that are kept
@@ -388,11 +388,18 @@ pub fn reset(self: *PageList) void {
         const page_arena = &self.pool.pages.arena;
         var it = page_arena.state.buffer_list.first;
         while (it) |node| : (it = node.next) {
-            // The fully allocated buffer
-            const alloc_buf = @as([*]u8, @ptrCast(node))[0..node.data];
+            // WARN: Since HeapAllocator's BufNode is not public API,
+            // we have to hardcode its layout here. We do a comptime assert
+            // on Zig version to verify we check it on every bump.
+            const BufNode = struct {
+                data: usize,
+                node: std.SinglyLinkedList.Node,
+            };
+            const buf_node: *BufNode = @fieldParentPtr("node", node);
 
+            // The fully allocated buffer
+            const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
             // The buffer minus our header
-            const BufNode = @TypeOf(page_arena.state.buffer_list).Node;
             const data_buf = alloc_buf[@sizeOf(BufNode)..];
             @memset(data_buf, 0);
         }
@@ -1153,9 +1160,11 @@ const ReflowCursor = struct {
                 self.page_cell.style_id = id;
             }
 
-            // Copy Kitty virtual placeholder status
-            if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
-                self.page_row.kitty_virtual_placeholder = true;
+            if (comptime build_options.kitty_graphics) {
+                // Copy Kitty virtual placeholder status
+                if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
+                    self.page_row.kitty_virtual_placeholder = true;
+                }
             }
 
             self.cursorForward();
@@ -1492,7 +1501,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             },
         }
 
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             assert(self.totalRows() >= self.rows);
         }
     }
@@ -1859,7 +1868,7 @@ pub fn maxSize(self: *const PageList) usize {
 }
 
 /// Returns true if we need to grow into our active area.
-fn growRequiredForActive(self: *const PageList) bool {
+inline fn growRequiredForActive(self: *const PageList) bool {
     var rows: usize = 0;
     var page = self.pages.last;
     while (page) |p| : (page = p.prev) {
@@ -2045,7 +2054,7 @@ pub fn adjustCapacity(
 
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
-fn createPage(
+inline fn createPage(
     self: *PageList,
     cap: Capacity,
 ) Allocator.Error!*List.Node {
@@ -2053,7 +2062,7 @@ fn createPage(
     return try createPageExt(&self.pool, cap, &self.page_size);
 }
 
-fn createPageExt(
+inline fn createPageExt(
     pool: *MemoryPool,
     cap: Capacity,
     total_size: ?*usize,
@@ -2073,7 +2082,7 @@ fn createPageExt(
     else
         try page_alloc.alignedAlloc(
             u8,
-            std.heap.page_size_min,
+            .fromByteUnits(std.heap.page_size_min),
             layout.total_size,
         );
     errdefer if (pooled)
@@ -2524,7 +2533,7 @@ pub fn pin(self: *const PageList, pt: point.Point) ?Pin {
 /// pin points to is removed completely, the tracked pin will be updated
 /// to the top-left of the screen.
 pub fn trackPin(self: *PageList, p: Pin) Allocator.Error!*Pin {
-    if (build_config.slow_runtime_safety) assert(self.pinIsValid(p));
+    if (build_options.slow_runtime_safety) assert(self.pinIsValid(p));
 
     // Create our tracked pin
     const tracked = try self.pool.pins.create();
@@ -2556,7 +2565,7 @@ pub fn countTrackedPins(self: *const PageList) usize {
 pub fn pinIsValid(self: *const PageList, p: Pin) bool {
     // This is very slow so we want to ensure we only ever
     // call this during slow runtime safety builds.
-    comptime assert(build_config.slow_runtime_safety);
+    comptime assert(build_options.slow_runtime_safety);
 
     var it = self.pages.first;
     while (it) |node| : (it = node.next) {
@@ -2674,7 +2683,7 @@ pub const EncodeUtf8Options = struct {
 /// predates this and is a thin wrapper around it so the tests all live there.
 pub fn encodeUtf8(
     self: *const PageList,
-    writer: anytype,
+    writer: *std.Io.Writer,
     opts: EncodeUtf8Options,
 ) anyerror!void {
     // We don't currently use self at all. There is an argument that this
@@ -2714,7 +2723,7 @@ pub fn encodeUtf8(
 ///    1 | etc.| | 4
 ///      +-----+ :
 ///     +--------+
-pub fn diagram(self: *const PageList, writer: anytype) !void {
+pub fn diagram(self: *const PageList, writer: *std.Io.Writer) !void {
     const active_pin = self.getTopLeft(.active);
 
     var active = false;
@@ -3234,7 +3243,7 @@ pub fn pageIterator(
     else
         self.getBottomRight(tl_pt) orelse return .{ .row = null };
 
-    if (build_config.slow_runtime_safety) {
+    if (build_options.slow_runtime_safety) {
         assert(tl_pin.eql(bl_pin) or tl_pin.before(bl_pin));
     }
 
@@ -3392,7 +3401,7 @@ pub const Pin = struct {
     y: size.CellCountInt = 0,
     x: size.CellCountInt = 0,
 
-    pub fn rowAndCell(self: Pin) struct {
+    pub inline fn rowAndCell(self: Pin) struct {
         row: *pagepkg.Row,
         cell: *pagepkg.Cell,
     } {
@@ -3405,7 +3414,7 @@ pub const Pin = struct {
     /// Returns the cells for the row that this pin is on. The subset determines
     /// what subset of the cells are returned. The "left/right" subsets are
     /// inclusive of the x coordinate of the pin.
-    pub fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
+    pub inline fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
         const rac = self.rowAndCell();
         const all = self.node.data.getCells(rac.row);
         return switch (subset) {
@@ -3417,12 +3426,12 @@ pub const Pin = struct {
 
     /// Returns the grapheme codepoints for the given cell. These are only
     /// the EXTRA codepoints and not the first codepoint.
-    pub fn grapheme(self: Pin, cell: *const pagepkg.Cell) ?[]u21 {
+    pub inline fn grapheme(self: Pin, cell: *const pagepkg.Cell) ?[]u21 {
         return self.node.data.lookupGrapheme(cell);
     }
 
     /// Returns the style for the given cell in this pin.
-    pub fn style(self: Pin, cell: *const pagepkg.Cell) stylepkg.Style {
+    pub inline fn style(self: Pin, cell: *const pagepkg.Cell) stylepkg.Style {
         if (cell.style_id == stylepkg.default_id) return .{};
         return self.node.data.styles.get(
             self.node.data.memory,
@@ -3431,12 +3440,12 @@ pub const Pin = struct {
     }
 
     /// Check if this pin is dirty.
-    pub fn isDirty(self: Pin) bool {
+    pub inline fn isDirty(self: Pin) bool {
         return self.node.data.isRowDirty(self.y);
     }
 
     /// Mark this pin location as dirty.
-    pub fn markDirty(self: Pin) void {
+    pub inline fn markDirty(self: Pin) void {
         var set = self.node.data.dirtyBitSet();
         set.set(self.y);
     }
@@ -3505,12 +3514,12 @@ pub const Pin = struct {
     /// pointFromPin and building up the iterator from points.
     ///
     /// The limit pin is inclusive.
-    pub fn pageIterator(
+    pub inline fn pageIterator(
         self: Pin,
         direction: Direction,
         limit: ?Pin,
     ) PageIterator {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             if (limit) |l| {
                 // Check the order according to the iteration direction.
                 switch (direction) {
@@ -3527,7 +3536,7 @@ pub const Pin = struct {
         };
     }
 
-    pub fn rowIterator(
+    pub inline fn rowIterator(
         self: Pin,
         direction: Direction,
         limit: ?Pin,
@@ -3544,7 +3553,7 @@ pub const Pin = struct {
         };
     }
 
-    pub fn cellIterator(
+    pub inline fn cellIterator(
         self: Pin,
         direction: Direction,
         limit: ?Pin,
@@ -3560,7 +3569,7 @@ pub const Pin = struct {
     // Note: this is primarily unit tested as part of the Kitty
     // graphics deletion code.
     pub fn isBetween(self: Pin, top: Pin, bottom: Pin) bool {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             if (top.node == bottom.node) {
                 // If top is bottom, must be ordered.
                 assert(top.y <= bottom.y);
@@ -3645,14 +3654,14 @@ pub const Pin = struct {
         return false;
     }
 
-    pub fn eql(self: Pin, other: Pin) bool {
+    pub inline fn eql(self: Pin, other: Pin) bool {
         return self.node == other.node and
             self.y == other.y and
             self.x == other.x;
     }
 
     /// Move the pin left n columns. n must fit within the size.
-    pub fn left(self: Pin, n: usize) Pin {
+    pub inline fn left(self: Pin, n: usize) Pin {
         assert(n <= self.x);
         var result = self;
         result.x -= std.math.cast(size.CellCountInt, n) orelse result.x;
@@ -3660,7 +3669,7 @@ pub const Pin = struct {
     }
 
     /// Move the pin right n columns. n must fit within the size.
-    pub fn right(self: Pin, n: usize) Pin {
+    pub inline fn right(self: Pin, n: usize) Pin {
         assert(self.x + n < self.node.data.size.cols);
         var result = self;
         result.x +|= std.math.cast(size.CellCountInt, n) orelse
@@ -3669,14 +3678,14 @@ pub const Pin = struct {
     }
 
     /// Move the pin left n columns, stopping at the start of the row.
-    pub fn leftClamp(self: Pin, n: size.CellCountInt) Pin {
+    pub inline fn leftClamp(self: Pin, n: size.CellCountInt) Pin {
         var result = self;
         result.x -|= n;
         return result;
     }
 
     /// Move the pin right n columns, stopping at the end of the row.
-    pub fn rightClamp(self: Pin, n: size.CellCountInt) Pin {
+    pub inline fn rightClamp(self: Pin, n: size.CellCountInt) Pin {
         var result = self;
         result.x = @min(self.x +| n, self.node.data.size.cols - 1);
         return result;
@@ -3738,7 +3747,7 @@ pub const Pin = struct {
 
     /// Move the pin down a certain number of rows, or return null if
     /// the pin goes beyond the end of the screen.
-    pub fn down(self: Pin, n: usize) ?Pin {
+    pub inline fn down(self: Pin, n: usize) ?Pin {
         return switch (self.downOverflow(n)) {
             .offset => |v| v,
             .overflow => null,
@@ -3747,7 +3756,7 @@ pub const Pin = struct {
 
     /// Move the pin up a certain number of rows, or return null if
     /// the pin goes beyond the start of the screen.
-    pub fn up(self: Pin, n: usize) ?Pin {
+    pub inline fn up(self: Pin, n: usize) ?Pin {
         return switch (self.upOverflow(n)) {
             .offset => |v| v,
             .overflow => null,
@@ -8917,6 +8926,8 @@ test "PageList resize reflow less cols to wrap a multi-codepoint grapheme with a
 }
 
 test "PageList resize reflow less cols copy kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8956,6 +8967,8 @@ test "PageList resize reflow less cols copy kitty placeholder" {
 }
 
 test "PageList resize reflow more cols clears kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8997,6 +9010,8 @@ test "PageList resize reflow more cols clears kitty placeholder" {
 }
 
 test "PageList resize reflow wrap moves kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

@@ -6,8 +6,11 @@
 #   {[path]s}
 #
 # The template does not set any default options, since Ghostty ships
-# with sensible defaults for all options. Users should only need to set
-# options that they want to change from the default.
+# with sensible defaults for all options.
+# Note that you should not paste the output of `ghostty +show-config
+# --default` into your config: some default options actually conflict with each other
+# when explicitly set in a configuration file. Instead, only set the
+# options you actually need.
 #
 # Run `ghostty +show-config --default --docs` to view a list of
 # all available config options and their default values.

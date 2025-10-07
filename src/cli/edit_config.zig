@@ -47,7 +47,9 @@ pub fn run(alloc: Allocator) !u8 {
     // not using `exec` anymore and because this command isn't performance
     // critical where setting up the defer cleanup is a problem.
 
-    const stderr = std.io.getStdErr().writer();
+    var buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    const stderr = &stderr_writer.interface;
 
     var opts: Options = .{};
     defer opts.deinit();
@@ -58,6 +60,13 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
+    const result = runInner(alloc, stderr);
+    // Flushing *shouldn't* fail but...
+    stderr.flush() catch {};
+    return result;
+}
+
+fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     // We load the configuration once because that will write our
     // default configuration files to disk. We don't use the config.
     var config = try Config.load(alloc);

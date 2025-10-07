@@ -33,6 +33,7 @@ const font = @import("font/main.zig");
 const Command = @import("Command.zig");
 const terminal = @import("terminal/main.zig");
 const configpkg = @import("config.zig");
+const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
 const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
@@ -147,6 +148,13 @@ focused: bool = true,
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
+/// Used to send notifications that long running commands have finished.
+/// Requires that shell integration be active. Should represent a nanosecond
+/// precision timestamp. It does not necessarily need to correspond to the
+/// actual time, but we must be able to compare two subsequent timestamps to get
+/// the wall clock time that has elapsed between timestamps.
+command_timer: ?std.time.Instant = null,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -260,10 +268,10 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
-    mouse_scroll_multiplier: f64,
+    mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
-    macos_option_as_alt: ?configpkg.OptionAsAlt,
+    macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
@@ -280,6 +288,9 @@ const DerivedConfig = struct {
     links: []Link,
     link_previews: configpkg.LinkPreviews,
     scroll_to_bottom: configpkg.Config.ScrollToBottom,
+    notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
+    notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
+    notify_on_command_finish_after: Duration,
 
     const Link = struct {
         regex: oni.Regex,
@@ -294,19 +305,19 @@ const DerivedConfig = struct {
 
         // Build all of our links
         const links = links: {
-            var links = std.ArrayList(Link).init(alloc);
-            defer links.deinit();
+            var links: std.ArrayList(Link) = .empty;
+            defer links.deinit(alloc);
             for (config.link.links.items) |link| {
                 var regex = try link.oniRegex();
                 errdefer regex.deinit();
-                try links.append(.{
+                try links.append(alloc, .{
                     .regex = regex,
                     .action = link.action,
                     .highlight = link.highlight,
                 });
             }
 
-            break :links try links.toOwnedSlice();
+            break :links try links.toOwnedSlice(alloc);
         };
         errdefer {
             for (links) |*link| link.regex.deinit();
@@ -350,6 +361,9 @@ const DerivedConfig = struct {
             .links = links,
             .link_previews = config.@"link-previews",
             .scroll_to_bottom = config.@"scroll-to-bottom",
+            .notify_on_command_finish = config.@"notify-on-command-finish",
+            .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
+            .notify_on_command_finish_after = config.@"notify-on-command-finish-after",
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -984,6 +998,30 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();
         },
+
+        .start_command => {
+            self.command_timer = try .now();
+        },
+
+        .stop_command => |v| timer: {
+            const end: std.time.Instant = try .now();
+            const start = self.command_timer orelse break :timer;
+            self.command_timer = null;
+
+            const duration: Duration = .{ .duration = end.since(start) };
+            log.debug("command took {f}", .{duration});
+
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .command_finished,
+                .{
+                    .exit_code = v,
+                    .duration = duration,
+                },
+            ) catch |err| {
+                log.warn("apprt failed to notify command finish={}", .{err});
+            };
+        },
     }
 }
 
@@ -1092,7 +1130,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         // so that we can close the terminal. We close the terminal on
         // any key press that encodes a character.
         t.modes.set(.disable_keyboard, false);
-        t.screen.kitty_keyboard.set(.set, .{});
+        t.screen.kitty_keyboard.set(.set, .disabled);
     }
 
     // Waiting after command we stop here. The terminal is updated, our
@@ -2455,7 +2493,7 @@ fn maybeHandleBinding(
     self.keyboard.bindings = null;
 
     // Attempt to perform the action
-    log.debug("key event binding flags={} action={}", .{
+    log.debug("key event binding flags={} action={f}", .{
         leaf.flags,
         action,
     });
@@ -2573,56 +2611,32 @@ fn encodeKey(
     event: input.KeyEvent,
     insp_ev: ?*inspectorpkg.key.Event,
 ) !?termio.Message.WriteReq {
-    // Build up our encoder. Under different modes and
-    // inputs there are many keybindings that result in no encoding
-    // whatsoever.
-    const enc: input.KeyEncoder = enc: {
-        const option_as_alt: configpkg.OptionAsAlt = self.config.macos_option_as_alt orelse detect: {
-            // Non-macOS doesn't use this value so ignore.
-            if (comptime builtin.os.tag != .macos) break :detect .false;
-
-            // If we don't have alt pressed, it doesn't matter what this
-            // config is so we can just say "false" and break out and avoid
-            // more expensive checks below.
-            if (!event.mods.alt) break :detect .false;
-
-            // Alt is pressed, we're on macOS. We break some encapsulation
-            // here and assume libghostty for ease...
-            break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
-        };
-
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-        const t = &self.io.terminal;
-        break :enc .{
-            .event = event,
-            .macos_option_as_alt = option_as_alt,
-            .alt_esc_prefix = t.modes.get(.alt_esc_prefix),
-            .cursor_key_application = t.modes.get(.cursor_keys),
-            .keypad_key_application = t.modes.get(.keypad_keys),
-            .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
-            .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
-            .kitty_flags = t.screen.kitty_keyboard.current(),
-        };
-    };
-
     const write_req: termio.Message.WriteReq = req: {
+        // Build our encoding options, which requires the lock.
+        const encoding_opts = self.encodeKeyOpts();
+
         // Try to write the input into a small array. This fits almost
         // every scenario. Larger situations can happen due to long
         // pre-edits.
         var data: termio.Message.WriteReq.Small.Array = undefined;
-        if (enc.encode(&data)) |seq| {
+        var writer: std.Io.Writer = .fixed(&data);
+        if (input.key_encode.encode(
+            &writer,
+            event,
+            encoding_opts,
+        )) {
+            const written = writer.buffered();
+
             // Special-case: we did nothing.
-            if (seq.len == 0) return null;
+            if (written.len == 0) return null;
 
             break :req .{ .small = .{
                 .data = data,
-                .len = @intCast(seq.len),
+                .len = @intCast(written.len),
             } };
         } else |err| switch (err) {
             // Means we need to allocate
-            error.OutOfMemory => {},
-            else => return err,
+            error.WriteFailed => {},
         }
 
         // We need to allocate. We allocate double the UTF-8 length
@@ -2631,16 +2645,23 @@ fn encodeKey(
         // typing this where we don't have enough space is a long preedit,
         // and in that case the size we need is exactly the UTF-8 length,
         // so the double is being safe.
-        const buf = try self.alloc.alloc(u8, @max(
-            event.utf8.len * 2,
-            data.len * 2,
-        ));
-        defer self.alloc.free(buf);
+        var alloc_writer: std.Io.Writer.Allocating = try .initCapacity(
+            self.alloc,
+            @max(event.utf8.len * 2, data.len * 2),
+        );
+        defer alloc_writer.deinit();
 
         // This results in a double allocation but this is such an unlikely
         // path the performance impact is unimportant.
-        const seq = try enc.encode(buf);
-        break :req try termio.Message.WriteReq.init(self.alloc, seq);
+        try input.key_encode.encode(
+            &alloc_writer.writer,
+            event,
+            encoding_opts,
+        );
+        break :req try termio.Message.WriteReq.init(
+            self.alloc,
+            alloc_writer.writer.buffered(),
+        );
     };
 
     // Copy the encoded data into the inspector event if we have one.
@@ -2658,6 +2679,28 @@ fn encodeKey(
     }
 
     return write_req;
+}
+
+fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    const t = &self.io.terminal;
+
+    var opts: input.key_encode.Options = .fromTerminal(t);
+    if (comptime builtin.os.tag != .macos) return opts;
+
+    opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
+        // If we don't have alt pressed, it doesn't matter what this
+        // config is so we can just say "false" and break out and avoid
+        // more expensive checks below.
+        if (!self.mouse.mods.alt) break :detect .false;
+
+        // Alt is pressed, we're on macOS. We break some encapsulation
+        // here and assume libghostty for ease...
+        break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
+    };
+
+    return opts;
 }
 
 /// Sends text as-is to the terminal without triggering any keyboard
@@ -2829,7 +2872,7 @@ pub fn scrollCallback(
         // scroll events to pixels by multiplying the wheel tick value and the cell size. This means
         // that a wheel tick of 1 results in single scroll event.
         const yoff_adjusted: f64 = if (scroll_mods.precision)
-            yoff
+            yoff * self.config.mouse_scroll_multiplier.precision
         else yoff_adjusted: {
             // Round out the yoff to an absolute minimum of 1. macos tries to
             // simulate precision scrolling with non precision events by
@@ -2843,7 +2886,7 @@ pub fn scrollCallback(
             else
                 @min(yoff, -1);
 
-            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier;
+            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
         };
 
         // Add our previously saved pending amount to the offset to get the
@@ -3959,6 +4002,8 @@ pub fn cursorPosCallback(
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
+
+    // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
 
     // If the position is negative, it is outside our viewport and
     // we need to clear any hover states.
@@ -5081,7 +5126,9 @@ fn writeScreenFile(
     defer file.close();
 
     // Screen.dumpString writes byte-by-byte, so buffer it
-    var buf_writer = std.io.bufferedWriter(file.writer());
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    var buf_writer = &file_writer.interface;
 
     // Write the scrollback contents. This requires a lock.
     {
@@ -5131,7 +5178,7 @@ fn writeScreenFile(
         const br = sel.bottomRight(&self.io.terminal.screen);
 
         try self.io.terminal.screen.dumpString(
-            buf_writer.writer(),
+            buf_writer,
             .{
                 .tl = tl,
                 .br = br,
@@ -5228,13 +5275,10 @@ fn completeClipboardPaste(
 ) !void {
     if (data.len == 0) return;
 
-    const critical: struct {
-        bracketed: bool,
-    } = critical: {
+    const encode_opts: input.paste.Options = encode_opts: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-
-        const bracketed = self.io.terminal.modes.get(.bracketed_paste);
+        const opts: input.paste.Options = .fromTerminal(&self.io.terminal);
 
         // If we have paste protection enabled, we detect unsafe pastes and return
         // an error. The error approach allows apprt to attempt to complete the paste
@@ -5250,7 +5294,7 @@ fn completeClipboardPaste(
             // This is set during confirmation usually.
             if (allow_unsafe) break :unsafe false;
 
-            if (bracketed) {
+            if (opts.bracketed) {
                 // If we're bracketed and the paste contains and ending
                 // bracket then something naughty might be going on and we
                 // never trust it.
@@ -5261,7 +5305,7 @@ fn completeClipboardPaste(
                 if (self.config.clipboard_paste_bracketed_safe) break :unsafe false;
             }
 
-            break :unsafe !terminal.isSafePaste(data);
+            break :unsafe !input.paste.isSafe(data);
         };
 
         if (unsafe) {
@@ -5275,55 +5319,32 @@ fn completeClipboardPaste(
             log.warn("error scrolling to bottom err={}", .{err});
         };
 
-        break :critical .{
-            .bracketed = bracketed,
-        };
+        break :encode_opts opts;
     };
 
-    if (critical.bracketed) {
-        // If we're bracketd we write the data as-is to the terminal with
-        // the bracketed paste escape codes around it.
-        self.io.queueMessage(.{
-            .write_stable = "\x1B[200~",
-        }, .unlocked);
+    // Encode the data. In most cases this doesn't require any
+    // copies, so we optimize for that case.
+    var data_duped: ?[]u8 = null;
+    const vecs = input.paste.encode(data, encode_opts) catch |err| switch (err) {
+        error.MutableRequired => vecs: {
+            const buf: []u8 = try self.alloc.dupe(u8, data);
+            errdefer self.alloc.free(buf);
+            data_duped = buf;
+            break :vecs input.paste.encode(buf, encode_opts);
+        },
+    };
+    defer if (data_duped) |v| {
+        // This code path means the data did require a copy and mutation.
+        // We must free it.
+        self.alloc.free(v);
+    };
+
+    for (vecs) |vec| if (vec.len > 0) {
         self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
-            data,
+            vec,
         ), .unlocked);
-        self.io.queueMessage(.{
-            .write_stable = "\x1B[201~",
-        }, .unlocked);
-    } else {
-        // If its not bracketed the input bytes are indistinguishable from
-        // keystrokes, so we must be careful. For example, we must replace
-        // any newlines with '\r'.
-
-        // We just do a heap allocation here because its easy and I don't think
-        // worth the optimization of using small messages.
-        var buf = try self.alloc.alloc(u8, data.len);
-        defer self.alloc.free(buf);
-
-        // This is super, super suboptimal. We can easily make use of SIMD
-        // here, but maybe LLVM in release mode is smart enough to figure
-        // out something clever. Either way, large non-bracketed pastes are
-        // increasingly rare for modern applications.
-        var len: usize = 0;
-        for (data, 0..) |ch, i| {
-            const dch = switch (ch) {
-                '\n' => '\r',
-                '\r' => if (i + 1 < data.len and data[i + 1] == '\n') continue else ch,
-                else => ch,
-            };
-
-            buf[len] = dch;
-            len += 1;
-        }
-
-        self.io.queueMessage(try termio.Message.writeReq(
-            self.alloc,
-            buf[0..len],
-        ), .unlocked);
-    }
+    };
 }
 
 fn completeClipboardReadOSC52(

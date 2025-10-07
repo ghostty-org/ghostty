@@ -216,7 +216,7 @@ const PosixPty = struct {
         // Reset our signals
         var sa: posix.Sigaction = .{
             .handler = .{ .handler = posix.SIG.DFL },
-            .mask = posix.empty_sigset,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
         posix.sigaction(posix.SIG.ABRT, &sa, null);

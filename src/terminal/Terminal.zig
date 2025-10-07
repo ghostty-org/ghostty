@@ -4,6 +4,7 @@
 const Terminal = @This();
 
 const std = @import("std");
+const build_options = @import("terminal_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -222,7 +223,7 @@ pub fn init(
             .left = 0,
             .right = cols - 1,
         },
-        .pwd = std.ArrayList(u8).init(alloc),
+        .pwd = .empty,
         .modes = .{
             .values = opts.default_modes,
             .default = opts.default_modes,
@@ -234,8 +235,13 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screen.deinit();
     self.secondary_screen.deinit();
-    self.pwd.deinit();
+    self.pwd.deinit(alloc);
     self.* = undefined;
+}
+
+/// The general allocator we should use for this terminal.
+fn gpa(self: *Terminal) Allocator {
+    return self.screen.alloc;
 }
 
 /// Print UTF-8 encoded string to the terminal.
@@ -344,7 +350,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
                 // This only applies to emoji
-                const prev_props = unicode.getProperties(prev.cell.content.codepoint);
+                const prev_props = unicode.table.get(prev.cell.content.codepoint);
                 const emoji = prev_props.grapheme_boundary_class.isExtendedPictographic();
                 if (!emoji) return;
 
@@ -433,8 +439,8 @@ pub fn print(self: *Terminal, c: u21) !void {
     // control characters because they're always filtered prior.
     const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
 
-    // Note: it is possible to have a width of "3" and a width of "-1"
-    // from ziglyph. We should look into those cases and handle them
+    // Note: it is possible to have a width of "3" and a width of "-1" from
+    // uucode.x's wcwidth. We should look into those cases and handle them
     // appropriately.
     assert(width <= 2);
     // log.debug("c={x} width={}", .{ c, width });
@@ -470,7 +476,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
-            const prev_props = unicode.getProperties(prev.content.codepoint);
+            const prev_props = unicode.table.get(prev.content.codepoint);
             const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
             if (!emoji) return;
         }
@@ -679,8 +685,10 @@ fn printCell(
 
     // If this is a Kitty unicode placeholder then we need to mark the
     // row so that the renderer can lookup rows with these much faster.
-    if (c == kitty.graphics.unicode.placeholder) {
-        self.screen.cursor.page_row.kitty_virtual_placeholder = true;
+    if (comptime build_options.kitty_graphics) {
+        if (c == kitty.graphics.unicode.placeholder) {
+            self.screen.cursor.page_row.kitty_virtual_placeholder = true;
+        }
     }
 
     // We check for an active hyperlink first because setHyperlink
@@ -1143,8 +1151,10 @@ pub fn index(self: *Terminal) !void {
         self.screen.cursor.x >= self.scrolling_region.left and
         self.screen.cursor.x <= self.scrolling_region.right)
     {
-        // Scrolling dirties the images because it updates their placements pins.
-        self.screen.kitty_images.dirty = true;
+        if (comptime build_options.kitty_graphics) {
+            // Scrolling dirties the images because it updates their placements pins.
+            self.screen.kitty_images.dirty = true;
+        }
 
         // If our scrolling region is at the top, we create scrollback.
         if (self.scrolling_region.top == 0 and
@@ -1472,8 +1482,10 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.screen.kitty_images.dirty = true;
+    }
 
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
@@ -1676,8 +1688,10 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.screen.kitty_images.dirty = true;
+    }
 
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
@@ -2136,12 +2150,14 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             self.screen.cursor.pending_wrap = false;
 
-            // Clear all Kitty graphics state for this screen
-            self.screen.kitty_images.delete(
-                self.screen.alloc,
-                self,
-                .{ .all = true },
-            );
+            if (comptime build_options.kitty_graphics) {
+                // Clear all Kitty graphics state for this screen
+                self.screen.kitty_images.delete(
+                    self.screen.alloc,
+                    self,
+                    .{ .all = true },
+                );
+            }
         },
 
         .complete => {
@@ -2195,12 +2211,14 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             self.screen.cursor.pending_wrap = false;
 
-            // Clear all Kitty graphics state for this screen
-            self.screen.kitty_images.delete(
-                self.screen.alloc,
-                self,
-                .{ .all = true },
-            );
+            if (comptime build_options.kitty_graphics) {
+                // Clear all Kitty graphics state for this screen
+                self.screen.kitty_images.delete(
+                    self.screen.alloc,
+                    self,
+                    .{ .all = true },
+                );
+            }
 
             // Cleared screen dirty bit
             self.flags.dirty.clear = true;
@@ -2518,7 +2536,7 @@ pub fn resize(
 /// Set the pwd for the terminal.
 pub fn setPwd(self: *Terminal, pwd: []const u8) !void {
     self.pwd.clearRetainingCapacity();
-    try self.pwd.appendSlice(pwd);
+    try self.pwd.appendSlice(self.gpa(), pwd);
 }
 
 /// Returns the pwd for the terminal, if any. The memory is owned by the
@@ -2574,10 +2592,12 @@ pub fn switchScreen(self: *Terminal, t: ScreenType) ?*Screen {
     // Clear our selection
     self.screen.clearSelection();
 
-    // Mark kitty images as dirty so they redraw. Without this set
-    // the images will remain where they were (the dirty bit on
-    // the screen only tracks the terminal grid, not the images).
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Mark kitty images as dirty so they redraw. Without this set
+        // the images will remain where they were (the dirty bit on
+        // the screen only tracks the terminal grid, not the images).
+        self.screen.kitty_images.dirty = true;
+    }
 
     // Mark our terminal as dirty to redraw the grid.
     self.flags.dirty.clear = true;
@@ -3862,6 +3882,8 @@ test "Terminal: print invoke charset single" {
 }
 
 test "Terminal: print kitty unicode placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     var t = try init(testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 

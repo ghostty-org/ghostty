@@ -36,10 +36,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     const optimize = options.optimize;
 
     // Shared library
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "gtk4-layer-shell",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     b.installArtifact(lib);
 

@@ -46,19 +46,19 @@ pub fn addPaths(
         // find the SDK path.
         const libc = try std.zig.LibCInstallation.findNative(.{
             .allocator = b.allocator,
-            .target = step.rootModuleTarget(),
+            .target = &step.rootModuleTarget(),
             .verbose = false,
         });
 
         // Render the file compatible with the `--libc` Zig flag.
-        var list: std.ArrayList(u8) = .init(b.allocator);
-        defer list.deinit();
-        try libc.render(list.writer());
+        var stream: std.io.Writer.Allocating = .init(b.allocator);
+        defer stream.deinit();
+        try libc.render(&stream.writer);
 
         // Create a temporary file to store the libc path because
         // `--libc` expects a file path.
         const wf = b.addWriteFiles();
-        const path = wf.add("libc.txt", list.items);
+        const path = wf.add("libc.txt", stream.written());
 
         // Determine our framework path. Zig has a bug where it doesn't
         // parse this from the libc txt file for `-framework` flags:

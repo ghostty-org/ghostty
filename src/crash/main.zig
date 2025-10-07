@@ -5,7 +5,6 @@
 const dir = @import("dir.zig");
 const sentry_envelope = @import("sentry_envelope.zig");
 
-pub const minidump = @import("minidump.zig");
 pub const sentry = @import("sentry.zig");
 pub const Envelope = sentry_envelope.Envelope;
 pub const defaultDir = dir.defaultDir;

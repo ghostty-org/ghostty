@@ -279,7 +279,7 @@ pub const ColoredTarget = struct {
     color: RGB,
 };
 
-test "osc4" {
+test "OSC 4:" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -401,7 +401,7 @@ test "osc4" {
     }
 }
 
-test "osc5" {
+test "OSC 5:" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -433,7 +433,7 @@ test "osc5" {
     }
 }
 
-test "osc4: multiple requests" {
+test "OSC 4: multiple requests" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -489,7 +489,7 @@ test "osc4: multiple requests" {
     }
 }
 
-test "osc104" {
+test "OSC 104:" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -540,7 +540,7 @@ test "osc104" {
     }
 }
 
-test "osc104 empty index" {
+test "OSC 104: empty index" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -557,7 +557,7 @@ test "osc104 empty index" {
     );
 }
 
-test "osc104 invalid index" {
+test "OSC 104: invalid index" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -570,7 +570,7 @@ test "osc104 invalid index" {
     );
 }
 
-test "osc104 reset all" {
+test "OSC 104: reset all" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -583,7 +583,7 @@ test "osc104 reset all" {
     );
 }
 
-test "osc105 reset all" {
+test "OSC 105: reset all" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -597,7 +597,7 @@ test "osc105 reset all" {
 }
 
 // OSC 10-19: Get/Set Dynamic Colors
-test "dynamic" {
+test "OSC 10: OSC 11: OSC 12: OSC: 13: OSC 14: OSC 15: OSC: 16: OSC 17: OSC 18: OSC 19: dynamic" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -625,7 +625,7 @@ test "dynamic" {
     }
 }
 
-test "dynamic multiple" {
+test "OSC 10: OSC 11: OSC 12: OSC: 13: OSC 14: OSC 15: OSC: 16: OSC 17: OSC 18: OSC 19: dynamic multiple" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -657,7 +657,7 @@ test "dynamic multiple" {
 }
 
 // OSC 110-119: Reset Dynamic Colors
-test "reset dynamic" {
+test "OSC 110: OSC 111: OSC 112: OSC: 113: OSC 114: OSC 115: OSC: 116: OSC 117: OSC 118: OSC 119: reset dynamic" {
     const testing = std.testing;
     const alloc = testing.allocator;
 

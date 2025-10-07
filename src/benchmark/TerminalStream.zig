@@ -113,17 +113,19 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // the benchmark results and... I know writing this that we
     // aren't currently IO bound.
     const f = self.data_f orelse return;
-    var r = std.io.bufferedReader(f.reader());
+
+    var read_buf: [4096]u8 = undefined;
+    var f_reader = f.reader(&read_buf);
+    const r = &f_reader.interface;
 
     var buf: [4096]u8 = undefined;
     while (true) {
-        const n = r.read(&buf) catch |err| {
-            log.warn("error reading data file err={}", .{err});
+        const n = r.readSliceShort(&buf) catch {
+            log.warn("error reading data file err={?}", .{f_reader.err});
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
-        const chunk = buf[0..n];
-        self.stream.nextSlice(chunk) catch |err| {
+        self.stream.nextSlice(buf[0..n]) catch |err| {
             log.warn("error processing data file chunk err={}", .{err});
             return error.BenchmarkFailed;
         };

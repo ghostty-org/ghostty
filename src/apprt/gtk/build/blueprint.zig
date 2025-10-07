@@ -45,7 +45,7 @@ pub fn main() !void {
         std.debug.print(
             \\`libadwaita` is too old.
             \\
-            \\Ghostty requires a version {} or newer of `libadwaita` to
+            \\Ghostty requires a version {f} or newer of `libadwaita` to
             \\compile this blueprint. Please install it, ensure that it is
             \\available on your PATH, and then retry building Ghostty.
         , .{required_adwaita_version});
@@ -80,7 +80,7 @@ pub fn main() !void {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                     \\
-                    \\Ghostty requires version {} or newer of
+                    \\Ghostty requires version {f} or newer of
                     \\`blueprint-compiler` as a build-time dependency starting
                     \\from version 1.2. Please install it, ensure that it is
                     \\available on your PATH, and then retry building Ghostty.
@@ -104,7 +104,7 @@ pub fn main() !void {
             std.debug.print(
                 \\`blueprint-compiler` is the wrong version.
                 \\
-                \\Ghostty requires version {} or newer of
+                \\Ghostty requires version {f} or newer of
                 \\`blueprint-compiler` as a build-time dependency starting
                 \\from version 1.2. Please install it, ensure that it is
                 \\available on your PATH, and then retry building Ghostty.
@@ -145,7 +145,7 @@ pub fn main() !void {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                     \\
-                    \\Ghostty requires version {} or newer of
+                    \\Ghostty requires version {f} or newer of
                     \\`blueprint-compiler` as a build-time dependency starting
                     \\from version 1.2. Please install it, ensure that it is
                     \\available on your PATH, and then retry building Ghostty.

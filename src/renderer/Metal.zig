@@ -25,6 +25,7 @@ pub const RenderPass = @import("metal/RenderPass.zig");
 pub const Pipeline = @import("metal/Pipeline.zig");
 const bufferpkg = @import("metal/buffer.zig");
 pub const Buffer = bufferpkg.Buffer;
+pub const Sampler = @import("metal/Sampler.zig");
 pub const Texture = @import("metal/Texture.zig");
 pub const shaders = @import("metal/shaders.zig");
 
@@ -273,6 +274,27 @@ pub inline fn textureOptions(self: Metal) Texture.Options {
             .cpu_cache_mode = .write_combined,
             .storage_mode = self.default_storage_mode,
         },
+        .usage = .{
+            // textureOptions is currently only used for custom shaders,
+            // which require both the shader read (for when multiple shaders
+            // are chained) and render target (for the final output) usage.
+            // Disabling either of these will lead to metal validation
+            // errors in Xcode.
+            .shader_read = true,
+            .render_target = true,
+        },
+    };
+}
+
+pub inline fn samplerOptions(self: Metal) Sampler.Options {
+    return .{
+        .device = self.device,
+
+        // These parameters match Shadertoy behaviors.
+        .min_filter = .linear,
+        .mag_filter = .linear,
+        .s_address_mode = .clamp_to_edge,
+        .t_address_mode = .clamp_to_edge,
     };
 }
 
@@ -311,6 +333,10 @@ pub inline fn imageTextureOptions(
             .cpu_cache_mode = .write_combined,
             .storage_mode = self.default_storage_mode,
         },
+        .usage = .{
+            // We only need to read from this texture from a shader.
+            .shader_read = true,
+        },
     };
 }
 
@@ -333,6 +359,10 @@ pub fn initAtlasTexture(
                 // Indicate that the CPU writes to this resource but never reads it.
                 .cpu_cache_mode = .write_combined,
                 .storage_mode = self.default_storage_mode,
+            },
+            .usage = .{
+                // We only need to read from this texture from a shader.
+                .shader_read = true,
             },
         },
         atlas.size,
