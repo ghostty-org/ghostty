@@ -56,18 +56,13 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Check if we have a tab bar and set it up if we have to. See the comment
         // on this function to learn why we need to check this here.
         setupTabBar()
+        viewModel.isMainWindow = true
     }
 
-    override func becomeKey() {
-        super.becomeKey()
-        viewModel.isKeyWindow = isKeyWindow
+    override func resignMain() {
+        super.resignMain()
+        viewModel.isMainWindow = false
     }
-
-    override func resignKey() {
-        super.resignKey()
-        viewModel.isKeyWindow = isKeyWindow
-    }
-
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
     // this, detect the tab bar being added, and override its behavior.
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
@@ -258,7 +253,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         @Published var titleFont: NSFont?
         @Published var title: String = "👻 Ghostty"
         @Published var hasTabBar: Bool = false
-        @Published var isKeyWindow: Bool = true
+        @Published var isMainWindow: Bool = true
     }
 }
 
@@ -285,7 +280,7 @@ extension TitlebarTabsTahoeTerminalWindow {
             // we could't guarantee that this behaviour won't change in the future
             Text(title)
                 .font(viewModel.titleFont.flatMap(Font.init(_:)))
-                .foregroundStyle(viewModel.isKeyWindow ? .primary : .secondary)
+                .foregroundStyle(viewModel.isMainWindow ? .primary : .secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
