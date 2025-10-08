@@ -209,6 +209,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         case .title:
             let item = NSToolbarItem(itemIdentifier: .title)
             item.view = NSHostingView(rootView: TitleItem(viewModel: viewModel))
+            // fix: https://github.com/ghostty-org/ghostty/discussions/9027
+            item.view?.setContentCompressionResistancePriority(.required, for: .horizontal)
             item.visibilityPriority = .user
             item.isEnabled = true
 
@@ -248,16 +250,14 @@ extension TitlebarTabsTahoeTerminalWindow {
         }
 
         var body: some View {
-            if !viewModel.hasTabBar {
-                Text(title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            } else {
-                // 1x1.gif strikes again! For real: if we render a zero-sized
-                // view here then the toolbar just disappears our view. I don't
-                // know.
-                Color.clear.frame(width: 1, height: 1)
-            }
+            // even when there is tab bar, it's safe to maintain the same content
+            // as of 26.1 Beta (25B5057f) though
+            // we could't guarantee that this behaviour won't change in the future
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
+                // .background(.red) // easier to debug
         }
     }
 }
