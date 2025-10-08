@@ -149,11 +149,17 @@ focused: bool = true,
 selection_scroll_active: bool = false,
 
 /// Used to send notifications that long running commands have finished.
-/// Requires that shell integration be active. Should represent a nanosecond
-/// precision timestamp. It does not necessarily need to correspond to the
+/// Requires that shell integration be active or that the shell sends OSC 133;C
+/// and OSC 133;D escapes. It does not necessarily need to correspond to the
 /// actual time, but we must be able to compare two subsequent timestamps to get
 /// the wall clock time that has elapsed between timestamps.
 command_timer: ?std.time.Instant = null,
+
+/// The command that is being executed, as reported by OSC 133;C escapes sent
+/// directly by the shell. If shell does not send OSC 133;C escapes that contain
+/// the command line, this will always be null. This will never be the `command`
+/// or `initial-command` that was used to start the shell.
+cmdline: ?[:0]const u8 = null,
 
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
@@ -738,6 +744,10 @@ pub fn deinit(self: *Surface) void {
         self.alloc.destroy(v);
     }
 
+    if (self.cmdline) |cmdline| {
+        self.alloc.free(cmdline);
+    }
+
     // Clean up our keyboard state
     for (self.keyboard.queued.items) |req| req.deinit();
     self.keyboard.queued.deinit(self.alloc);
@@ -999,10 +1009,23 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             try self.selectionScrollTick();
         },
 
-        .start_command => {
+        // A command has started executing.
+        .start_command => |v| {
             self.command_timer = try .now();
+            if (v.cmdline) |new_cmdline| {
+                // Deallocate old cmdline if we are setting a new one.
+                if (self.cmdline) |old_cmdline| {
+                    self.alloc.free(old_cmdline);
+                    self.cmdline = null;
+                }
+                // We need to make our own copy of the cmdline as the memory
+                // used to parse the OSC will be reused for the next OSC
+                // encountered.
+                self.cmdline = try self.alloc.dupeZ(u8, new_cmdline);
+            }
         },
 
+        // A command has finished executing.
         .stop_command => |v| timer: {
             const end: std.time.Instant = try .now();
             const start = self.command_timer orelse break :timer;
@@ -1015,12 +1038,19 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .{ .surface = self },
                 .command_finished,
                 .{
+                    .cmdline = self.cmdline,
                     .exit_code = v,
                     .duration = duration,
                 },
             ) catch |err| {
                 log.warn("apprt failed to notify command finish={}", .{err});
             };
+
+            // Free up memory as the cmdline should never be used again.
+            if (self.cmdline) |old_cmdline| {
+                self.alloc.free(old_cmdline);
+                self.cmdline = null;
+            }
         },
     }
 }

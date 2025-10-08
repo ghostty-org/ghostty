@@ -97,7 +97,10 @@ pub const Message = union(enum) {
     progress_report: terminal.osc.Command.ProgressReport,
 
     /// A command has started in the shell, start a timer.
-    start_command,
+    start_command: struct {
+        /// The commandline, as reported by OSC 133;C
+        cmdline: ?[:0]const u8,
+    },
 
     /// A command has finished in the shell, stop the timer and send out
     /// notifications as appropriate. The optional u8 is the exit code

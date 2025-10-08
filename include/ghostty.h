@@ -735,9 +735,22 @@ typedef struct {
 
 // apprt.action.CommandFinished.C
 typedef struct {
-  // -1 if no exit code was reported, otherwise 0-255
+  // The command line, as reported by OSC 133;C, or null if the command line
+  // is unknown.
+  const char *cmdline;
+  // The exit code, as reported by OSC 133;D. The exit code will be a number
+  // between 0 and 255 or -1 if no exit code was provided. 0 indicates that the
+  // command was successful. Any number from 1 to 255 indicates an application
+  // specific error code.
   int16_t exit_code;
-  // number of nanoseconds that command was running for
+  // How long the command took in nanoseconds, defined as the time between
+  // receiving an OSC 133;C and an OSC 133;D. This can vary from the "real"
+  // amount of time a command was running due to a number of factors like the
+  // latency of reading the OSC 133 commands, the time taken to decode the OSCs,
+  // and the latency propagating the information through Ghostty's subsystems.
+  // All of that is to say this is just an approximation and should not be used
+  // for any serious performance monitoring. Despite the duration being reported
+  // in nanoseconds it is nowhere near that accurate.
   uint64_t duration;
 } ghostty_action_command_finished_s;
 

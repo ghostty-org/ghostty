@@ -1052,9 +1052,15 @@ pub const StreamHandler = struct {
         self.terminal.markSemanticPrompt(.input);
     }
 
-    pub inline fn endOfInput(self: *StreamHandler) !void {
+    pub inline fn endOfInput(self: *StreamHandler, cmdline: ?[:0]const u8) !void {
         self.terminal.markSemanticPrompt(.command);
-        self.surfaceMessageWriter(.start_command);
+        self.surfaceMessageWriter(
+            .{
+                .start_command = .{
+                    .cmdline = cmdline,
+                },
+            },
+        );
     }
 
     pub inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) !void {
