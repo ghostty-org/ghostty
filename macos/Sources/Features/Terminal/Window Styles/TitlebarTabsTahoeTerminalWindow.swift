@@ -19,9 +19,19 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
     // MARK: NSWindow
 
+    override var titlebarFont: NSFont? {
+        didSet {
+            DispatchQueue.main.async {
+                self.viewModel.titleFont = self.titlebarFont
+            }
+        }
+    }
+
     override var title: String {
         didSet {
-            viewModel.title = title
+            DispatchQueue.main.async {
+                self.viewModel.title = self.title
+            }
         }
     }
 
@@ -46,6 +56,16 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Check if we have a tab bar and set it up if we have to. See the comment
         // on this function to learn why we need to check this here.
         setupTabBar()
+    }
+
+    override func becomeKey() {
+        super.becomeKey()
+        viewModel.isKeyWindow = isKeyWindow
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        viewModel.isKeyWindow = isKeyWindow
     }
 
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
@@ -227,8 +247,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     // MARK: SwiftUI
 
     class ViewModel: ObservableObject {
+        @Published var titleFont: NSFont?
         @Published var title: String = "👻 Ghostty"
         @Published var hasTabBar: Bool = false
+        @Published var isKeyWindow: Bool = true
     }
 }
 
@@ -254,6 +276,8 @@ extension TitlebarTabsTahoeTerminalWindow {
             // as of 26.1 Beta (25B5057f) though
             // we could't guarantee that this behaviour won't change in the future
             Text(title)
+                .font(viewModel.titleFont.flatMap(Font.init(_:)))
+                .foregroundStyle(viewModel.isKeyWindow ? .primary : .secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
