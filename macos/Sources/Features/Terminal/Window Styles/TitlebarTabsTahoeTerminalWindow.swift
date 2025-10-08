@@ -68,6 +68,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
         // If this is the tab bar then we need to set it up for the titlebar
         guard isTabBar(childViewController) else {
+            // After dragging a tab into a new window, `hasTabBar` needs to be update to properly review window title
+            self.viewModel.hasTabBar = false
             super.addTitlebarAccessoryViewController(childViewController)
             return
         }
