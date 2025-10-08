@@ -74,6 +74,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             return
         }
 
+        // When an existing tab being dragged in to another tab group,
+        // system will also try to add tab bar to this window,
+        // so we want to reset observer, to put tab bar where we want again
+        tabBarObserver = nil
         // Some setup needs to happen BEFORE it is added, such as layout. If
         // we don't do this before the call below, we'll trigger an AppKit
         // assertion.
