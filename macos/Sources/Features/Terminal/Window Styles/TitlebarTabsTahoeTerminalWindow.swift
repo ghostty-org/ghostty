@@ -157,6 +157,9 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
         guard let titlebarView else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
+        // make sure tabBar's height won't be stretched
+        guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
+        tabBar.frame.size.height = newTabButton.frame.width
 
         // The container is the view that we'll constrain our tab bar within.
         let container = toolbarView
