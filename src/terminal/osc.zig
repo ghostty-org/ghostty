@@ -15,6 +15,7 @@ const LibEnum = @import("../lib/enum.zig").Enum;
 const RGB = @import("color.zig").RGB;
 const kitty_color = @import("kitty/color.zig");
 const osc_color = @import("osc/color.zig");
+const inplace = @import("../os/inplace.zig");
 pub const color = osc_color;
 
 const log = std.log.scoped(.osc);
@@ -89,12 +90,7 @@ pub const Command = union(Key) {
     end_of_input: struct {
         /// The command line that the user entered.
         /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-        cmdline: ?union(enum) {
-            /// The command line has been encoded with bash's 'printf "%q"'.
-            printf_q_encoded: [:0]const u8,
-            /// The command line has been encoded with URL percent encoding.
-            percent_encoded: [:0]const u8,
-        } = null,
+        cmdline: ?[:0]const u8 = null,
     },
 
     /// End of current command.
@@ -1482,17 +1478,13 @@ pub const Parser = struct {
         } else if (mem.eql(u8, self.temp_state.key, "cmdline")) {
             // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
-                .end_of_input => |*v| v.cmdline = .{
-                    .printf_q_encoded = value,
-                },
+                .end_of_input => |*v| v.cmdline = inplace.printf_q_decode(value) catch null,
                 else => {},
             }
         } else if (mem.eql(u8, self.temp_state.key, "cmdline_url")) {
             // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
-                .end_of_input => |*v| v.cmdline = .{
-                    .percent_encoded = value,
-                },
+                .end_of_input => |*v| v.cmdline = inplace.percent_decode(value) catch null,
                 else => {},
             }
         } else if (mem.eql(u8, self.temp_state.key, "redraw")) {
@@ -3063,7 +3055,7 @@ test "OSC 133: end_of_input" {
     try testing.expect(cmd == .end_of_input);
 }
 
-test "OSC 133: end_of_input with cmdline" {
+test "OSC 133: end_of_input with cmdline 1" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -3074,11 +3066,132 @@ test "OSC 133: end_of_input with cmdline" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .end_of_input);
     try testing.expect(cmd.end_of_input.cmdline != null);
-    try testing.expect(cmd.end_of_input.cmdline.? == .printf_q_encoded);
-    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?.printf_q_encoded);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
 }
 
-test "OSC 133: end_of_input with cmdline_url" {
+test "OSC 133: end_of_input with cmdline 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=echo bobr\\ kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 3" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=echo bobr\\nkurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr\nkurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 4" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=$'echo bobr kurwa'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 5" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline='echo bobr kurwa'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 6" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline='echo bobr kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 7" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=$'echo bobr kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 8" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=$'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 9" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=$'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 10" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 1" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -3089,8 +3202,114 @@ test "OSC 133: end_of_input with cmdline_url" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .end_of_input);
     try testing.expect(cmd.end_of_input.cmdline != null);
-    try testing.expect(cmd.end_of_input.cmdline.? == .percent_encoded);
-    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?.percent_encoded);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr%20kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 3" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr%3bkurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr;kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 4" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr%3kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 5" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr%kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 6" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr%kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 7" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr kurwa%20";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa ", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 8" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr kurwa%2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 9" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr kurwa%2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
 }
 
 test "OSC: OSC 777 show desktop notification with title" {
