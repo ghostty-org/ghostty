@@ -465,7 +465,12 @@ class AppDelegate: NSObject,
         }
         
         switch ghostty.config.macosDockDropBehavior {
-        case .new_tab: _ = TerminalController.newTab(ghostty, withBaseConfig: config)
+        case .new_tab:
+            _ = TerminalController.newTab(
+                ghostty,
+                from: TerminalController.preferredParent?.window,
+                withBaseConfig: config
+            )
         case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
         
