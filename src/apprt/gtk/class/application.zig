@@ -394,6 +394,14 @@ pub const Application = extern struct {
             .{ .detail = "config" },
         );
 
+        _ = gtk.CssProvider.signals.parsing_error.connect(
+            css_provider,
+            *Self,
+            signalCssParsingError,
+            self,
+            .{},
+        );
+
         // Trigger initial config changes
         self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
 
@@ -812,8 +820,8 @@ pub const Application = extern struct {
 
     fn loadRuntimeCss(self: *Self) (Allocator.Error || std.Io.Writer.Error)!void {
         const alloc = self.allocator();
-
-        const config = self.private().config.get();
+        const priv: *Private = self.private();
+        const config = priv.config.get();
 
         var buf: std.Io.Writer.Allocating = try .initCapacity(alloc, 2048);
         defer buf.deinit();
@@ -862,19 +870,15 @@ pub const Application = extern struct {
             , .{ .font_family = font_family });
         }
 
-        // ensure that we have a sentinel
-        try writer.writeByte(0);
+        const contents = buf.written();
 
-        const data_ = buf.written();
-        const data = data_[0 .. data_.len - 1 :0];
+        log.debug("runtime CSS is {d} bytes", .{contents.len});
 
-        log.debug("runtime CSS is {d} bytes", .{data.len + 1});
+        const bytes = glib.Bytes.new(contents.ptr, contents.len);
+        defer bytes.unref();
 
         // Clears any previously loaded CSS from this provider
-        loadCssProviderFromData(
-            self.private().css_provider,
-            data,
-        );
+        priv.css_provider.loadFromBytes(bytes);
     }
 
     /// Load runtime CSS for older than GTK 4.16
@@ -1013,8 +1017,8 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadCustomCss(self: *Self) !void {
-        const priv = self.private();
+    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+        const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
             log.warn("unable to get display", .{});
@@ -1031,7 +1035,7 @@ pub const Application = extern struct {
         }
         priv.custom_css_providers.clearRetainingCapacity();
 
-        const config = priv.config.getMut();
+        const config = priv.config.get();
         for (config.@"gtk-custom-css".value.items) |p| {
             const path, const optional = switch (p) {
                 .optional => |path| .{ path, true },
@@ -1048,23 +1052,42 @@ pub const Application = extern struct {
             };
             defer file.close();
 
+            const css_file_size_limit = 5 * 1024 * 1024; // 5MB
+
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = try file.readToEndAlloc(
+            const contents = file.readToEndAlloc(
                 alloc,
-                5 * 1024 * 1024, // 5MB,
-            );
+                css_file_size_limit,
+            ) catch |err| switch (err) {
+                error.FileTooBig => {
+                    log.warn("gtk-custom-css file {s} was larger than {Bi}", .{ path, css_file_size_limit });
+                    continue;
+                },
+                else => |e| return e,
+            };
             defer alloc.free(contents);
 
-            const data = try alloc.dupeZ(u8, contents);
-            defer alloc.free(data);
+            const bytes = glib.Bytes.new(contents.ptr, contents.len);
+            defer bytes.unref();
 
-            const provider = gtk.CssProvider.new();
-            errdefer provider.unref();
-            try priv.custom_css_providers.append(alloc, provider);
-            loadCssProviderFromData(provider, data);
+            const css_provider = gtk.CssProvider.new();
+            errdefer css_provider.unref();
+
+            _ = gtk.CssProvider.signals.parsing_error.connect(
+                css_provider,
+                *Self,
+                signalCssParsingError,
+                self,
+                .{},
+            );
+
+            try priv.custom_css_providers.append(alloc, css_provider);
+
+            css_provider.loadFromBytes(bytes);
+
             gtk.StyleContext.addProviderForDisplay(
                 display,
-                provider.as(gtk.StyleProvider),
+                css_provider.as(gtk.StyleProvider),
                 gtk.STYLE_PROVIDER_PRIORITY_USER,
             );
         }
@@ -1178,6 +1201,37 @@ pub const Application = extern struct {
                 .{err},
             );
         };
+    }
+
+    /// Log CSS parsing error
+    fn signalCssParsingError(
+        _: *gtk.CssProvider,
+        css_section: *gtk.CssSection,
+        err: *glib.Error,
+        _: *Self,
+    ) callconv(.c) void {
+        const location = css_section.toString();
+        defer glib.free(location);
+        if (comptime gtk_version.atLeast(4, 16, 0)) bytes: {
+            const bytes = css_section.getBytes() orelse break :bytes;
+            var len: usize = undefined;
+            const ptr = bytes.getData(&len) orelse break :bytes;
+            const data = ptr[0..len];
+            log.warn("css parsing failed at {s}: {s} {d} {s}\n{s}", .{
+                location,
+                glib.quarkToString(err.f_domain),
+                err.f_code,
+                err.f_message orelse "«unknown»",
+                data,
+            });
+            return;
+        }
+        log.warn("css parsing failed at {s}: {s} {d} {s}", .{
+            location,
+            glib.quarkToString(err.f_domain),
+            err.f_code,
+            err.f_message orelse "«unknown»",
+        });
     }
 
     //---------------------------------------------------------------
@@ -2582,9 +2636,4 @@ fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) 
     // but we want to return 0 to indicate equality.
     // Abusing integers to be enums and booleans is a terrible idea, C.
     return if (window.isActive() != 0) 0 else -1;
-}
-
-fn loadCssProviderFromData(provider: *gtk.CssProvider, data: [:0]const u8) void {
-    assert(gtk_version.runtimeAtLeast(4, 12, 0));
-    provider.loadFromString(data);
 }
