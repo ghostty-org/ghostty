@@ -73,12 +73,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
     
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
-        viewModel.state = .notFound
+        viewModel.state = .notFound(.init(acknowledgement: acknowledgement))
         
         if !hasUnobtrusiveTarget {
             standard.showUpdateNotFoundWithError(error, acknowledgement: acknowledgement)
-        } else {
-            acknowledgement()
         }
     }
     

@@ -135,7 +135,7 @@ enum UpdateState: Equatable {
     case permissionRequest(PermissionRequest)
     case checking(Checking)
     case updateAvailable(UpdateAvailable)
-    case notFound
+    case notFound(NotFound)
     case error(Error)
     case downloading(Downloading)
     case extracting(Extracting)
@@ -157,6 +157,8 @@ enum UpdateState: Equatable {
             downloading.cancel()
         case .readyToInstall(let ready):
             ready.reply(.dismiss)
+        case .notFound(let notFound):
+            notFound.acknowledgement()
         case .error(let err):
             err.dismiss()
         default:
@@ -189,6 +191,10 @@ enum UpdateState: Equatable {
         default:
             return false
         }
+    }
+    
+    struct NotFound {
+        let acknowledgement: () -> Void
     }
     
     struct PermissionRequest {

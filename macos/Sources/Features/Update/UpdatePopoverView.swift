@@ -41,8 +41,8 @@ struct UpdatePopoverView: View {
             case .installing:
                 InstallingView()
                 
-            case .notFound:
-                NotFoundView(dismiss: dismiss)
+            case .notFound(let notFound):
+                NotFoundView(notFound: notFound, dismiss: dismiss)
                 
             case .error(let error):
                 UpdateErrorView(error: error, dismiss: dismiss)
@@ -331,6 +331,7 @@ fileprivate struct InstallingView: View {
 }
 
 fileprivate struct NotFoundView: View {
+    let notFound: UpdateState.NotFound
     let dismiss: DismissAction
     
     var body: some View {
@@ -348,6 +349,7 @@ fileprivate struct NotFoundView: View {
             HStack {
                 Spacer()
                 Button("OK") {
+                    notFound.acknowledgement()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

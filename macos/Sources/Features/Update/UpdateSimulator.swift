@@ -72,7 +72,9 @@ enum UpdateSimulator {
         }))
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            viewModel.state = .notFound
+            viewModel.state = .notFound(.init(acknowledgement: {
+                // Acknowledgement called when dismissed
+            }))
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 viewModel.state = .idle

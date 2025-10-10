@@ -23,11 +23,12 @@ struct UpdatePill: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .onChange(of: model.state) { newState in
                     resetTask?.cancel()
-                    if case .notFound = newState {
+                    if case .notFound(let notFound) = newState {
                         resetTask = Task { [weak model] in
                             try? await Task.sleep(for: .seconds(5))
                             guard !Task.isCancelled, case .notFound? = model?.state else { return }
                             model?.state = .idle
+                            notFound.acknowledgement()
                         }
                     } else {
                         resetTask = nil
@@ -40,8 +41,9 @@ struct UpdatePill: View {
     @ViewBuilder
     private var pillButton: some View {
         Button(action: {
-            if case .notFound = model.state {
+            if case .notFound(let notFound) = model.state {
                 model.state = .idle
+                notFound.acknowledgement()
             } else {
                 showPopover.toggle()
             }
