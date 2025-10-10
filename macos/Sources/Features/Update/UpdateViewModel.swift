@@ -17,7 +17,11 @@ class UpdateViewModel: ObservableObject {
         case .checking:
             return "Checking for Updates…"
         case .updateAvailable(let update):
-            return "Update Available: \(update.appcastItem.displayVersionString)"
+            let version = update.appcastItem.displayVersionString
+            if !version.isEmpty {
+                return "Update Available: \(version)"
+            }
+            return "Update Available"
         case .downloading(let download):
             if let expectedLength = download.expectedLength, expectedLength > 0 {
                 let progress = Double(download.progress) / Double(expectedLength)
@@ -51,7 +55,6 @@ class UpdateViewModel: ObservableObject {
     }
     
     /// The SF Symbol icon name for the current update state.
-    /// Returns nil for idle, downloading, and extracting states.
     var iconName: String? {
         switch state {
         case .idle:
@@ -61,9 +64,11 @@ class UpdateViewModel: ObservableObject {
         case .checking:
             return "arrow.triangle.2.circlepath"
         case .updateAvailable:
-            return "arrow.down.circle.fill"
-        case .downloading, .extracting:
-            return nil
+            return "shippingbox.fill"
+        case .downloading:
+            return "arrow.down.circle"
+        case .extracting:
+            return "shippingbox"
         case .readyToInstall:
             return "checkmark.circle.fill"
         case .installing:
@@ -72,6 +77,53 @@ class UpdateViewModel: ObservableObject {
             return "info.circle"
         case .error:
             return "exclamationmark.triangle.fill"
+        }
+    }
+    
+    /// A longer description for the current update state.
+    /// Used in contexts like the command palette where more detail is helpful.
+    var description: String {
+        switch state {
+        case .idle:
+            return ""
+        case .permissionRequest:
+            return "Configure automatic update preferences"
+        case .checking:
+            return "Please wait while we check for available updates"
+        case .updateAvailable(let update):
+            return update.releaseNotes?.label ?? "Download and install the latest version"
+        case .downloading:
+            return "Downloading the update package"
+        case .extracting:
+            return "Extracting and preparing the update"
+        case .readyToInstall:
+            return "Update is ready to install"
+        case .installing:
+            return "Installing update and preparing to restart"
+        case .notFound:
+            return "You are running the latest version"
+        case .error:
+            return "An error occurred during the update process"
+        }
+    }
+    
+    /// A badge to display for the current update state.
+    /// Returns version numbers, progress percentages, or nil.
+    var badge: String? {
+        switch state {
+        case .updateAvailable(let update):
+            let version = update.appcastItem.displayVersionString
+            return version.isEmpty ? nil : version
+        case .downloading(let download):
+            if let expectedLength = download.expectedLength, expectedLength > 0 {
+                let percentage = Double(download.progress) / Double(expectedLength) * 100
+                return String(format: "%.0f%%", percentage)
+            }
+            return nil
+        case .extracting(let extracting):
+            return String(format: "%.0f%%", extracting.progress * 100)
+        default:
+            return nil
         }
     }
     
@@ -147,6 +199,22 @@ enum UpdateState: Equatable {
         return false
     }
     
+    /// This is true if we're in a state that can be force installed. 
+    var isInstallable: Bool {
+        switch (self) {
+        case .checking,
+                .updateAvailable,
+                .downloading,
+                .extracting,
+                .readyToInstall,
+                .installing:
+            return true
+            
+        default:
+            return false
+        }
+    }
+    
     func cancel() {
         switch self {
         case .checking(let checking):
@@ -161,6 +229,20 @@ enum UpdateState: Equatable {
             notFound.acknowledgement()
         case .error(let err):
             err.dismiss()
+        default:
+            break
+        }
+    }
+    
+    /// Confirms or accepts the current update state.
+    /// - For available updates: begins installation
+    /// - For ready-to-install: proceeds with installation
+    func confirm() {
+        switch self {
+        case .updateAvailable(let available):
+            available.reply(.install)
+        case .readyToInstall(let ready):
+            ready.reply(.install)
         default:
             break
         }

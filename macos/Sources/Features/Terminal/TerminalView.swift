@@ -108,7 +108,8 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     TerminalCommandPaletteView(
                         surfaceView: surfaceView,
                         isPresented: $viewModel.commandPaletteIsShowing,
-                        ghosttyConfig: ghostty.config) { action in
+                        ghosttyConfig: ghostty.config,
+                        updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }

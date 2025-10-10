@@ -1,5 +1,6 @@
 import Sparkle
 import Cocoa
+import Combine
 
 /// Standard controller for managing Sparkle updates in Ghostty.
 ///
@@ -10,6 +11,7 @@ class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
     private let updaterDelegate = UpdaterDelegate()
+    private var installCancellable: AnyCancellable?
     
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -27,6 +29,10 @@ class UpdateController {
             userDriver: userDriver,
             delegate: updaterDelegate
         )
+    }
+    
+    deinit {
+        installCancellable?.cancel()
     }
     
     /// Start the updater.
@@ -47,6 +53,34 @@ class UpdateController {
                     self?.userDriver.viewModel.state = .idle
                 }
             ))
+        }
+    }
+    
+    /// Force install the current update. As long as we're in some "update available" state this will
+    /// trigger all the steps necessary to complete the update.
+    func installUpdate() {
+        // Must be in an installable state
+        guard viewModel.state.isInstallable else { return }
+        
+        // If we're already force installing then do nothing.
+        guard installCancellable == nil else { return }
+        
+        // Setup a combine listener to listen for state changes and to always
+        // confirm them. If we go to a non-installable state, cancel the listener.
+        // The sink runs immediately with the current state, so we don't need to
+        // manually confirm the first state.
+        installCancellable = viewModel.$state.sink { [weak self] state in
+            guard let self else { return }
+            
+            // If we move to a non-installable state (error, idle, etc.) then we
+            // stop force installing.
+            guard state.isInstallable else {
+                self.installCancellable = nil
+                return
+            }
+            
+            // Continue the `yes` chain!
+            state.confirm()
         }
     }
     
