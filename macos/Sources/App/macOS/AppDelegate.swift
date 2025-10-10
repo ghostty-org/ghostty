@@ -1007,13 +1007,15 @@ class AppDelegate: NSObject,
         //UpdateSimulator.happyPath.simulate(with: updateViewModel)
     }
 
-
     @IBAction func newWindow(_ sender: Any?) {
         _ = TerminalController.newWindow(ghostty)
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        _ = TerminalController.newTab(ghostty)
+        _ = TerminalController.newTab(
+            ghostty,
+            from: TerminalController.preferredParent?.window
+        )
     }
 
     @IBAction func closeAllWindows(_ sender: Any?) {
