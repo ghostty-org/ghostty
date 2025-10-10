@@ -166,6 +166,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncAppearance(focusedSurface.derivedConfig)
     }
 
+    override func toggleBackgroundOpacity() {
+        super.toggleBackgroundOpacity()
+
+        // Sync the window appearance with the new opacity state
+        guard let focusedSurface else { return }
+        syncAppearance(focusedSurface.derivedConfig)
+    }
+
     // MARK: Terminal Creation
 
     /// Returns all the available terminal controllers present in the app currently.
