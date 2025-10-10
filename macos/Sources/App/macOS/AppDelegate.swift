@@ -471,7 +471,12 @@ class AppDelegate: NSObject,
         }
         
         switch ghostty.config.macosDockDropBehavior {
-        case .new_tab: _ = TerminalController.newTab(ghostty, withBaseConfig: config)
+        case .new_tab:
+            _ = TerminalController.newTab(
+                ghostty,
+                from: TerminalController.preferredParent?.window,
+                withBaseConfig: config
+            )
         case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
         
@@ -1012,7 +1017,10 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        _ = TerminalController.newTab(ghostty)
+        _ = TerminalController.newTab(
+            ghostty,
+            from: TerminalController.preferredParent?.window
+        )
     }
 
     @IBAction func closeAllWindows(_ sender: Any?) {
