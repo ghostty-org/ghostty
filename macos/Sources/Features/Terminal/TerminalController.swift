@@ -167,6 +167,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     override func toggleBackgroundOpacity() {
+        // Do nothing if in fullscreen (transparency doesn't apply in fullscreen)
+        guard let window = self.window, !window.styleMask.contains(.fullScreen) else { return }
+
         super.toggleBackgroundOpacity()
 
         // Sync the window appearance with the new opacity state
