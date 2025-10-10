@@ -838,6 +838,8 @@ pub const Surface = extern struct {
             if (cfg.@"notify-on-command-finish" == .unfocused and self.getFocused()) return true;
         }
 
+        if (value.duration.lte(cfg.@"notify-on-command-finish-after")) return true;
+
         const action = cfg.@"notify-on-command-finish-action";
 
         if (action.bell) self.setBellRinging(true);
