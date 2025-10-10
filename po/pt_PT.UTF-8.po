@@ -1,5 +1,5 @@
 # Portuguese translations for com.mitchellh.ghostty package
-# Traduções em português europeu para o pacote com.mitchellh.ghostty.
+# Traduções em português de Portugal para o pacote com.mitchellh.ghostty.
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Francisco Madeira <xico2k@gmail.com>, 2025.
