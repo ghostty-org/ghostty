@@ -775,17 +775,14 @@ class BaseTerminalController: NSWindowController,
     // MARK: Background Opacity
 
     /// Toggle the background opacity between transparent and opaque states.
-    /// If the configured background-opacity is already opaque (>= 1), this resets
-    /// the override flag to false so that future config changes take effect.
-    /// Subclasses should override this to sync their appearance after toggling.
+    /// Do nothing if the configured background-opacity is >= 1 (already opaque).
+    /// Subclasses should override this to add platform-specific checks and sync appearance.
     func toggleBackgroundOpacity() {
-        // If config is already opaque, just ensure override is disabled
-        if ghostty.config.backgroundOpacity >= 1 {
-            isBackgroundOpaque = false
-        } else {
-            // Otherwise toggle between transparent and opaque
-            isBackgroundOpaque.toggle()
-        }
+        // Do nothing if config is already fully opaque
+        guard ghostty.config.backgroundOpacity < 1 else { return }
+
+        // Toggle between transparent and opaque
+        isBackgroundOpaque.toggle()
     }
 
     // MARK: Fullscreen
