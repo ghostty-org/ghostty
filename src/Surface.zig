@@ -148,6 +148,12 @@ focused: bool = true,
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
+/// True if the surface is in read-only mode. When read-only, no input
+/// is sent to the PTY but terminal-level operations like selections,
+/// scrolling, and copy/paste keybinds still work. Warn before quit is
+/// always enabled in this state.
+readonly: bool = false,
+
 /// Used to send notifications that long running commands have finished.
 /// Requires that shell integration be active. Should represent a nanosecond
 /// precision timestamp. It does not necessarily need to correspond to the
@@ -818,6 +824,9 @@ pub fn deactivateInspector(self: *Surface) void {
 /// True if the surface requires confirmation to quit. This should be called
 /// by apprt to determine if the surface should confirm before quitting.
 pub fn needsConfirmQuit(self: *Surface) bool {
+    // If the surface is in read-only mode, always require confirmation
+    if (self.readonly) return true;
+
     // If the child has exited, then our process is certainly not alive.
     // We check this first to avoid the locking overhead below.
     if (self.child_exited) return false;
@@ -2248,6 +2257,12 @@ pub fn keyCallback(
         if (insp_ev) |*ev| ev else null,
     )) |v| return v;
 
+    // If the surface is in read-only mode, we consume the key event here
+    // without sending it to the PTY.
+    if (self.readonly) {
+        return .consumed;
+    }
+
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
         self.renderer_state.mutex.lock();
@@ -2954,7 +2969,9 @@ pub fn scrollCallback(
         // we convert to cursor keys. This only happens if we're:
         // (1) alt screen (2) no explicit mouse reporting and (3) alt
         // scroll mode enabled.
-        if (self.io.terminal.active_screen == .alternate and
+        // Additionally, we don't send cursor keys if the surface is in read-only mode.
+        if (!self.readonly and
+            self.io.terminal.active_screen == .alternate and
             self.io.terminal.flags.mouse_event == .none and
             self.io.terminal.modes.get(.mouse_alternate_scroll))
         {
@@ -3069,6 +3086,9 @@ fn mouseReport(
     mods: input.Mods,
     pos: apprt.CursorPos,
 ) !void {
+    // If the surface is in read-only mode, do not send mouse reports to the PTY
+    if (self.readonly) return;
+
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
         .none => return,
@@ -4928,6 +4948,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle_split_zoom,
             {},
         ),
+
+        .toggle_readonly => {
+            self.readonly = !self.readonly;
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .toggle_readonly,
+                {},
+            );
+        },
 
         .reset_window_size => return try self.rt_app.performAction(
             .{ .surface = self },
