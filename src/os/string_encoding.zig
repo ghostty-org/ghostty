@@ -4,7 +4,7 @@ const std = @import("std");
 /// that `bash`'s `printf %q` encodes a string. This is safe because a string
 /// can only get shorter after decoding. This destructively modifies the buffer
 /// given to it. If an error is returned the buffer may be in an unusable state.
-pub fn printf_q_decode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
+pub fn printfQDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
     const data: [:0]u8 = data: {
         // Strip off `$''` quoting.
         if (std.mem.startsWith(u8, buf, "$'")) {
@@ -83,7 +83,7 @@ test "printf_q 1" {
     const s: [:0]const u8 = "bobr\\ kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    const dst = try printf_q_decode(&src);
+    const dst = try printfQDecode(&src);
     try std.testing.expectEqualStrings("bobr kurwa", dst);
 }
 
@@ -91,7 +91,7 @@ test "printf_q 2" {
     const s: [:0]const u8 = "bobr\\nkurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    const dst = try printf_q_decode(&src);
+    const dst = try printfQDecode(&src);
     try std.testing.expectEqualStrings("bobr\nkurwa", dst);
 }
 
@@ -99,21 +99,21 @@ test "printf_q 3" {
     const s: [:0]const u8 = "bobr\\dkurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printf_q_decode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
 }
 
 test "printf_q 4" {
     const s: [:0]const u8 = "bobr kurwa\\";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printf_q_decode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
 }
 
 test "printf_q 5" {
     const s: [:0]const u8 = "$'bobr kurwa'";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    const dst = try printf_q_decode(&src);
+    const dst = try printfQDecode(&src);
     try std.testing.expectEqualStrings("bobr kurwa", dst);
 }
 
@@ -121,7 +121,7 @@ test "printf_q 6" {
     const s: [:0]const u8 = "'bobr kurwa'";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    const dst = try printf_q_decode(&src);
+    const dst = try printfQDecode(&src);
     try std.testing.expectEqualStrings("bobr kurwa", dst);
 }
 
@@ -129,35 +129,35 @@ test "printf_q 7" {
     const s: [:0]const u8 = "$'bobr kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printf_q_decode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
 }
 
 test "printf_q 8" {
     const s: [:0]const u8 = "$'";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printf_q_decode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
 }
 
 test "printf_q 9" {
     const s: [:0]const u8 = "'bobr kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printf_q_decode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
 }
 
 test "printf_q 10" {
     const s: [:0]const u8 = "'";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printf_q_decode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
 }
 
 /// Do an in-place decode of a string that has been URL percent encoded.
 /// This is safe because a string can only get shorter after decoding. This
 /// destructively modifies the buffer given to it. If an error is returned the
 /// buffer may be in an unusable state.
-pub fn percent_decode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
+pub fn urlPercentDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
     var src: usize = 0;
     var dst: usize = 0;
     while (src < buf.len) {
@@ -202,14 +202,14 @@ test "singles percent" {
     for (0..255) |c| {
         var buf_: [4]u8 = undefined;
         const buf = try std.fmt.bufPrintZ(&buf_, "%{x:0>2}", .{c});
-        const decoded = try percent_decode(buf);
+        const decoded = try urlPercentDecode(buf);
         try std.testing.expectEqual(1, decoded.len);
         try std.testing.expectEqual(c, decoded[0]);
     }
     for (0..255) |c| {
         var buf_: [4]u8 = undefined;
         const buf = try std.fmt.bufPrintZ(&buf_, "%{X:0>2}", .{c});
-        const decoded = try percent_decode(buf);
+        const decoded = try urlPercentDecode(buf);
         try std.testing.expectEqual(1, decoded.len);
         try std.testing.expectEqual(c, decoded[0]);
     }
@@ -219,7 +219,7 @@ test "percent 1" {
     const s: [:0]const u8 = "bobr%20kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    const dst = try percent_decode(&src);
+    const dst = try urlPercentDecode(&src);
     try std.testing.expectEqualStrings("bobr kurwa", dst);
 }
 
@@ -227,28 +227,28 @@ test "percent 2" {
     const s: [:0]const u8 = "bobr%2kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, percent_decode(&src));
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
 }
 
 test "percent 3" {
     const s: [:0]const u8 = "bobr%kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, percent_decode(&src));
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
 }
 
 test "percent 4" {
     const s: [:0]const u8 = "bobr%%kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, percent_decode(&src));
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
 }
 
 test "percent 5" {
     const s: [:0]const u8 = "bobr%20kurwa%20";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    const dst = try percent_decode(&src);
+    const dst = try urlPercentDecode(&src);
     try std.testing.expectEqualStrings("bobr kurwa ", dst);
 }
 
@@ -256,12 +256,12 @@ test "percent 6" {
     const s: [:0]const u8 = "bobr%20kurwa%2";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, percent_decode(&src));
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
 }
 
 test "percent 7" {
     const s: [:0]const u8 = "bobr%20kurwa%";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, percent_decode(&src));
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
 }

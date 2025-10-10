@@ -15,7 +15,7 @@ const LibEnum = @import("../lib/enum.zig").Enum;
 const RGB = @import("color.zig").RGB;
 const kitty_color = @import("kitty/color.zig");
 const osc_color = @import("osc/color.zig");
-const inplace = @import("../os/inplace.zig");
+const string_encoding = @import("../os/string_encoding.zig");
 pub const color = osc_color;
 
 const log = std.log.scoped(.osc);
@@ -1478,13 +1478,13 @@ pub const Parser = struct {
         } else if (mem.eql(u8, self.temp_state.key, "cmdline")) {
             // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
-                .end_of_input => |*v| v.cmdline = inplace.printf_q_decode(value) catch null,
+                .end_of_input => |*v| v.cmdline = string_encoding.printfQDecode(value) catch null,
                 else => {},
             }
         } else if (mem.eql(u8, self.temp_state.key, "cmdline_url")) {
             // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
-                .end_of_input => |*v| v.cmdline = inplace.percent_decode(value) catch null,
+                .end_of_input => |*v| v.cmdline = string_encoding.urlPercentDecode(value) catch null,
                 else => {},
             }
         } else if (mem.eql(u8, self.temp_state.key, "redraw")) {
