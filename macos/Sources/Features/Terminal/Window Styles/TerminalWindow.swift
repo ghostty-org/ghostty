@@ -16,7 +16,7 @@ class TerminalWindow: NSWindow {
     static let defaultLevelKey: String = "TerminalDefaultLevel"
 
     /// The view model for SwiftUI views
-    private var viewModel = ViewModel()
+    var viewModel = ViewModel()
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
@@ -92,6 +92,8 @@ class TerminalWindow: NSWindow {
             hideWindowButtons()
         }
 
+        resetZoomAccessory.ghosttyAccessoryType = .resetZoom
+        updateAccessory.ghosttyAccessoryType = .update
         // Create our reset zoom titlebar accessory. We have to have a title
         // to do this or AppKit triggers an assertion.
         if styleMask.contains(.titled) {
@@ -189,6 +191,38 @@ class TerminalWindow: NSWindow {
         }
 
         super.removeTitlebarAccessoryViewController(at: index)
+    }
+
+    /// Used when there is not tab bar visible, call as needed
+    func setupCustomTitlebar() {
+        guard let themeFrameView = contentView?.rootView else { return }
+        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
+            themeFrameView.value(forKey: "titlebarView") as? NSView
+        } else {
+            NSView?.none
+        }
+
+        guard
+            let decorationView = titlebarView
+        else { return }
+        let leftPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
+        case .hidden: 0
+        case .visible: 70
+        }
+        let titleView = decorationView.firstDescendant(withID: "ghostty-title-view") ?? NSHostingView(rootView: TitleItem(viewModel: viewModel, resetZoomAction: { [weak self] in
+            guard let self else { return }
+            self.terminalController?.splitZoom(self)
+        }))
+        titleView.identifier = .init("ghostty-title-view")
+        titleView.removeFromSuperview() // remove previous one if needed
+        decorationView.addSubview(titleView)
+        titleView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            titleView.leadingAnchor.constraint(equalTo: decorationView.leadingAnchor, constant: leftPadding + 8),
+            titleView.trailingAnchor.constraint(equalTo: decorationView.trailingAnchor, constant: -8),
+            titleView.topAnchor.constraint(equalTo: decorationView.topAnchor),
+            titleView.bottomAnchor.constraint(equalTo: decorationView.bottomAnchor)
+        ])
     }
 
     // MARK: Tab Bar
@@ -503,6 +537,11 @@ class TerminalWindow: NSWindow {
 
 extension TerminalWindow {
     class ViewModel: ObservableObject {
+        @Published var titleFont: NSFont?
+        @Published var title: String = "👻 Ghostty"
+        @Published var hasTabBar: Bool = false
+        @Published var isMainWindow: Bool = true
+
         @Published var isSurfaceZoomed: Bool = false
         @Published var hasToolbar: Bool = false
         
@@ -513,6 +552,54 @@ extension TerminalWindow {
             } else {
                 return hasToolbar ? 9 : 4
             }
+        }
+    }
+    /// Displays the window title
+    struct TitleItem: View {
+        @ObservedObject var viewModel: ViewModel
+        let resetZoomAction: () -> Void
+
+        var title: String {
+            // An empty title makes this view zero-sized and NSToolbar on macOS
+            // tahoe just deletes the item when that happens. So we use a space
+            // instead to ensure there's always some size.
+            return viewModel.title.isEmpty ? " " : viewModel.title
+        }
+
+        var body: some View {
+            titleText
+                .frame(height: 50)
+                .padding(.horizontal, 25) // leave some space for resetZoom button
+                .overlay(alignment: .trailing) {
+                    if viewModel.isSurfaceZoomed {
+                        resetZoomButton
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .animation(.bouncy, value: viewModel.isSurfaceZoomed)
+                .opacity(viewModel.hasTabBar ? 0 : 1) // hide when in fullscreen mode, where title bar will appear in the leading area under window buttons
+                .disabled(viewModel.hasTabBar)
+        }
+
+        @ViewBuilder
+        var titleText: some View {
+            Text(title)
+                .font(viewModel.titleFont.flatMap(Font.init(_:)))
+                .foregroundStyle(viewModel.isMainWindow ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.head) // last few components appears more important
+                .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
+                .help(title) // hover to show full path, one can also add some actions here, e.g. Show in Finder
+        }
+
+        var resetZoomButton: some View {
+            Button(action: resetZoomAction) {
+                Image("ResetZoom")
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help("Reset Split Zoom")
+            .frame(width: 20, height: 20)
         }
     }
 
@@ -554,4 +641,20 @@ extension TerminalWindow {
         }
     }
 
+    enum AccessoryType: String {
+        case resetZoom = "ghostty.titlebar.accessory.resetZoom"
+        case update = "ghostty.titlebar.accessory.update"
+    }
+}
+
+extension NSTitlebarAccessoryViewController {
+    var ghosttyAccessoryType: TerminalWindow.AccessoryType? {
+        get {
+            identifier.flatMap({ TerminalWindow.AccessoryType(rawValue: $0.rawValue) })
+        }
+
+        set {
+            identifier = newValue.flatMap({ NSUserInterfaceItemIdentifier.init($0.rawValue) })
+        }
+    }
 }

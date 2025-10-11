@@ -6,8 +6,6 @@ import SwiftUI
 /// This inherits from transparent styling so that the titlebar matches the background color
 /// of the window.
 class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSToolbarDelegate {
-    /// The view model for SwiftUI views
-    private var viewModel = ViewModel()
     
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
@@ -47,7 +45,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Create a toolbar
         let toolbar = NSToolbar(identifier: "TerminalToolbar")
         toolbar.delegate = self
-        toolbar.centeredItemIdentifiers.insert(.title)
         self.toolbar = toolbar
         toolbarStyle = .unifiedCompact
     }
@@ -75,8 +72,17 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             // After dragging a tab into a new window, `hasTabBar` needs to be
             // updated to properly review window title
             viewModel.hasTabBar = false
-            
-            super.addTitlebarAccessoryViewController(childViewController)
+            switch childViewController.ghosttyAccessoryType {
+            case .update:
+                /// see ``TitlebarTabsTahoeTerminalWindow/supportsUpdateAccessory``
+                break
+            case .resetZoom, .none:
+                // since we've already included resetZoom button in the custom titlebar,
+                // we skip add this kind of accessory
+                break
+            }
+
+            setupCustomTitlebar()
             return
         }
 
@@ -238,82 +244,16 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     // MARK: NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.title, .flexibleSpace, .space]
+        return [.flexibleSpace, .space]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.flexibleSpace, .title, .flexibleSpace]
+        return [.flexibleSpace, .space]
     }
 
     func toolbar(_ toolbar: NSToolbar,
                  itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        switch itemIdentifier {
-        case .title:
-            let item = NSToolbarItem(itemIdentifier: .title)
-            item.view = NSHostingView(rootView: TitleItem(viewModel: viewModel))
-            // Fix: https://github.com/ghostty-org/ghostty/discussions/9027
-            item.view?.setContentCompressionResistancePriority(.required, for: .horizontal)
-            item.visibilityPriority = .user
-            item.isEnabled = true
-
-            // This is the documented way to avoid the glass view on an item.
-            // We don't want glass on our title.
-            item.isBordered = false
-            
-            return item
-        default:
-            return NSToolbarItem(itemIdentifier: itemIdentifier)
-        }
-    }
-
-    // MARK: SwiftUI
-
-    class ViewModel: ObservableObject {
-        @Published var titleFont: NSFont?
-        @Published var title: String = "👻 Ghostty"
-        @Published var hasTabBar: Bool = false
-        @Published var isMainWindow: Bool = true
-    }
-}
-
-extension NSToolbarItem.Identifier {
-    /// Displays the title of the window
-    static let title = NSToolbarItem.Identifier("Title")
-}
-
-extension TitlebarTabsTahoeTerminalWindow {
-    /// Displays the window title
-    struct TitleItem: View {
-        @ObservedObject var viewModel: ViewModel
-
-        var title: String {
-            // An empty title makes this view zero-sized and NSToolbar on macOS
-            // tahoe just deletes the item when that happens. So we use a space
-            // instead to ensure there's always some size.
-            return viewModel.title.isEmpty ? " " : viewModel.title
-        }
-
-        var body: some View {
-            if !viewModel.hasTabBar {
-                titleText
-            } else {
-                // 1x1.gif strikes again! For real: if we render a zero-sized
-                // view here then the toolbar just disappears our view. I don't
-                // know. This appears fixed in 26.1 Beta but keep it safe for 26.0.
-                Color.clear.frame(width: 1, height: 1)
-            }
-        }
-        
-        @ViewBuilder
-        var titleText: some View {
-            Text(title)
-                .font(viewModel.titleFont.flatMap(Font.init(_:)))
-                .foregroundStyle(viewModel.isMainWindow ? .primary : .secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
-                .opacity(viewModel.hasTabBar ? 0 : 1) // hide when in fullscreen mode, where title bar will appear in the leading area under window buttons
-        }
+        return NSToolbarItem(itemIdentifier: itemIdentifier)
     }
 }
