@@ -1052,13 +1052,40 @@ pub const StreamHandler = struct {
         self.terminal.markSemanticPrompt(.input);
     }
 
-    pub inline fn endOfInput(self: *StreamHandler) !void {
+    /// The shell has reached the end of user input and has begun executing the
+    /// command. The shell may report the command line being executed.
+    pub inline fn endOfInput(self: *StreamHandler, cmdline_: ?[:0]const u8) !void {
         self.terminal.markSemanticPrompt(.command);
-        self.surfaceMessageWriter(.start_command);
+        var message: apprt.surface.Message = .{
+            .start_command = undefined,
+        };
+        if (cmdline_) |cmdline| cmdline: {
+            const len = @min(cmdline.len, message.start_command.buf.len);
+            if (len == 0) {
+                message.start_command.len = null;
+                break :cmdline;
+            }
+            // Copy the command line into our buffer, truncating it if
+            // necessary. The command line passed to us points to an internal
+            // buffer in the OSC parser that will be reused after we return.
+            @memcpy(message.start_command.buf[0..len], cmdline[0..len]);
+            message.start_command.buf[len] = 0;
+            message.start_command.len = len;
+        } else {
+            message.start_command.len = null;
+        }
+
+        self.surfaceMessageWriter(message);
     }
 
+    /// The user's command has finished executing. We may receive an exit code
+    /// which indicates the final status of the command.
     pub inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) !void {
-        self.surfaceMessageWriter(.{ .stop_command = exit_code });
+        self.surfaceMessageWriter(
+            .{
+                .stop_command = exit_code,
+            },
+        );
     }
 
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
