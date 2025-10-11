@@ -282,12 +282,12 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     # `overlap` and `ypadding` are mutually exclusive,
     # this is asserted in the nerd fonts patcher itself.
     if overlap:
-        pad = -overlap
+        pad = -overlap / 2
         s += f"            .pad_left = {pad},\n"
         s += f"            .pad_right = {pad},\n"
         # In the nerd fonts patcher, overlap values
         # are capped at 0.01 in the vertical direction.
-        v_pad = -min(0.01, overlap)
+        v_pad = -min(0.01, overlap) / 2
         s += f"            .pad_top = {v_pad},\n"
         s += f"            .pad_bottom = {v_pad},\n"
     elif y_padding:
