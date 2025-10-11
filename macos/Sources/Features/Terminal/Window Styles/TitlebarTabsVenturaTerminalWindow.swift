@@ -307,7 +307,11 @@ class TitlebarTabsVenturaTerminalWindow: TitlebarTabsTahoeTerminalWindow {
             //      (presumable created when the window first opened)
             // will have no tab bar when new tab was created.
             // but the moment that second last tab was close, this check was true, which leads us here
-            guard self.hasTabBar else { return }
+            guard hasTabBar else {
+                // this reset the tabs which were created later, but closed last
+                resetCustomTabBarViews() // reset again
+                return
+            }
             self.addWindowButtonsBackdrop(titlebarView: titlebarView, toolbarView: toolbarView)
             self.addWindowDragHandle(titlebarView: titlebarView, toolbarView: toolbarView)
         }
