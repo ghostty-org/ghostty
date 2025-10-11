@@ -1468,6 +1468,12 @@ pub const Surface = extern struct {
 
     pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
         const app = Application.default();
+        const priv: *Private = self.private();
+
+        const core_surface = priv.core_surface orelse {
+            log.warn("can't send notification because there is no core surface", .{});
+            return;
+        };
 
         const t = switch (title.len) {
             0 => "Ghostty",
@@ -1482,7 +1488,7 @@ pub const Surface = extern struct {
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
 
-        const pointer = glib.Variant.newUint64(@intFromPtr(self));
+        const pointer = glib.Variant.newUint64(@intFromPtr(core_surface));
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
             pointer,

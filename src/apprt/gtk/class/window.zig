@@ -1585,6 +1585,9 @@ pub const Window = extern struct {
 
         // Grab focus
         surface.grabFocus();
+
+        // Bring the window to the front.
+        self.as(gtk.Window).present();
     }
 
     fn surfaceToggleFullscreen(
