@@ -96,12 +96,27 @@ pub const Message = union(enum) {
     /// Report the progress of an action using a GUI element
     progress_report: terminal.osc.Command.ProgressReport,
 
-    /// A command has started in the shell, start a timer.
-    start_command,
+    /// A command has started in the shell as indicated by the receipt of an
+    /// OSC 133;C. Start a timer and store the command line (if provided) for
+    /// later display.
+    start_command: struct {
+        /// Buffer to store the command line. Since this is a fixed-size buffer
+        /// really long command lines may be cut off.
+        buf: [256:0]u8,
+        /// The length of the command line. If it is null no command line was
+        /// supplied.
+        len: ?usize,
 
-    /// A command has finished in the shell, stop the timer and send out
-    /// notifications as appropriate. The optional u8 is the exit code
-    /// of the command.
+        /// Return the command line, or null if no command line was supplied.
+        pub fn cmdline(self: *const @This()) ?[:0]const u8 {
+            const len = self.len orelse return null;
+            return self.buf[0..len :0];
+        }
+    },
+
+    /// A command has finished in the shell, as indicated by the receipt of an
+    /// OSC 133;D. Stop the timer and send out notifications as appropriate. The
+    /// optional u8 is the exit code of the command.
     stop_command: ?u8,
 
     pub const ReportTitleStyle = enum {

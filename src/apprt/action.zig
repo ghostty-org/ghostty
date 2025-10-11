@@ -747,17 +747,49 @@ pub const CloseTabMode = enum(c_int) {
 };
 
 pub const CommandFinished = struct {
+    /// The command line, as reported by OSC 133;C, or null if the command line
+    /// is unknown.
+    cmdline: ?[:0]const u8,
+    /// The exit code, as reported by OSC 133;D. The exit code will be a
+    /// number between 0 and 255  or null if no exit code was provided. 0
+    /// indicates that the command was successful. Any number from 1 to 255
+    /// indicates an application specific error code.
     exit_code: ?u8,
+    /// How long the command took, defined as the time between receiving an OSC
+    /// 133;C and an OSC 133;D. This can vary from the "real" amount of time
+    /// a command was running due to a number of factors like the latency of
+    /// reading the OSC 133 commands, the time taken to decode the OSCs, and the
+    /// latency propagating the information through Ghostty's subsystems. All of
+    /// that is to say this is just an approximation and should not be used for
+    /// any serious performance monitoring. Despite the duration being reported
+    /// in nanoseconds it is nowhere near that accurate.
     duration: configpkg.Config.Duration,
 
     /// sync with ghostty_action_command_finished_s in ghostty.h
     pub const C = extern struct {
+        /// The command line, as reported by OSC 133;C, or null if the command line
+        /// is unknown.
+        cmdline: ?[*:0]const u8,
+        /// The exit code, as reported by OSC 133;D. The exit code will be a
+        /// number between 0 and 255  or -1 if no exit code was provided. 0
+        /// indicates that the command was successful. Any number from 1 to 255
+        /// indicates an application specific error code.
         exit_code: i16,
+        /// How long the command took in nanoseconds, defined as the time
+        /// between receiving an OSC 133;C and an OSC 133;D. This can vary from
+        /// the "real" amount of time a command was running due to a number
+        /// of factors like the latency of reading the OSC 133 commands, the
+        /// time taken to decode the OSCs, and the latency propagating the
+        /// information through Ghostty's subsystems. All of that is to say
+        /// this is just an approximation and should not be used for any serious
+        /// performance monitoring. Despite the duration being reported in
+        /// nanoseconds it is nowhere near that accurate.
         duration: u64,
     };
 
     pub fn cval(self: CommandFinished) C {
         return .{
+            .cmdline = if (self.cmdline) |cmdline| cmdline.ptr else null,
             .exit_code = self.exit_code orelse -1,
             .duration = self.duration.duration,
         };
