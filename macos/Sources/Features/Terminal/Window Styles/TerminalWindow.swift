@@ -357,7 +357,7 @@ class TerminalWindow: NSWindow {
         button.isBordered = false
         button.allowsExpansionToolTips = true
         button.toolTip = "Reset Zoom"
-        button.contentTintColor = .controlAccentColor
+        button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
         button.image = NSImage(named:"ResetZoom")
         button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
@@ -647,7 +647,7 @@ extension TerminalWindow {
                 VStack {
                     Button(action: action) {
                         Image("ResetZoom")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(viewModel.isMainWindow ? .accentColor : .secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Reset Split Zoom")
