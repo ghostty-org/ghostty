@@ -15,13 +15,14 @@ SymbolsNerdFont (not Mono!) font is passed as the first argument to it.
 import ast
 import sys
 import math
-from fontTools.ttLib import TTFont
+from fontTools.ttLib import TTFont, TTLibError
 from fontTools.pens.boundsPen import BoundsPen
 from collections import defaultdict
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal, TypedDict, cast
+from urllib.request import urlretrieve
 
 type PatchSetAttributes = dict[Literal["default"] | int, PatchSetAttributeEntry]
 type AttributeHash = tuple[
@@ -58,6 +59,8 @@ class PatchSetAttributeEntry(TypedDict):
 
 class PatchSet(TypedDict):
     Name: str
+    Filename: str
+    Exact: bool
     SymStart: int
     SymEnd: int
     SrcStart: int | None
@@ -69,6 +72,18 @@ class PatchSetExtractor(ast.NodeVisitor):
     def __init__(self) -> None:
         self.symbol_table: dict[str, ast.expr] = {}
         self.patch_set_values: list[PatchSet] = []
+        self.nf_version: str = ""
+
+    def visit_Assign(self, node):
+        if (
+            node.col_offset == 0  # top-level assignment
+            and len(node.targets) == 1  # no funny destructuring business
+            and isinstance(node.targets[0], ast.Name)  # no setitem et cetera
+            and node.targets[0].id == "version"  # it's the version string!
+        ):
+            self.nf_version = ast.literal_eval(node.value)
+        else:
+            return self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         if node.name != "font_patcher":
@@ -140,12 +155,8 @@ class PatchSetExtractor(ast.NodeVisitor):
 
     def process_patch_entry(self, dict_node: ast.Dict) -> None:
         entry = {}
-        disallowed_key_nodes = frozenset({"Filename", "Exact"})
         for key_node, value_node in zip(dict_node.keys, dict_node.values):
-            if (
-                isinstance(key_node, ast.Constant)
-                and key_node.value not in disallowed_key_nodes
-            ):
+            if isinstance(key_node, ast.Constant):
                 if key_node.value == "Enabled":
                     if self.safe_literal_eval(value_node):
                         continue  # This patch set is enabled, continue to next key
@@ -156,11 +167,11 @@ class PatchSetExtractor(ast.NodeVisitor):
         self.patch_set_values.append(cast("PatchSet", entry))
 
 
-def extract_patch_set_values(source_code: str) -> list[PatchSet]:
+def extract_patch_set_values(source_code: str) -> tuple[list[PatchSet], str]:
     tree = ast.parse(source_code)
     extractor = PatchSetExtractor()
     extractor.visit(tree)
-    return extractor.patch_set_values
+    return extractor.patch_set_values, extractor.nf_version
 
 
 def parse_alignment(val: str) -> str | None:
@@ -290,12 +301,127 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     return s
 
 
+def generate_codepoint_tables(
+    patch_sets: list[PatchSet],
+    nerd_font: TTFont,
+    nf_version: str,
+) -> dict[str, dict[int, int]]:
+    # We may already have the table saved from a previous run.
+    if Path("nerd_font_codepoint_tables.py").exists():
+        import nerd_font_codepoint_tables
+
+        if nerd_font_codepoint_tables.version == nf_version:
+            return nerd_font_codepoint_tables.cp_tables
+
+    cp_tables: dict[str, dict[int, int]] = {}
+    cp_table_full: dict[int, int] = {}
+    cmap = nerd_font.getBestCmap()
+    for entry in patch_sets:
+        patch_set_name = entry["Name"]
+        print(f"Info: Extracting codepoint table from patch set '{patch_set_name}'")
+
+        # Extract codepoint map from original font file; download if needed
+        source_filename = entry["Filename"]
+        target_folder = Path("nerd_font_symbol_fonts")
+        target_folder.mkdir(exist_ok=True)
+        target_file = target_folder / Path(source_filename).name
+        if not target_file.exists():
+            print(f"Info: Downloading '{source_filename}'")
+            urlretrieve(
+                f"https://github.com/ryanoasis/nerd-fonts/raw/refs/tags/v{nf_version}/src/glyphs/{source_filename}",
+                target_file,
+            )
+        try:
+            with TTFont(target_file) as patchfont:
+                patch_cmap = patchfont.getBestCmap()
+        except TTLibError:
+            # Not a TTF/OTF font. This is OK if this patch set is exact, so we
+            # let if pass. If there's a problem, later checks will catch it.
+            patch_cmap = None
+
+        # A glyph's scale rules are specified using its codepoint in
+        # the original font, which is sometimes different from its
+        # Nerd Font codepoint. If entry["Exact"] is False, the codepoints are
+        # mapped according to the following rules:
+        # * entry["SymStart"] and entry["SymEnd"] denote the patch set's codepoint
+        #   range in the original font.
+        # * entry["SrcStart"] is the starting point of the patch set's mapped
+        #   codepoint range. It must not be None if entry["Exact"] is False.
+        # * The destination codepoint range is packed; that is, while there may be
+        #   gaps without glyphs in the original font's codepoint range, there are
+        #   none in the Nerd Font range. Hence there is no constant codepoint
+        #   offset; instead we must iterate through the range and increment the
+        #   destination codepoint every time we encounter a glyph in the original
+        #   font.
+        # If entry["Exact"] is True, the origin and Nerd Font codepoints are the
+        # same, gaps included, and entry["SrcStart"] must be None.
+        if entry["Exact"]:
+            assert entry["SrcStart"] is None
+            cp_nerdfont = 0
+        else:
+            assert entry["SrcStart"]
+            assert patch_cmap is not None
+            cp_nerdfont = entry["SrcStart"] - 1
+
+        if patch_set_name not in cp_tables:
+            # There are several patch sets with the same name, representing
+            # different codepoint ranges within the same original font. Merging
+            # these into a single table is OK. However, we need to keep separate
+            # tables for the different fonts to correctly deal with cases where
+            # they fill in each other's gaps.
+            cp_tables[patch_set_name] = {}
+        for cp_original in range(entry["SymStart"], entry["SymEnd"] + 1):
+            if patch_cmap and cp_original not in patch_cmap:
+                continue
+            if not entry["Exact"]:
+                cp_nerdfont += 1
+            else:
+                cp_nerdfont = cp_original
+            if cp_nerdfont not in cmap:
+                raise ValueError(
+                    f"Missing codepoint in Symbols Only Font: {hex(cp_nerdfont)} in patch set '{patch_set_name}'"
+                )
+            elif cp_nerdfont in cp_table_full.values():
+                raise ValueError(
+                    f"Overlap for codepoint {hex(cp_nerdfont)} in patch set '{patch_set_name}'"
+                )
+            cp_tables[patch_set_name][cp_original] = cp_nerdfont
+        cp_table_full |= cp_tables[patch_set_name]
+
+    # Store the table and corresponding Nerd Fonts version together in a module.
+    with open("nerd_font_codepoint_tables.py", "w") as f:
+        print(
+            """#! This is a generated file, produced by nerd_font_codegen.py
+#! DO NOT EDIT BY HAND!
+#!
+#! This file specifies the mapping of codepoints in the original symbol
+#! fonts to codepoints in a patched Nerd Font. This is extracted from
+#! the nerd fonts patcher script and the symbol font files.""",
+            file=f,
+        )
+        print(f'version = "{nf_version}"', file=f)
+        print("cp_tables = {", file=f)
+        for name, table in cp_tables.items():
+            print(f'    "{name}": {{', file=f)
+            for key, value in table.items():
+                print(f"        {hex(key)}: {hex(value)},", file=f)
+            print("    },", file=f)
+        print("}", file=f)
+
+    return cp_tables
+
+
 def generate_zig_switch_arms(
     patch_sets: list[PatchSet],
     nerd_font: TTFont,
+    nf_version: str,
 ) -> str:
     cmap = nerd_font.getBestCmap()
     glyphs = nerd_font.getGlyphSet()
+    cp_tables = generate_codepoint_tables(patch_sets, nerd_font, nf_version)
+    cp_table_full: dict[int, int] = {}
+    for cp_table in cp_tables.values():
+        cp_table_full |= cp_table
 
     entries: dict[int, PatchSetAttributeEntry] = {}
     for entry in patch_sets:
@@ -305,47 +431,21 @@ def generate_zig_switch_arms(
         attributes = entry["Attributes"]
         patch_set_entries: dict[int, PatchSetAttributeEntry] = {}
 
-        # A glyph's scale rules are specified using its codepoint in
-        # the original font, which is sometimes different from its
-        # Nerd Font codepoint. In font_patcher, the font to be patched
-        # (including the Symbols Only font embedded in Ghostty) is
-        # termed the sourceFont, while the original font is the
-        # symbolFont. Thus, the offset that maps the scale rule
-        # codepoint to the Nerd Font codepoint is SrcStart - SymStart.
-        cp_offset = entry["SrcStart"] - entry["SymStart"] if entry["SrcStart"] else 0
-        for cp_rule in range(entry["SymStart"], entry["SymEnd"] + 1):
-            cp_font = cp_rule + cp_offset
-            if cp_font not in cmap:
-                print(f"Info: Skipping missing codepoint {hex(cp_font)}")
+        cp_table = cp_tables[patch_set_name]
+        for cp_original in range(entry["SymStart"], entry["SymEnd"] + 1):
+            if cp_original not in cp_table:
                 continue
-            elif cp_font in entries:
-                # Patch sets sometimes have overlapping codepoint ranges.
-                # Sometimes a later set is a smaller set filling in a gap
-                # in the range of a larger, preceding set. Sometimes it's
-                # the other way around. The best thing we can do is hardcode
-                # each case.
-                if patch_set_name == "Font Awesome":
-                    # The Font Awesome range has a gap matching the
-                    # prededing Progress Indicators range.
-                    print(f"Info: Not overwriting existing codepoint {hex(cp_font)}")
-                    continue
-                elif patch_set_name == "Octicons":
-                    # The fourth Octicons range overlaps with the first.
-                    print(f"Info: Overwriting existing codepoint {hex(cp_font)}")
-                else:
-                    raise ValueError(
-                        f"Unknown case of overlap for codepoint {hex(cp_font)} in patch set '{patch_set_name}'"
-                    )
-            if cp_rule in attributes:
-                patch_set_entries[cp_font] = attributes[cp_rule].copy()
+            cp_nerdfont = cp_table[cp_original]
+            if cp_nerdfont in entries:
+                raise ValueError(
+                    f"Overlap for codepoint {hex(cp_nerdfont)} in patch set '{patch_set_name}'"
+                )
+            if cp_original in attributes:
+                patch_set_entries[cp_nerdfont] = attributes[cp_original].copy()
             else:
-                patch_set_entries[cp_font] = attributes["default"].copy()
+                patch_set_entries[cp_nerdfont] = attributes["default"].copy()
 
         if entry["ScaleRules"] is not None:
-            if "ScaleGroups" not in entry["ScaleRules"]:
-                raise ValueError(
-                    f"Scale rule format {entry['ScaleRules']} not implemented."
-                )
             for group in entry["ScaleRules"]["ScaleGroups"]:
                 xMin = math.inf
                 yMin = math.inf
@@ -353,15 +453,15 @@ def generate_zig_switch_arms(
                 yMax = -math.inf
                 individual_bounds: dict[int, tuple[int, int, int, int]] = {}
                 individual_advances: set[float] = set()
-                for cp_rule in group:
-                    cp_font = cp_rule + cp_offset
-                    if cp_font not in cmap:
-                        continue
-                    glyph = glyphs[cmap[cp_font]]
+                for cp_original in group:
+                    # Scale groups may cut across patch sets, so we need to use
+                    # the full lookup table here
+                    cp_nerdfont = cp_table_full[cp_original]
+                    glyph = glyphs[cmap[cp_nerdfont]]
                     individual_advances.add(glyph.width)
                     bounds = BoundsPen(glyphSet=glyphs)
                     glyph.draw(bounds)
-                    individual_bounds[cp_font] = bounds.bounds
+                    individual_bounds[cp_nerdfont] = bounds.bounds
                     xMin = min(bounds.bounds[0], xMin)
                     yMin = min(bounds.bounds[1], yMin)
                     xMax = max(bounds.bounds[2], xMax)
@@ -371,34 +471,36 @@ def generate_zig_switch_arms(
                 group_is_monospace = (len(individual_bounds) > 1) and (
                     len(individual_advances) == 1
                 )
-                for cp_rule in group:
-                    cp_font = cp_rule + cp_offset
+                for cp_original in group:
+                    cp_nerdfont = cp_table_full[cp_original]
                     if (
-                        cp_font not in cmap
-                        or cp_font not in patch_set_entries
+                        # Scale groups may cut across patch sets, but we're only
+                        # updating a single patch set at a time, so we skip
+                        # codepoints not in it.
+                        cp_nerdfont not in patch_set_entries
                         # Codepoints may contribute to the bounding box of multiple groups,
                         # but should be scaled according to the first group they are found
                         # in. Hence, to avoid overwriting, we need to skip codepoints that
                         # have already been assigned a scale group.
-                        or "relative_height" in patch_set_entries[cp_font]
+                        or "relative_height" in patch_set_entries[cp_nerdfont]
                     ):
                         continue
-                    this_bounds = individual_bounds[cp_font]
+                    this_bounds = individual_bounds[cp_nerdfont]
                     this_height = this_bounds[3] - this_bounds[1]
-                    patch_set_entries[cp_font]["relative_height"] = (
+                    patch_set_entries[cp_nerdfont]["relative_height"] = (
                         this_height / group_height
                     )
-                    patch_set_entries[cp_font]["relative_y"] = (
+                    patch_set_entries[cp_nerdfont]["relative_y"] = (
                         this_bounds[1] - yMin
                     ) / group_height
                     # Horizontal alignment should only be grouped if the group is monospace,
                     # that is, if all glyphs in the group have the same advance width.
                     if group_is_monospace:
                         this_width = this_bounds[2] - this_bounds[0]
-                        patch_set_entries[cp_font]["relative_width"] = (
+                        patch_set_entries[cp_nerdfont]["relative_width"] = (
                             this_width / group_width
                         )
-                        patch_set_entries[cp_font]["relative_x"] = (
+                        patch_set_entries[cp_nerdfont]["relative_x"] = (
                             this_bounds[0] - xMin
                         ) / group_width
         entries |= patch_set_entries
@@ -427,7 +529,7 @@ if __name__ == "__main__":
 
     patcher_path = project_root / "vendor" / "nerd-fonts" / "font-patcher.py"
     source = patcher_path.read_text(encoding="utf-8")
-    patch_set = extract_patch_set_values(source)
+    patch_set, nf_version = extract_patch_set_values(source)
 
     out_path = project_root / "src" / "font" / "nerd_font_attributes.zig"
 
@@ -444,5 +546,5 @@ const Constraint = @import("face.zig").RenderOptions.Constraint;
 pub fn getConstraint(cp: u21) ?Constraint {
     return switch (cp) {
 """)
-        f.write(generate_zig_switch_arms(patch_set, nerd_font))
+        f.write(generate_zig_switch_arms(patch_set, nerd_font, nf_version))
         f.write("\n        else => null,\n    };\n}\n")
