@@ -203,16 +203,8 @@ class TerminalWindow: NSWindow {
 
     /// Used when there is not tab bar visible, call as needed
     func setupCustomTitlebar() {
-        guard let themeFrameView = contentView?.rootView else { return }
-        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
-            themeFrameView.value(forKey: "titlebarView") as? NSView
-        } else {
-            NSView?.none
-        }
+        guard let decorationView = getTitlebarView() else { return }
 
-        guard
-            let decorationView = titlebarView
-        else { return }
         let leftPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
         case .hidden: 0
         case .visible: 70
