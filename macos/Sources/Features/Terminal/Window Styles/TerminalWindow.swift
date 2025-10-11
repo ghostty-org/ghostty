@@ -330,6 +330,7 @@ class TerminalWindow: NSWindow {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
             titlebarTextField?.font = font
+            titlebarTextField?.usesSingleLineMode = true
             tab.attributedTitle = attributedTitle
         }
     }
