@@ -1100,26 +1100,45 @@ pub const Surface = extern struct {
         if (action.bell) self.setBellRinging(true);
 
         if (action.notify) notify: {
-            const title_ = title: {
+            const title = std.mem.span(title: {
                 const exit_code = value.exit_code orelse break :title i18n._("Command Finished");
                 if (exit_code == 0) break :title i18n._("Command Succeeded");
                 break :title i18n._("Command Failed");
-            };
-            const title = std.mem.span(title_);
-            const body = body: {
-                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintSentinel(
-                    alloc,
-                    "Command took {f}.",
-                    .{value.duration.round(std.time.ns_per_ms)},
-                    0,
-                ) catch break :notify;
-                break :body std.fmt.allocPrintSentinel(
-                    alloc,
-                    "Command took {f} and exited with code {d}.",
-                    .{ value.duration.round(std.time.ns_per_ms), exit_code },
-                    0,
-                ) catch break :notify;
-            };
+            });
+
+            var buf: std.Io.Writer.Allocating = .init(alloc);
+            defer buf.deinit();
+            const writer = &buf.writer;
+
+            writer.writeAll("Command ") catch break :notify;
+
+            if (value.command_line) |command_line| command_line: {
+                // Don't bother with a zero length command line.
+                if (command_line.len == 0) break :command_line;
+                // The defacto standard for "hiding" a command line from being
+                // saved in history or other places is to prefix it with a
+                // space. Honor that here.
+                if (command_line[0] == ' ') {
+                    writer.writeAll("«hidden» ") catch break :notify;
+                    break :command_line;
+                }
+                writer.writeAll("“") catch break :notify;
+                writer.writeAll(command_line) catch break :notify;
+                writer.writeAll("” ") catch break :notify;
+            }
+
+            writer.print(
+                "took {f}",
+                .{value.duration.round(std.time.ns_per_ms)},
+            ) catch break :notify;
+
+            if (value.exit_code) |exit_code| {
+                writer.print(" and exited with code {d}", .{exit_code}) catch break :notify;
+            }
+
+            writer.writeByte('.') catch break :notify;
+
+            const body = buf.toOwnedSliceSentinel(0) catch break :notify;
             defer alloc.free(body);
 
             self.sendDesktopNotification(title, body);
