@@ -121,6 +121,33 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
     // MARK: Tab Bar Setup
 
+    /// NSTitlebarAccessoryClipView top offset relative to NSToolbarView, used in ``TitlebarTabsTahoeTerminalWindow/setupTabBar()``
+    ///
+    /// and override by ``TitlebarTabsVenturaTerminalWindow/clipViewTopOffset``
+    var clipViewTopOffset: CGFloat {
+        2
+    }
+
+    /// NSTitlebarAccessoryClipView leading offset relative to NSToolbarView, used in ``TitlebarTabsTahoeTerminalWindow/setupTabBar()``
+    ///
+    /// and override by ``TitlebarTabsVenturaTerminalWindow/clipViewLeadingOffset``
+    var clipViewLeadingOffset: CGFloat {
+        // The padding for the tab bar. If we're showing window buttons then
+        // we need to offset the window buttons.
+        let leftPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
+        case .hidden: 0
+        case .visible: 70
+        }
+        return leftPadding
+    }
+
+    /// Used in ``TitlebarTabsTahoeTerminalWindow/setupTabBar()``
+    ///
+    /// and override by ``TitlebarTabsVenturaTerminalWindow/tabBarHeight(with:)``
+    func tabBarHeight(with newTabButtonRect: CGRect) -> CGFloat {
+        newTabButtonRect.width
+    }
+
     private var tabBarObserver: NSObjectProtocol? {
         didSet {
             // When we change this we want to clear our old observer
@@ -163,17 +190,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         
         // Make sure tabBar's height won't be stretched
         guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
-        tabBar.frame.size.height = newTabButton.frame.width
+        tabBar.frame.size.height = tabBarHeight(with: newTabButton.frame)
 
         // The container is the view that we'll constrain our tab bar within.
         let container = toolbarView
-
-        // The padding for the tab bar. If we're showing window buttons then
-        // we need to offset the window buttons.
-        let leftPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
-        case .hidden: 0
-        case .visible: 70
-        }
 
         // Constrain the accessory clip view (the parent of the accessory view
         // usually that clips the children) to the container view.
@@ -182,9 +202,9 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         // Setup all our constraints
         NSLayoutConstraint.activate([
-            clipView.leftAnchor.constraint(equalTo: container.leftAnchor, constant: leftPadding),
+            clipView.leftAnchor.constraint(equalTo: container.leftAnchor, constant: clipViewLeadingOffset),
             clipView.rightAnchor.constraint(equalTo: container.rightAnchor),
-            clipView.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
+            clipView.topAnchor.constraint(equalTo: container.topAnchor, constant: clipViewTopOffset),
             clipView.heightAnchor.constraint(equalTo: container.heightAnchor),
             accessoryView.leftAnchor.constraint(equalTo: clipView.leftAnchor),
             accessoryView.rightAnchor.constraint(equalTo: clipView.rightAnchor),
