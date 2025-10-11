@@ -233,7 +233,29 @@ class TerminalWindow: NSWindow {
 
     /// Returns true if there is a tab bar visible on this window.
     var hasTabBar: Bool {
-        contentView?.firstViewFromRoot(withClassName: "NSTabBar") != nil
+        getTabBar() != nil
+    }
+
+    func getTitlebarView() -> NSView? {
+        // Find our tab bar. If it doesn't exist we don't do anything.
+        //
+        // In normal window, `NSTabBar` typically appears as a subview of `NSTitlebarView` within `NSThemeFrame`.
+        // In fullscreen, the system creates a dedicated fullscreen window and the view hierarchy changes;
+        // in that case, the `titlebarView` is only accessible via a reference on `NSThemeFrame`.
+        // ref: https://github.com/mozilla-firefox/firefox/blob/054e2b072785984455b3b59acad9444ba1eeffb4/widget/cocoa/nsCocoaWindow.mm#L7205
+        guard let themeFrameView = contentView?.rootView else {
+            return nil
+        }
+        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
+            themeFrameView.value(forKey: "titlebarView") as? NSView
+        } else {
+            NSView?.none
+        }
+        return titlebarView
+    }
+
+    func getTabBar() -> NSView? {
+        return getTitlebarView()?.firstDescendant(withClassName: "NSTabBar")
     }
 
     func isTabBar(_ childViewController: NSTitlebarAccessoryViewController) -> Bool {
