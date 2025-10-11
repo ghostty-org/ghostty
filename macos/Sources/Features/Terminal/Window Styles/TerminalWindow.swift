@@ -161,6 +161,14 @@ class TerminalWindow: NSWindow {
         } else {
             tabBarDidDisappear()
         }
+
+        viewModel.isMainWindow = true
+    }
+
+    override func resignMain() {
+        super.resignMain()
+
+        viewModel.isMainWindow = false
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -371,6 +379,10 @@ class TerminalWindow: NSWindow {
             // Whenever we change the window title we must also update our
             // tab title if we're using custom fonts.
             tab.attributedTitle = attributedTitle
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.titleFont = self.titlebarFont
+            }
         }
     }
 
@@ -381,6 +393,10 @@ class TerminalWindow: NSWindow {
 
             titlebarTextField?.font = font
             tab.attributedTitle = attributedTitle
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.title = self.title
+            }
         }
     }
 

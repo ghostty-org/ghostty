@@ -17,24 +17,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
     // MARK: NSWindow
 
-    override var titlebarFont: NSFont? {
-        didSet {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.viewModel.titleFont = self.titlebarFont
-            }
-        }
-    }
-
-    override var title: String {
-        didSet {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.viewModel.title = self.title
-            }
-        }
-    }
-
     override func awakeFromNib() {
         super.awakeFromNib()
 
@@ -55,15 +37,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Check if we have a tab bar and set it up if we have to. See the comment
         // on this function to learn why we need to check this here.
         setupTabBar()
-        
-        viewModel.isMainWindow = true
     }
 
-    override func resignMain() {
-        super.resignMain()
-        
-        viewModel.isMainWindow = false
-    }
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
     // this, detect the tab bar being added, and override its behavior.
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
