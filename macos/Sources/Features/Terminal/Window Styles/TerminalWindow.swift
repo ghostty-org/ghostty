@@ -213,6 +213,9 @@ class TerminalWindow: NSWindow {
             guard let self else { return }
             self.terminalController?.splitZoom(self)
         }))
+        guard titleView.superview != decorationView else {
+            return
+        }
         titleView.identifier = .init("ghostty-title-view")
         titleView.removeFromSuperview() // remove previous one if needed
         decorationView.addSubview(titleView)
@@ -373,7 +376,7 @@ class TerminalWindow: NSWindow {
             tab.attributedTitle = attributedTitle
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.viewModel.titleFont = self.titlebarFont
+                self.viewModel.title = self.title
             }
         }
     }
@@ -387,7 +390,7 @@ class TerminalWindow: NSWindow {
             tab.attributedTitle = attributedTitle
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.viewModel.title = self.title
+                self.viewModel.titleFont = font
             }
         }
     }
