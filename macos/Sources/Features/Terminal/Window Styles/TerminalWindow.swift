@@ -209,7 +209,7 @@ class TerminalWindow: NSWindow {
         case .hidden: 0
         case .visible: 70
         }
-        let titleView = decorationView.firstDescendant(withID: "ghostty-title-view") ?? NSHostingView(rootView: TitleItem(viewModel: viewModel, resetZoomAction: { [weak self] in
+        let titleView = decorationView.firstDescendant(withID: "ghostty-title-view") ?? NSHostingView(rootView: CustomTitleBar(viewModel: viewModel, resetZoomAction: { [weak self] in
             guard let self else { return }
             self.terminalController?.splitZoom(self)
         }))
@@ -584,8 +584,8 @@ extension TerminalWindow {
             }
         }
     }
-    /// Displays the window title
-    struct TitleItem: View {
+    /// Displays the window title and ResetZoom button
+    struct CustomTitleBar: View {
         @ObservedObject var viewModel: ViewModel
         let resetZoomAction: () -> Void
 
