@@ -20,6 +20,8 @@ const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const list_themes = @import("../cli/list_themes.zig");
+const themepkg = @import("../config/theme.zig");
 
 const log = std.log.scoped(.embedded_window);
 
@@ -1309,6 +1311,21 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_surface_theme_s
+    const CThemeListElement = extern struct {
+        location: themepkg.Location,
+        theme: [*c]const u8,
+        theme_len: usize,
+        path: [*c]const u8,
+        path_len: usize,
+    };
+
+    // ghostty_surface_theme_list_s
+    const CThemeListArray = extern struct {
+        themes: [*c]const CThemeListElement,
+        len: usize,
+    };
+
     // Reference the conditional exports based on target platform
     // so they're included in the C API.
     comptime {
@@ -1600,6 +1617,34 @@ pub const CAPI = struct {
         ptr.deinit();
     }
 
+    export fn ghostty_surface_get_themes(surface: *Surface, result: *CThemeListArray) bool {
+        const themes = list_themes.get_theme_list(surface.app.core_app.alloc) catch |err| {
+            log.err("error getting themes err={}", .{err});
+            result.len = 0;
+            return false;
+        };
+
+        var arena = std.heap.ArenaAllocator.init(surface.app.core_app.alloc);
+        const alloc = arena.allocator();
+        const buf = alloc.alloc(CThemeListElement, themes.len) catch {
+            result.themes = null;
+            result.len = 0;
+            return false;
+        };
+        for (themes, 0..) |t, i| {
+            buf[i] = .{
+                .location = t.location,
+                .theme = t.theme.ptr,
+                .theme_len = t.theme.len,
+                .path = t.path.ptr,
+                .path_len = t.path.len,
+            };
+        }
+        result.themes = buf.ptr;
+        result.len = buf.len;
+        return true;
+    }
+
     /// Tell the surface that it needs to schedule a render
     export fn ghostty_surface_refresh(surface: *Surface) void {
         surface.refresh();
@@ -1628,6 +1673,60 @@ pub const CAPI = struct {
             .cell_width_px = surface.core_surface.size.cell.width,
             .cell_height_px = surface.core_surface.size.cell.height,
         };
+    }
+
+    /// Return the content rows information a surface has.
+    export fn ghostty_surface_total_content_rows(surface: *Surface) u32 {
+        // First, collect all pages in order to process them as one continuous buffer
+        var total_rows: u32 = 0;
+        var node = surface.core_surface.io.terminal.screen.pages.pages.first;
+        while (node) |n| {
+            total_rows += n.data.size.rows;
+            node = n.next;
+        }
+
+        if (total_rows == 0) return 0;
+
+        // Now check from the end backwards to find the last row with actual text
+        var rows_checked: u32 = 0;
+        node = surface.core_surface.io.terminal.screen.pages.pages.last;
+
+        while (node) |n| {
+            const page = &n.data;
+            const rows = page.rows.ptr(page.memory);
+
+            // Check rows in this page from bottom to top
+            var i = page.size.rows;
+            while (i > 0) {
+                i -= 1;
+                rows_checked += 1;
+
+                const row = &rows[i];
+                const cells = page.getCells(row);
+
+                // Check if this row has any cell with actual text content
+                for (cells) |cell| {
+                    if (cell.hasText()) {
+                        // Found a cell with text, this is our last content row
+                        return total_rows - rows_checked + 1;
+                    }
+                }
+            }
+            node = n.prev;
+        }
+
+        // All rows were empty
+        return 0;
+    }
+
+    /// Return the horizontal scale factor information a surface has.
+    export fn ghostty_surface_scale_factor_x(surface: *Surface) f32 {
+        return surface.content_scale.x;
+    }
+
+    /// Return the vertical scale factor information a surface has.
+    export fn ghostty_surface_scale_factor_y(surface: *Surface) f32 {
+        return surface.content_scale.y;
     }
 
     /// Update the color scheme of the surface.
