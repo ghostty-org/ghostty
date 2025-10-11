@@ -39,7 +39,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
     
     func show(_ request: SPUUpdatePermissionRequest,
               reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
-        viewModel.state = .permissionRequest(.init(request: request, reply: reply))
+        viewModel.state = .permissionRequest(.init(request: request, reply: { [weak viewModel] response in
+            viewModel?.state = .idle
+            reply(response)
+        }))
         if !hasUnobtrusiveTarget {
             standard.show(request, reply: reply)
         }
