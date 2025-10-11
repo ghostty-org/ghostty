@@ -41,9 +41,7 @@ class TitlebarTabsVenturaTerminalWindow: TitlebarTabsTahoeTerminalWindow {
     override func becomeKey() {
         // This is required because the removeTitlebarAccessoryViewController hook does not
         // catch the creation of a new window by "tearing off" a tab from a tabbed window.
-        if let tabGroup = tabGroup, tabGroup.windows.count < 2 {
-            resetCustomTabBarViews()
-        }
+        resetCustomTabBarViewsIfNoTabsLeft()
 
         super.becomeKey()
 
@@ -230,7 +228,18 @@ class TitlebarTabsVenturaTerminalWindow: TitlebarTabsTahoeTerminalWindow {
     }
 
     // To be called immediately after the tab bar is disabled.
-    private func resetCustomTabBarViews() {
+    private func resetCustomTabBarViewsIfNoTabsLeft() {
+        guard let tabGroup = tabGroup, tabGroup.windows.count < 2 else {
+            // when there is no tab group, do nothing
+            // to avoid edge cases
+            // e.g. on Sequoia
+            // 1. Open a new window
+            // 2. Create 3 tabs
+            // 3. Select the second tab
+            //
+            // without this check, the leading will be inconsistent with the dark first tab
+            return
+        }
         // Hide the window buttons backdrop.
         windowButtonsBackdrop?.isHidden = true
 
@@ -295,7 +304,7 @@ class TitlebarTabsVenturaTerminalWindow: TitlebarTabsTahoeTerminalWindow {
             let titlebarView = getTitlebarView(),
             let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView")
         else {
-            resetCustomTabBarViews() // remove backdrop and handle
+            resetCustomTabBarViewsIfNoTabsLeft() // remove backdrop and handle
             return
         }
         // HACK: wait a tick before doing anything, to get correct ``hasTabBar`` result
@@ -309,7 +318,7 @@ class TitlebarTabsVenturaTerminalWindow: TitlebarTabsTahoeTerminalWindow {
             // but the moment that second last tab was close, this check was true, which leads us here
             guard hasTabBar else {
                 // this reset the tabs which were created later, but closed last
-                resetCustomTabBarViews() // reset again
+                resetCustomTabBarViewsIfNoTabsLeft() // reset again
                 return
             }
             self.addWindowButtonsBackdrop(titlebarView: titlebarView, toolbarView: toolbarView)
