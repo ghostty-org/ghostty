@@ -387,6 +387,7 @@ class TerminalWindow: NSWindow {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
             titlebarTextField?.font = font
+            titlebarTextField?.usesSingleLineMode = true
             tab.attributedTitle = attributedTitle
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -397,8 +398,7 @@ class TerminalWindow: NSWindow {
 
     // Find the NSTextField responsible for displaying the titlebar's title.
     private var titlebarTextField: NSTextField? {
-        titlebarContainer?
-            .firstDescendant(withClassName: "NSTitlebarView")?
+        getTitlebarView()?
             .firstDescendant(withClassName: "NSTextField") as? NSTextField
     }
 
