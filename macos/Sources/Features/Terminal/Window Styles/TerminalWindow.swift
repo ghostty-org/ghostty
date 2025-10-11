@@ -578,7 +578,7 @@ extension TerminalWindow {
         @Published var titleFont: NSFont?
         @Published var title: String = "👻 Ghostty"
         @Published var hasTabBar: Bool = false
-        @Published var isMainWindow: Bool = true
+        @Published var isMainWindow: Bool = false
 
         @Published var isSurfaceZoomed: Bool = false
         @Published var hasToolbar: Bool = false
@@ -623,7 +623,8 @@ extension TerminalWindow {
         var titleText: some View {
             Text(title)
                 .font(viewModel.titleFont.flatMap(Font.init(_:)))
-                .foregroundStyle(viewModel.isMainWindow ? .primary : .secondary)
+                .foregroundStyle(viewModel.isMainWindow ? .primary : .tertiary)
+                .opacity(viewModel.isMainWindow ? 1 : 0.8)
                 .lineLimit(1)
                 .truncationMode(.head) // last few components appears more important
                 .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
@@ -633,7 +634,8 @@ extension TerminalWindow {
         var resetZoomButton: some View {
             Button(action: resetZoomAction) {
                 Image("ResetZoom")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(viewModel.isMainWindow ? .accentColor : .secondary)
+                    .opacity(viewModel.isMainWindow ? 1 : 0.8)
             }
             .buttonStyle(.plain)
             .help("Reset Split Zoom")
