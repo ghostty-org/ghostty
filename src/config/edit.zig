@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const internal_os = @import("../os/main.zig");
+const Config = @import("./Config.zig");
 
 /// The path to the configuration that should be opened for editing.
 ///
@@ -89,20 +90,16 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
 /// Returns a const list of possible paths the main config file could be
 /// in for the current OS.
 fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
-    var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 2);
+    var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 4);
     errdefer paths.deinit(alloc_arena);
 
     if (comptime builtin.os.tag == .macos) {
-        paths.appendAssumeCapacity(try internal_os.macos.appSupportDir(
-            alloc_arena,
-            "config",
-        ));
+        paths.appendAssumeCapacity(try Config.defaultAppSupportPath(alloc_arena));
+        paths.appendAssumeCapacity(try Config.legacyDefaultAppSupportPath(alloc_arena));
     }
 
-    paths.appendAssumeCapacity(try internal_os.xdg.config(
-        alloc_arena,
-        .{ .subdir = "ghostty/config" },
-    ));
+    paths.appendAssumeCapacity(try Config.defaultXdgPath(alloc_arena));
+    paths.appendAssumeCapacity(try Config.legacyDefaultXdgPath(alloc_arena));
 
     return paths.items;
 }
