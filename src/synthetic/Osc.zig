@@ -53,6 +53,9 @@ pub fn generator(self: *Osc) Generator {
     return .init(self, next);
 }
 
+const osc = std.fmt.comptimePrint("{c}]", .{std.ascii.control_code.esc});
+const st = std.fmt.comptimePrint("{c}", .{std.ascii.control_code.bel});
+
 /// Get the next OSC request in bytes. The generated OSC request will
 /// have the prefix `ESC ]` and the terminator `BEL` (0x07).
 ///
@@ -63,23 +66,22 @@ pub fn generator(self: *Osc) Generator {
 ///
 /// The buffer must be at least 3 bytes long to accommodate the
 /// prefix and terminator.
-pub fn next(self: *Osc, buf: []u8) Generator.Error![]const u8 {
-    if (buf.len < 3) return error.NoSpaceLeft;
-    const unwrapped = try self.nextUnwrapped(buf[2 .. buf.len - 1]);
-    buf[0] = 0x1B; // ESC
-    buf[1] = ']';
-    buf[unwrapped.len + 2] = 0x07; // BEL
-    return buf[0 .. unwrapped.len + 3];
+pub fn next(self: *Osc, writer: *std.Io.Writer, max_len: usize) Generator.Error!void {
+    assert(max_len >= 3);
+    try writer.writeAll(osc);
+    try self.nextUnwrapped(writer, max_len - (osc.len + st.len));
+    try writer.writeAll(st);
 }
 
-fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
+fn nextUnwrapped(self: *Osc, writer: *std.Io.Writer, max_len: usize) Generator.Error!void {
     return switch (self.chooseValidity()) {
         .valid => valid: {
             const Indexer = @TypeOf(self.p_valid_kind).Indexer;
             const idx = self.rand.weightedIndex(f64, &self.p_valid_kind.values);
             break :valid try self.nextUnwrappedValidExact(
-                buf,
+                writer,
                 Indexer.keyForIndex(idx),
+                max_len,
             );
         },
 
@@ -87,70 +89,64 @@ fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
             const Indexer = @TypeOf(self.p_invalid_kind).Indexer;
             const idx = self.rand.weightedIndex(f64, &self.p_invalid_kind.values);
             break :invalid try self.nextUnwrappedInvalidExact(
-                buf,
+                writer,
                 Indexer.keyForIndex(idx),
+                max_len,
             );
         },
     };
 }
 
-fn nextUnwrappedValidExact(self: *const Osc, buf: []u8, k: ValidKind) Generator.Error![]const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
+fn nextUnwrappedValidExact(self: *const Osc, writer: *std.Io.Writer, k: ValidKind, max_len: usize) Generator.Error!void {
     switch (k) {
         .change_window_title => {
-            try fbs.writer().writeAll("0;"); // Set window title
+            try writer.writeAll("0;"); // Set window title
             var bytes_gen = self.bytes();
-            const title = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(title.len));
+            try bytes_gen.next(writer, max_len - 2);
         },
 
         .prompt_start => {
-            try fbs.writer().writeAll("133;A"); // Start prompt
+            try writer.writeAll("133;A"); // Start prompt
 
             // aid
             if (self.rand.boolean()) {
                 var bytes_gen = self.bytes();
                 bytes_gen.max_len = 16;
-                try fbs.writer().writeAll(";aid=");
-                const aid = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-                try fbs.seekBy(@intCast(aid.len));
+                try writer.writeAll(";aid=");
+                try bytes_gen.next(writer, max_len);
             }
 
             // redraw
             if (self.rand.boolean()) {
-                try fbs.writer().writeAll(";redraw=");
+                try writer.writeAll(";redraw=");
                 if (self.rand.boolean()) {
-                    try fbs.writer().writeAll("1");
+                    try writer.writeAll("1");
                 } else {
-                    try fbs.writer().writeAll("0");
+                    try writer.writeAll("0");
                 }
             }
         },
 
-        .prompt_end => try fbs.writer().writeAll("133;B"), // End prompt
+        .prompt_end => try writer.writeAll("133;B"), // End prompt
     }
-
-    return fbs.getWritten();
 }
 
 fn nextUnwrappedInvalidExact(
     self: *const Osc,
-    buf: []u8,
+    writer: *std.Io.Writer,
     k: InvalidKind,
-) Generator.Error![]const u8 {
+    max_len: usize,
+) Generator.Error!void {
     switch (k) {
         .random => {
             var bytes_gen = self.bytes();
-            return try bytes_gen.next(buf);
+            try bytes_gen.next(writer, max_len);
         },
 
         .good_prefix => {
-            var fbs = std.io.fixedBufferStream(buf);
-            try fbs.writer().writeAll("133;");
+            try writer.writeAll("133;");
             var bytes_gen = self.bytes();
-            const data = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(data.len));
-            return fbs.getWritten();
+            try bytes_gen.next(writer, max_len - 4);
         },
     }
 }
@@ -177,11 +173,21 @@ const Validity = enum { valid, invalid };
 const test_seed = 0xC0FFEEEEEEEEEEEE;
 
 test "OSC generator" {
+    const testing = std.testing;
     var prng = std.Random.DefaultPrng.init(test_seed);
-    var buf: [4096]u8 = undefined;
-    var v: Osc = .{ .rand = prng.random() };
-    const gen = v.generator();
-    for (0..50) |_| _ = try gen.next(&buf);
+    var buf: [256]u8 = undefined;
+    {
+        var v: Osc = .{
+            .rand = prng.random(),
+        };
+        const gen = v.generator();
+        for (0..50) |_| {
+            var writer: std.Io.Writer = .fixed(&buf);
+            try gen.next(&writer, buf.len);
+            const result = writer.buffered();
+            try testing.expect(result.len > 0);
+        }
+    }
 }
 
 test "OSC generator valid" {
@@ -195,7 +201,9 @@ test "OSC generator valid" {
         .p_valid = 1.0,
     };
     for (0..50) |_| {
-        const seq = try gen.next(&buf);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try gen.next(&writer, buf.len);
+        const seq = writer.buffered();
         var parser: terminal.osc.Parser = .init();
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) != null);
@@ -213,7 +221,9 @@ test "OSC generator invalid" {
         .p_valid = 0.0,
     };
     for (0..50) |_| {
-        const seq = try gen.next(&buf);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try gen.next(&writer, buf.len);
+        const seq = writer.buffered();
         var parser: terminal.osc.Parser = .init();
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) == null);
