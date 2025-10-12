@@ -32,7 +32,7 @@ struct UpdateBadge: View {
         case .extracting(let extracting):
             ProgressRingView(progress: min(1, max(0, extracting.progress)))
             
-        case .checking, .installing:
+        case .checking:
             if let iconName = model.iconName {
                 Image(systemName: iconName)
                     .rotationEffect(.degrees(rotationAngle))

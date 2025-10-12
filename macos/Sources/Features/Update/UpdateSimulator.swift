@@ -28,6 +28,9 @@ enum UpdateSimulator {
     /// User cancels while checking: checking (1s) → cancels → idle
     case cancelDuringChecking
     
+    /// Shows the installing state with restart button: installing (stays until dismissed)
+    case installing
+    
     func simulate(with viewModel: UpdateViewModel) {
         switch self {
         case .happyPath:
@@ -44,6 +47,8 @@ enum UpdateSimulator {
             simulateCancelDuringDownload(viewModel)
         case .cancelDuringChecking:
             simulateCancelDuringChecking(viewModel)
+        case .installing:
+            simulateInstalling(viewModel)
         }
     }
     
@@ -260,10 +265,10 @@ enum UpdateSimulator {
                         viewModel.state = .readyToInstall(.init(
                             reply: { choice in
                                 if choice == .install {
-                                    viewModel.state = .installing
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                    viewModel.state = .installing(.init(retryTerminatingApplication: {
+                                        print("Restart button clicked in simulator - resetting to idle")
                                         viewModel.state = .idle
-                                    }
+                                    }))
                                 } else {
                                     viewModel.state = .idle
                                 }
@@ -273,5 +278,12 @@ enum UpdateSimulator {
                 }
             }
         }
+    }
+    
+    private func simulateInstalling(_ viewModel: UpdateViewModel) {
+        viewModel.state = .installing(.init(retryTerminatingApplication: {
+            print("Restart button clicked in simulator - resetting to idle")
+            viewModel.state = .idle
+        }))
     }
 }

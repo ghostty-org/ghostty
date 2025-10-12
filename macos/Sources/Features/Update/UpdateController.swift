@@ -17,6 +17,11 @@ class UpdateController {
         userDriver.viewModel
     }
     
+    /// True if we're installing an update.
+    var isInstalling: Bool {
+        installCancellable != nil
+    }
+    
     /// Initialize a new update controller.
     init() {
         let hostBundle = Bundle.main

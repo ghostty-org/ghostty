@@ -58,8 +58,8 @@ struct UpdateViewModelTests {
     
     @Test func testInstallingText() {
         let viewModel = UpdateViewModel()
-        viewModel.state = .installing
-        #expect(viewModel.text == "Installing…")
+        viewModel.state = .installing(.init(retryTerminatingApplication: {}))
+        #expect(viewModel.text == "Restart to Complete Update")
     }
     
     @Test func testNotFoundText() {

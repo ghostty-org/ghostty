@@ -38,8 +38,8 @@ struct UpdatePopoverView: View {
             case .readyToInstall(let ready):
                 ReadyToInstallView(ready: ready, dismiss: dismiss)
                 
-            case .installing:
-                InstallingView()
+            case .installing(let installing):
+                InstallingView(installing: installing, dismiss: dismiss)
                 
             case .notFound(let notFound):
                 NotFoundView(notFound: notFound, dismiss: dismiss)
@@ -313,18 +313,31 @@ fileprivate struct ReadyToInstallView: View {
 }
 
 fileprivate struct InstallingView: View {
+    let installing: UpdateState.Installing
+    let dismiss: DismissAction
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Installing…")
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Restart Required")
                     .font(.system(size: 13, weight: .semibold))
+                
+                Text("The update is ready. Please restart the application to complete the installation.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
-            Text("The application will relaunch shortly.")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+            HStack {
+                Spacer()
+                Button("Restart Now") {
+                    installing.retryTerminatingApplication()
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
         }
         .padding(16)
     }

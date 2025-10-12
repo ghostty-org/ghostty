@@ -33,7 +33,7 @@ class UpdateViewModel: ObservableObject {
         case .readyToInstall:
             return "Install Update"
         case .installing:
-            return "Installing…"
+            return "Restart to Complete Update"
         case .notFound:
             return "No Updates Available"
         case .error(let err):
@@ -72,7 +72,7 @@ class UpdateViewModel: ObservableObject {
         case .readyToInstall:
             return "checkmark.circle.fill"
         case .installing:
-            return "gear"
+            return "power.circle"
         case .notFound:
             return "info.circle"
         case .error:
@@ -192,7 +192,7 @@ enum UpdateState: Equatable {
     case downloading(Downloading)
     case extracting(Extracting)
     case readyToInstall(ReadyToInstall)
-    case installing
+    case installing(Installing)
     
     var isIdle: Bool {
         if case .idle = self { return true }
@@ -381,5 +381,9 @@ enum UpdateState: Equatable {
     
     struct ReadyToInstall {
         let reply: @Sendable (SPUUserUpdateChoice) -> Void
+    }
+    
+    struct Installing {
+        let retryTerminatingApplication: () -> Void
     }
 }
