@@ -187,41 +187,33 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     // so we need to do it manually.
     private func updateNewTabButtonOpacity() {
         guard let newTabButton: NSButton = titlebarContainer?.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
-        guard let newTabButtonImageView: NSImageView = newTabButton.subviews.first(where: {
-            $0 as? NSImageView != nil
-        }) as? NSImageView else { return }
+        guard let newTabButtonImageView = newTabButton.firstDescendant(withClassName: "NSImageView") as? NSImageView else { return }
 
         newTabButtonImageView.alphaValue = isKeyWindow ? 1 : 0.5
     }
 
-	// Color the new tab button's image to match the color of the tab title/keyboard shortcut labels,
-	// just as it does in the stock tab bar.
+	/// Update: This method only add a vibrant overlay now,
+    /// since the image it self supports light/dark tint,
+    /// and system could restore it any time,
+    /// altering it will only cause maintenance burden for us.
+    ///
+    /// And if we hide original image,
+    /// ``updateNewTabButtonOpacity`` will not work
+    ///
+    /// ~~Color the new tab button's image to match the color of the tab title/keyboard shortcut labels,~~
+	/// ~~just as it does in the stock tab bar.~~
 	private func updateNewTabButtonImage() {
 		guard let newTabButton: NSButton = titlebarContainer?.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
-		guard let newTabButtonImageView: NSImageView = newTabButton.subviews.first(where: {
-			$0 as? NSImageView != nil
-		}) as? NSImageView else { return }
+        guard let newTabButtonImageView = newTabButton.firstDescendant(withClassName: "NSImageView") as? NSImageView else { return }
         guard let newTabButtonImage = newTabButtonImageView.image else { return }
 
+        let imageLayer = newTabButtonImageLayer ?? VibrantLayer(forAppearance: isLightTheme ? .light : .dark)!
+        imageLayer.frame = NSRect(origin: NSPoint(x: newTabButton.bounds.midX - newTabButtonImage.size.width/2, y: newTabButton.bounds.midY - newTabButtonImage.size.height/2), size: newTabButtonImage.size)
+        imageLayer.contentsGravity = .resizeAspect
+        imageLayer.opacity = 0.5
 
-        if newTabButtonImageLayer == nil {
-			let fillColor: NSColor = isLightTheme ? .black.withAlphaComponent(0.85) : .white.withAlphaComponent(0.85)
-			let newImage = NSImage(size: newTabButtonImage.size, flipped: false) { rect in
-				newTabButtonImage.draw(in: rect)
-				fillColor.setFill()
-				rect.fill(using: .sourceAtop)
-				return true
-			}
-			let imageLayer = VibrantLayer(forAppearance: isLightTheme ? .light : .dark)!
-			imageLayer.frame = NSRect(origin: NSPoint(x: newTabButton.bounds.midX - newTabButtonImage.size.width/2, y: newTabButton.bounds.midY - newTabButtonImage.size.height/2), size: newTabButtonImage.size)
-			imageLayer.contentsGravity = .resizeAspect
-			imageLayer.contents = newImage
-			imageLayer.opacity = 0.5
+        newTabButtonImageLayer = imageLayer
 
-			newTabButtonImageLayer = imageLayer
-		}
-
-        newTabButtonImageView.isHidden = true
         newTabButton.layer?.sublayers?.first(where: { $0.className == "VibrantLayer" })?.removeFromSuperlayer()
         newTabButton.layer?.addSublayer(newTabButtonImageLayer!)
 	}
