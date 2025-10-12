@@ -16,7 +16,7 @@ class TerminalWindow: NSWindow {
     static let defaultLevelKey: String = "TerminalDefaultLevel"
 
     /// The view model for SwiftUI views
-    private var viewModel = ViewModel()
+    var viewModel = ViewModel()
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
@@ -91,6 +91,8 @@ class TerminalWindow: NSWindow {
             hideWindowButtons()
         }
 
+        resetZoomAccessory.ghosttyAccessoryType = .resetZoom
+        updateAccessory.ghosttyAccessoryType = .update
         // Create our reset zoom titlebar accessory. We have to have a title
         // to do this or AppKit triggers an assertion.
         if styleMask.contains(.titled) {
@@ -196,6 +198,32 @@ class TerminalWindow: NSWindow {
         super.removeTitlebarAccessoryViewController(at: index)
     }
 
+    /// Used when there is not tab bar visible, call as needed
+    /// - Parameters:
+    ///   - windowButtonsWidth: leading offsets to consider when adding titlebar
+    ///   - horizontalPadding: additional horizontal padding
+    func setupCustomTitlebar(windowButtonsWidth: CGFloat, horizontalPadding: CGFloat = 8) {
+        guard let decorationView = getTitlebarView() else { return }
+
+        let titleView = decorationView.firstDescendant(withID: "ghostty-title-view") ?? NSHostingView(rootView: CustomTitleBar(viewModel: viewModel, resetZoomAction: { [weak self] in
+            guard let self else { return }
+            self.terminalController?.splitZoom(self)
+        }))
+
+        // we need to remove and add every time,
+        // in case it's been moved to the back
+        titleView.identifier = .init("ghostty-title-view")
+        titleView.removeFromSuperview()
+        decorationView.addSubview(titleView)
+        titleView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            titleView.leadingAnchor.constraint(equalTo: decorationView.leadingAnchor, constant: windowButtonsWidth + horizontalPadding),
+            titleView.trailingAnchor.constraint(equalTo: decorationView.trailingAnchor, constant: -horizontalPadding),
+            titleView.topAnchor.constraint(equalTo: decorationView.topAnchor),
+            titleView.bottomAnchor.constraint(equalTo: decorationView.bottomAnchor)
+        ])
+    }
+
     // MARK: Tab Bar
 
     /// This identifier is attached to the tab bar view controller when we detect it being
@@ -204,14 +232,29 @@ class TerminalWindow: NSWindow {
 
     /// Returns true if there is a tab bar visible on this window.
     var hasTabBar: Bool {
-        // TODO: use titlebarView to find it instead
-        contentView?.firstViewFromRoot(withClassName: "NSTabBar") != nil
+        getTabBar() != nil
     }
 
-    var hasMoreThanOneTabs: Bool {
-        /// accessing ``tabGroup?.windows`` here
-        /// will cause other edge cases, be careful
-        (tabbedWindows?.count ?? 0) > 1
+    func getTitlebarView() -> NSView? {
+        // Find our tab bar. If it doesn't exist we don't do anything.
+        //
+        // In normal window, `NSTabBar` typically appears as a subview of `NSTitlebarView` within `NSThemeFrame`.
+        // In fullscreen, the system creates a dedicated fullscreen window and the view hierarchy changes;
+        // in that case, the `titlebarView` is only accessible via a reference on `NSThemeFrame`.
+        // ref: https://github.com/mozilla-firefox/firefox/blob/054e2b072785984455b3b59acad9444ba1eeffb4/widget/cocoa/nsCocoaWindow.mm#L7205
+        guard let themeFrameView = contentView?.rootView else {
+            return nil
+        }
+        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
+            themeFrameView.value(forKey: "titlebarView") as? NSView
+        } else {
+            NSView?.none
+        }
+        return titlebarView
+    }
+
+    func getTabBar() -> NSView? {
+        return getTitlebarView()?.firstDescendant(withClassName: "NSTabBar")
     }
 
     func isTabBar(_ childViewController: NSTitlebarAccessoryViewController) -> Bool {
@@ -331,8 +374,12 @@ class TerminalWindow: NSWindow {
             /// the value is not what we want
             ///
             /// Check ``titlebarFont`` down below
-            /// to see why we need to check `hasMoreThanOneTabs` here
-            titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
+            /// to see why we need to check `hasTabBar` here
+            titlebarTextField?.usesSingleLineMode = !hasTabBar
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.title = self.title
+            }
         }
     }
 
@@ -342,20 +389,23 @@ class TerminalWindow: NSWindow {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
             titlebarTextField?.font = font
-            /// We check `hasMoreThanOneTabs` here because the system
+            /// We check `hasTabBar` here because the system
             /// may copy this setting to the tab’s text field at some point(e.g. entering/exiting fullscreen),
             /// which can cause the title to be vertically misaligned (shifted downward).
             ///
             /// This behaviour is the opposite of what happens in the title bar’s text field, which is quite odd...
-            titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
+            titlebarTextField?.usesSingleLineMode = !hasTabBar
             tab.attributedTitle = attributedTitle
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.titleFont = font
+            }
         }
     }
 
     // Find the NSTextField responsible for displaying the titlebar's title.
     private var titlebarTextField: NSTextField? {
-        titlebarContainer?
-            .firstDescendant(withClassName: "NSTitlebarView")?
+        getTitlebarView()?
             .firstDescendant(withClassName: "NSTextField") as? NSTextField
     }
 
@@ -522,6 +572,10 @@ class TerminalWindow: NSWindow {
 
 extension TerminalWindow {
     class ViewModel: ObservableObject {
+        @Published var titleFont: NSFont?
+        @Published var title: String = "👻 Ghostty"
+        @Published var hasTabBar: Bool = false
+
         @Published var isSurfaceZoomed: Bool = false
         @Published var hasToolbar: Bool = false
         @Published var isMainWindow: Bool = true
@@ -533,6 +587,57 @@ extension TerminalWindow {
             } else {
                 return hasToolbar ? 9 : 4
             }
+        }
+    }
+
+    /// Displays the window title and ResetZoom button
+    struct CustomTitleBar: View {
+        @ObservedObject var viewModel: ViewModel
+        let resetZoomAction: () -> Void
+
+        var title: String {
+            // An empty title makes this view zero-sized and NSToolbar on macOS
+            // tahoe just deletes the item when that happens. So we use a space
+            // instead to ensure there's always some size.
+            return viewModel.title.isEmpty ? " " : viewModel.title
+        }
+
+        var body: some View {
+            titleText
+                .frame(height: 50)
+                .padding(.horizontal, 25) // leave some space for resetZoom button
+                .overlay(alignment: .trailing) {
+                    if viewModel.isSurfaceZoomed {
+                        resetZoomButton
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .animation(.bouncy, value: viewModel.isSurfaceZoomed)
+                .opacity(viewModel.hasTabBar ? 0 : 1) // hide when in fullscreen mode, where title bar will appear in the leading area under window buttons
+                .disabled(viewModel.hasTabBar)
+        }
+
+        @ViewBuilder
+        var titleText: some View {
+            Text(title)
+                .font(viewModel.titleFont.flatMap(Font.init(_:)))
+                .foregroundStyle(viewModel.isMainWindow ? .primary : .tertiary)
+                .opacity(viewModel.isMainWindow ? 1 : 0.8)
+                .lineLimit(1)
+                .truncationMode(.head) // last few components appears more important
+                .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
+                .help(title) // hover to show full path, one can also add some actions here, e.g. Show in Finder
+        }
+
+        var resetZoomButton: some View {
+            Button(action: resetZoomAction) {
+                Image("ResetZoom")
+                    .foregroundColor(viewModel.isMainWindow ? .accentColor : .secondary)
+                    .opacity(viewModel.isMainWindow ? 1 : 0.8)
+            }
+            .buttonStyle(.plain)
+            .help("Reset Split Zoom")
+            .frame(width: 20, height: 20)
         }
     }
 
@@ -574,4 +679,20 @@ extension TerminalWindow {
         }
     }
 
+    enum AccessoryType: String {
+        case resetZoom = "ghostty.titlebar.accessory.resetZoom"
+        case update = "ghostty.titlebar.accessory.update"
+    }
+}
+
+extension NSTitlebarAccessoryViewController {
+    var ghosttyAccessoryType: TerminalWindow.AccessoryType? {
+        get {
+            identifier.flatMap({ TerminalWindow.AccessoryType(rawValue: $0.rawValue) })
+        }
+
+        set {
+            identifier = newValue.flatMap({ NSUserInterfaceItemIdentifier.init($0.rawValue) })
+        }
+    }
 }
