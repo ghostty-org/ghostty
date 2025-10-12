@@ -193,8 +193,8 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         newTabButtonImageView.alphaValue = isKeyWindow ? 1 : 0.5
     }
 
-	/// Update: This method only add a vibrant overlay now,
-    /// since the image it self supports light/dark tint,
+    /// Update: This method only add a vibrant overlay now,
+    /// since the image itself supports light/dark tint,
     /// and system could restore it any time,
     /// altering it will only cause maintenance burden for us.
     ///
@@ -449,7 +449,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
             /// replacing existing backdrop aggressively
             /// may cause incorrect hierarchy
             ///
-            /// because multiple windows are adding this 'at the same time'
+            /// because multiple windows are adding this around the 'same time'
             return
         }
         windowButtonsBackdrop?.removeFromSuperview()
@@ -471,10 +471,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     private func addWindowDragHandle(titlebarView: NSView, toolbarView: NSView) {
         // If we already made the view, just make sure it's unhidden and correctly placed as a subview.
         guard windowDragHandle?.superview != titlebarView.superview else {
-            /// replacing existing drag handle aggressively
-            /// may cause incorrect hierarchy
-            ///
-            /// because multiple windows are adding this 'at the same time'
+            // similar to `addWindowButtonsBackdrop`
             return
         }
         windowDragHandle?.removeFromSuperview()
