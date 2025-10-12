@@ -412,16 +412,13 @@ pub const compatibility = std.StaticStringMap(
 @"adjust-box-thickness": ?MetricModifier = null,
 /// Height in pixels or percentage adjustment of maximum height for nerd font icons.
 ///
-/// Increasing this value will allow nerd font icons to be larger, but won't
-/// necessarily force them to be. Decreasing this value will make nerd font
-/// icons smaller.
+/// A positive (negative) value will increase (decrease) the maximum icon
+/// height. This may not affect all icons equally: the effect depends on whether
+/// the default size of the icon is height-constrained, which in turn depends on
+/// the aspect ratio of both the icon and your primary font.
 ///
-/// This value only applies to icons that are constrained to a single cell by
-/// neighboring characters. An icon that is free to spread across two cells
-/// can always use up to the full line height of the primary font.
-///
-/// The default value is 2/3 times the height of capital letters in your primary
-/// font plus 1/3 times the font's line height.
+/// Certain icons designed for box drawing and terminal graphics, such as
+/// Powerline symbols, are not affected by this option.
 ///
 /// See the notes about adjustments in `adjust-cell-width`.
 ///
