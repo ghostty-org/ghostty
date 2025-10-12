@@ -24,6 +24,7 @@ const cli = @import("../cli.zig");
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
+const file_load = @import("file_load.zig");
 const formatterpkg = @import("formatter.zig");
 const themepkg = @import("theme.zig");
 const url = @import("url.zig");
@@ -3397,7 +3398,7 @@ pub fn loadIter(
 /// `path` must be resolved and absolute.
 pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     assert(std.fs.path.isAbsolute(path));
-    var file = openFile(path) catch |err| switch (err) {
+    var file = file_load.open(path) catch |err| switch (err) {
         error.NotAFile => {
             log.warn(
                 "config-file {s}: not reading because it is not a file",
@@ -3470,9 +3471,9 @@ fn writeConfigTemplate(path: []const u8) !void {
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     // Load XDG first
-    const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
+    const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);
-    const xdg_path = try defaultXdgPath(alloc);
+    const xdg_path = try file_load.defaultXdgPath(alloc);
     defer alloc.free(xdg_path);
     const xdg_loaded: bool = xdg_loaded: {
         const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
@@ -3489,9 +3490,9 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
-        const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
+        const legacy_app_support_path = try file_load.legacyDefaultAppSupportPath(alloc);
         defer alloc.free(legacy_app_support_path);
-        const app_support_path = try preferredAppSupportPath(alloc);
+        const app_support_path = try file_load.preferredAppSupportPath(alloc);
         defer alloc.free(app_support_path);
         const app_support_loaded: bool = loaded: {
             const legacy_app_support_action = self.loadOptionalFile(alloc, legacy_app_support_path);
@@ -3520,165 +3521,6 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
             };
         }
     }
-}
-
-/// Default path for the XDG home configuration file. Returned value
-/// must be freed by the caller.
-pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.xdg.config(
-        alloc,
-        .{ .subdir = "ghostty/config.ghostty" },
-    );
-}
-
-/// Ghostty <1.3.0 default path for the XDG home configuration file.
-/// Returned value must be freed by the caller.
-pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.xdg.config(
-        alloc,
-        .{ .subdir = "ghostty/config" },
-    );
-}
-
-/// Preferred default path for the XDG home configuration file.
-/// Returned value must be freed by the caller.
-fn preferredXdgPath(alloc: Allocator) ![]const u8 {
-    // If the XDG path exists, use that.
-    const xdg_path = try defaultXdgPath(alloc);
-    if (openFile(xdg_path)) |f| {
-        f.close();
-        return xdg_path;
-    } else |_| {}
-
-    // Try the legacy path
-    errdefer alloc.free(xdg_path);
-    const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
-    if (openFile(legacy_xdg_path)) |f| {
-        f.close();
-        alloc.free(xdg_path);
-        return legacy_xdg_path;
-    } else |_| {}
-
-    // Legacy path and XDG path both don't exist. Return the
-    // new one.
-    alloc.free(legacy_xdg_path);
-    return xdg_path;
-}
-
-/// Default path for the macOS Application Support configuration file.
-/// Returned value must be freed by the caller.
-pub fn defaultAppSupportPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.macos.appSupportDir(alloc, "config.ghostty");
-}
-
-/// Ghostty <1.3.0 default path for the macOS Application Support
-/// configuration file. Returned value must be freed by the caller.
-pub fn legacyDefaultAppSupportPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.macos.appSupportDir(alloc, "config");
-}
-
-/// Preferred default path for the macOS Application Support configuration file.
-/// Returned value must be freed by the caller.
-fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
-    // If the app support path exists, use that.
-    const app_support_path = try defaultAppSupportPath(alloc);
-    if (openFile(app_support_path)) |f| {
-        f.close();
-        return app_support_path;
-    } else |_| {}
-
-    // Try the legacy path
-    errdefer alloc.free(app_support_path);
-    const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
-    if (openFile(legacy_app_support_path)) |f| {
-        f.close();
-        alloc.free(app_support_path);
-        return legacy_app_support_path;
-    } else |_| {}
-
-    // Legacy path and app support path both don't exist. Return the
-    // new one.
-    alloc.free(legacy_app_support_path);
-    return app_support_path;
-}
-
-/// Returns the path to the preferred default configuration file.
-/// This is the file where users should place their configuration.
-///
-/// This doesn't create or populate the file with any default
-/// contents; downstream callers must handle this.
-///
-/// The returned value must be freed by the caller.
-pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
-    switch (builtin.os.tag) {
-        .macos => {
-            // macOS prefers the Application Support directory
-            // if it exists.
-            const app_support_path = try preferredAppSupportPath(alloc);
-            const app_support_file = openFile(app_support_path) catch {
-                // Try the XDG path if it exists
-                const xdg_path = try preferredXdgPath(alloc);
-                const xdg_file = openFile(xdg_path) catch {
-                    // If neither file exists, use app support
-                    alloc.free(xdg_path);
-                    return app_support_path;
-                };
-                xdg_file.close();
-                alloc.free(app_support_path);
-                return xdg_path;
-            };
-            app_support_file.close();
-            return app_support_path;
-        },
-
-        // All other platforms use XDG only
-        else => return try preferredXdgPath(alloc),
-    }
-}
-
-const OpenFileError = error{
-    FileNotFound,
-    FileIsEmpty,
-    FileOpenFailed,
-    NotAFile,
-};
-
-/// Opens the file at the given path and returns the file handle
-/// if it exists and is non-empty. This also constrains the possible
-/// errors to a smaller set that we can explicitly handle.
-fn openFile(path: []const u8) OpenFileError!std.fs.File {
-    assert(std.fs.path.isAbsolute(path));
-
-    var file = std.fs.openFileAbsolute(
-        path,
-        .{},
-    ) catch |err| switch (err) {
-        error.FileNotFound => return OpenFileError.FileNotFound,
-        else => {
-            log.warn("unexpected file open error path={s} err={}", .{
-                path,
-                err,
-            });
-            return OpenFileError.FileOpenFailed;
-        },
-    };
-    errdefer file.close();
-
-    const stat = file.stat() catch |err| {
-        log.warn("error getting file stat path={s} err={}", .{
-            path,
-            err,
-        });
-        return OpenFileError.FileOpenFailed;
-    };
-    switch (stat.kind) {
-        .file => {},
-        else => return OpenFileError.NotAFile,
-    }
-
-    if (stat.size == 0) return OpenFileError.FileIsEmpty;
-
-    return file;
 }
 
 /// Load and parse the CLI args.

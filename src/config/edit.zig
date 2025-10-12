@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const internal_os = @import("../os/main.zig");
-const Config = @import("./Config.zig");
+const file_load = @import("file_load.zig");
 
 /// The path to the configuration that should be opened for editing.
 ///
@@ -94,12 +94,12 @@ fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
     errdefer paths.deinit(alloc_arena);
 
     if (comptime builtin.os.tag == .macos) {
-        paths.appendAssumeCapacity(try Config.defaultAppSupportPath(alloc_arena));
-        paths.appendAssumeCapacity(try Config.legacyDefaultAppSupportPath(alloc_arena));
+        paths.appendAssumeCapacity(try file_load.defaultAppSupportPath(alloc_arena));
+        paths.appendAssumeCapacity(try file_load.legacyDefaultAppSupportPath(alloc_arena));
     }
 
-    paths.appendAssumeCapacity(try Config.defaultXdgPath(alloc_arena));
-    paths.appendAssumeCapacity(try Config.legacyDefaultXdgPath(alloc_arena));
+    paths.appendAssumeCapacity(try file_load.defaultXdgPath(alloc_arena));
+    paths.appendAssumeCapacity(try file_load.legacyDefaultXdgPath(alloc_arena));
 
     return paths.items;
 }

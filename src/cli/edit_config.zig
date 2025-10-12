@@ -73,7 +73,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     defer config.deinit();
 
     // Find the preferred path.
-    const path = try Config.preferredDefaultFilePath(alloc);
+    const path = try configpkg.preferredDefaultFilePath(alloc);
     defer alloc.free(path);
 
     // We don't currently support Windows because we use the exec syscall.
