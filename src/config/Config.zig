@@ -3471,40 +3471,40 @@ fn writeConfigTemplate(path: []const u8) !void {
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     // Load XDG first
     const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
-    const xdg_path = try defaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);
+    const xdg_path = try defaultXdgPath(alloc);
     defer alloc.free(xdg_path);
-    var xdg_loaded = false;
-    {
+    const xdg_loaded: bool = xdg_loaded: {
         const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
         const xdg_action = self.loadOptionalFile(alloc, xdg_path);
         if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
             log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
             log.warn("loading them both in that order", .{});
-            xdg_loaded = true;
-        } else if (xdg_action != .not_found or legacy_xdg_action != .not_found) {
-            xdg_loaded = true;
+            break :xdg_loaded true;
         }
-    }
+
+        break :xdg_loaded xdg_action != .not_found or
+            legacy_xdg_action != .not_found;
+    };
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
         const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
+        defer alloc.free(legacy_app_support_path);
         const app_support_path = try preferredAppSupportPath(alloc);
         defer alloc.free(app_support_path);
-        defer alloc.free(legacy_app_support_path);
-        var app_support_loaded = false;
-        {
+        const app_support_loaded: bool = loaded: {
             const legacy_app_support_action = self.loadOptionalFile(alloc, legacy_app_support_path);
             const app_support_action = self.loadOptionalFile(alloc, app_support_path);
             if (app_support_action != .not_found and legacy_app_support_action != .not_found) {
                 log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_app_support_path, app_support_path });
                 log.warn("loading them both in that order", .{});
-                app_support_loaded = true;
-            } else if (app_support_action != .not_found or legacy_app_support_action != .not_found) {
-                app_support_loaded = true;
+                break :loaded true;
             }
-        }
+
+            break :loaded app_support_action != .not_found or
+                legacy_app_support_action != .not_found;
+        };
 
         // If both files are not found, then we create a template file.
         // For macOS, we only create the template file in the app support
@@ -3543,18 +3543,25 @@ pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
 /// Preferred default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
 fn preferredXdgPath(alloc: Allocator) ![]const u8 {
+    // If the XDG path exists, use that.
     const xdg_path = try defaultXdgPath(alloc);
-    const xdg_file = openFile(xdg_path) catch {
-        const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
-        const legacy_xdg_file = openFile(legacy_xdg_path) catch {
-            alloc.free(legacy_xdg_path);
-            return xdg_path;
-        };
-        legacy_xdg_file.close();
+    if (openFile(xdg_path)) |f| {
+        f.close();
+        return xdg_path;
+    } else |_| {}
+
+    // Try the legacy path
+    errdefer alloc.free(xdg_path);
+    const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
+    if (openFile(legacy_xdg_path)) |f| {
+        f.close();
         alloc.free(xdg_path);
         return legacy_xdg_path;
-    };
-    xdg_file.close();
+    } else |_| {}
+
+    // Legacy path and XDG path both don't exist. Return the
+    // new one.
+    alloc.free(legacy_xdg_path);
     return xdg_path;
 }
 
@@ -3570,21 +3577,28 @@ pub fn legacyDefaultAppSupportPath(alloc: Allocator) ![]const u8 {
     return try internal_os.macos.appSupportDir(alloc, "config");
 }
 
-/// Default path for the macOS Application Support configuration file.
+/// Preferred default path for the macOS Application Support configuration file.
 /// Returned value must be freed by the caller.
 fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
+    // If the app support path exists, use that.
     const app_support_path = try defaultAppSupportPath(alloc);
-    const app_support_file = openFile(app_support_path) catch {
-        const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
-        const legacy_app_support_file = openFile(legacy_app_support_path) catch {
-            alloc.free(legacy_app_support_path);
-            return app_support_path;
-        };
-        legacy_app_support_file.close();
+    if (openFile(app_support_path)) |f| {
+        f.close();
+        return app_support_path;
+    } else |_| {}
+
+    // Try the legacy path
+    errdefer alloc.free(app_support_path);
+    const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
+    if (openFile(legacy_app_support_path)) |f| {
+        f.close();
         alloc.free(app_support_path);
         return legacy_app_support_path;
-    };
-    app_support_file.close();
+    } else |_| {}
+
+    // Legacy path and app support path both don't exist. Return the
+    // new one.
+    alloc.free(legacy_app_support_path);
     return app_support_path;
 }
 
