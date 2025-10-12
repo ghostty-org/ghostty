@@ -121,7 +121,12 @@ class AppDelegate: NSObject,
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage? = nil {
         didSet {
+#if DEBUG
+            // if no custom icon specified, we use blueprint to distinguish from release app
+            NSApplication.shared.applicationIconImage = appIcon ?? NSImage(named: "BlueprintImage")
+#else
             NSApplication.shared.applicationIconImage = appIcon
+#endif
             let appPath = Bundle.main.bundlePath
             NSWorkspace.shared.setIcon(appIcon, forFile: appPath, options: [])
             NSWorkspace.shared.noteFileSystemChanged(appPath)
