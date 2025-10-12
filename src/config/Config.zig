@@ -3037,17 +3037,20 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"macos-shortcuts": MacShortcuts = .ask,
 
-/// The background style for macOS windows when `background-opacity` is less than 1.
-/// This controls the visual effect applied behind the terminal background.
+/// The background style for macOS windows when `background-opacity` is less
+/// than 1. This controls the visual effect applied behind the terminal
+/// background.
 ///
 /// Valid values are:
 ///
 ///   * `default` - Uses the standard background behavior. The `background-blur`
-///     configuration will control whether blur is applied (available on all macOS versions)
-///   * `regular-glass` - Standard glass effect with some opacity (macOS 26.0+ only)
+///     configuration will control whether blur is applied (available on
+///     all macOS versions)
+///   * `regular-glass` - Standard glass effect with some opacity (macOS
+///      26.0+ only)
 ///   * `clear-glass` - Highly transparent glass effect (macOS 26.0+ only)
 ///
-/// Available since: 1.2.2
+/// Available since: 1.3.0
 @"macos-background-style": MacBackgroundStyle = .default,
 
 /// Put every surface (tab, split, window) into a dedicated Linux cgroup.
