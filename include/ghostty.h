@@ -428,6 +428,7 @@ typedef struct {
   size_t env_var_count;
   const char* initial_input;
   bool wait_after_command;
+  int context; // 0=window, 1=tab, 2=split
 } ghostty_surface_config_s;
 
 typedef struct {
