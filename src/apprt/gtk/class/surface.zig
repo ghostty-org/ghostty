@@ -671,6 +671,9 @@ pub const Surface = extern struct {
         error_page: *adw.StatusPage,
         terminal_page: *gtk.Overlay,
 
+        /// The context for this surface (window, tab, or split)
+        context: apprt.surface.NewSurfaceContext = .window,
+
         pub var offset: c_int = 0;
     };
 
@@ -716,10 +719,8 @@ pub const Surface = extern struct {
         // Remainder needs a config. If there is no config we just assume
         // we aren't inheriting any of these values.
         if (priv.config) |config_obj| {
-            const config = config_obj.get();
-
-            // Setup our pwd if configured to inherit
-            if (config.@"window-inherit-working-directory") {
+            // Setup our cwd if configured to inherit
+            if (apprt.surface.shouldInheritWorkingDirectory(context, config_obj.get())) {
                 if (parent.rt_surface.surface.getPwd()) |pwd| {
                     priv.pwd = glib.ext.dupeZ(u8, pwd);
                     self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -3203,10 +3204,7 @@ pub const Surface = extern struct {
         errdefer app.core().deleteSurface(self.rt());
 
         // Initialize our surface configuration.
-        var config = try apprt.surface.newConfig(
-            app.core(),
-            priv.config.?.get(),
-        );
+        var config = try apprt.surface.newConfig(app.core(), priv.config.?.get(), priv.context);
         defer config.deinit();
 
         // Properties that can impact surface init

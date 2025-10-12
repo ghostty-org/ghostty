@@ -456,6 +456,15 @@ pub const Surface = struct {
 
         /// Wait after the command exits
         wait_after_command: bool = false,
+
+        /// Context for the new surface
+        context: Context = .c_window,
+
+        pub const Context = enum(c_int) {
+            c_window = 0,
+            c_tab = 1,
+            c_split = 2,
+        };
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -477,7 +486,13 @@ pub const Surface = struct {
         errdefer app.core_app.deleteSurface(self);
 
         // Shallow copy the config so that we can modify it.
-        var config = try apprt.surface.newConfig(app.core_app, &app.config);
+        const surface_context: apprt.surface.NewSurfaceContext = switch (opts.context) {
+            .c_window => .window,
+            .c_tab => .tab,
+            .c_split => .split,
+        };
+
+        var config = try apprt.surface.newConfig(app.core_app, &app.config, surface_context);
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
@@ -890,14 +905,27 @@ pub const Surface = struct {
         };
     }
 
-    pub fn newSurfaceOptions(self: *const Surface) apprt.Surface.Options {
+    pub fn newSurfaceOptions(self: *const Surface, context: apprt.surface.NewSurfaceContext) apprt.Surface.Options {
         const font_size: f32 = font_size: {
             if (!self.app.config.@"window-inherit-font-size") break :font_size 0;
             break :font_size self.core_surface.font_size.points;
         };
 
+        const working_directory: ?[*:0]const u8 = wd: {
+            if (!apprt.surface.shouldInheritWorkingDirectory(context, &self.app.config)) break :wd null;
+            const cwd = self.core_surface.pwd(self.app.core_app.alloc) catch null orelse break :wd null;
+            defer self.app.core_app.alloc.free(cwd);
+            break :wd self.app.core_app.alloc.dupeZ(u8, cwd) catch null;
+        };
+
         return .{
             .font_size = font_size,
+            .working_directory = working_directory,
+            .context = switch (context) {
+                .window => .c_window,
+                .tab => .c_tab,
+                .split => .c_split,
+            },
         };
     }
 
