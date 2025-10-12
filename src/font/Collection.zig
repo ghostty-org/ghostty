@@ -1203,23 +1203,26 @@ test "metrics" {
 
     try comparison.expectApproxEqual(font.Metrics{
         .cell_width = 8,
-        // The cell height is 17 px because the calculation is
+        // The cell height is 18 px because the calculation is
         //
         //  ascender - descender + gap
         //
         // which, for inconsolata is
         //
-        //  859 - -190 + 0
+        //  859 - (-190) + 0
         //
         // font units, at 1000 units per em that works out to 1.049 em,
         // and 1em should be the point size * dpi scale, so 12 * (96/72)
-        // which is 16, and 16 * 1.049 = 16.784, which finally is rounded
-        // to 17.
+        // which is 16, and 16 * 1.049 = 16.784.
         //
-        // The icon height is (2 * cap_height + face_height) / 3
-        // = (2 * 623 + 1049) / 3 = 765, and 16 * 0.765 = 12.24.
-        .cell_height = 17,
-        .cell_baseline = 3,
+        // The unrounded baseline is at
+        // -descender + (gap / 2) = -(-190) + 0 = 0.19 em. In pixels,
+        // that's 16 * 0.19 = 3.04, which rounds up to 4, so the
+        // bottom padding to align the baseline with a pixel boundary
+        // is 4 - 3.04 = 0.96. Hence, the top of the face is at
+        // 16.784 + 0.96 = 17.744, which finally is rounded up to 18.
+        .cell_height = 18,
+        .cell_baseline = 4,
         .underline_position = 17,
         .underline_thickness = 1,
         .strikethrough_position = 10,
@@ -1227,19 +1230,19 @@ test "metrics" {
         .overline_position = 0,
         .overline_thickness = 1,
         .box_thickness = 1,
-        .cursor_height = 17,
+        .cursor_height = 18,
         .icon_height = 12.24,
         .face_width = 8.0,
         .face_height = 16.784,
-        .face_y = -0.04,
+        .face_y = 0.96,
     }, c.metrics);
 
     // Resize should change metrics
     try c.setSize(.{ .points = 24, .xdpi = 96, .ydpi = 96 });
     try comparison.expectApproxEqual(font.Metrics{
         .cell_width = 16,
-        .cell_height = 34,
-        .cell_baseline = 6,
+        .cell_height = 35,
+        .cell_baseline = 7,
         .underline_position = 34,
         .underline_thickness = 2,
         .strikethrough_position = 19,
@@ -1247,11 +1250,11 @@ test "metrics" {
         .overline_position = 0,
         .overline_thickness = 2,
         .box_thickness = 2,
-        .cursor_height = 34,
+        .cursor_height = 35,
         .icon_height = 24.48,
         .face_width = 16.0,
         .face_height = 33.568,
-        .face_y = -0.08,
+        .face_y = 0.92,
     }, c.metrics);
 }
 

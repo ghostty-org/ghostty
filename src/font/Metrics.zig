@@ -225,7 +225,7 @@ pub fn calc(face: FaceMetrics) Metrics {
     const face_width = face.cell_width;
     const face_height = face.lineHeight();
     const cell_width = @ceil(face_width);
-    const cell_height = @ceil(face_height);
+    var cell_height = @ceil(face_height);
 
     // We split our line gap in two parts, and put half of it on the top
     // of the cell and the other half on the bottom, so that our text never
@@ -235,13 +235,27 @@ pub fn calc(face: FaceMetrics) Metrics {
     // Unlike all our other metrics, `cell_baseline` is relative to the
     // BOTTOM of the cell.
     const face_baseline = half_line_gap - face.descent;
-    const cell_baseline = @round(face_baseline);
+    var cell_baseline = @round(face_baseline);
+
+    // For line gaps of less than a pixel, the @round may give
+    // cell_baseline < -face.descent, meaning descenders would protrude
+    // below the cell. We need to correct for this.
+    if (cell_baseline < -face.descent) {
+        cell_baseline += 1;
+        cell_height += 1;
+    }
 
     // We keep track of the vertical bearing of the face in the cell
     const face_y = cell_baseline - face_baseline;
 
     // We calculate a top_to_baseline to make following calculations simpler.
-    const top_to_baseline = cell_height - cell_baseline;
+    var top_to_baseline = cell_height - cell_baseline;
+
+    // Same correction may by needed for ascenders.
+    if (top_to_baseline < face.ascent) {
+        top_to_baseline += 1;
+        cell_height += 1;
+    }
 
     // Get the other font metrics or their estimates. See doc comments
     // in FaceMetrics for explanations of the estimation heuristics.
