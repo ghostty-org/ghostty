@@ -282,12 +282,12 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     # `overlap` and `ypadding` are mutually exclusive,
     # this is asserted in the nerd fonts patcher itself.
     if overlap:
-        pad = -overlap
+        pad = -overlap / 2
         s += f"            .pad_left = {pad},\n"
         s += f"            .pad_right = {pad},\n"
         # In the nerd fonts patcher, overlap values
         # are capped at 0.01 in the vertical direction.
-        v_pad = -min(0.01, overlap)
+        v_pad = -min(0.01, overlap) / 2
         s += f"            .pad_top = {v_pad},\n"
         s += f"            .pad_bottom = {v_pad},\n"
     elif y_padding:
@@ -314,7 +314,7 @@ def generate_codepoint_tables(
             return nerd_font_codepoint_tables.cp_tables
 
     cp_tables: dict[str, dict[int, int]] = {}
-    cp_table_full: dict[int, int] = {}
+    cp_nerdfont_used: set[int] = set()
     cmap = nerd_font.getBestCmap()
     for entry in patch_sets:
         patch_set_name = entry["Name"]
@@ -381,12 +381,12 @@ def generate_codepoint_tables(
                 raise ValueError(
                     f"Missing codepoint in Symbols Only Font: {hex(cp_nerdfont)} in patch set '{patch_set_name}'"
                 )
-            elif cp_nerdfont in cp_table_full.values():
+            elif cp_nerdfont in cp_nerdfont_used:
                 raise ValueError(
                     f"Overlap for codepoint {hex(cp_nerdfont)} in patch set '{patch_set_name}'"
                 )
             cp_tables[patch_set_name][cp_original] = cp_nerdfont
-        cp_table_full |= cp_tables[patch_set_name]
+            cp_nerdfont_used.add(cp_nerdfont)
 
     # Store the table and corresponding Nerd Fonts version together in a module.
     with open("nerd_font_codepoint_tables.py", "w") as f:
@@ -419,9 +419,6 @@ def generate_zig_switch_arms(
     cmap = nerd_font.getBestCmap()
     glyphs = nerd_font.getGlyphSet()
     cp_tables = generate_codepoint_tables(patch_sets, nerd_font, nf_version)
-    cp_table_full: dict[int, int] = {}
-    for cp_table in cp_tables.values():
-        cp_table_full |= cp_table
 
     entries: dict[int, PatchSetAttributeEntry] = {}
     for entry in patch_sets:
@@ -454,9 +451,37 @@ def generate_zig_switch_arms(
                 individual_bounds: dict[int, tuple[int, int, int, int]] = {}
                 individual_advances: set[float] = set()
                 for cp_original in group:
-                    # Scale groups may cut across patch sets, so we need to use
-                    # the full lookup table here
-                    cp_nerdfont = cp_table_full[cp_original]
+                    if cp_original not in cp_table:
+                        # There is one special case where a scale group includes
+                        # a glyph from the original font that's not in any patch
+                        # set, and hence not in the Symbols Only font. The point
+                        # of this glyph is to add extra vertical padding to a
+                        # stretched (^xy) scale group, which means that its
+                        # scaled and aligned position would span the line height
+                        # plus overlap. Thus, we can use any other stretched
+                        # glyph with overlap as stand-in to get the vertical
+                        # bounds, such as as 0xE0B0 (powerline left hard
+                        # divider). We don't worry about the horizontal bounds,
+                        # as they by design should not affect the group's
+                        # bounding box.
+                        if (
+                            patch_set_name == "Progress Indicators"
+                            and cp_original == 0xEDFF
+                        ):
+                            glyph = glyphs[cmap[0xE0B0]]
+                            bounds = BoundsPen(glyphSet=glyphs)
+                            glyph.draw(bounds)
+                            yMin = min(bounds.bounds[1], yMin)
+                            yMax = max(bounds.bounds[3], yMax)
+                        else:
+                            # Other cases are due to lazily specified scale
+                            # groups with gaps in the codepoint range.
+                            print(
+                                f"Info: Skipping scale group codepoint {hex(cp_original)}, which does not exist in patch set '{patch_set_name}'"
+                            )
+                        continue
+
+                    cp_nerdfont = cp_table[cp_original]
                     glyph = glyphs[cmap[cp_nerdfont]]
                     individual_advances.add(glyph.width)
                     bounds = BoundsPen(glyphSet=glyphs)
@@ -472,7 +497,9 @@ def generate_zig_switch_arms(
                     len(individual_advances) == 1
                 )
                 for cp_original in group:
-                    cp_nerdfont = cp_table_full[cp_original]
+                    if cp_original not in cp_table:
+                        continue
+                    cp_nerdfont = cp_table[cp_original]
                     if (
                         # Scale groups may cut across patch sets, but we're only
                         # updating a single patch set at a time, so we skip
