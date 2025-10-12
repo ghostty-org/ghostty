@@ -445,6 +445,13 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     }
 
     private func addWindowButtonsBackdrop(titlebarView: NSView, toolbarView: NSView) {
+        guard windowButtonsBackdrop?.superview != titlebarView else {
+            /// replacing existing backdrop aggressively
+            /// may cause incorrect hierarchy
+            ///
+            /// because multiple windows are adding this 'at the same time'
+            return
+        }
         windowButtonsBackdrop?.removeFromSuperview()
         windowButtonsBackdrop = nil
 
@@ -463,16 +470,14 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     private func addWindowDragHandle(titlebarView: NSView, toolbarView: NSView) {
         // If we already made the view, just make sure it's unhidden and correctly placed as a subview.
-        if let view = windowDragHandle {
-            view.removeFromSuperview()
-            view.isHidden = false
-            titlebarView.superview?.addSubview(view)
-            view.leftAnchor.constraint(equalTo: toolbarView.leftAnchor).isActive = true
-            view.rightAnchor.constraint(equalTo: toolbarView.rightAnchor).isActive = true
-            view.topAnchor.constraint(equalTo: toolbarView.topAnchor).isActive = true
-            view.bottomAnchor.constraint(equalTo: toolbarView.topAnchor, constant: 12).isActive = true
+        guard windowDragHandle?.superview != titlebarView.superview else {
+            /// replacing existing drag handle aggressively
+            /// may cause incorrect hierarchy
+            ///
+            /// because multiple windows are adding this 'at the same time'
             return
         }
+        windowDragHandle?.removeFromSuperview()
 
         let view = WindowDragView()
         view.identifier = NSUserInterfaceItemIdentifier("_windowDragHandle")
@@ -533,7 +538,10 @@ fileprivate class WindowButtonsBackdropView: NSView {
     // This must be weak because the window has this view. Otherwise
     // a retain cycle occurs.
 	private weak var terminalWindow: TitlebarTabsVenturaTerminalWindow?
-	private let isLightTheme: Bool
+    private var isLightTheme: Bool {
+        // using up-to-date value from hosting window directly
+        terminalWindow?.isLightTheme ?? false
+    }
     private let overlayLayer = VibrantLayer()
 
     var isHighlighted: Bool = true {
@@ -562,7 +570,6 @@ fileprivate class WindowButtonsBackdropView: NSView {
 
     init(window: TitlebarTabsVenturaTerminalWindow) {
 		self.terminalWindow = window
-        self.isLightTheme = window.isLightTheme
 
         super.init(frame: .zero)
 
