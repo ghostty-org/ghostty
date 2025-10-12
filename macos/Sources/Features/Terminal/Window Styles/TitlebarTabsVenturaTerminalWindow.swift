@@ -145,6 +145,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         super.syncAppearance(surfaceConfig)
 
         // Update our window light/darkness based on our updated background color
+        let themeChanged = isLightTheme != OSColor(surfaceConfig.backgroundColor).isLightColor
         isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
 
         // Update our titlebar color
@@ -154,7 +155,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
             titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
         }
 
-        if (isOpaque) {
+        if (isOpaque || themeChanged) {
             // If there is transparency, calling this will make the titlebar opaque
             // so we only call this if we are opaque.
             updateTabBar()
