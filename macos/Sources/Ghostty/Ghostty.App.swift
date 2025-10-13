@@ -1429,8 +1429,10 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                guard let terminalController = surfaceView.window?.windowController as? BaseTerminalController else { return }
-                terminalController.toggleWindowDecorations()
+                NotificationCenter.default.post(
+                    name: .ghosttyToggleWindowDecorations,
+                    object: surfaceView
+                )
 
             default:
                 assertionFailure()

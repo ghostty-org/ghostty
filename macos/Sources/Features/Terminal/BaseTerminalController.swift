@@ -160,6 +160,11 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttyMaximizeDidToggle(_:)),
             name: .ghosttyMaximizeDidToggle,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyToggleWindowDecorations(_:)),
+            name: .ghosttyToggleWindowDecorations,
+            object: nil)
 
         // Splits
         center.addObserver(
@@ -560,6 +565,12 @@ class BaseTerminalController: NSWindowController,
         guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(surfaceView) else { return }
         window.zoom(nil)
+    }
+
+    @objc private func ghosttyToggleWindowDecorations(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(surfaceView) else { return }
+        toggleWindowDecorations()
     }
 
     @objc private func ghosttyDidCloseSurface(_ notification: Notification) {

@@ -299,17 +299,17 @@ extension Ghostty {
             }
         }
     }
-    
+
     struct ClipboardContent {
         let mime: String
         let data: String
-        
+
         static func from(content: ghostty_clipboard_content_s) -> ClipboardContent? {
             guard let mimePtr = content.mime,
                   let dataPtr = content.data else {
                 return nil
             }
-            
+
             return ClipboardContent(
                 mime: String(cString: mimePtr),
                 data: String(cString: dataPtr)
@@ -406,6 +406,9 @@ extension Notification.Name {
 
     /// Focus the search field
     static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
+
+    /// Toggle window decorations
+    static let ghosttyToggleWindowDecorations = Notification.Name("com.mitchellh.ghostty.toggleWindowDecorations")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
