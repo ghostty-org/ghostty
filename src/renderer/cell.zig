@@ -238,6 +238,7 @@ pub fn isCovering(cp: u21) bool {
 /// Returns true of the codepoint is a "symbol-like" character, which
 /// for now we define as anything in a private use area, and anything
 /// in several unicode blocks:
+/// - Arrows
 /// - Dingbats
 /// - Emoticons
 /// - Miscellaneous Symbols
