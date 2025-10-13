@@ -62,7 +62,10 @@ class BaseTerminalController: NSWindowController,
 
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
-
+    
+    /// Tracks whether window decorations were enabled before entering fullscreen
+    private var decorationsBeforeFullscreen: Bool? = nil
+    
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any? = nil
 
@@ -793,8 +796,25 @@ class BaseTerminalController: NSWindowController,
         guard let fullscreenStyle else { return }
 
         if fullscreenStyle.isFullscreen {
+            // Exiting fullscreen - restore decorations if needed
             fullscreenStyle.exit()
+            if let shouldHaveDecorations = decorationsBeforeFullscreen {
+                if shouldHaveDecorations && !window.styleMask.contains(.titled) {
+                    window.styleMask.insert(.titled)
+                } else if !shouldHaveDecorations && window.styleMask.contains(.titled) {
+                    window.styleMask.remove(.titled)
+                }
+                decorationsBeforeFullscreen = nil
+            }
         } else {
+            // Entering fullscreen - save current decoration state
+            decorationsBeforeFullscreen = window.styleMask.contains(.titled)
+            
+            // If window decoration = none, enable decorations temporarily for fullscreen
+            if !window.styleMask.contains(.titled) {
+                window.styleMask.insert(.titled)
+            }
+            
             fullscreenStyle.enter()
         }
     }
