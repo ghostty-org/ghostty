@@ -40,6 +40,17 @@
                ReferencedContainer = "container:Ghostty.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "810ACC9E2E9D3301004F8F92"
+               BuildableName = "GhosttyUITests.xctest"
+               BlueprintName = "GhosttyUITests"
+               ReferencedContainer = "container:Ghostty.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
