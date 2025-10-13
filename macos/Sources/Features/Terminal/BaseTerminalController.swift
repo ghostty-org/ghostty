@@ -799,10 +799,9 @@ class BaseTerminalController: NSWindowController,
             // Exiting fullscreen - restore decorations if needed
             fullscreenStyle.exit()
             if let shouldHaveDecorations = decorationsBeforeFullscreen {
-                if shouldHaveDecorations && !window.styleMask.contains(.titled) {
-                    window.styleMask.insert(.titled)
-                } else if !shouldHaveDecorations && window.styleMask.contains(.titled) {
-                    window.styleMask.remove(.titled)
+                let currentHasDecorations = window.styleMask.contains(.titled)
+                if shouldHaveDecorations != currentHasDecorations {
+                    toggleWindowDecorations()
                 }
                 decorationsBeforeFullscreen = nil
             }
@@ -812,7 +811,7 @@ class BaseTerminalController: NSWindowController,
             
             // If window decoration = none, enable decorations temporarily for fullscreen
             if !window.styleMask.contains(.titled) {
-                window.styleMask.insert(.titled)
+                toggleWindowDecorations()
             }
             
             fullscreenStyle.enter()
