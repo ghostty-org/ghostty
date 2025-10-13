@@ -1042,10 +1042,7 @@ ghostty_surface_t ghostty_surface_new(ghostty_app_t,
 void ghostty_surface_free(ghostty_surface_t);
 void* ghostty_surface_userdata(ghostty_surface_t);
 ghostty_app_t ghostty_surface_app(ghostty_surface_t);
-ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t); /* deprecated: use context-specific functions */
-ghostty_surface_config_s ghostty_surface_inherited_config_window(ghostty_surface_t);
-ghostty_surface_config_s ghostty_surface_inherited_config_tab(ghostty_surface_t);
-ghostty_surface_config_s ghostty_surface_inherited_config_split(ghostty_surface_t);
+ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t, ghostty_surface_context_e);
 void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
 bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
 bool ghostty_surface_process_exited(ghostty_surface_t);

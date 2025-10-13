@@ -1545,24 +1545,16 @@ pub const CAPI = struct {
     }
 
     /// Returns the config to use for surfaces that inherit from this one.
-    /// Deprecated: Use ghostty_surface_inherited_config_window/tab/split instead.
-    export fn ghostty_surface_inherited_config(surface: *Surface) Surface.Options {
-        return surface.newSurfaceOptions(.window);
-    }
-
-    /// Returns the config to use for new windows that inherit from this surface.
-    export fn ghostty_surface_inherited_config_window(surface: *Surface) Surface.Options {
-        return surface.newSurfaceOptions(.window);
-    }
-
-    /// Returns the config to use for new tabs that inherit from this surface.
-    export fn ghostty_surface_inherited_config_tab(surface: *Surface) Surface.Options {
-        return surface.newSurfaceOptions(.tab);
-    }
-
-    /// Returns the config to use for new splits that inherit from this surface.
-    export fn ghostty_surface_inherited_config_split(surface: *Surface) Surface.Options {
-        return surface.newSurfaceOptions(.split);
+    export fn ghostty_surface_inherited_config(
+        surface: *Surface,
+        source: Surface.Options.Context,
+    ) Surface.Options {
+        const context: apprt.surface.NewSurfaceContext = switch (source) {
+            .c_window => .window,
+            .c_tab => .tab,
+            .c_split => .split,
+        };
+        return surface.newSurfaceOptions(context);
     }
 
     /// Update the configuration to the provided config for only this surface.
