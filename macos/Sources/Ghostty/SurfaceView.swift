@@ -617,11 +617,19 @@ extension Ghostty {
         #endif
     }
 
-    /// Context for surface creation, matching the Zig NewSurfaceContext enum
-    enum NewSurfaceContext: Int32 {
-        case window = 0
-        case tab = 1
-        case split = 2
+    /// Context for surface creation, matching ghostty_surface_context_e
+    enum NewSurfaceContext: ghostty_surface_context_e.RawValue {
+        case window = 0  // GHOSTTY_SURFACE_CONTEXT_WINDOW
+        case tab = 1     // GHOSTTY_SURFACE_CONTEXT_TAB
+        case split = 2   // GHOSTTY_SURFACE_CONTEXT_SPLIT
+        
+        init(_ cValue: ghostty_surface_context_e) {
+            self.init(rawValue: cValue.rawValue)!
+        }
+        
+        var cValue: ghostty_surface_context_e {
+            ghostty_surface_context_e(rawValue: self.rawValue)
+        }
     }
 
     /// The configuration for a surface. For any configuration not set, defaults will be chosen from
@@ -669,7 +677,7 @@ extension Ghostty {
                     }
                 }
             }
-            self.context = NewSurfaceContext(rawValue: config.context) ?? .window
+            self.context = NewSurfaceContext(config.context)
         }
 
         /// Provides a C-compatible ghostty configuration within a closure. The configuration
@@ -704,7 +712,7 @@ extension Ghostty {
             config.wait_after_command = waitAfterCommand
 
             // Set context
-            config.context = context.rawValue
+            config.context = context.cValue
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in
