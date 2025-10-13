@@ -204,7 +204,7 @@ test "OSC generator valid" {
         var writer: std.Io.Writer = .fixed(&buf);
         try gen.next(&writer, buf.len);
         const seq = writer.buffered();
-        var parser: terminal.osc.Parser = .init();
+        var parser: terminal.osc.Parser = .init(null);
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) != null);
     }
@@ -224,7 +224,7 @@ test "OSC generator invalid" {
         var writer: std.Io.Writer = .fixed(&buf);
         try gen.next(&writer, buf.len);
         const seq = writer.buffered();
-        var parser: terminal.osc.Parser = .init();
+        var parser: terminal.osc.Parser = .init(null);
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) == null);
     }
