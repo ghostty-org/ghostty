@@ -128,6 +128,10 @@ explicit_max_size: usize,
 /// and at least two pages for our algorithms.
 min_max_size: usize,
 
+/// The total number of rows represented by this PageList. This is used
+/// specifically for scrollbar information so we can have the total size.
+total_rows: usize,
+
 /// The list of tracked pins. These are kept up to date automatically.
 tracked_pins: PinSet,
 
@@ -145,11 +149,24 @@ viewport: Viewport,
 /// never be access directly; use `viewport`.
 viewport_pin: *Pin,
 
+/// The row offset from the bottom that the viewport pin is at. We
+/// store the offset from the bottom because its less likely the user
+/// is scrolled to the top in a custom pin so it makes our search faster.
+///
+/// This is only valid if viewport is `pin`. Every other offset is
+/// self-evident or quick to calculate.
+viewport_pin_row_offset: usize,
+
 /// The current desired screen dimensions. I say "desired" because individual
 /// pages may still be a different size and not yet reflowed since we lazily
 /// reflow text.
 cols: size.CellCountInt,
 rows: size.CellCountInt,
+
+/// If this is true then verifyIntegrity will do nothing. This is
+/// only present with runtime safety enabled.
+pause_integrity_checks: if (build_options.slow_runtime_safety) usize else void =
+    if (build_options.slow_runtime_safety) 0 else {},
 
 /// The viewport location.
 pub const Viewport = union(enum) {
@@ -249,7 +266,7 @@ pub fn init(
     errdefer tracked_pins.deinit(pool.alloc);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
 
-    return .{
+    const result: PageList = .{
         .cols = cols,
         .rows = rows,
         .pool = pool,
@@ -258,10 +275,14 @@ pub fn init(
         .page_size = page_size,
         .explicit_max_size = max_size orelse std.math.maxInt(usize),
         .min_max_size = min_max_size,
+        .total_rows = rows,
         .tracked_pins = tracked_pins,
         .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
+        .viewport_pin_row_offset = 0,
     };
+    result.assertIntegrity();
+    return result;
 }
 
 fn initPages(
@@ -306,9 +327,56 @@ fn initPages(
     return .{ page_list, page_size };
 }
 
+/// Assert that the PageList is in a valid state. This is a no-op in
+/// release builds.
+pub inline fn assertIntegrity(self: *const PageList) void {
+    if (comptime !build_options.slow_runtime_safety) return;
+
+    self.verifyIntegrity() catch |err| {
+        log.err("PageList integrity check failed: {}", .{err});
+        @panic("PageList integrity check failed");
+    };
+}
+
+/// Pause or resume integrity checks. This is useful when you're doing
+/// a multi-step operation that temporarily leaves the PageList in an
+/// inconsistent state.
+pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
+    if (comptime !build_options.slow_runtime_safety) return;
+    if (pause) {
+        self.pause_integrity_checks += 1;
+    } else {
+        self.pause_integrity_checks -= 1;
+    }
+}
+
+const IntegrityError = error{
+    TotalRowsMismatch,
+};
+
+/// Verify the integrity of the PageList. This is expensive and should
+/// only be called in debug/test builds.
+fn verifyIntegrity(self: *const PageList) IntegrityError!void {
+    if (comptime !build_options.slow_runtime_safety) return;
+    if (self.pause_integrity_checks > 0) return;
+
+    // Verify that our cached total_rows matches the actual row count
+    const actual_total = self.totalRows();
+    if (actual_total != self.total_rows) {
+        log.warn(
+            "PageList integrity violation: total_rows mismatch cached={} actual={}",
+            .{ self.total_rows, actual_total },
+        );
+        return IntegrityError.TotalRowsMismatch;
+    }
+}
+
 /// Deinit the pagelist. If you own the memory pool (used clonePool) then
 /// this will reset the pool and retain capacity.
 pub fn deinit(self: *PageList) void {
+    // Verify integrity before cleanup
+    self.assertIntegrity();
+
     // Always deallocate our hashmap.
     self.tracked_pins.deinit(self.pool.alloc);
 
@@ -339,6 +407,8 @@ pub fn deinit(self: *PageList) void {
 /// This can't fail because we always retain at least enough allocated
 /// memory to fit the active area.
 pub fn reset(self: *PageList) void {
+    defer self.assertIntegrity();
+
     // We need enough pages/nodes to keep our active area. This should
     // never fail since we by definition have allocated a page already
     // that fits our size but I'm not confident to make that assertion.
@@ -412,6 +482,9 @@ pub fn reset(self: *PageList) void {
         self.cols,
         self.rows,
     ) catch @panic("initPages failed");
+
+    // Our total rows always goes back to the default
+    self.total_rows = self.rows;
 
     // Update all our tracked pins to point to our first page top-left
     {
@@ -570,9 +643,11 @@ pub fn clone(
         .min_max_size = self.min_max_size,
         .cols = self.cols,
         .rows = self.rows,
+        .total_rows = total_rows,
         .tracked_pins = tracked_pins,
         .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
+        .viewport_pin_row_offset = 0,
     };
 
     // We always need to have enough rows for our viewport because this is
@@ -589,8 +664,12 @@ pub fn clone(
             const row = &last.data.rows.ptr(last.data.memory)[last.data.size.rows - 1];
             last.data.clearCells(row, 0, result.cols);
         }
+
+        // Update our total rows to be our row size.
+        result.total_rows = result.rows;
     }
 
+    result.assertIntegrity();
     return result;
 }
 
@@ -617,6 +696,8 @@ pub const Resize = struct {
 /// Resize
 /// TODO: docs
 pub fn resize(self: *PageList, opts: Resize) !void {
+    defer self.assertIntegrity();
+
     if (comptime std.debug.runtime_safety) {
         // Resize does not work with 0 values, this should be protected
         // upstream
@@ -658,7 +739,6 @@ pub fn resize(self: *PageList, opts: Resize) !void {
                 copy.cols = self.cols;
                 break :opts copy;
             });
-
             try self.resizeCols(cols, opts.cursor);
         },
     }
@@ -728,16 +808,21 @@ fn resizeCols(
     self.pages.first = dst_node;
     self.pages.last = dst_node;
 
-    var dst_cursor = ReflowCursor.init(dst_node);
-
     // Reflow all our rows.
-    while (it.next()) |row| {
-        try dst_cursor.reflowRow(self, row);
+    {
+        var dst_cursor = ReflowCursor.init(dst_node);
+        while (it.next()) |row| {
+            try dst_cursor.reflowRow(self, row);
 
-        // Once we're done reflowing a page, destroy it.
-        if (row.y == row.node.data.size.rows - 1) {
-            self.destroyNode(row.node);
+            // Once we're done reflowing a page, destroy it.
+            if (row.y == row.node.data.size.rows - 1) {
+                self.destroyNode(row.node);
+            }
         }
+
+        // At the end of the reflow, setup our total row cache
+        // log.warn("total old={} new={}", .{ self.total_rows, dst_cursor.total_rows });
+        self.total_rows = dst_cursor.total_rows;
     }
 
     // If our total rows is less than our active rows, we need to grow.
@@ -804,6 +889,9 @@ const ReflowCursor = struct {
     page_cell: *pagepkg.Cell,
     new_rows: usize,
 
+    /// This is the final row count of the reflowed pages.
+    total_rows: usize,
+
     fn init(node: *List.Node) ReflowCursor {
         const page = &node.data;
         const rows = page.rows.ptr(page.memory);
@@ -816,6 +904,9 @@ const ReflowCursor = struct {
             .page_row = &rows[0],
             .page_cell = &rows[0].cells.ptr(page.memory)[0],
             .new_rows = 0,
+
+            // Initially whatever size our input node is.
+            .total_rows = node.data.size.rows,
         };
     }
 
@@ -1229,12 +1320,21 @@ const ReflowCursor = struct {
     ) !void {
         const old_x = self.x;
         const old_y = self.y;
+        const old_total_rows = self.total_rows;
 
-        self.* = .init(try list.adjustCapacity(
-            self.node,
-            adjustment,
-        ));
+        self.* = .init(node: {
+            // Pause integrity checks because the total row count won't
+            // be correct during a reflow.
+            list.pauseIntegrityChecks(true);
+            defer list.pauseIntegrityChecks(false);
+            break :node try list.adjustCapacity(
+                self.node,
+                adjustment,
+            );
+        });
+
         self.cursorAbsolute(old_x, old_y);
+        self.total_rows = old_total_rows;
     }
 
     /// True if this cursor is at the bottom of the page by capacity,
@@ -1251,11 +1351,6 @@ const ReflowCursor = struct {
             self.page_cell = @ptrCast(cell + 1);
             self.x += 1;
         }
-    }
-
-    fn cursorDown(self: *ReflowCursor) void {
-        assert(self.y + 1 < self.page.size.rows);
-        self.cursorAbsolute(self.x, self.y + 1);
     }
 
     /// Create a new row and move the cursor down.
@@ -1309,6 +1404,12 @@ const ReflowCursor = struct {
         list: *PageList,
         cap: Capacity,
     ) !void {
+        // The functions below may overwrite self so we need to cache
+        // our total rows. We add one because no matter what when this
+        // returns we'll have one more row added.
+        const new_total_rows: usize = self.total_rows + 1;
+        defer self.total_rows = new_total_rows;
+
         if (self.bottom()) {
             try self.cursorNewPage(list, cap);
         } else {
@@ -1374,6 +1475,11 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
     // destroy pages if we're increasing cols which will free up page_size
     // so that when we call grow() in the row mods, we won't prune.
     if (opts.cols) |cols| {
+        // Any column change without reflow should not result in row counts
+        // changing.
+        const old_total_rows = self.total_rows;
+        defer assert(self.total_rows == old_total_rows);
+
         switch (std.math.order(cols, self.cols)) {
             .eq => {},
 
@@ -1442,7 +1548,10 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 // behavior because it seemed fine in an ocean of differing behavior
                 // between terminal apps. I'm completely open to changing it as long
                 // as resize behavior isn't regressed in a user-hostile way.
-                _ = self.trimTrailingBlankRows(self.rows - rows);
+                const trimmed = self.trimTrailingBlankRows(self.rows - rows);
+
+                // Account for our trimmed rows in the total row cache
+                self.total_rows -= trimmed;
 
                 // If we didn't trim enough, just modify our row count and this
                 // will create additional history.
@@ -1502,6 +1611,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
         }
 
         if (build_options.slow_runtime_safety) {
+            // We never have less rows than our active screen has.
             assert(self.totalRows() >= self.rows);
         }
     }
@@ -1673,6 +1783,10 @@ fn trailingBlankLines(
 /// Trims up to max trailing blank rows from the pagelist and returns the
 /// number of rows trimmed. A blank row is any row with no text (but may
 /// have styling).
+///
+/// IMPORTANT: This function does NOT update `total_rows`. It returns the
+/// number of rows trimmed, and the caller is responsible for decrementing
+/// `total_rows` by this amount.
 fn trimTrailingBlankRows(
     self: *PageList,
     max: size.CellCountInt,
@@ -1829,6 +1943,8 @@ fn scrollPrompt(self: *PageList, delta: isize) void {
 /// Clear the screen by scrolling written contents up into the scrollback.
 /// This will not update the viewport.
 pub fn scrollClear(self: *PageList) !void {
+    defer self.assertIntegrity();
+
     // Go through the active area backwards to find the first non-empty
     // row. We use this to determine how many rows to scroll up.
     const non_empty: usize = non_empty: {
@@ -1887,11 +2003,17 @@ inline fn growRequiredForActive(self: *const PageList) bool {
 ///
 /// This returns the newly allocated page node if there is one.
 pub fn grow(self: *PageList) !?*List.Node {
+    defer self.assertIntegrity();
+
     const last = self.pages.last.?;
     if (last.data.capacity.rows > last.data.size.rows) {
         // Fast path: we have capacity in the last page.
         last.data.size.rows += 1;
         last.data.assertIntegrity();
+
+        // Increase our total rows by one
+        self.total_rows += 1;
+
         return null;
     }
 
@@ -1920,6 +2042,11 @@ pub fn grow(self: *PageList) !?*List.Node {
         assert(first != last);
         const buf = first.data.memory;
         @memset(buf, 0);
+
+        // Decrease our total row count from the pruned page and then
+        // add one for our new row.
+        self.total_rows -= first.data.size.rows;
+        self.total_rows += 1;
 
         // Initialize our new page and reinsert it as the last
         first.data = .initBuf(.init(buf), layout);
@@ -1953,6 +2080,9 @@ pub fn grow(self: *PageList) !?*List.Node {
     // We should never be more than our max size here because we've
     // verified the case above.
     next_node.data.assertIntegrity();
+
+    // Record the increased row count
+    self.total_rows += 1;
 
     return next_node;
 }
@@ -1997,6 +2127,7 @@ pub fn adjustCapacity(
     node: *List.Node,
     adjustment: AdjustCapacity,
 ) AdjustCapacityError!*List.Node {
+    defer self.assertIntegrity();
     const page: *Page = &node.data;
 
     // We always start with the base capacity of the existing page. This
@@ -2110,6 +2241,10 @@ inline fn createPageExt(
 /// Destroy the memory of the given node in the PageList linked list
 /// and return it to the pool. The node is assumed to already be removed
 /// from the linked list.
+///
+/// IMPORTANT: This function does NOT update `total_rows`. The caller is
+/// responsible for accounting for the removed rows. This function only
+/// updates `page_size` (byte accounting), not row accounting.
 fn destroyNode(self: *PageList, node: *List.Node) void {
     destroyNodeExt(&self.pool, node, &self.page_size);
 }
@@ -2147,6 +2282,7 @@ pub fn eraseRow(
     self: *PageList,
     pt: point.Point,
 ) !void {
+    defer self.assertIntegrity();
     const pn = self.pin(pt).?;
 
     var node = pn.node;
@@ -2236,6 +2372,8 @@ pub fn eraseRowBounded(
     pt: point.Point,
     limit: usize,
 ) !void {
+    defer self.assertIntegrity();
+
     // This function has a lot of repeated code in it because it is a hot path.
     //
     // To get a better idea of what's happening, read eraseRow first for more
@@ -2381,6 +2519,8 @@ pub fn eraseRows(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) void {
+    defer self.assertIntegrity();
+
     // The count of rows that was erased.
     var erased: usize = 0;
 
@@ -2459,6 +2599,9 @@ pub fn eraseRows(
         dirty.setRangeValue(.{ .start = 0, .end = chunk.node.data.size.rows }, true);
     }
 
+    // Update our total row count
+    self.total_rows -= erased;
+
     // If we deleted active, we need to regrow because one of our invariants
     // is that we always have full active space.
     if (tl_pt == .active) {
@@ -2493,6 +2636,10 @@ pub fn eraseRows(
 /// Erase a single page, freeing all its resources. The page can be
 /// anywhere in the linked list but must NOT be the final page in the
 /// entire list (i.e. must not make the list empty).
+///
+/// IMPORTANT: This function does NOT update `total_rows`. The caller is
+/// responsible for accounting for the removed rows before or after calling
+/// this function.
 fn erasePage(self: *PageList, node: *List.Node) void {
     assert(node.next != null or node.prev != null);
 
@@ -3341,23 +3488,9 @@ fn totalPages(self: *const PageList) usize {
 }
 
 /// Grow the number of rows available in the page list by n.
-/// This is only used for testing so it isn't optimized.
+/// This is only used for testing so it isn't optimized in any way.
 fn growRows(self: *PageList, n: usize) !void {
-    var page = self.pages.last.?;
-    var n_rem: usize = n;
-    if (page.data.size.rows < page.data.capacity.rows) {
-        const add = @min(n_rem, page.data.capacity.rows - page.data.size.rows);
-        page.data.size.rows += add;
-        if (n_rem == add) return;
-        n_rem -= add;
-    }
-
-    while (n_rem > 0) {
-        page = (try self.grow()).?;
-        const add = @min(n_rem, page.data.capacity.rows);
-        page.data.size.rows = add;
-        n_rem -= add;
-    }
+    for (0..n) |_| _ = try self.grow();
 }
 
 /// Clear all dirty bits on all pages. This is not efficient since it
@@ -3896,6 +4029,9 @@ test "PageList" {
     try testing.expect(s.pages.first != null);
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
 
+    // Initial total rows should be our row count
+    try testing.expectEqual(s.rows, s.total_rows);
+
     // Our viewport pin must be defined. It isn't used until the
     // viewport is a pin but it prevents undefined access on clone.
     try testing.expect(s.viewport_pin.node == s.pages.first.?);
@@ -3929,6 +4065,9 @@ test "PageList init rows across two pages" {
     try testing.expect(s.viewport == .active);
     try testing.expect(s.pages.first != null);
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Initial total rows should be our row count
+    try testing.expectEqual(s.rows, s.total_rows);
 }
 
 test "PageList pointFromPin active no history" {
@@ -4141,6 +4280,9 @@ test "PageList grow allows exceeding max size for active area" {
             page.data.size.rows = 1;
             page.data.capacity.rows = 1;
         }
+
+        // Avoid integrity check failures
+        s.total_rows = s.totalRows();
     }
 
     // Grow our row and ensure we don't prune pages because we need
