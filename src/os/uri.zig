@@ -52,10 +52,14 @@ pub fn parseUri(text: []const u8, options: ParseOptions) ParseError!std.Uri {
     };
 
     // When MAC address parsing is enabled, we need to handle the case where
-    // std.Uri.parse parsed the address's last octet as a port number. We use
-    // a few heuristics to identify this case and then "repair" the result by
-    // reassign the .host component to the full MAC address and clearing the
-    // .port component.
+    // std.Uri.parse parsed the address's last octet as a numeric port number.
+    // We use a few heuristics to identify this case (14 characters, 4 colons)
+    // and then "repair" the result by reassign the .host component to the full
+    // MAC address and clearing the .port component.
+    //
+    //    12:34:56:78:90:99 -> [12:34:56:78:90, 99] -> 12:34:56:78:90:99
+    //    (original host)      (parsed host + port)    (restored host)
+    //
     if (options.mac_address and uri.host != null) mac: {
         const host = uri.host.?.percent_encoded;
         if (host.len != 14 or std.mem.count(u8, host, ":") != 4) break :mac;
