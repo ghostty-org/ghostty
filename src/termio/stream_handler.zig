@@ -1122,7 +1122,7 @@ pub const StreamHandler = struct {
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = internal_os.hostname.isLocalHostname(host) catch |err| switch (err) {
+        const host_valid = internal_os.hostname.isLocal(host) catch |err| switch (err) {
             error.PermissionDenied,
             error.Unexpected,
             => {
