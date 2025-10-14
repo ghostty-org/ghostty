@@ -1093,7 +1093,7 @@ pub const StreamHandler = struct {
         // for this OSC 7 context (e.g. kitty-shell-cwd expects the full,
         // unencoded path).
         const uri: std.Uri = internal_os.uri.parse(url, .{
-            .mac_address = (comptime builtin.os.tag != .macos),
+            .mac_address = comptime builtin.os.tag != .macos,
             .raw_path = std.mem.startsWith(u8, url, "kitty-shell-cwd://"),
         }) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});
@@ -1137,7 +1137,7 @@ pub const StreamHandler = struct {
 
         // We need the raw path, which might require unescaping. We try to
         // avoid making any heap allocations by using the stack first.
-        var arena_alloc = std.heap.ArenaAllocator.init(self.alloc);
+        var arena_alloc: std.heap.ArenaAllocator = .init(self.alloc);
         var stack_alloc = std.heap.stackFallback(1024, arena_alloc.allocator());
         defer arena_alloc.deinit();
         const path = try uri.path.toRawMaybeAlloc(stack_alloc.get());
