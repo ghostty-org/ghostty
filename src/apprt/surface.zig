@@ -160,10 +160,10 @@ pub const Mailbox = struct {
 };
 
 /// Context for new surface creation to determine inheritance behavior
-pub const NewSurfaceContext = enum {
-    window,
-    tab,
-    split,
+pub const NewSurfaceContext = enum(c_int) {
+    window = 0,
+    tab = 1,
+    split = 2,
 };
 
 pub fn shouldInheritWorkingDirectory(context: NewSurfaceContext, config: *const Config) bool {

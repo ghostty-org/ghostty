@@ -458,13 +458,7 @@ pub const Surface = struct {
         wait_after_command: bool = false,
 
         /// Context for the new surface
-        context: Context = .c_window,
-
-        pub const Context = enum(c_int) {
-            c_window = 0,
-            c_tab = 1,
-            c_split = 2,
-        };
+        context: apprt.surface.NewSurfaceContext = .window,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -486,13 +480,7 @@ pub const Surface = struct {
         errdefer app.core_app.deleteSurface(self);
 
         // Shallow copy the config so that we can modify it.
-        const surface_context: apprt.surface.NewSurfaceContext = switch (opts.context) {
-            .c_window => .window,
-            .c_tab => .tab,
-            .c_split => .split,
-        };
-
-        var config = try apprt.surface.newConfig(app.core_app, &app.config, surface_context);
+        var config = try apprt.surface.newConfig(app.core_app, &app.config, opts.context);
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
@@ -921,11 +909,7 @@ pub const Surface = struct {
         return .{
             .font_size = font_size,
             .working_directory = working_directory,
-            .context = switch (context) {
-                .window => .c_window,
-                .tab => .c_tab,
-                .split => .c_split,
-            },
+            .context = context,
         };
     }
 
@@ -1547,14 +1531,9 @@ pub const CAPI = struct {
     /// Returns the config to use for surfaces that inherit from this one.
     export fn ghostty_surface_inherited_config(
         surface: *Surface,
-        source: Surface.Options.Context,
+        source: apprt.surface.NewSurfaceContext,
     ) Surface.Options {
-        const context: apprt.surface.NewSurfaceContext = switch (source) {
-            .c_window => .window,
-            .c_tab => .tab,
-            .c_split => .split,
-        };
-        return surface.newSurfaceOptions(context);
+        return surface.newSurfaceOptions(source);
     }
 
     /// Update the configuration to the provided config for only this surface.
