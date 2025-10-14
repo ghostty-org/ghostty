@@ -1767,9 +1767,11 @@ extension Ghostty.App {
         if FileManager.default.fileExists(atPath: path) {
             ghostty_config_load_file(cfg, path)
         }
+#if os(macOS)
         if !isRunningInXcode() {
             ghostty_config_load_cli_args(cfg)
         }
+#endif
         ghostty_config_load_recursive_files(cfg)
         if finalize {
             // Finalize will make our defaults available,
