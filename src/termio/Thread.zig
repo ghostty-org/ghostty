@@ -471,15 +471,23 @@ fn stopCallback(
 fn startScrollTimer(self: *Thread, cb: *CallbackData) void {
     self.scroll_active = true;
 
-    // Start the timer which loops
-    self.scroll.run(
-        &self.loop,
-        &self.scroll_c,
-        selection_scroll_ms,
-        CallbackData,
-        cb,
-        selectionScrollCallback,
-    );
+    switch (self.scroll_c.state()) {
+        // If it is already active, e.g. startScrollTimer is called multiple
+        // times, then we just return. We can't simply check `scroll_active`
+        // because its possible that `stopScrollTimer` was called but there
+        // was no loop tick between then and now to halt out completion.
+        .active => return,
+
+        // If the completion is not active then we need to start it.
+        .dead => self.scroll.run(
+            &self.loop,
+            &self.scroll_c,
+            selection_scroll_ms,
+            CallbackData,
+            cb,
+            selectionScrollCallback,
+        ),
+    }
 }
 
 fn stopScrollTimer(self: *Thread) void {
