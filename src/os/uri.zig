@@ -18,7 +18,7 @@ pub const ParseError = std.Uri.ParseError || error{InvalidMacAddress};
 /// Parses a URI from the given string.
 ///
 /// This extends std.Uri.parse with some additional ParseOptions.
-pub fn parseUri(text: []const u8, options: ParseOptions) ParseError!std.Uri {
+pub fn parse(text: []const u8, options: ParseOptions) ParseError!std.Uri {
     var uri = std.Uri.parse(text) catch |err| uri: {
         // We can attempt to re-parse the text as a URI that has a MAC address
         // in its host field (which tripped up std.Uri.parse's port parsing):
@@ -90,81 +90,81 @@ pub fn parseUri(text: []const u8, options: ParseOptions) ParseError!std.Uri {
     return uri;
 }
 
-test "parseUri: mac_address" {
+test "parse: mac_address" {
     const testing = @import("std").testing;
 
     // Numeric MAC address without a port
-    const uri1 = try parseUri("file://00:12:34:56:78:90/path", .{ .mac_address = true });
+    const uri1 = try parse("file://00:12:34:56:78:90/path", .{ .mac_address = true });
     try testing.expectEqualStrings("file", uri1.scheme);
     try testing.expectEqualStrings("00:12:34:56:78:90", uri1.host.?.percent_encoded);
     try testing.expectEqualStrings("/path", uri1.path.percent_encoded);
     try testing.expectEqual(null, uri1.port);
 
     // Numeric MAC address with a port
-    const uri2 = try parseUri("file://00:12:34:56:78:90:999/path", .{ .mac_address = true });
+    const uri2 = try parse("file://00:12:34:56:78:90:999/path", .{ .mac_address = true });
     try testing.expectEqualStrings("file", uri2.scheme);
     try testing.expectEqualStrings("00:12:34:56:78:90", uri2.host.?.percent_encoded);
     try testing.expectEqualStrings("/path", uri2.path.percent_encoded);
     try testing.expectEqual(999, uri2.port);
 
     // Alphabetic MAC address without a port
-    const uri3 = try parseUri("file://ab:cd:ef:ab:cd:ef/path", .{ .mac_address = true });
+    const uri3 = try parse("file://ab:cd:ef:ab:cd:ef/path", .{ .mac_address = true });
     try testing.expectEqualStrings("file", uri3.scheme);
     try testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri3.host.?.percent_encoded);
     try testing.expectEqualStrings("/path", uri3.path.percent_encoded);
     try testing.expectEqual(null, uri3.port);
 
     // Alphabetic MAC address with a port
-    const uri4 = try parseUri("file://ab:cd:ef:ab:cd:ef:999/path", .{ .mac_address = true });
+    const uri4 = try parse("file://ab:cd:ef:ab:cd:ef:999/path", .{ .mac_address = true });
     try testing.expectEqualStrings("file", uri4.scheme);
     try testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri4.host.?.percent_encoded);
     try testing.expectEqualStrings("/path", uri4.path.percent_encoded);
     try testing.expectEqual(999, uri4.port);
 
     // Numeric MAC address without a path component
-    const uri5 = try parseUri("file://00:12:34:56:78:90", .{ .mac_address = true });
+    const uri5 = try parse("file://00:12:34:56:78:90", .{ .mac_address = true });
     try testing.expectEqualStrings("file", uri5.scheme);
     try testing.expectEqualStrings("00:12:34:56:78:90", uri5.host.?.percent_encoded);
     try testing.expect(uri5.path.isEmpty());
 
     // Alphabetic MAC address without a path component
-    const uri6 = try parseUri("file://ab:cd:ef:ab:cd:ef", .{ .mac_address = true });
+    const uri6 = try parse("file://ab:cd:ef:ab:cd:ef", .{ .mac_address = true });
     try testing.expectEqualStrings("file", uri6.scheme);
     try testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri6.host.?.percent_encoded);
     try testing.expect(uri6.path.isEmpty());
 
     // Invalid MAC addresses
-    try testing.expectError(error.InvalidMacAddress, parseUri(
+    try testing.expectError(error.InvalidMacAddress, parse(
         "file://zz:zz:zz:zz:zz:00/path",
         .{ .mac_address = true },
     ));
-    try testing.expectError(error.InvalidMacAddress, parseUri(
+    try testing.expectError(error.InvalidMacAddress, parse(
         "file://zz:zz:zz:zz:zz:zz/path",
         .{ .mac_address = true },
     ));
 }
 
-test "parseUri: raw_path" {
+test "parse: raw_path" {
     const testing = @import("std").testing;
 
     const text = "file://localhost/path??#fragment";
     var buf: [256]u8 = undefined;
 
-    const uri1 = try parseUri(text, .{ .raw_path = false });
+    const uri1 = try parse(text, .{ .raw_path = false });
     try testing.expectEqualStrings("file", uri1.scheme);
     try testing.expectEqualStrings("localhost", uri1.host.?.percent_encoded);
     try testing.expectEqualStrings("/path", try uri1.path.toRaw(&buf));
     try testing.expectEqualStrings("?", uri1.query.?.percent_encoded);
     try testing.expectEqualStrings("fragment", uri1.fragment.?.percent_encoded);
 
-    const uri2 = try parseUri(text, .{ .raw_path = true });
+    const uri2 = try parse(text, .{ .raw_path = true });
     try testing.expectEqualStrings("file", uri2.scheme);
     try testing.expectEqualStrings("localhost", uri2.host.?.percent_encoded);
     try testing.expectEqualStrings("/path??#fragment", try uri2.path.toRaw(&buf));
     try testing.expectEqual(null, uri2.query);
     try testing.expectEqual(null, uri2.fragment);
 
-    const uri3 = try parseUri("file://localhost", .{ .raw_path = true });
+    const uri3 = try parse("file://localhost", .{ .raw_path = true });
     try testing.expectEqualStrings("file", uri3.scheme);
     try testing.expectEqualStrings("localhost", uri3.host.?.percent_encoded);
     try testing.expect(uri3.path.isEmpty());

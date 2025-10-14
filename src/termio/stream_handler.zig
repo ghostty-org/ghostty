@@ -1092,7 +1092,7 @@ pub const StreamHandler = struct {
         // Attempt to parse this file-style URI using options appropriate
         // for this OSC 7 context (e.g. kitty-shell-cwd expects the full,
         // unencoded path).
-        const uri: std.Uri = internal_os.uri.parseUri(url, .{
+        const uri: std.Uri = internal_os.uri.parse(url, .{
             .mac_address = (comptime builtin.os.tag != .macos),
             .raw_path = std.mem.startsWith(u8, url, "kitty-shell-cwd://"),
         }) catch |e| {
