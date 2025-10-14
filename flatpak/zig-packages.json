@@ -144,12 +144,6 @@
     "sha256": "56899260e17c7d12706fff06b551bf42a47a73de734a442de3ae3d0bfe0a5c07"
   },
   {
-    "type": "git",
-    "url": "https://github.com/rockorager/libvaxis",
-    "commit": "6eb16bb4190dc074dafaf4f0ce7dadd50e81192a",
-    "dest": "vendor/p/vaxis-0.5.1-BWNV_BMgCQDXdZzABeY4F_xwgE7nHFtYEP07KgEwJWo8"
-  },
-  {
     "type": "archive",
     "url": "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
     "dest": "vendor/p/vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS",
@@ -181,15 +175,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/natecraddock/zf/archive/d2c89a7d6b579981da6c9c8912134cf5a22c7194.tar.gz",
-    "dest": "vendor/p/zf-0.10.3-OIRy8euIAACn1wj5gnZbqxbAdAKI5JGMeex8zrdPqORg",
-    "sha256": "29a76eba2e0b95bf45ab594228b39e1bc7164e49e3868b3c7124de279d0a3ff2"
-  },
-  {
-    "type": "archive",
-    "url": "https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz",
-    "dest": "vendor/p/zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9",
-    "sha256": "059873d673eac4aea176c250eba9fb264e3332015218b5e6f1e534097ffb9832"
+    "url": "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
+    "dest": "vendor/p/zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh",
+    "sha256": "3b015d928af04e9e26272bc15eb4dbb4d9a9d469eb6d290a0ddae673b77c4568"
   },
   {
     "type": "archive",

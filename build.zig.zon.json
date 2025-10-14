@@ -119,11 +119,6 @@
     "url": "https://deps.files.ghostty.org/uucode-f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
     "hash": "sha256-VomSYOF8fRJwb/8GtVG/QqR6c95zSkQt4649C/4KXAc="
   },
-  "vaxis-0.5.1-BWNV_BMgCQDXdZzABeY4F_xwgE7nHFtYEP07KgEwJWo8": {
-    "name": "vaxis",
-    "url": "git+https://github.com/rockorager/libvaxis#6eb16bb4190dc074dafaf4f0ce7dadd50e81192a",
-    "hash": "sha256-5c+TjmiH4071lKI+U8SIJ0M+4ezzcAtLI2ZSfZYdXSA="
-  },
   "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS": {
     "name": "vaxis",
     "url": "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
@@ -149,15 +144,10 @@
     "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz",
     "hash": "sha256-+QqCRoXwrFA1/l+oWvYVyAVebGQitAFQNhi9U3EVrxA="
   },
-  "zf-0.10.3-OIRy8euIAACn1wj5gnZbqxbAdAKI5JGMeex8zrdPqORg": {
+  "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh": {
     "name": "zf",
-    "url": "https://github.com/natecraddock/zf/archive/d2c89a7d6b579981da6c9c8912134cf5a22c7194.tar.gz",
-    "hash": "sha256-Kaduui4Llb9Fq1lCKLOeG8cWTknjhos8cSTeJ50KP/I="
-  },
-  "zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9": {
-    "name": "zg",
-    "url": "https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz",
-    "hash": "sha256-BZhz1nPqxK6hdsJQ66n7Jk4zMgFSGLXm8eU0CX/7mDI="
+    "url": "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
+    "hash": "sha256-OwFdkorwTp4mJyvBXrTbtNmp1GnrbSkKDdrmc7d8RWg="
   },
   "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi": {
     "name": "zig_js",
