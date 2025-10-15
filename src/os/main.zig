@@ -29,6 +29,7 @@ pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");
 pub const macos = @import("macos.zig");
 pub const shell = @import("shell.zig");
+pub const uri = @import("uri.zig");
 
 // Functions and types
 pub const CFReleaseThread = @import("cf_release_thread.zig");
@@ -67,6 +68,7 @@ pub const getKernelInfo = kernel_info.getKernelInfo;
 test {
     _ = i18n;
     _ = path;
+    _ = uri;
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;

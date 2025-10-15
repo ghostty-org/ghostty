@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 
+const file_load = @import("config/file_load.zig");
 const formatter = @import("config/formatter.zig");
 pub const Config = @import("config/Config.zig");
 pub const conditional = @import("config/conditional.zig");
@@ -12,6 +13,7 @@ pub const ConditionalState = conditional.State;
 pub const FileFormatter = formatter.FileFormatter;
 pub const entryFormatter = formatter.entryFormatter;
 pub const formatEntry = formatter.formatEntry;
+pub const preferredDefaultFilePath = file_load.preferredDefaultFilePath;
 
 // Field types
 pub const BoldColor = Config.BoldColor;

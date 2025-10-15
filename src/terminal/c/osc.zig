@@ -19,7 +19,7 @@ pub fn new(
     const alloc = lib_alloc.default(alloc_);
     const ptr = alloc.create(osc.Parser) catch
         return .out_of_memory;
-    ptr.* = .initAlloc(alloc);
+    ptr.* = .init(alloc);
     result.* = ptr;
     return .success;
 }

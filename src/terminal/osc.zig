@@ -15,6 +15,7 @@ const LibEnum = @import("../lib/enum.zig").Enum;
 const RGB = @import("color.zig").RGB;
 const kitty_color = @import("kitty/color.zig");
 const osc_color = @import("osc/color.zig");
+const string_encoding = @import("../os/string_encoding.zig");
 pub const color = osc_color;
 
 const log = std.log.scoped(.osc);
@@ -89,12 +90,7 @@ pub const Command = union(Key) {
     end_of_input: struct {
         /// The command line that the user entered.
         /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-        cmdline: ?union(enum) {
-            /// The command line has been encoded with bash's 'printf "%q"'.
-            printf_q_encoded: [:0]const u8,
-            /// The command line has been encoded with URL percent encoding.
-            percent_encoded: [:0]const u8,
-        } = null,
+        cmdline: ?[:0]const u8 = null,
     },
 
     /// End of current command.
@@ -448,9 +444,9 @@ pub const Parser = struct {
         conemu_guimacro,
     };
 
-    pub fn init() Parser {
+    pub fn init(alloc: ?Allocator) Parser {
         var result: Parser = .{
-            .alloc = null,
+            .alloc = alloc,
             .state = .empty,
             .command = .invalid,
             .buf_start = 0,
@@ -470,12 +466,6 @@ pub const Parser = struct {
             result.temp_state = undefined;
         }
 
-        return result;
-    }
-
-    pub fn initAlloc(alloc: Allocator) Parser {
-        var result: Parser = .init();
-        result.alloc = alloc;
         return result;
     }
 
@@ -1482,17 +1472,13 @@ pub const Parser = struct {
         } else if (mem.eql(u8, self.temp_state.key, "cmdline")) {
             // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
-                .end_of_input => |*v| v.cmdline = .{
-                    .printf_q_encoded = value,
-                },
+                .end_of_input => |*v| v.cmdline = string_encoding.printfQDecode(value) catch null,
                 else => {},
             }
         } else if (mem.eql(u8, self.temp_state.key, "cmdline_url")) {
             // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
-                .end_of_input => |*v| v.cmdline = .{
-                    .percent_encoded = value,
-                },
+                .end_of_input => |*v| v.cmdline = string_encoding.urlPercentDecode(value) catch null,
                 else => {},
             }
         } else if (mem.eql(u8, self.temp_state.key, "redraw")) {
@@ -1771,7 +1757,7 @@ test {
 test "OSC 0: change_window_title" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     p.next('0');
     p.next(';');
     p.next('a');
@@ -1784,7 +1770,7 @@ test "OSC 0: change_window_title" {
 test "OSC 0: longer than buffer" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "0;" ++ "a" ** (Parser.MAX_BUF + 2);
     for (input) |ch| p.next(ch);
@@ -1796,7 +1782,7 @@ test "OSC 0: longer than buffer" {
 test "OSC 0: one shorter than buffer length" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const prefix = "0;";
     const title = "a" ** (Parser.MAX_BUF - prefix.len - 1);
@@ -1811,7 +1797,7 @@ test "OSC 0: one shorter than buffer length" {
 test "OSC 0: exactly at buffer length" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const prefix = "0;";
     const title = "a" ** (Parser.MAX_BUF - prefix.len);
@@ -1826,7 +1812,7 @@ test "OSC 0: exactly at buffer length" {
 test "OSC 1: change_window_icon" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     p.next('1');
     p.next(';');
     p.next('a');
@@ -1839,7 +1825,7 @@ test "OSC 1: change_window_icon" {
 test "OSC 2: change_window_title with 2" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     p.next('2');
     p.next(';');
     p.next('a');
@@ -1852,7 +1838,7 @@ test "OSC 2: change_window_title with 2" {
 test "OSC 2: change_window_title with utf8" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     p.next('2');
     p.next(';');
     // '—' EM DASH U+2014 (E2 80 94)
@@ -1874,7 +1860,7 @@ test "OSC 2: change_window_title with utf8" {
 test "OSC 2: change_window_title empty" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     p.next('2');
     p.next(';');
     const cmd = p.end(null).?.*;
@@ -1885,7 +1871,7 @@ test "OSC 2: change_window_title empty" {
 test "OSC 4: empty param" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "4;;";
     for (input) |ch| p.next(ch);
@@ -1901,7 +1887,7 @@ test "OSC 4: empty param" {
 test "OSC 7: report pwd" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "7;file:///tmp/example";
     for (input) |ch| p.next(ch);
@@ -1914,7 +1900,7 @@ test "OSC 7: report pwd" {
 test "OSC 7: report pwd empty" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "7;";
     for (input) |ch| p.next(ch);
@@ -1926,7 +1912,7 @@ test "OSC 7: report pwd empty" {
 test "OSC 8: hyperlink" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;;http://example.com";
     for (input) |ch| p.next(ch);
@@ -1939,7 +1925,7 @@ test "OSC 8: hyperlink" {
 test "OSC 8: hyperlink with id set" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;id=foo;http://example.com";
     for (input) |ch| p.next(ch);
@@ -1953,7 +1939,7 @@ test "OSC 8: hyperlink with id set" {
 test "OSC 8: hyperlink with empty id" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;id=;http://example.com";
     for (input) |ch| p.next(ch);
@@ -1967,7 +1953,7 @@ test "OSC 8: hyperlink with empty id" {
 test "OSC 8: hyperlink with incomplete key" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;id;http://example.com";
     for (input) |ch| p.next(ch);
@@ -1981,7 +1967,7 @@ test "OSC 8: hyperlink with incomplete key" {
 test "OSC 8: hyperlink with empty key" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;=value;http://example.com";
     for (input) |ch| p.next(ch);
@@ -1995,7 +1981,7 @@ test "OSC 8: hyperlink with empty key" {
 test "OSC 8: hyperlink with empty key and id" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;=value:id=foo;http://example.com";
     for (input) |ch| p.next(ch);
@@ -2009,7 +1995,7 @@ test "OSC 8: hyperlink with empty key and id" {
 test "OSC 8: hyperlink with empty uri" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;id=foo;";
     for (input) |ch| p.next(ch);
@@ -2021,7 +2007,7 @@ test "OSC 8: hyperlink with empty uri" {
 test "OSC 8: hyperlink end" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "8;;";
     for (input) |ch| p.next(ch);
@@ -2033,7 +2019,7 @@ test "OSC 8: hyperlink end" {
 test "OSC 9: show desktop notification" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;Hello world";
     for (input) |ch| p.next(ch);
@@ -2047,7 +2033,7 @@ test "OSC 9: show desktop notification" {
 test "OSC 9: show single character desktop notification" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;H";
     for (input) |ch| p.next(ch);
@@ -2061,7 +2047,7 @@ test "OSC 9: show single character desktop notification" {
 test "OSC 9;1: ConEmu sleep" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;1;420";
     for (input) |ch| p.next(ch);
@@ -2075,7 +2061,7 @@ test "OSC 9;1: ConEmu sleep" {
 test "OSC 9;1: ConEmu sleep with no value default to 100ms" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;1;";
     for (input) |ch| p.next(ch);
@@ -2089,7 +2075,7 @@ test "OSC 9;1: ConEmu sleep with no value default to 100ms" {
 test "OSC 9;1: conemu sleep cannot exceed 10000ms" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;1;12345";
     for (input) |ch| p.next(ch);
@@ -2103,7 +2089,7 @@ test "OSC 9;1: conemu sleep cannot exceed 10000ms" {
 test "OSC 9;1: conemu sleep invalid input" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;1;foo";
     for (input) |ch| p.next(ch);
@@ -2117,7 +2103,7 @@ test "OSC 9;1: conemu sleep invalid input" {
 test "OSC 9;1: conemu sleep -> desktop notification 1" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;1";
     for (input) |ch| p.next(ch);
@@ -2131,7 +2117,7 @@ test "OSC 9;1: conemu sleep -> desktop notification 1" {
 test "OSC 9;1: conemu sleep -> desktop notification 2" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;1a";
     for (input) |ch| p.next(ch);
@@ -2145,7 +2131,7 @@ test "OSC 9;1: conemu sleep -> desktop notification 2" {
 test "OSC 9;2: ConEmu message box" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;2;hello world";
     for (input) |ch| p.next(ch);
@@ -2158,7 +2144,7 @@ test "OSC 9;2: ConEmu message box" {
 test "OSC 9;2: ConEmu message box invalid input" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;2";
     for (input) |ch| p.next(ch);
@@ -2171,7 +2157,7 @@ test "OSC 9;2: ConEmu message box invalid input" {
 test "OSC 9;2: ConEmu message box empty message" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;2;";
     for (input) |ch| p.next(ch);
@@ -2184,7 +2170,7 @@ test "OSC 9;2: ConEmu message box empty message" {
 test "OSC 9;2: ConEmu message box spaces only message" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;2;   ";
     for (input) |ch| p.next(ch);
@@ -2197,7 +2183,7 @@ test "OSC 9;2: ConEmu message box spaces only message" {
 test "OSC 9;2: message box -> desktop notification 1" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;2";
     for (input) |ch| p.next(ch);
@@ -2211,7 +2197,7 @@ test "OSC 9;2: message box -> desktop notification 1" {
 test "OSC 9;2: message box -> desktop notification 2" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;2a";
     for (input) |ch| p.next(ch);
@@ -2225,7 +2211,7 @@ test "OSC 9;2: message box -> desktop notification 2" {
 test "OSC 9;3: ConEmu change tab title" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;3;foo bar";
     for (input) |ch| p.next(ch);
@@ -2238,7 +2224,7 @@ test "OSC 9;3: ConEmu change tab title" {
 test "OSC 9;3: ConEmu change tab title reset" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;3;";
     for (input) |ch| p.next(ch);
@@ -2252,7 +2238,7 @@ test "OSC 9;3: ConEmu change tab title reset" {
 test "OSC 9;3: ConEmu change tab title spaces only" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;3;   ";
     for (input) |ch| p.next(ch);
@@ -2266,7 +2252,7 @@ test "OSC 9;3: ConEmu change tab title spaces only" {
 test "OSC 9;3: change tab title -> desktop notification 1" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;3";
     for (input) |ch| p.next(ch);
@@ -2280,7 +2266,7 @@ test "OSC 9;3: change tab title -> desktop notification 1" {
 test "OSC 9;3: message box -> desktop notification 2" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;3a";
     for (input) |ch| p.next(ch);
@@ -2294,7 +2280,7 @@ test "OSC 9;3: message box -> desktop notification 2" {
 test "OSC 9;4: ConEmu progress set" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;1;100";
     for (input) |ch| p.next(ch);
@@ -2308,7 +2294,7 @@ test "OSC 9;4: ConEmu progress set" {
 test "OSC 9;4: ConEmu progress set overflow" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;1;900";
     for (input) |ch| p.next(ch);
@@ -2322,7 +2308,7 @@ test "OSC 9;4: ConEmu progress set overflow" {
 test "OSC 9;4: ConEmu progress set single digit" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;1;9";
     for (input) |ch| p.next(ch);
@@ -2336,7 +2322,7 @@ test "OSC 9;4: ConEmu progress set single digit" {
 test "OSC 9;4: ConEmu progress set double digit" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;1;94";
     for (input) |ch| p.next(ch);
@@ -2350,7 +2336,7 @@ test "OSC 9;4: ConEmu progress set double digit" {
 test "OSC 9;4: ConEmu progress set extra semicolon ignored" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;1;100";
     for (input) |ch| p.next(ch);
@@ -2364,7 +2350,7 @@ test "OSC 9;4: ConEmu progress set extra semicolon ignored" {
 test "OSC 9;4: ConEmu progress remove with no progress" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;0;";
     for (input) |ch| p.next(ch);
@@ -2378,7 +2364,7 @@ test "OSC 9;4: ConEmu progress remove with no progress" {
 test "OSC 9;4: ConEmu progress remove with double semicolon" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;0;;";
     for (input) |ch| p.next(ch);
@@ -2392,7 +2378,7 @@ test "OSC 9;4: ConEmu progress remove with double semicolon" {
 test "OSC 9;4: ConEmu progress remove ignores progress" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;0;100";
     for (input) |ch| p.next(ch);
@@ -2406,7 +2392,7 @@ test "OSC 9;4: ConEmu progress remove ignores progress" {
 test "OSC 9;4: ConEmu progress remove extra semicolon" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;0;100;";
     for (input) |ch| p.next(ch);
@@ -2419,7 +2405,7 @@ test "OSC 9;4: ConEmu progress remove extra semicolon" {
 test "OSC 9;4: ConEmu progress error" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;2";
     for (input) |ch| p.next(ch);
@@ -2433,7 +2419,7 @@ test "OSC 9;4: ConEmu progress error" {
 test "OSC 9;4: ConEmu progress error with progress" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;2;100";
     for (input) |ch| p.next(ch);
@@ -2447,7 +2433,7 @@ test "OSC 9;4: ConEmu progress error with progress" {
 test "OSC 9;4: progress pause" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;4";
     for (input) |ch| p.next(ch);
@@ -2461,7 +2447,7 @@ test "OSC 9;4: progress pause" {
 test "OSC 9;4: ConEmu progress pause with progress" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;4;100";
     for (input) |ch| p.next(ch);
@@ -2475,7 +2461,7 @@ test "OSC 9;4: ConEmu progress pause with progress" {
 test "OSC 9;4: progress -> desktop notification 1" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4";
     for (input) |ch| p.next(ch);
@@ -2489,7 +2475,7 @@ test "OSC 9;4: progress -> desktop notification 1" {
 test "OSC 9;4: progress -> desktop notification 2" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;";
     for (input) |ch| p.next(ch);
@@ -2503,7 +2489,7 @@ test "OSC 9;4: progress -> desktop notification 2" {
 test "OSC 9;4: progress -> desktop notification 3" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;5";
     for (input) |ch| p.next(ch);
@@ -2517,7 +2503,7 @@ test "OSC 9;4: progress -> desktop notification 3" {
 test "OSC 9;4: progress -> desktop notification 4" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;4;5a";
     for (input) |ch| p.next(ch);
@@ -2531,7 +2517,7 @@ test "OSC 9;4: progress -> desktop notification 4" {
 test "OSC 9;5: ConEmu wait input" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;5";
     for (input) |ch| p.next(ch);
@@ -2543,7 +2529,7 @@ test "OSC 9;5: ConEmu wait input" {
 test "OSC 9;5: ConEmu wait ignores trailing characters" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "9;5;foo";
     for (input) |ch| p.next(ch);
@@ -2555,7 +2541,7 @@ test "OSC 9;5: ConEmu wait ignores trailing characters" {
 test "OSC 9;6: ConEmu guimacro 1" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "9;6;a";
@@ -2569,7 +2555,7 @@ test "OSC 9;6: ConEmu guimacro 1" {
 test "OSC: 9;6: ConEmu guimacro 2" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "9;6;ab";
@@ -2583,7 +2569,7 @@ test "OSC: 9;6: ConEmu guimacro 2" {
 test "OSC: 9;6: ConEmu guimacro 3 incomplete -> desktop notification" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "9;6";
@@ -2618,7 +2604,7 @@ test "OSC 21: kitty color protocol" {
     const testing = std.testing;
     const Kind = kitty_color.Kind;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "21;foreground=?;background=rgb:f0/f8/ff;cursor=aliceblue;cursor_text;visual_bell=;selection_foreground=#xxxyyzz;selection_background=?;selection_background=#aabbcc;2=?;3=rgbi:1.0/1.0/1.0";
@@ -2689,7 +2675,7 @@ test "OSC 21: kitty color protocol" {
 test "OSC 21: kitty color protocol without allocator" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     defer p.deinit();
 
     const input = "21;foreground=?";
@@ -2700,7 +2686,7 @@ test "OSC 21: kitty color protocol without allocator" {
 test "OSC 21: kitty color protocol double reset" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "21;foreground=?;background=rgb:f0/f8/ff;cursor=aliceblue;cursor_text;visual_bell=;selection_foreground=#xxxyyzz;selection_background=?;selection_background=#aabbcc;2=?;3=rgbi:1.0/1.0/1.0";
@@ -2716,7 +2702,7 @@ test "OSC 21: kitty color protocol double reset" {
 test "OSC 21: kitty color protocol reset after invalid" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "21;foreground=?;background=rgb:f0/f8/ff;cursor=aliceblue;cursor_text;visual_bell=;selection_foreground=#xxxyyzz;selection_background=?;selection_background=#aabbcc;2=?;3=rgbi:1.0/1.0/1.0";
@@ -2737,7 +2723,7 @@ test "OSC 21: kitty color protocol reset after invalid" {
 test "OSC 21: kitty color protocol no key" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "21;";
@@ -2751,7 +2737,7 @@ test "OSC 21: kitty color protocol no key" {
 test "OSC 22: pointer cursor" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "22;pointer";
     for (input) |ch| p.next(ch);
@@ -2764,7 +2750,7 @@ test "OSC 22: pointer cursor" {
 test "OSC 52: get/set clipboard" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "52;s;?";
     for (input) |ch| p.next(ch);
@@ -2778,7 +2764,7 @@ test "OSC 52: get/set clipboard" {
 test "OSC 52: get/set clipboard (optional parameter)" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "52;;?";
     for (input) |ch| p.next(ch);
@@ -2792,7 +2778,7 @@ test "OSC 52: get/set clipboard (optional parameter)" {
 test "OSC 52: get/set clipboard with allocator" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
+    var p: Parser = .init(testing.allocator);
     defer p.deinit();
 
     const input = "52;s;?";
@@ -2807,7 +2793,7 @@ test "OSC 52: get/set clipboard with allocator" {
 test "OSC 52: clear clipboard" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
     defer p.deinit();
 
     const input = "52;;";
@@ -2846,7 +2832,7 @@ test "OSC 52: clear clipboard" {
 test "OSC 133: prompt_start" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A";
     for (input) |ch| p.next(ch);
@@ -2860,7 +2846,7 @@ test "OSC 133: prompt_start" {
 test "OSC 133: prompt_start with single option" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;aid=14";
     for (input) |ch| p.next(ch);
@@ -2873,7 +2859,7 @@ test "OSC 133: prompt_start with single option" {
 test "OSC 133: prompt_start with redraw disabled" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;redraw=0";
     for (input) |ch| p.next(ch);
@@ -2886,7 +2872,7 @@ test "OSC 133: prompt_start with redraw disabled" {
 test "OSC 133: prompt_start with redraw invalid value" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;redraw=42";
     for (input) |ch| p.next(ch);
@@ -2900,7 +2886,7 @@ test "OSC 133: prompt_start with redraw invalid value" {
 test "OSC 133: prompt_start with continuation" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;k=c";
     for (input) |ch| p.next(ch);
@@ -2913,7 +2899,7 @@ test "OSC 133: prompt_start with continuation" {
 test "OSC 133: prompt_start with secondary" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;k=s";
     for (input) |ch| p.next(ch);
@@ -2926,7 +2912,7 @@ test "OSC 133: prompt_start with secondary" {
 test "OSC 133: prompt_start with special_key" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;special_key=1";
     for (input) |ch| p.next(ch);
@@ -2939,7 +2925,7 @@ test "OSC 133: prompt_start with special_key" {
 test "OSC 133: prompt_start with special_key invalid" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;special_key=bobr";
     for (input) |ch| p.next(ch);
@@ -2952,7 +2938,7 @@ test "OSC 133: prompt_start with special_key invalid" {
 test "OSC 133: prompt_start with special_key 0" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;special_key=0";
     for (input) |ch| p.next(ch);
@@ -2965,7 +2951,7 @@ test "OSC 133: prompt_start with special_key 0" {
 test "OSC 133: prompt_start with special_key empty" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;special_key=";
     for (input) |ch| p.next(ch);
@@ -2978,7 +2964,7 @@ test "OSC 133: prompt_start with special_key empty" {
 test "OSC 133: prompt_start with click_events true" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;click_events=1";
     for (input) |ch| p.next(ch);
@@ -2991,7 +2977,7 @@ test "OSC 133: prompt_start with click_events true" {
 test "OSC 133: prompt_start with click_events false" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;click_events=0";
     for (input) |ch| p.next(ch);
@@ -3004,7 +2990,7 @@ test "OSC 133: prompt_start with click_events false" {
 test "OSC 133: prompt_start with click_events empty" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;A;click_events=";
     for (input) |ch| p.next(ch);
@@ -3017,7 +3003,7 @@ test "OSC 133: prompt_start with click_events empty" {
 test "OSC 133: end_of_command no exit code" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;D";
     for (input) |ch| p.next(ch);
@@ -3029,7 +3015,7 @@ test "OSC 133: end_of_command no exit code" {
 test "OSC 133: end_of_command with exit code" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;D;25";
     for (input) |ch| p.next(ch);
@@ -3042,7 +3028,7 @@ test "OSC 133: end_of_command with exit code" {
 test "OSC 133: prompt_end" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;B";
     for (input) |ch| p.next(ch);
@@ -3054,7 +3040,7 @@ test "OSC 133: prompt_end" {
 test "OSC 133: end_of_input" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;C";
     for (input) |ch| p.next(ch);
@@ -3063,10 +3049,10 @@ test "OSC 133: end_of_input" {
     try testing.expect(cmd == .end_of_input);
 }
 
-test "OSC 133: end_of_input with cmdline" {
+test "OSC 133: end_of_input with cmdline 1" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "133;C;cmdline=echo bobr kurwa";
     for (input) |ch| p.next(ch);
@@ -3074,14 +3060,135 @@ test "OSC 133: end_of_input with cmdline" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .end_of_input);
     try testing.expect(cmd.end_of_input.cmdline != null);
-    try testing.expect(cmd.end_of_input.cmdline.? == .printf_q_encoded);
-    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?.printf_q_encoded);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
 }
 
-test "OSC 133: end_of_input with cmdline_url" {
+test "OSC 133: end_of_input with cmdline 2" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=echo bobr\\ kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 3" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=echo bobr\\nkurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr\nkurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 4" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=$'echo bobr kurwa'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 5" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline='echo bobr kurwa'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline 6" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline='echo bobr kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 7" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=$'echo bobr kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 8" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=$'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 9" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=$'";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline 10" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline=";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 1" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
 
     const input = "133;C;cmdline_url=echo bobr kurwa";
     for (input) |ch| p.next(ch);
@@ -3089,14 +3196,120 @@ test "OSC 133: end_of_input with cmdline_url" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .end_of_input);
     try testing.expect(cmd.end_of_input.cmdline != null);
-    try testing.expect(cmd.end_of_input.cmdline.? == .percent_encoded);
-    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?.percent_encoded);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr%20kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 3" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr%3bkurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr;kurwa", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 4" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr%3kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 5" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr%kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 6" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr%kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 7" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr kurwa%20";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expectEqualStrings("echo bobr kurwa ", cmd.end_of_input.cmdline.?);
+}
+
+test "OSC 133: end_of_input with cmdline_url 8" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr kurwa%2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with cmdline_url 9" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url=echo bobr kurwa%2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
 }
 
 test "OSC: OSC 777 show desktop notification with title" {
     const testing = std.testing;
 
-    var p: Parser = .init();
+    var p: Parser = .init(null);
 
     const input = "777;notify;Title;Body";
     for (input) |ch| p.next(ch);

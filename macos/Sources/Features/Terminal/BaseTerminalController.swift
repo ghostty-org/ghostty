@@ -48,6 +48,9 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
+    
+    /// Set if the terminal view should show the update overlay.
+    @Published var updateOverlayIsVisible: Bool = false
 
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
@@ -818,7 +821,18 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    func fullscreenDidChange() {}
+    func fullscreenDidChange() {
+        guard let fullscreenStyle else { return }
+        
+        // When we enter fullscreen, we want to show the update overlay so that it
+        // is easily visible. For native fullscreen this is visible by showing the
+        // menubar but we don't want to rely on that.
+        if fullscreenStyle.isFullscreen {
+            updateOverlayIsVisible = true
+        } else {
+            updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+        }
+    }
 
     // MARK: Clipboard Confirmation
 
@@ -900,6 +914,28 @@ class BaseTerminalController: NSWindowController,
             fullscreenStyle = NativeFullscreen(window)
             fullscreenStyle?.delegate = self
         }
+        
+        // Set our update overlay state
+        updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+    }
+    
+    func defaultUpdateOverlayVisibility() -> Bool {
+        guard let window else { return true }
+        
+        // No titlebar we always show the update overlay because it can't support
+        // updates in the titlebar
+        guard window.styleMask.contains(.titled) else {
+            return true
+        }
+        
+        // If it's a non terminal window we can't trust it has an update accessory,
+        // so we always want to show the overlay.
+        guard let window = window as? TerminalWindow else {
+            return true
+        }
+        
+        // Show the overlay if the window isn't.
+        return !window.supportsUpdateAccessory
     }
 
     // MARK: NSWindowDelegate

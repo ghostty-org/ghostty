@@ -16,13 +16,6 @@ const expandPath = @import("../os/path.zig").expand;
 const gtk = @import("gtk.zig");
 const GitVersion = @import("GitVersion.zig");
 
-/// The version of the next release.
-///
-/// TODO: When Zig 0.14 is released, derive this from build.zig.zon directly.
-/// Until then this MUST match build.zig.zon and should always be the
-/// _next_ version to release.
-const app_version: std.SemanticVersion = .{ .major = 1, .minor = 2, .patch = 1 };
-
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
@@ -69,7 +62,7 @@ emit_unicode_table_gen: bool = false,
 /// Environmental properties
 env: std.process.EnvMap,
 
-pub fn init(b: *std.Build) !Config {
+pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
     const optimize = b.standardOptimizeOption(.{});
@@ -217,6 +210,7 @@ pub fn init(b: *std.Build) !Config {
         // If an explicit version is given, we always use it.
         try std.SemanticVersion.parse(v)
     else version: {
+        const app_version = try std.SemanticVersion.parse(appVersion);
         // If no explicit version is given, we try to detect it from git.
         const vsn = GitVersion.detect(b) catch |err| switch (err) {
             // If Git isn't available we just make an unknown dev version.

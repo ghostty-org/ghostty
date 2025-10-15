@@ -37,7 +37,7 @@ class QuickTerminalController: BaseTerminalController {
     
     /// Tracks if we're currently handling a manual resize to prevent recursion
     private var isHandlingResize: Bool = false
-
+    
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,

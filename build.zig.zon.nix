@@ -163,11 +163,11 @@ in
       };
     }
     {
-      name = "N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y";
+      name = "N-V-__8AALIsAwAgV4B4dOJYBqTmOftgMMm4D4BxFPzns5Bl";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz";
-        hash = "sha256-GsEWVt4wMzp6+7N5I+QVuhCVJ70cFrdADwUds59AKnw=";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251006-150522-c07f0e8/ghostty-themes.tgz";
+        hash = "sha256-yTN88FFxGVeK07fSQK+jWy9XLAln7f/W+xcDH+tLOEY=";
       };
     }
     {
@@ -259,6 +259,14 @@ in
       };
     }
     {
+      name = "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM";
+      path = fetchZigArtifact {
+        name = "uucode";
+        url = "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732";
+        hash = "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8=";
+      };
+    }
+    {
       name = "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT";
       path = fetchZigArtifact {
         name = "uucode";
@@ -267,19 +275,11 @@ in
       };
     }
     {
-      name = "vaxis-0.5.1-BWNV_BMgCQDXdZzABeY4F_xwgE7nHFtYEP07KgEwJWo8";
+      name = "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS";
       path = fetchZigArtifact {
         name = "vaxis";
-        url = "git+https://github.com/rockorager/libvaxis#6eb16bb4190dc074dafaf4f0ce7dadd50e81192a";
-        hash = "sha256-5c+TjmiH4071lKI+U8SIJ0M+4ezzcAtLI2ZSfZYdXSA=";
-      };
-    }
-    {
-      name = "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ";
-      path = fetchZigArtifact {
-        name = "vaxis";
-        url = "https://deps.files.ghostty.org/vaxis-9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz";
-        hash = "sha256-7H5a0J7uUsrzlO7JNAf/Ussi9WxvmsbyJSmhqvl+rqI=";
+        url = "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz";
+        hash = "sha256-LnIzK8icW1Qexua9SHaeHz+3V8QAbz0a+UC1T5sIjvY=";
       };
     }
     {
@@ -307,27 +307,19 @@ in
       };
     }
     {
-      name = "z2d-0.8.2-pre-j5P_HlVRFgCsBTQ3EgUoKbYHx5JMnyH1mHsOSPiafnef";
+      name = "z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://deps.files.ghostty.org/z2d-a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz";
-        hash = "sha256-5/qRZAIh1U42v7jql9W0jr2zzQZtu39DxJPLVrSybJg=";
+        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz";
+        hash = "sha256-+QqCRoXwrFA1/l+oWvYVyAVebGQitAFQNhi9U3EVrxA=";
       };
     }
     {
-      name = "zf-0.10.3-OIRy8euIAACn1wj5gnZbqxbAdAKI5JGMeex8zrdPqORg";
+      name = "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh";
       path = fetchZigArtifact {
         name = "zf";
-        url = "https://github.com/natecraddock/zf/archive/d2c89a7d6b579981da6c9c8912134cf5a22c7194.tar.gz";
-        hash = "sha256-Kaduui4Llb9Fq1lCKLOeG8cWTknjhos8cSTeJ50KP/I=";
-      };
-    }
-    {
-      name = "zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9";
-      path = fetchZigArtifact {
-        name = "zg";
-        url = "https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz";
-        hash = "sha256-BZhz1nPqxK6hdsJQ66n7Jk4zMgFSGLXm8eU0CX/7mDI=";
+        url = "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz";
+        hash = "sha256-OwFdkorwTp4mJyvBXrTbtNmp1GnrbSkKDdrmc7d8RWg=";
       };
     }
     {

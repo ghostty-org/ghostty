@@ -1089,7 +1089,13 @@ pub const StreamHandler = struct {
             return;
         }
 
-        const uri: std.Uri = internal_os.hostname.parseUrl(url) catch |e| {
+        // Attempt to parse this file-style URI using options appropriate
+        // for this OSC 7 context (e.g. kitty-shell-cwd expects the full,
+        // unencoded path).
+        const uri: std.Uri = internal_os.uri.parse(url, .{
+            .mac_address = comptime builtin.os.tag != .macos,
+            .raw_path = std.mem.startsWith(u8, url, "kitty-shell-cwd://"),
+        }) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});
             return;
         };
@@ -1097,26 +1103,18 @@ pub const StreamHandler = struct {
         if (!std.mem.eql(u8, "file", uri.scheme) and
             !std.mem.eql(u8, "kitty-shell-cwd", uri.scheme))
         {
-            log.warn("OSC 7 scheme must be file, got: {s}", .{uri.scheme});
+            log.warn("OSC 7 scheme must be file or kitty-shell-cwd, got: {s}", .{uri.scheme});
             return;
         }
 
-        // RFC 793 defines port numbers as 16-bit numbers. 5 digits is sufficient to represent
-        // the maximum since 2^16 - 1 = 65_535.
-        // See https://www.rfc-editor.org/rfc/rfc793#section-3.1.
-        const PORT_NUMBER_MAX_DIGITS = 5;
-        // Make sure there is space for a max length hostname + the max number of digits.
-        var host_and_port_buf: [posix.HOST_NAME_MAX + PORT_NUMBER_MAX_DIGITS]u8 = undefined;
-        const hostname_from_uri = internal_os.hostname.bufPrintHostnameFromFileUri(
-            &host_and_port_buf,
-            uri,
-        ) catch |err| switch (err) {
-            error.NoHostnameInUri => {
+        var host_buffer: [std.Uri.host_name_max]u8 = undefined;
+        const host = uri.getHost(&host_buffer) catch |err| switch (err) {
+            error.UriMissingHost => {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
                 return;
             },
-            error.NoSpaceLeft => |e| {
-                log.warn("failed to get full hostname for OSC 7 validation: {}", .{e});
+            error.UriHostTooLong => {
+                log.warn("failed to get full hostname for OSC 7 validation: {}", .{err});
                 return;
             },
         };
@@ -1124,9 +1122,7 @@ pub const StreamHandler = struct {
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = internal_os.hostname.isLocalHostname(
-            hostname_from_uri,
-        ) catch |err| switch (err) {
+        const host_valid = internal_os.hostname.isLocal(host) catch |err| switch (err) {
             error.PermissionDenied,
             error.Unexpected,
             => {
@@ -1135,43 +1131,16 @@ pub const StreamHandler = struct {
             },
         };
         if (!host_valid) {
-            log.warn("OSC 7 host must be local", .{});
+            log.warn("OSC 7 host ({s}) must be local", .{host});
             return;
         }
 
-        // We need to unescape the path. We first try to unescape onto
-        // the stack and fall back to heap allocation if we have to.
-        var path_buf: [1024]u8 = undefined;
-        const path, const heap = path: {
-            // Get the raw string of the URI. Its unclear to me if the various
-            // tags of this enum guarantee no percent-encoding so we just
-            // check all of it. This isn't a performance critical path.
-            const path = switch (uri.path) {
-                .raw => |v| v,
-                .percent_encoded => |v| v,
-            };
-
-            // If the path doesn't have any escapes, we can use it directly.
-            if (std.mem.indexOfScalar(u8, path, '%') == null)
-                break :path .{ path, false };
-
-            // First try to stack-allocate
-            var stack_writer: std.Io.Writer = .fixed(&path_buf);
-            if (uri.path.formatRaw(&stack_writer)) |_| {
-                break :path .{ stack_writer.buffered(), false };
-            } else |_| {}
-
-            // Fall back to heap
-            var alloc_writer: std.Io.Writer.Allocating = .init(self.alloc);
-            if (uri.path.formatRaw(&alloc_writer.writer)) |_| {
-                break :path .{ alloc_writer.written(), true };
-            } else |_| {}
-
-            // Fall back to using it directly...
-            log.warn("failed to unescape OSC 7 path, using it directly path={s}", .{path});
-            break :path .{ path, false };
-        };
-        defer if (heap) self.alloc.free(path);
+        // We need the raw path, which might require unescaping. We try to
+        // avoid making any heap allocations by using the stack first.
+        var arena_alloc: std.heap.ArenaAllocator = .init(self.alloc);
+        var stack_alloc = std.heap.stackFallback(1024, arena_alloc.allocator());
+        defer arena_alloc.deinit();
+        const path = try uri.path.toRawMaybeAlloc(stack_alloc.get());
 
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);

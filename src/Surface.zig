@@ -702,7 +702,22 @@ pub fn init(
             .set_title,
             .{ .title = title },
         );
-    }
+    } else if (command) |cmd| switch (cmd) {
+        // If a user specifies a command it is appropriate to set the title as argv[0]
+        // we know in the case of a direct command it has been supplied by the user
+        .direct => |cmd_str| if (cmd_str.len != 0) {
+            _ = try rt_app.performAction(
+                .{ .surface = self },
+                .set_title,
+                .{ .title = cmd_str[0] },
+            );
+        },
+
+        // We won't set the title in the case the shell expands the command
+        // as that should typically be used to launch a shell which should
+        // set its own titles
+        .shell => {},
+    };
 
     // We are no longer the first surface
     app.first = false;

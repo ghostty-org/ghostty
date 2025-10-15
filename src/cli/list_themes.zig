@@ -241,7 +241,7 @@ const Preview = struct {
             .hex = false,
             .mode = .normal,
             .color_scheme = .light,
-            .text_input = .init(allocator, &self.vx.unicode),
+            .text_input = .init(allocator),
             .theme_filter = theme_filter,
         };
 
