@@ -1976,7 +1976,7 @@ pub const AdjustCapacity = struct {
 
 pub const AdjustCapacityError = Allocator.Error || Page.CloneFromError;
 
-/// Adjust the capcaity of the given page in the list. This should
+/// Adjust the capacity of the given page in the list. This should
 /// be used in cases where OutOfMemory is returned by some operation
 /// i.e to increase style counts, grapheme counts, etc.
 ///

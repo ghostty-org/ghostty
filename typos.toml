@@ -55,6 +55,10 @@ typ = "typ"
 kend = "kend"
 # GTK
 GIR = "GIR"
+# terminfo
+rin = "rin"
+# sprites
+ower = "ower"
 
 [type.po]
 extend-glob = ["*.po"]
