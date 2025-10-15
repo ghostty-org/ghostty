@@ -1057,6 +1057,16 @@ fn selectionScrollTick(self: *Surface) !void {
     defer self.renderer_state.mutex.unlock();
     const t: *terminal.Terminal = self.renderer_state.terminal;
 
+    // If our screen changed while this is happening, we stop our
+    // selection scroll.
+    if (self.mouse.left_click_screen != t.active_screen) {
+        self.io.queueMessage(
+            .{ .selection_scroll = false },
+            .locked,
+        );
+        return;
+    }
+
     // Scroll the viewport as required
     try t.scrollViewport(.{ .delta = delta });
 
@@ -4151,6 +4161,12 @@ pub fn cursorPosCallback(
         // count because we don't want to handle selection.
         if (self.mouse.left_click_count == 0) break :select;
 
+        // If our terminal screen changed then we don't process this. We don't
+        // invalidate our pin or mouse state because if the screen switches
+        // back then we can continue our selection.
+        const t: *terminal.Terminal = self.renderer_state.terminal;
+        if (self.mouse.left_click_screen != t.active_screen) break :select;
+
         // All roads lead to requiring a re-render at this point.
         try self.queueRender();
 
@@ -4174,7 +4190,7 @@ pub fn cursorPosCallback(
         }
 
         // Convert to points
-        const screen = &self.renderer_state.terminal.screen;
+        const screen = &t.screen;
         const pin = screen.pages.pin(.{
             .viewport = .{
                 .x = pos_vp.x,
