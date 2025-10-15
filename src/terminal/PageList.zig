@@ -2103,6 +2103,13 @@ pub const Scrollbar = struct {
     /// The length of the visible area. This is including the offset row.
     len: usize,
 
+    /// A zero-sized scrollable region.
+    pub const zero: Scrollbar = .{
+        .total = 0,
+        .offset = 0,
+        .len = 0,
+    };
+
     /// Comparison for scrollbars.
     pub fn eql(self: Scrollbar, other: Scrollbar) bool {
         return self.total == other.total and
