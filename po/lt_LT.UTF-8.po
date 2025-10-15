@@ -212,7 +212,7 @@ msgstr "Prisiminti pasirinkimą šiam padalijimui"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr "Iš naujo įkelkite konfigūraciją, kad vėl būtų rodomas šis raginimas"
+msgstr "Iš naujo įkelkite konfigūraciją, kad vėl būtų rodoma ši užuomina"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
