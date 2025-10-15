@@ -1217,21 +1217,21 @@ pub const StreamHandler = struct {
                         .dynamic => |dynamic| switch (dynamic) {
                             .foreground => {
                                 self.foreground_color = set.color;
-                                _ = self.renderer_mailbox.push(.{
+                                self.rendererMessageWriter(.{
                                     .foreground_color = set.color,
-                                }, .{ .forever = {} });
+                                });
                             },
                             .background => {
                                 self.background_color = set.color;
-                                _ = self.renderer_mailbox.push(.{
+                                self.rendererMessageWriter(.{
                                     .background_color = set.color,
-                                }, .{ .forever = {} });
+                                });
                             },
                             .cursor => {
                                 self.cursor_color = set.color;
-                                _ = self.renderer_mailbox.push(.{
+                                self.rendererMessageWriter(.{
                                     .cursor_color = set.color,
-                                }, .{ .forever = {} });
+                                });
                             },
                             .pointer_foreground,
                             .pointer_background,
@@ -1271,9 +1271,9 @@ pub const StreamHandler = struct {
                     .dynamic => |dynamic| switch (dynamic) {
                         .foreground => {
                             self.foreground_color = null;
-                            _ = self.renderer_mailbox.push(.{
+                            self.rendererMessageWriter(.{
                                 .foreground_color = self.foreground_color,
-                            }, .{ .forever = {} });
+                            });
 
                             self.surfaceMessageWriter(.{ .color_change = .{
                                 .target = target,
@@ -1282,9 +1282,9 @@ pub const StreamHandler = struct {
                         },
                         .background => {
                             self.background_color = null;
-                            _ = self.renderer_mailbox.push(.{
+                            self.rendererMessageWriter(.{
                                 .background_color = self.background_color,
-                            }, .{ .forever = {} });
+                            });
 
                             self.surfaceMessageWriter(.{ .color_change = .{
                                 .target = target,
@@ -1294,9 +1294,9 @@ pub const StreamHandler = struct {
                         .cursor => {
                             self.cursor_color = null;
 
-                            _ = self.renderer_mailbox.push(.{
+                            self.rendererMessageWriter(.{
                                 .cursor_color = self.cursor_color,
-                            }, .{ .forever = {} });
+                            });
 
                             if (self.default_cursor_color) |color| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
