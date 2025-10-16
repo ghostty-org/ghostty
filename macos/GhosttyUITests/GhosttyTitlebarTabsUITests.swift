@@ -34,8 +34,8 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         let app = try ghosttyApplication()
         app.launch()
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
-        XCTAssert(app.tabs.count == 2, "There should be 2 tabs")
-        checkTabsGeometry(app.windows.element(boundBy: 0))
+        XCTAssertEqual(app.tabs.count, 2, "There should be 2 tabs")
+        checkTabsGeometry(app.windows.firstMatch)
     }
 
     @MainActor
@@ -45,14 +45,15 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         app.typeKey("f", modifierFlags: [.command, .control])
         // using app to type ⌘+t might not be able to create tabs
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
-        XCTAssert(app.tabs.count == 2, "There should be 2 tabs")
-        checkTabsGeometry(app.windows.element(boundBy: 0))
+        XCTAssertEqual(app.tabs.count, 2, "There should be 2 tabs")
+        checkTabsGeometry(app.windows.firstMatch)
     }
 
     @MainActor
     func testTabsGeometryAfterMovingTabs() throws {
         let app = try ghosttyApplication()
         app.launch()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 1), "Main window should exist")
         // create 3 tabs
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
@@ -61,20 +62,20 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         app.menuItems["_zoomLeft:"].firstMatch.click()
 
         // create another window with 2 tabs
-        app.windows.element(boundBy: 0).groups["Terminal pane"].typeKey("n", modifierFlags: .command)
-        XCTAssert(app.windows.count == 2, "There should be 2 windows")
+        app.windows.firstMatch.groups["Terminal pane"].typeKey("n", modifierFlags: .command)
+        XCTAssertEqual(app.windows.count, 2, "There should be 2 windows")
 
         // move to the right
         app.menuItems["_zoomRight:"].firstMatch.click()
 
         // now second window is the first/main one in the list
-        app.windows.element(boundBy: 0).groups["Terminal pane"].typeKey("t", modifierFlags: .command)
+        app.windows.firstMatch.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
 
-        app.windows.element(boundBy: 1).tabs.element(boundBy: 0).click() // focus first window
+        app.windows.element(boundBy: 1).tabs.firstMatch.click() // focus first window
 
         // now the first window is the main one
-        let firstTabInFirstWindow = app.windows.element(boundBy: 0).tabs.element(boundBy: 0)
-        let firstTabInSecondWindow = app.windows.element(boundBy: 1).tabs.element(boundBy: 0)
+        let firstTabInFirstWindow = app.windows.firstMatch.tabs.firstMatch
+        let firstTabInSecondWindow = app.windows.element(boundBy: 1).tabs.firstMatch
 
         // drag a tab from one window to another
         firstTabInFirstWindow.press(forDuration: 0.2, thenDragTo: firstTabInSecondWindow)
@@ -89,11 +90,12 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
     func checkTabsGeometry(_ window: XCUIElement) {
         let closeTabButtons = window.buttons.matching(identifier: "_closeButton")
 
-        XCTAssert(closeTabButtons.count == window.tabs.count, "Close tab buttons count should match tabs count")
+        XCTAssertEqual(closeTabButtons.count, window.tabs.count, "Close tab buttons count should match tabs count")
 
         var previousTabHeight: CGFloat?
         for idx in 0 ..< window.tabs.count {
             let currentTab = window.tabs.element(boundBy: idx)
+            XCTAssertTrue(currentTab.waitForExistence(timeout: 1))
             // focus
             currentTab.click()
             // switch to the tab
