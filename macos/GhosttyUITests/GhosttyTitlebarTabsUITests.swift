@@ -77,7 +77,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         let firstTabInSecondWindow = app.windows.element(boundBy: 1).tabs.element(boundBy: 0)
 
         // drag a tab from one window to another
-        firstTabInFirstWindow.press(forDuration: 1, thenDragTo: firstTabInSecondWindow)
+        firstTabInFirstWindow.press(forDuration: 0.2, thenDragTo: firstTabInSecondWindow)
 
         // check tabs in the first
         checkTabsGeometry(app.windows.firstMatch)
