@@ -1057,7 +1057,7 @@ jobs:
         uses: namespacelabs/nscloud-setup@d1c625762f7c926a54bd39252efff0705fd11c64 # v0.0.10
 
       - name: Configure Namespace powered Buildx
-        uses: namespacelabs/nscloud-setup-buildx-action@7020d7d8e659afecbfec162ab4693c7e56278311 # v0.0.19
+        uses: namespacelabs/nscloud-setup-buildx-action@91c2e6537780e3b092cb8476406be99a8f91bd5e # v0.0.20
 
       - name: Download Source Tarball Artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
