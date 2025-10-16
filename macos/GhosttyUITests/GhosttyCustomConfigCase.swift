@@ -33,6 +33,9 @@ class GhosttyCustomConfigCase: XCTestCase {
         guard let customGhosttyConfig else {
             return app
         }
+        if let configFile {
+            try FileManager.default.removeItem(at: configFile)
+        }
         let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ghostty")
         try customGhosttyConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)

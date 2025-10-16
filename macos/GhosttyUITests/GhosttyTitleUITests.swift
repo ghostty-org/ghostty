@@ -18,6 +18,6 @@ final class GhosttyTitleUITests: GhosttyCustomConfigCase {
         let app = try ghosttyApplication()
         app.launch()
 
-        XCTAssert(app.windows.firstMatch.title == "GhosttyUITestsLaunchTests", "Oops, `title=` doesn't work!")
+        XCTAssertEqual(app.windows.firstMatch.title, "GhosttyUITestsLaunchTests", "Oops, `title=` doesn't work!")
     }
 }
