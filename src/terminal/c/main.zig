@@ -35,6 +35,11 @@ pub const key_encoder_setopt = key_encode.setopt;
 pub const key_encoder_encode = key_encode.encode;
 
 pub const paste_is_safe = paste.is_safe;
+pub const paste_options_new = paste.options_new;
+pub const paste_options_free = paste.options_free;
+pub const paste_options_set_bracketed = paste.options_set_bracketed;
+pub const paste_encode = paste.encode;
+pub const paste_encode_free = paste.encode_free;
 
 test {
     _ = osc;

@@ -126,6 +126,11 @@ comptime {
         @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
         @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.paste_options_new, .{ .name = "ghostty_paste_options_new" });
+        @export(&c.paste_options_free, .{ .name = "ghostty_paste_options_free" });
+        @export(&c.paste_options_set_bracketed, .{ .name = "ghostty_paste_options_set_bracketed" });
+        @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
+        @export(&c.paste_encode_free, .{ .name = "ghostty_paste_encode_free" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {
