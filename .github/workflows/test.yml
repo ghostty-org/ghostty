@@ -485,6 +485,9 @@ jobs:
         id: deps
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
 
+      - name: Enable automation without authentication
+        run: sudo automationmodetool enable-automationmode-without-authentication
+
       - name: Test All
         run: |
           nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=freetype
@@ -492,6 +495,9 @@ jobs:
           nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype
           nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_harfbuzz
           nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_noshape
+
+      - name: Disable automation without authentication
+        run: sudo automationmodetool disable-automationmode-without-authentication
 
       - name: Build All
         run: |
@@ -758,8 +764,14 @@ jobs:
         id: deps
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
 
+      - name: Enable automation without authentication
+        run: sudo automationmodetool enable-automationmode-without-authentication
+
       - name: test
         run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+
+      - name: Disable automation without authentication
+        run: sudo automationmodetool disable-automationmode-without-authentication
 
   test-i18n:
     strategy:
