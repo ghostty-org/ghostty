@@ -148,6 +148,11 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttyMaximizeDidToggle(_:)),
             name: .ghosttyMaximizeDidToggle,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyToggleWindowDecorations(_:)),
+            name: .ghosttyToggleWindowDecorations,
+            object: nil)
 
         // Splits
         center.addObserver(
@@ -519,6 +524,12 @@ class BaseTerminalController: NSWindowController,
         window.zoom(nil)
     }
 
+    @objc private func ghosttyToggleWindowDecorations(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(surfaceView) else { return }
+        toggleWindowDecorations()
+    }
+
     @objc private func ghosttyDidCloseSurface(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let node = surfaceTree.root?.node(view: target) else { return }
@@ -831,6 +842,22 @@ class BaseTerminalController: NSWindowController,
             updateOverlayIsVisible = true
         } else {
             updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+        }
+    }
+
+    // MARK: Window Decorations
+
+    /// Toggle window decorations for this window
+    func toggleWindowDecorations() {
+        guard let window = self.window as? TerminalWindow else { return }
+        
+        // Toggle the style mask to enable/disable decorations
+        if window.styleMask.contains(.titled) {
+            // Remove decorations (make window borderless)
+            window.styleMask.remove(.titled)
+        } else {
+            // Add decorations back
+            window.styleMask.insert(.titled)
         }
     }
 
