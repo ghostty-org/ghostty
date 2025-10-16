@@ -15,13 +15,6 @@ class GhosttyCustomConfigCase: XCTestCase {
     var configFile: URL?
     override func setUpWithError() throws {
         continueAfterFailure = false
-        guard let customGhosttyConfig else {
-            return
-        }
-        let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("ghostty")
-        try customGhosttyConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)
-        configFile = temporaryConfig
     }
 
     override func tearDown() async throws {
@@ -34,10 +27,17 @@ class GhosttyCustomConfigCase: XCTestCase {
         nil
     }
 
-    func ghosttyApplication() -> XCUIApplication {
+    func ghosttyApplication() throws -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile?.path
         app.launchArguments.append(contentsOf: ["-ApplePersistenceIgnoreState", "YES"])
+        guard let customGhosttyConfig else {
+            return app
+        }
+        let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ghostty")
+        try customGhosttyConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)
+        configFile = temporaryConfig
+        app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile?.path
         return app
     }
 }

@@ -17,7 +17,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
 
     @MainActor
     func testCustomTitlebar() throws {
-        let app = ghosttyApplication()
+        let app = try ghosttyApplication()
         app.launch()
         // create a split
         app.groups["Terminal pane"].typeKey("d", modifierFlags: .command)
@@ -31,7 +31,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
 
     @MainActor
     func testTabsGeometryInNormalWindow() throws {
-        let app = ghosttyApplication()
+        let app = try ghosttyApplication()
         app.launch()
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
         XCTAssert(app.tabs.count == 2, "There should be 2 tabs")
@@ -40,7 +40,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
 
     @MainActor
     func testTabsGeometryInFullscreen() throws {
-        let app = ghosttyApplication()
+        let app = try ghosttyApplication()
         app.launch()
         app.typeKey("f", modifierFlags: [.command, .control])
         // using app to type ⌘+t might not be able to create tabs
@@ -51,7 +51,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
 
     @MainActor
     func testTabsGeometryAfterMovingTabs() throws {
-        let app = ghosttyApplication()
+        let app = try ghosttyApplication()
         app.launch()
         // create 3 tabs
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
