@@ -65,7 +65,10 @@ class BaseTerminalController: NSWindowController,
 
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
-
+    
+    /// Tracks whether window decorations were enabled before entering fullscreen
+    private var decorationsBeforeFullscreen: Bool? = nil
+    
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any? = nil
 
@@ -147,6 +150,11 @@ class BaseTerminalController: NSWindowController,
             self,
             selector: #selector(ghosttyMaximizeDidToggle(_:)),
             name: .ghosttyMaximizeDidToggle,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyToggleWindowDecorations(_:)),
+            name: .ghosttyToggleWindowDecorations,
             object: nil)
 
         // Splits
@@ -519,6 +527,12 @@ class BaseTerminalController: NSWindowController,
         window.zoom(nil)
     }
 
+    @objc private func ghosttyToggleWindowDecorations(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(surfaceView) else { return }
+        toggleWindowDecorations()
+    }
+
     @objc private func ghosttyDidCloseSurface(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let node = surfaceTree.root?.node(view: target) else { return }
@@ -815,8 +829,24 @@ class BaseTerminalController: NSWindowController,
         guard let fullscreenStyle else { return }
 
         if fullscreenStyle.isFullscreen {
+            // Exiting fullscreen - restore decorations if needed
             fullscreenStyle.exit()
+            if let shouldHaveDecorations = decorationsBeforeFullscreen {
+                let currentHasDecorations = window.styleMask.contains(.titled)
+                if shouldHaveDecorations != currentHasDecorations {
+                    toggleWindowDecorations()
+                }
+                decorationsBeforeFullscreen = nil
+            }
         } else {
+            // Entering fullscreen - save current decoration state
+            decorationsBeforeFullscreen = window.styleMask.contains(.titled)
+            
+            // If window decoration = none, enable decorations temporarily for fullscreen
+            if !window.styleMask.contains(.titled) {
+                toggleWindowDecorations()
+            }
+            
             fullscreenStyle.enter()
         }
     }
@@ -831,6 +861,22 @@ class BaseTerminalController: NSWindowController,
             updateOverlayIsVisible = true
         } else {
             updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+        }
+    }
+
+    // MARK: Window Decorations
+
+    /// Toggle window decorations for this window
+    func toggleWindowDecorations() {
+        guard let window = self.window as? TerminalWindow else { return }
+        
+        // Toggle the style mask to enable/disable decorations
+        if window.styleMask.contains(.titled) {
+            // Remove decorations (make window borderless)
+            window.styleMask.remove(.titled)
+        } else {
+            // Add decorations back
+            window.styleMask.insert(.titled)
         }
     }
 
