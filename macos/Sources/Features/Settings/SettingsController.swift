@@ -32,7 +32,7 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         surfaceView.isEnabled = false
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .unifiedTitleAndToolbar, .fullSizeContentView],
+            styleMask: [.titled, .closable, .resizable, .unifiedTitleAndToolbar, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -40,6 +40,7 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
         windowFrameAutosaveName = "SettingsWindow"
         window.tabbingMode = .disallowed
+        window.collectionBehavior = .fullScreenNone
         window.delegate = self
         window.center()
         window.contentView = NSHostingView(rootView: SettingsView()

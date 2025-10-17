@@ -7,14 +7,12 @@ struct SurfacePreviewView: View {
     let textAnchor: Character = "👻"
     @State private var isLoading: Bool = true
     @State private var previewHeight: CGFloat = 300
-    @State private var bottomSpace: CGFloat = 0
-    private let previewSectionHeight: CGFloat = 200
     @State private var themes = [Ghostty.ThemeOption]()
     @State private var selectedLightTheme: Ghostty.ThemeOption?
     @State private var selectedDarkTheme: Ghostty.ThemeOption?
     @EnvironmentObject var config: Ghostty.ConfigFile
     var body: some View {
-        Form {
+        Group {
             // We separate this for now, since ghostty theme will affect appearance, if system is in light mode but ghostty is using dark theme, things start to become tricky...
             Section {
                 Picker("Light", selection: $selectedLightTheme) {
@@ -32,17 +30,12 @@ struct SurfacePreviewView: View {
             }
 
             Section {
-                ScrollView {
-                    GeometryReader { geo in
-                        if let surfaceView {
-                            Ghostty.SurfaceRepresentable(view: surfaceView, size: .init(width: geo.size.width, height: geo.size.height + bottomSpace))
-                                .disabled(true)
-                        }
+                GeometryReader { geo in
+                    if let surfaceView {
+                        Ghostty.SurfaceRepresentable(view: surfaceView, size: geo.size)
                     }
-                    .frame(height: previewHeight - bottomSpace, alignment: .top)
                 }
-                .backport.contentMargins(.trailing, 0, for: .scrollIndicators)
-                .frame(height: previewSectionHeight)
+                .frame(height: previewHeight)
                 .opacity(isLoading ? 0 : 1)
                 .overlay {
                     if isLoading {
@@ -52,10 +45,6 @@ struct SurfacePreviewView: View {
                 }
             }
         }
-        // topPadding + themeSelect + sectionPadding + preview + sectionPadding + bottomPadding
-        .frame(height: 20 + (75 + 10 + 5 + previewSectionHeight + 5) + 10)
-        .formStyle(.grouped)
-        .scrollDisabled(true)
         .frame(maxWidth: .greatestFiniteMagnitude)
         .animation(.smooth, value: isLoading)
         .task(id: selectedLightTheme) {
@@ -70,22 +59,6 @@ struct SurfacePreviewView: View {
         .task {
             await observeSurfaceView()
         }
-    }
-
-    @MainActor
-    private func updateSizes() {
-        guard let surface = surfaceView?.surface else {
-            return
-        }
-        let size = ghostty_surface_size(surface)
-        let rows = ghostty_surface_total_content_rows(surface)
-        let scaleFactorY = Double(ghostty_surface_scale_factor_y(surface))
-        let newHeight = Double(rows + 1) * Double(size.cell_height_px) / scaleFactorY // add one more row so that contents are not clipped
-        guard newHeight != previewHeight else {
-            return
-        }
-        previewHeight = newHeight
-        bottomSpace = 2 * Double(size.cell_height_px) / scaleFactorY // one for cursor, one for additional space
     }
 
     @MainActor
@@ -111,7 +84,6 @@ struct SurfacePreviewView: View {
         // run indefinitely
         for await _ in surfaceView.$surfaceSize.values {
             isLoading = false
-            updateSizes()
         }
     }
 
