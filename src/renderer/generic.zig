@@ -1060,6 +1060,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Update relevant uniforms
             self.updateFontGridUniforms();
+
+            // Force a full rebuild, because cached rows may still reference
+            // an outdated atlas from the old grid and this can cause garbage
+            // to be rendered.
+            self.cells_viewport = null;
         }
 
         /// Update uniforms that are based on the font grid.
