@@ -29,20 +29,25 @@ int main() {
     printf("Empty data is safe\n");
   }
 
-  // Create options for paste encoding
-  GhosttyPasteOptions options;
-  if (ghostty_paste_options_new(NULL, &options) != GHOSTTY_SUCCESS) {
-    printf("Failed to create paste options\n");
+  // Create a paste encoder
+  GhosttyPasteEncoder encoder;
+  if (ghostty_paste_encoder_new(NULL, &encoder) != GHOSTTY_SUCCESS) {
+    printf("Failed to create paste encoder\n");
     return 1;
   }
 
   // Enable bracketed paste mode
-  ghostty_paste_options_set_bracketed(options, true);
+  ghostty_paste_encoder_set_bracketed(encoder, true);
 
-  char *simple_paste = "pasted content";
-  char *encoded;
-  if (ghostty_paste_encode(NULL, simple_paste, strlen(simple_paste), options,
-                           &encoded) != GHOSTTY_SUCCESS) {
+  // we could use this to find out the required size, or just use a large enough
+  // buffer
+  size_t required;
+  char simple_paste[] = "pasted content";
+  char encoded[128];
+
+  if (ghostty_paste_encoder_encode(simple_paste, strlen(simple_paste), encoder,
+                                   encoded, sizeof(encoded),
+                                   &required) != GHOSTTY_SUCCESS) {
     printf("Failed to encode paste data\n");
     return 1;
   }
@@ -58,13 +63,14 @@ int main() {
   printf("\n");
 
   // Disable bracketed paste mode, so that \n will be replaced by \r
-  ghostty_paste_options_set_bracketed(options, false);
+  ghostty_paste_encoder_set_bracketed(encoder, false);
 
-  char *multiline_paste = "line1\nline2\n";
-  char *encoded_multi;
+  char multiline_paste[] = "line1\nline2\n";
+  char encoded_multi[128];
 
-  if (ghostty_paste_encode(NULL, multiline_paste, strlen(multiline_paste),
-                           options, &encoded_multi) != GHOSTTY_SUCCESS) {
+  if (ghostty_paste_encoder_encode(
+          multiline_paste, strlen(multiline_paste), encoder, encoded_multi,
+          sizeof(encoded_multi), &required) != GHOSTTY_SUCCESS) {
     printf("Failed to encode multiline paste data\n");
     return 1;
   }
@@ -82,9 +88,9 @@ int main() {
   printf("\n");
 
   // free resources
-  ghostty_paste_encode_free(NULL, encoded, strlen(encoded));
-  ghostty_paste_encode_free(NULL, encoded_multi, strlen(encoded_multi));
-  ghostty_paste_options_free(NULL, options);
+  //  ghostty_paste_encode_free(NULL, encoded, strlen(encoded));
+  // ghostty_paste_encode_free(NULL, encoded_multi, strlen(encoded_multi));
+  ghostty_paste_encoder_free(encoder);
 
   return 0;
 }
