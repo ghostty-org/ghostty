@@ -1030,7 +1030,16 @@ extension Ghostty {
             // `interpretKeyEvents` may dispatch it.
             self.lastPerformKeyEvent = nil
 
-            self.interpretKeyEvents([translationEvent])
+            // Prefer routing through the input context so we know if IME consumed the event.
+            // Fall back to interpretKeyEvents if inputContext is unavailable.
+            let handledByInputContext: Bool = {
+                if let ctx = self.inputContext {
+                    return ctx.handleEvent(translationEvent)
+                } else {
+                    self.interpretKeyEvents([translationEvent])
+                    return false
+                }
+            }()
 
             // If our keyboard changed from this we just assume an input method
             // grabbed it and do nothing.
@@ -1056,6 +1065,20 @@ extension Ghostty {
                     )
                 }
             } else {
+                // If the input context handled the event (IME consumed it), avoid sending
+                // fallback text to prevent premature commit. Still run keyAction with no
+                // text so control/function keys (enter, backspace, arrows, etc.) work.
+                if handledByInputContext {
+                    _ = keyAction(
+                        action,
+                        event: event,
+                        translationEvent: translationEvent,
+                        text: nil,
+                        composing: markedText.length > 0 || markedTextBefore
+                    )
+                    return
+                }
+
                 // We have no accumulated text so this is a normal key event.
                 _ = keyAction(
                     action,
