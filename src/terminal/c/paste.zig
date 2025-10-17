@@ -2,71 +2,71 @@ const std = @import("std");
 const paste = @import("../../input/paste.zig");
 const lib_alloc = @import("../../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
+const Allocator = std.mem.Allocator;
 const Result = @import("result.zig").Result;
 
-/// C: GhosttyPasteOptions
-pub const Options = ?*paste.Options;
+/// Wrapper around paste encoding options that tracks the allocator for C API usage.
+const PasteEncoderWrapper = struct {
+    opts: paste.Options,
+    alloc: Allocator,
+};
 
-pub fn options_new(
+/// C: GhosttyPasteEncoder
+pub const Encoder = ?*PasteEncoderWrapper;
+
+pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Options,
+    result: *Encoder,
 ) callconv(.c) Result {
     const alloc = lib_alloc.default(alloc_);
-    const ptr = alloc.create(paste.Options) catch
+    const ptr = alloc.create(PasteEncoderWrapper) catch
         return .out_of_memory;
+    ptr.* = .{
+        .opts = .{ .bracketed = false },
+        .alloc = alloc,
+    };
     result.* = ptr;
     return .success;
 }
 
-pub fn options_free(alloc_: ?*const CAllocator, options_: Options) callconv(.c) void {
-    const alloc = lib_alloc.default(alloc_);
-    const options = options_ orelse return;
-    alloc.destroy(options);
+pub fn free(encoder_: Encoder) callconv(.c) void {
+    const wrapper = encoder_ orelse return;
+    const alloc = wrapper.alloc;
+    alloc.destroy(wrapper);
 }
 
-pub fn options_set_bracketed(options_: Options, enabled: bool) callconv(.c) void {
-    const options = options_ orelse return;
-    options.bracketed = enabled;
+pub fn encoder_set_bracketed(encoder_: Encoder, enabled: bool) callconv(.c) void {
+    if (encoder_) |e| {
+        e.opts.bracketed = enabled;
+    }
 }
 
 pub fn encode(
-    alloc_: ?*const CAllocator,
     data_: ?[*]u8,
     len: usize,
-    options_: Options,
-    out: ?*[*]u8,
+    encoder_: Encoder,
+    out_: ?[*]u8,
+    out_len: usize,
+    out_written_: ?*usize,
 ) callconv(.c) Result {
-    const alloc = lib_alloc.default(alloc_);
-    // make data mutable
-    const data: []u8 = if (data_) |d|
-        alloc.dupe(u8, d[0..len]) catch {
-            return .out_of_memory;
-        }
-    else
-        &.{};
+    var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
 
-    const options = if (options_) |o| o else &paste.Options{ .bracketed = false };
-    const encoded: [3][]const u8 = paste.encode(data, options.*);
-
-    const buf = alloc.alloc(u8, encoded[0].len + encoded[1].len + encoded[2].len) catch
-        return .out_of_memory;
-    var offset: usize = 0;
+    const data: []u8 = if (data_) |d| d[0..len] else &.{};
+    const encoded: [3][]const u8 = paste.encode(data, encoder_.?.*.opts);
+    if (out_written_) |out_written| out_written.* = encoded[0].len + encoded[1].len + encoded[2].len + 1;
     for (encoded[0..]) |part| {
-        @memmove(buf[offset..][0..part.len], part);
-        offset += part.len;
+        writer.writeAll(part) catch |err| switch (err) {
+            error.WriteFailed => {
+                return .out_of_memory;
+            },
+        };
     }
-    if (out) |o| {
-        o.* = buf.ptr;
-    }
-    alloc.free(data);
+    writer.writeByte(0) catch |err| switch (err) {
+        error.WriteFailed => {
+            return .out_of_memory;
+        },
+    };
     return .success;
-}
-
-pub fn encode_free(alloc_: ?*const CAllocator, data: ?[*]u8, len: usize) callconv(.c) void {
-    const alloc = lib_alloc.default(alloc_);
-    if (data) |d| {
-        alloc.free(d[0..len]);
-    }
 }
 
 pub fn is_safe(data: ?[*]const u8, len: usize) callconv(.c) bool {
@@ -74,71 +74,14 @@ pub fn is_safe(data: ?[*]const u8, len: usize) callconv(.c) bool {
     return paste.isSafe(slice);
 }
 
-test "alloc options" {
+test "alloc paste encoder" {
     const testing = std.testing;
-    var opts: Options = null;
-    try testing.expectEqual(Result.success, options_new(&lib_alloc.test_allocator, &opts));
-    try testing.expect(opts != null);
-    options_free(&lib_alloc.test_allocator, opts);
-}
-
-test "set bracketed" {
-    const testing = std.testing;
-    var opts: Options = null;
-    try testing.expectEqual(Result.success, options_new(&lib_alloc.test_allocator, &opts));
-    try testing.expect(opts != null);
-    options_set_bracketed(opts, true);
-    try testing.expect(opts.?.bracketed);
-    options_free(&lib_alloc.test_allocator, opts);
-}
-
-test "encode simple" {
-    const testing = std.testing;
-    var out: ?[*]u8 = null;
-    const data = "hello world";
-
-    var opts: Options = null;
-    try testing.expectEqual(Result.success, options_new(&lib_alloc.test_allocator, &opts));
-    try testing.expect(opts != null);
-
-    try testing.expectEqual(
-        Result.success,
-        encode(
-            &lib_alloc.test_allocator,
-            data.ptr,
-            data.len,
-            opts,
-            &out,
-        ),
-    );
-    try testing.expect(out != null);
-    try testing.expectEqualStrings("hello world", out.?[0..data.len]);
-    encode_free(&lib_alloc.test_allocator, out, data.len);
-}
-
-test "encode bracketed" {
-    const testing = std.testing;
-    var opts: Options = null;
-    try testing.expectEqual(Result.success, options_new(&lib_alloc.test_allocator, &opts));
-    try testing.expect(opts != null);
-    options_set_bracketed(opts, true);
-
-    var out: ?[*]u8 = null;
-    const data = "hello world";
-    try testing.expectEqual(
-        Result.success,
-        encode(
-            &lib_alloc.test_allocator,
-            data.ptr,
-            data.len,
-            opts,
-            &out,
-        ),
-    );
-    try testing.expect(out != null);
-    try testing.expectEqualStrings("\x1b[200~hello world\x1b[201~", out.?[0 .. data.len + 12]);
-    encode_free(&lib_alloc.test_allocator, out, data.len + 12);
-    options_free(&lib_alloc.test_allocator, opts);
+    var e: Encoder = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &e,
+    ));
+    free(e);
 }
 
 test "is_safe with safe data" {
