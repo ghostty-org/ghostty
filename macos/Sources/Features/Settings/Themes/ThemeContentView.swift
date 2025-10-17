@@ -3,12 +3,10 @@ import SwiftUI
 
 struct ThemeContentView: View {
     var body: some View {
-        VStack(spacing: 5) {
+        Form {
             SurfacePreviewView()
-            Form {
-                FontPicker()
-            }
-            .formStyle(.grouped)
+            FontPicker()
         }
+        .formStyle(.grouped)
     }
 }
