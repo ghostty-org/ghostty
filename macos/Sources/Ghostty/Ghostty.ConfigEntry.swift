@@ -44,10 +44,59 @@ protocol GhosttyConfigValueConvertible {
     var representedValue: [String] { get }
 }
 
+protocol GhosttyConfigValueConvertibleBridge {
+    associatedtype Value: GhosttyConfigValueConvertible
+    associatedtype UnderlyingValue: GhosttyConfigValueConvertible
+
+    static func convert(underlying: UnderlyingValue) -> Value
+    static func convert(value: Value) -> UnderlyingValue
+}
+
+struct TollFreeBridge<Value: GhosttyConfigValueConvertible>: GhosttyConfigValueConvertibleBridge {
+    typealias UnderlyingValue = Value
+
+    static func convert(value: Value) -> Value {
+        value
+    }
+
+    static func convert(underlying: Value) -> Value {
+        underlying
+    }
+}
+
+struct BinaryFloatingPointBridge<Value: BinaryFloatingPoint & GhosttyConfigValueConvertible, UnderlyingValue: BinaryFloatingPoint & GhosttyConfigValueConvertible>: GhosttyConfigValueConvertibleBridge {
+    static func convert(value: Value) -> UnderlyingValue {
+        UnderlyingValue(value)
+    }
+
+    static func convert(underlying: UnderlyingValue) -> Value {
+        Value(underlying)
+    }
+}
+
 extension Ghostty {
     // This could be turned into a macro
     @propertyWrapper
-    struct ConfigEntry<Value: GhosttyConfigValueConvertible>: DynamicProperty {
+    struct ConfigEntry<Value: GhosttyConfigValueConvertible, UnderlyingValue: GhosttyConfigValueConvertible, Bridge: GhosttyConfigValueConvertibleBridge>: DynamicProperty where Bridge.Value == Value, Bridge.UnderlyingValue == UnderlyingValue {
+        static func getValue(from cfg: ghostty_config_t, key: String) -> Value? {
+            var v: Bridge.UnderlyingValue.GhosttyValue?
+            // finalise a temporary config to get default values
+            let tempCfg = ghostty_config_clone(cfg)
+            ghostty_config_finalize(tempCfg)
+
+            let result = withUnsafeMutablePointer(to: &v) { p in
+                ghostty_config_get(tempCfg, p, key, UInt(key.count))
+            }
+            // we need to 'check' `v` here to extend the life time.
+            // `guard let v( = v)` unwraps it and binds it to a new constant named v,
+            // so that we can safely use it in the bridge
+            guard result, let v else {
+                return nil
+            }
+            let underlying = Bridge.convert(underlying: Bridge.UnderlyingValue(ghosttyValue: v))
+            return underlying
+        }
+
         static subscript<T: GhosttyConfigObject>(
             _enclosingInstance instance: T,
             wrapped _: ReferenceWritableKeyPath<T, Value>,
@@ -58,22 +107,10 @@ extension Ghostty {
                 guard info.needsUpdate, let cfg = instance.config else {
                     return instance[keyPath: storageKeyPath].storage.value
                 }
-                // read from config once
-                var v: Value.GhosttyValue?
-                let key = info.key
-
-                // finalise a temporary config to get default values
-                let tempCfg = ghostty_config_clone(cfg)
-                ghostty_config_finalize(tempCfg)
-
-                let result = withUnsafeMutablePointer(to: &v) { p in
-                    ghostty_config_get(tempCfg, p, key, UInt(key.count))
-                }
-                guard result, let v else {
+                guard let value = getValue(from: cfg, key: info.key) else {
                     return instance[keyPath: storageKeyPath].storage.value
                 }
                 instance[keyPath: storageKeyPath].info.needsUpdate = false
-                let value = Value(ghosttyValue: v)
                 if let publisher = (instance as? any ObservableObject)?.objectWillChange as? ObservableObjectPublisher {
                     DispatchQueue.main.async {
                         publisher.send()
@@ -96,7 +133,10 @@ extension Ghostty {
                 let info = instance[keyPath: storageKeyPath].info
                 let key = info.key
                 ghostty_config_set(cfg, key, UInt(key.count), "", 0) // reset
-                for value in newValue.representedValue {
+                // convert back to underlying value using bridge
+                // before writing to ghostty_config_t
+                let underlyingValue = Bridge.convert(value: newValue)
+                for value in underlyingValue.representedValue {
                     ghostty_config_set(cfg, key, UInt(key.count), value, UInt(value.count))
                 }
                 if info.reloadOnSet {
@@ -135,9 +175,21 @@ extension Ghostty {
             storage.eraseToAnyPublisher()
         }
 
-        init(_ key: String, tip: String? = nil, reload: Bool = true) {
+        init(_ key: String, tip: String? = nil, reload: Bool = true, bridge _: Bridge.Type) {
             info = .init(key: key, tip: tip, reloadOnSet: reload)
         }
+    }
+}
+
+extension Ghostty.ConfigEntry where Bridge == TollFreeBridge<Value> {
+    init(_ key: String, tip: String? = nil, reload: Bool = true) {
+        self.init(key, tip: tip, reload: reload, bridge: Bridge.self)
+    }
+}
+
+extension Ghostty.ConfigEntry where Bridge == BinaryFloatingPointBridge<Value, UnderlyingValue> {
+    init(_ key: String, tip: String? = nil, reload: Bool = true, from: UnderlyingValue.Type) {
+        self.init(key, tip: tip, reload: reload, bridge: Bridge.self)
     }
 }
 
@@ -213,10 +265,24 @@ extension UInt: GhosttyConfigValueConvertible {
     }
 }
 
+/// `f32`
+extension Float: GhosttyConfigValueConvertible {
+    typealias GhosttyValue = Self
+
+    init(ghosttyValue: GhosttyValue?) {
+        self = ghosttyValue ?? 0
+    }
+
+    var representedValue: [String] {
+        [formatted(.number.precision(.fractionLength(3)))]
+    }
+}
+
+/// `f64`
 extension Double: GhosttyConfigValueConvertible {
     typealias GhosttyValue = Self
 
-    init(ghosttyValue: Double?) {
+    init(ghosttyValue: GhosttyValue?) {
         self = ghosttyValue ?? 0
     }
 
