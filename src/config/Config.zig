@@ -7436,6 +7436,8 @@ pub const RepeatableCodepointMap = struct {
     const Self = @This();
 
     map: fontpkg.CodepointMap = .{},
+    // C-compatible list of RepeatableItem (key populated on parse).
+    list_c: std.ArrayListUnmanaged(RepeatableItem) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
@@ -7454,12 +7456,34 @@ pub const RepeatableCodepointMap = struct {
                     .monospace = false, // we allow any font
                 },
             });
+
+            try self.list_c.append(alloc, .{ .key = valueZ, .value = try std.fmt.allocPrintSentinel(alloc, "U+{X:0>4}-U+{X:0>4}", .{ range[0], range[1] }, 0) });
         }
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        return .{ .map = try self.map.clone(alloc) };
+        const copied_map = try self.map.clone(alloc);
+
+        // Clone the C-compatible list as well.
+        var list_c = try std.ArrayListUnmanaged(RepeatableItem).initCapacity(alloc, self.list_c.items.len);
+        errdefer {
+            // On error free allocated strings we appended so far.
+            for (list_c.items) |item| {
+                // keys and values were allocated as zero-terminated strings
+                alloc.free(std.mem.span(item.key));
+                alloc.free(std.mem.span(item.value));
+            }
+            list_c.deinit(alloc);
+        }
+
+        for (self.list_c.items) |item| {
+            const key_copy = try alloc.dupeZ(u8, std.mem.span(item.key));
+            const val_copy = try alloc.dupeZ(u8, std.mem.span(item.value));
+            try list_c.append(alloc, .{ .key = key_copy, .value = val_copy });
+        }
+
+        return .{ .map = copied_map, .list_c = list_c };
     }
 
     /// Compare if two of our value are equal. Required by Config.
@@ -7472,6 +7496,16 @@ pub const RepeatableCodepointMap = struct {
             const b = itemsB.get(i);
             if (!std.meta.eql(a, b)) return false;
         } else return true;
+    }
+
+    /// Return a C-compatible repeatable item list for this map. The provided
+    /// key_str will be set as the key for every returned item.
+    pub fn repeatableCval(self: *RepeatableCodepointMap, key_str: [:0]const u8) RepeatableItemList {
+        _ = key_str; // unused, key is already populated on parse
+        return .{
+            .items = self.list_c.items.ptr,
+            .len = self.list_c.items.len,
+        };
     }
 
     /// Used by Formatter
