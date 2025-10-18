@@ -75,6 +75,9 @@ struct FontFamilySetting: Identifiable, Hashable {
 
     var family: String
     var codePoints: [UnicodeRange] = []
+    var isForBold = false
+    var isForItalic = false
+    var isForBoldItalic = false
 }
 
 class FontPickerViewModel: ObservableObject {
@@ -82,9 +85,24 @@ class FontPickerViewModel: ObservableObject {
     @Published var fontSize: Double = 10
     @Published var fontSettings: [FontFamilySetting] = []
     @Published var selectedFontSettingID: FontFamilySetting.ID?
+    @Published var selectedRegularStyle: String?
 
     var selectedFontSetting: FontFamilySetting? {
         fontSettings.first(where: { $0.id == selectedFontSettingID })
+    }
+
+    var availableFontFaces: [String]? {
+        guard
+            let family = selectedFontSetting?.family,
+            let members = NSFontManager.shared.availableMembers(ofFontFamily: family)
+        else {
+            return nil
+        }
+        return members.compactMap { array in
+            guard array.count >= 4 else { return nil }
+            // face
+            return array[1] as? String
+        }
     }
 
     init(config: Ghostty.ConfigFile) {
@@ -110,6 +128,7 @@ class FontPickerViewModel: ObservableObject {
     }
 
     func updatePanel() {
+        NSFontPanel.shared.worksWhenModal = false
         if let selectedFontSetting, let selectedFont = NSFont(name: selectedFontSetting.family, size: fontSize) {
             NSFontManager.shared.setSelectedFont(selectedFont, isMultiple: false)
         } else {
@@ -174,6 +193,7 @@ struct FontPickerAccessoryView: View {
     var body: some View {
         VStack {
             fontTable
+            optionsView
         }
         .frame(
             minWidth: 200, maxWidth: .greatestFiniteMagnitude,
@@ -184,21 +204,75 @@ struct FontPickerAccessoryView: View {
         }
     }
 
+    var optionsView: some View {
+        VStack {
+            if let faces = viewModel.availableFontFaces {
+                Text("Style Overrides")
+                    .font(.headline)
+                Text("Selected font style will be used for the style a running program requested on the left")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Picker("Regular Style", selection: $viewModel.selectedRegularStyle) {
+                        ForEach(["false"] + faces, id: \.self) {
+                            Text($0).tag($0)
+                        }
+                    }
+                    Picker("Bold Style", selection: $viewModel.selectedRegularStyle) {
+                        ForEach(["false"] + faces, id: \.self) {
+                            Text($0).tag($0)
+                        }
+                    }
+                }
+                HStack {
+                    Picker("Italic Style", selection: $viewModel.selectedRegularStyle) {
+                        ForEach(["false"] + faces, id: \.self) {
+                            Text($0).tag($0)
+                        }
+                    }
+                    Picker("Bold Italic Style", selection: $viewModel.selectedRegularStyle) {
+                        ForEach(["false"] + faces, id: \.self) {
+                            Text($0).tag($0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     var fontTable: some View {
         Table(of: Binding<FontFamilySetting>.self, selection: $viewModel.selectedFontSettingID) {
             TableColumn("Family Name") { setting in
                 Text(setting.wrappedValue.family)
+                    .font(.custom(setting.wrappedValue.family, size: 0))
             }
+            .width(200)
             TableColumn("Code Points") { setting in
                 VStack {
                     ForEach(setting.codePoints) { range in
-                        CodePointView(range: range, fontFamily: setting.family.wrappedValue) {
+                        CodePointView(codeRange: range, fontFamily: setting.family.wrappedValue) {
                             viewModel.deleteCodePoint(for: setting.wrappedValue, codePointID: range.wrappedValue.id)
                         }
                     }
                 }
             }
-            .width(min: 200)
+            .width(200)
+
+            TableColumn("Bold") { setting in
+                Toggle("", isOn: setting.isForBold)
+                    .help("Used for Bold Style")
+            }
+            .width(40)
+            TableColumn("Italic") { setting in
+                Toggle("", isOn: setting.isForItalic)
+                    .help("Used for Italic Style")
+            }
+            .width(40)
+            TableColumn("Bold Italic") { setting in
+                Toggle("", isOn: setting.isForBoldItalic)
+                    .help("Used for Bold Italic Style")
+            }
+            .width(80)
         } rows: {
             ForEach($viewModel.fontSettings) {
                 TableRow($0)
@@ -229,69 +303,55 @@ struct FontPickerAccessoryView: View {
 }
 
 struct CodePointView: View {
-    @Binding var range: FontFamilySetting.UnicodeRange
+    @Binding var codeRange: FontFamilySetting.UnicodeRange
     let fontFamily: String
     let onDelete: () -> Void
-    @State private var start = ""
-    @State private var isStartValid = true
-    @State private var end = ""
-    @State private var isEndValid = true
+    @State private var range = ""
+    @State private var isRangeValid = true
 
     var body: some View {
-        VStack {
-            HStack(spacing: 0) {
-                TextField("U+ABCD", text: $start)
-                    .padding(2)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(isStartValid ? Color.secondary : Color.red, lineWidth: 1)
-                    )
-                    .onSubmit(updateRange)
-                if let preview = range.value?.lowerBound.description {
-                    Text(preview)
-                        .font(.custom(fontFamily, size: 13))
-                }
-                Text("-")
-                TextField("U+ABCD", text: $end)
-                    .padding(2)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(isStartValid ? Color.secondary : Color.red, lineWidth: 1)
-                    )
-                    .onSubmit(updateRange)
-                if let preview = range.value?.upperBound.description {
-                    Text(preview)
-                        .font(.custom(fontFamily, size: 13))
-                }
-
-                Button(action: onDelete) {
-                    Image(systemName: "minus.circle.fill")
-                        .foregroundStyle(.red)
-                }
-                .help("Delete this range")
-                .padding(.leading, 3)
+        HStack(spacing: 0) {
+            TextField("U+1234-U+ABCD", text: $range)
+                .font(.body.monospaced())
+                .padding(2)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2)
+                        .stroke(isRangeValid ? Color.secondary : Color.red, lineWidth: 1)
+                )
+                .onSubmit(updateRange)
+            if let preview = codeRange.value?.description {
+                Text(preview)
+                    .font(.custom(fontFamily, size: 0))
+                    .padding(.leading, 3)
             }
+
+            Button(action: onDelete) {
+                Image(systemName: "minus.circle.fill")
+                    .foregroundStyle(.red)
+            }
+            .help("Delete this range")
+            .padding(.leading, 3)
         }
         .task {
-            start = range.value?.lowerBound.hexValue ?? ""
-            end = range.value?.upperBound.hexValue ?? ""
+            range = codeRange.value?.representedString ?? ""
         }
     }
 
     private func updateRange() {
+        let parts = range.split(separator: "-").map(String.init(_:))
+
         guard
+            let start = parts.first,
             let lowerBound = Unicode.Scalar(hexValue: start)
         else {
-            isStartValid = false
+            isRangeValid = false
             return
         }
-        isStartValid = true
-        if let upperBound = Unicode.Scalar(hexValue: end) {
-            range.value = lowerBound ... upperBound
-            isEndValid = true
+        isRangeValid = true
+        if parts.count > 1, let upperBound = Unicode.Scalar(hexValue: parts[1]) {
+            codeRange.value = lowerBound ... upperBound
         } else {
-            isEndValid = false
-            range.value = lowerBound ... lowerBound
+            codeRange.value = lowerBound ... lowerBound
         }
     }
 }
@@ -321,5 +381,13 @@ extension ClosedRange where Bound == Unicode.Scalar {
             return nil
         }
         self = lower ... upper
+    }
+
+    var description: String {
+        [lowerBound.description, upperBound.description].joined(separator: " - ")
+    }
+
+    var representedString: String {
+        [lowerBound.hexValue, upperBound.hexValue].joined(separator: "-")
     }
 }
