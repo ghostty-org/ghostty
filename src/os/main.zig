@@ -25,6 +25,7 @@ pub const hostname = @import("hostname.zig");
 pub const i18n = @import("i18n.zig");
 pub const path = @import("path.zig");
 pub const passwd = @import("passwd.zig");
+pub const posix_spawn = @import("posix_spawn.zig");
 pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");
 pub const macos = @import("macos.zig");
@@ -72,5 +73,9 @@ test {
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;
+    }
+
+    if (comptime builtin.os.tag.isDarwin()) {
+        _ = posix_spawn;
     }
 }
