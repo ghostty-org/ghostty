@@ -76,15 +76,16 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
     @available(macOS 26.0, *)
     private func syncAppearanceTahoe(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
-        // When we have transparency, we need to set the titlebar background to match the
-        // window background but with opacity. The window background is set using the
-        // "preferred background color" property.
-        //
-        // Even if we aren't transparent, we still set this because this becomes the
-        // color of the titlebar in native fullscreen view.
+        // The titlebar should be clear to let the window background through.
+        // The exception is in fullscreen, where the titlebar is separate from the window
+        // and needs to be set to the same color.
         if let titlebarView = titlebarContainer?.firstDescendant(withClassName: "NSTitlebarView") {
             titlebarView.wantsLayer = true
-            titlebarView.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+            if styleMask.contains(.fullScreen) {
+                titlebarView.layer?.backgroundColor = self.backgroundColor.cgColor
+            } else {
+                titlebarView.layer?.backgroundColor = .clear
+            }
         }
     
         // In all cases, we have to hide the background view since this has multiple subviews
@@ -98,7 +99,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         
         // Setup the titlebar background color to match ours
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+        titlebarContainer.layer?.backgroundColor = self.backgroundColor.cgColor
         
         // See the docs for the function that sets this to true on why
         effectViewIsHidden = false

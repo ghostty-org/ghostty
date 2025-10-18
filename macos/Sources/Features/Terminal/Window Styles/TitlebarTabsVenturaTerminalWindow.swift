@@ -149,11 +149,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
 
         // Update our titlebar color
-        if let preferredBackgroundColor {
-            titlebarColor = preferredBackgroundColor
-        } else {
-            titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
-        }
+        titlebarColor = self.backgroundColor
 
         if (isOpaque || themeChanged) {
             // If there is transparency, calling this will make the titlebar opaque
