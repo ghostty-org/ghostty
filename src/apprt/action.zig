@@ -139,6 +139,11 @@ pub const Action = union(Key) {
     /// to take up the entire window.
     toggle_split_zoom,
 
+    /// Toggle whether the surface is in read-only mode. When read-only,
+    /// no input is sent to the PTY but terminal-level operations like
+    /// selections, scrolling, and copy/paste keybinds still work.
+    toggle_readonly,
+
     /// Present the target terminal whether its a tab, split, or window.
     present_terminal,
 
@@ -322,6 +327,7 @@ pub const Action = union(Key) {
         resize_split,
         equalize_splits,
         toggle_split_zoom,
+        toggle_readonly,
         present_terminal,
         size_limit,
         reset_window_size,
