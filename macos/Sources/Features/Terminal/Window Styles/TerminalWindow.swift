@@ -561,6 +561,7 @@ class TerminalWindow: NSWindow {
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
         let macosBackgroundStyle: Ghostty.MacBackgroundStyle
+        let macosTitlebarStyle: String
         let windowCornerRadius: CGFloat
 
         init() {
@@ -569,6 +570,7 @@ class TerminalWindow: NSWindow {
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
             self.macosBackgroundStyle = .defaultStyle
+            self.macosTitlebarStyle = "transparent"
             self.windowCornerRadius = 16
         }
 
@@ -578,6 +580,7 @@ class TerminalWindow: NSWindow {
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
             self.macosBackgroundStyle = config.macosBackgroundStyle
+            self.macosTitlebarStyle = config.macosTitlebarStyle
 
             // Set corner radius based on macos-titlebar-style
             // Native, transparent, and hidden styles use 16pt radius
