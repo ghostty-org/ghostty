@@ -639,6 +639,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         };
 
+        /// Determines if the terminal background should be disabled based on
+        /// platform. On macOS, the UI handles the background rendering instead
+        /// of the terminal renderer.
+        fn shouldDisableBackground() bool {
+            return switch (builtin.os.tag) {
+                .macos => true,
+                else => false,
+            };
+        }
+
         pub fn init(alloc: Allocator, options: renderer.Options) !Self {
             // Initialize our graphics API wrapper, this will prepare the
             // surface provided by the apprt and set up any API-specific
@@ -714,7 +724,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         options.config.background.r,
                         options.config.background.g,
                         options.config.background.b,
-                        @intFromFloat(@round(options.config.background_opacity * 255.0)),
+                        if (shouldDisableBackground())
+                            0
+                        else
+                            @intFromFloat(@round(options.config.background_opacity * 255.0)),
                     },
                     .bools = .{
                         .cursor_wide = false,
@@ -1301,7 +1314,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     critical.bg.r,
                     critical.bg.g,
                     critical.bg.b,
-                    @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                    if (shouldDisableBackground())
+                        0
+                    else
+                        @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
             }
         }

@@ -562,19 +562,16 @@ class QuickTerminalController: BaseTerminalController {
         // Some APIs such as window blur have no effect unless the window is visible.
         guard window.isVisible else { return }
 
-        // If we have window transparency then set it transparent. Otherwise set it opaque.
-        if (self.derivedConfig.backgroundOpacity < 1) {
-            window.isOpaque = false
+        let alpha = self.derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
+        window.backgroundColor = self.derivedConfig.backgroundColor.withAlphaComponent(alpha)
 
-            // This is weird, but we don't use ".clear" because this creates a look that
-            // matches Terminal.app much more closer. This lets users transition from
-            // Terminal.app more easily.
-            window.backgroundColor = .white.withAlphaComponent(0.001)
+        // If we have window transparency then set it transparent. Otherwise set it opaque.
+        if (alpha < 1) {
+            window.isOpaque = false
 
             ghostty_set_window_background_blur(ghostty.app, Unmanaged.passUnretained(window).toOpaque())
         } else {
             window.isOpaque = true
-            window.backgroundColor = .windowBackgroundColor
         }
     }
 
@@ -675,6 +672,7 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalAutoHide: Bool
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let quickTerminalSize: QuickTerminalSize
+        let backgroundColor: NSColor
         let backgroundOpacity: Double
 
         init() {
@@ -683,6 +681,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAutoHide = true
             self.quickTerminalSpaceBehavior = .move
             self.quickTerminalSize = QuickTerminalSize()
+            self.backgroundColor = .windowBackgroundColor
             self.backgroundOpacity = 1.0
         }
 
@@ -692,6 +691,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
             self.quickTerminalSize = config.quickTerminalSize
+            self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
         }
     }

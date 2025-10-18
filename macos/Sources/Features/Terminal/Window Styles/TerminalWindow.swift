@@ -413,11 +413,7 @@ class TerminalWindow: NSWindow {
             surfaceConfig.backgroundOpacity < 1
         {
             isOpaque = false
-
-            // This is weird, but we don't use ".clear" because this creates a look that
-            // matches Terminal.app much more closer. This lets users transition from
-            // Terminal.app more easily.
-            backgroundColor = .white.withAlphaComponent(0.001)
+            self.backgroundColor = preferredBackgroundColor
 
             if let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
@@ -426,9 +422,7 @@ class TerminalWindow: NSWindow {
             }
         } else {
             isOpaque = true
-
-            let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
-            self.backgroundColor = backgroundColor.withAlphaComponent(1)
+            self.backgroundColor = preferredBackgroundColor.withAlphaComponent(1.0)
         }
     }
 
@@ -437,7 +431,7 @@ class TerminalWindow: NSWindow {
     ///
     /// This background color will include alpha transparency if set. If the caller doesn't want that,
     /// change the alpha channel again manually.
-    var preferredBackgroundColor: NSColor? {
+    var preferredBackgroundColor: NSColor {
         if let terminalController, !terminalController.surfaceTree.isEmpty {
             let surface: Ghostty.SurfaceView?
 
