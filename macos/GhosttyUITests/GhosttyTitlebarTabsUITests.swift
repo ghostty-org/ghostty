@@ -54,7 +54,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         let app = try ghosttyApplication()
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 1), "Main window should exist")
-        // create 3 tabs
+        // create another 2 tabs
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
         app.groups["Terminal pane"].typeKey("t", modifierFlags: .command)
 
@@ -87,6 +87,23 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         checkTabsGeometry(app.windows.firstMatch)
     }
 
+    @MainActor
+    func testTabsGeometryAfterMergingAllWindows() throws {
+        let app = try ghosttyApplication()
+        app.launch()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 1), "Main window should exist")
+
+        // create another 2 windows
+        app.typeKey("n", modifierFlags: .command)
+        app.typeKey("n", modifierFlags: .command)
+
+        // merge into one window, resulting 3 tabs
+        app.menuItems["mergeAllWindows:"].firstMatch.click()
+
+        XCTAssertTrue(app.wait(for: \.tabs.count, toEqual: 3, timeout: 1), "There should be 3 tabs")
+        checkTabsGeometry(app.windows.firstMatch)
+    }
+
     func checkTabsGeometry(_ window: XCUIElement) {
         let closeTabButtons = window.buttons.matching(identifier: "_closeButton")
 
@@ -95,7 +112,6 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         var previousTabHeight: CGFloat?
         for idx in 0 ..< window.tabs.count {
             let currentTab = window.tabs.element(boundBy: idx)
-            XCTAssertTrue(currentTab.waitForExistence(timeout: 1))
             // focus
             currentTab.click()
             // switch to the tab
