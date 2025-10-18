@@ -10,25 +10,23 @@ layout(binding = 1, std430) readonly buffer bg_cells {
     uint cells[];
 };
 
-vec4 cell_bg() {
+void main() {
     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
     ivec2 grid_pos = ivec2(floor((gl_FragCoord.xy - grid_padding.wx) / cell_size));
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
-
-    vec4 bg = vec4(0.0);
 
     // Clamp x position, extends edge bg colors in to padding on sides.
     if (grid_pos.x < 0) {
         if ((padding_extend & EXTEND_LEFT) != 0) {
             grid_pos.x = 0;
         } else {
-            return bg;
+            discard;
         }
     } else if (grid_pos.x > grid_size.x - 1) {
         if ((padding_extend & EXTEND_RIGHT) != 0) {
             grid_pos.x = int(grid_size.x) - 1;
         } else {
-            return bg;
+            discard;
         }
     }
 
@@ -37,13 +35,13 @@ vec4 cell_bg() {
         if ((padding_extend & EXTEND_UP) != 0) {
             grid_pos.y = 0;
         } else {
-            return bg;
+            discard;
         }
     } else if (grid_pos.y > grid_size.y - 1) {
         if ((padding_extend & EXTEND_DOWN) != 0) {
             grid_pos.y = int(grid_size.y) - 1;
         } else {
-            return bg;
+            discard;
         }
     }
 
@@ -53,9 +51,13 @@ vec4 cell_bg() {
             use_linear_blending
         );
 
-    return cell_color;
-}
+    // If the color for this cell is fully transparent, discard the fragment.
+    // We do this because we do not enable blending for this shader, so any
+    // place we want to let the background show through we need to discard
+    // rather than just returning a color with 0 alpha.
+    if (cell_color.a == 0.0) {
+        discard;
+    }
 
-void main() {
-    out_FragColor = cell_bg();
+    out_FragColor = cell_color;
 }

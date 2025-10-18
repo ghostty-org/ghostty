@@ -27,7 +27,6 @@ const uint ATLAS_COLOR = 1u;
 
 // Masks for the `glyph_bools` attribute
 const uint NO_MIN_CONTRAST = 1u;
-const uint IS_CURSOR_GLYPH = 2u;
 
 out CellTextVertexOut {
     flat uint atlas;
@@ -42,8 +41,6 @@ layout(binding = 1, std430) readonly buffer bg_cells {
 
 void main() {
     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
-    uvec2 cursor_pos = unpack2u16(cursor_pos_packed_2u16);
-    bool cursor_wide = (bools & CURSOR_WIDE) != 0;
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
 
     // Convert the grid x, y into world space x, y by accounting for cell size
@@ -120,12 +117,13 @@ void main() {
             unpack4u8(bg_colors[grid_pos.y * grid_size.x + grid_pos.x]),
             true
         );
-    // Blend it with the global bg color
-    vec4 global_bg = load_color(
-            unpack4u8(bg_color_packed_4u8),
-            true
-        );
-    out_data.bg_color += global_bg * vec4(1.0 - out_data.bg_color.a);
+    // If it has 0 opacity, use the global bg color instead.
+    if (out_data.bg_color.a == 0.0) {
+        out_data.bg_color = load_color(
+                unpack4u8(bg_color_packed_4u8),
+                true
+            );
+    }
 
     // If we have a minimum contrast, we need to check if we need to
     // change the color of the text to ensure it has enough contrast
@@ -133,14 +131,5 @@ void main() {
     if (min_contrast > 1.0f && (glyph_bools & NO_MIN_CONTRAST) == 0) {
         // Ensure our minimum contrast
         out_data.color = contrasted_color(min_contrast, out_data.color, out_data.bg_color);
-    }
-
-    // Check if current position is under cursor (including wide cursor)
-    bool is_cursor_pos = ((grid_pos.x == cursor_pos.x) || (cursor_wide && (grid_pos.x == (cursor_pos.x + 1)))) && (grid_pos.y == cursor_pos.y);
-
-    // If this cell is the cursor cell, but we're not processing
-    // the cursor glyph itself, then we need to change the color.
-    if ((glyph_bools & IS_CURSOR_GLYPH) == 0 && is_cursor_pos) {
-        out_data.color = load_color(unpack4u8(cursor_color_packed_4u8), use_linear_blending);
     }
 }
