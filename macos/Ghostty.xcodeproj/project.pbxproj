@@ -54,6 +54,8 @@
 		A53D0C952B53B4D800305CE6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		A53D0C9B2B543F3B00305CE6 /* Ghostty.App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53D0C992B543F3B00305CE6 /* Ghostty.App.swift */; };
 		A53D0C9C2B543F7B00305CE6 /* Package.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55B7BB729B6F53A0055DE60 /* Package.swift */; };
+		A53F889C2EAA930F00F1C56B /* QuickTerminalScreenStateCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53F889B2EAA930F00F1C56B /* QuickTerminalScreenStateCache.swift */; };
+		A53F889E2EAA932B00F1C56B /* UUID+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53F889D2EAA932B00F1C56B /* UUID+Extension.swift */; };
 		A546F1142D7B68D7003B11A0 /* locale in Resources */ = {isa = PBXBuildFile; fileRef = A546F1132D7B68D7003B11A0 /* locale */; };
 		A54B0CE92D0CECD100CBEFF8 /* ColorizedGhosttyIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B0CE82D0CECD100CBEFF8 /* ColorizedGhosttyIconView.swift */; };
 		A54B0CEB2D0CFB4C00CBEFF8 /* NSImage+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B0CEA2D0CFB4A00CBEFF8 /* NSImage+Extension.swift */; };
@@ -207,6 +209,8 @@
 		A53A6C022CCC1B7D00943E98 /* Ghostty.Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Action.swift; sourceTree = "<group>"; };
 		A53D0C932B53B43700305CE6 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		A53D0C992B543F3B00305CE6 /* Ghostty.App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.App.swift; sourceTree = "<group>"; };
+		A53F889B2EAA930F00F1C56B /* QuickTerminalScreenStateCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalScreenStateCache.swift; sourceTree = "<group>"; };
+		A53F889D2EAA932B00F1C56B /* UUID+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UUID+Extension.swift"; sourceTree = "<group>"; };
 		A546F1132D7B68D7003B11A0 /* locale */ = {isa = PBXFileReference; lastKnownFileType = folder; name = locale; path = "../zig-out/share/locale"; sourceTree = "<group>"; };
 		A54B0CE82D0CECD100CBEFF8 /* ColorizedGhosttyIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorizedGhosttyIconView.swift; sourceTree = "<group>"; };
 		A54B0CEA2D0CFB4A00CBEFF8 /* NSImage+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImage+Extension.swift"; sourceTree = "<group>"; };
@@ -565,6 +569,7 @@
 				A505D21E2E1B6DDC0018808F /* NSWorkspace+Extension.swift */,
 				A5985CD62C320C4500C57AD3 /* String+Extension.swift */,
 				A58636722DF4813000E04A10 /* UndoManager+Extension.swift */,
+				A53F889D2EAA932B00F1C56B /* UUID+Extension.swift */,
 				A5CC36142C9CDA03004D6760 /* View+Extension.swift */,
 			);
 			path = Extensions;
@@ -644,6 +649,7 @@
 				CFBB5FE92D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift */,
 				A5CBD0632CA122E70017A1AE /* QuickTerminalPosition.swift */,
 				A52FFF562CA90481000C6A5B /* QuickTerminalScreen.swift */,
+				A53F889B2EAA930F00F1C56B /* QuickTerminalScreenStateCache.swift */,
 				A5BB78B82DF9D8CE009AC3FA /* QuickTerminalSize.swift */,
 				A5CBD05F2CA0C9080017A1AE /* QuickTerminalWindow.swift */,
 			);
@@ -908,6 +914,7 @@
 				A51BFC222B2FB6B400E92F16 /* AboutView.swift in Sources */,
 				A5278A9B2AA05B2600CD3039 /* Ghostty.Input.swift in Sources */,
 				A53A29812DB44A6100B6E02C /* KeyboardShortcut+Extension.swift in Sources */,
+				A53F889C2EAA930F00F1C56B /* QuickTerminalScreenStateCache.swift in Sources */,
 				A50297352DFA0F3400B4E924 /* Double+Extension.swift in Sources */,
 				A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */,
 				A51194112E05A483007258CC /* QuickTerminalIntent.swift in Sources */,
@@ -952,6 +959,7 @@
 				A5BB78B92DF9D8CE009AC3FA /* QuickTerminalSize.swift in Sources */,
 				A51B78472AF4B58B00F3EDB9 /* TitlebarTabsVenturaTerminalWindow.swift in Sources */,
 				A5BB78B92DF9D8CE009AC3FA /* QuickTerminalSize.swift in Sources */,
+				A53F889E2EAA932B00F1C56B /* UUID+Extension.swift in Sources */,
 				A57D79272C9C879B001D522E /* SecureInput.swift in Sources */,
 				A5CEAFDC29B8009000646FDA /* SplitView.swift in Sources */,
 				A5593FE12DF8D74000B47B10 /* HiddenTitlebarTerminalWindow.swift in Sources */,
