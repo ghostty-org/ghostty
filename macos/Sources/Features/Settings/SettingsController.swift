@@ -9,7 +9,7 @@ import GhosttyKit
 import SwiftUI
 
 class SettingsController: NSWindowController, NSWindowDelegate {
-    private static var shared: SettingsController?
+    private(set) static var shared: SettingsController?
 
     static func controller(for ghosttyApp: ghostty_app_t) -> SettingsController {
         if let shared {
@@ -39,6 +39,7 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         self.config = .init()
         super.init(window: window)
         windowFrameAutosaveName = "SettingsWindow"
+        window.identifier = .init("SettingsWindow")
         window.tabbingMode = .disallowed
         window.collectionBehavior = .fullScreenNone
         window.delegate = self
@@ -60,12 +61,14 @@ class SettingsController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(sender)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        super.performKeyEquivalent(with: event)
-    }
-
     // responds to file menu
     @objc func close(_ sender: Any) {
         window?.performClose(sender)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if NSFontPanel.sharedFontPanelExists {
+            NSFontPanel.shared.close()
+        }
     }
 }

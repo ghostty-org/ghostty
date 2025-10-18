@@ -1160,6 +1160,7 @@ class AppDelegate: NSObject,
     @IBAction func closeAllWindows(_ sender: Any?) {
         TerminalController.closeAllWindows()
         AboutController.shared.hide()
+        SettingsController.shared?.close()
     }
 
     @IBAction func showAbout(_ sender: Any?) {
@@ -1309,6 +1310,13 @@ extension AppDelegate {
 
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard NSApp.mainWindow?.identifier?.rawValue != "SettingsWindow" else {
+            // when settings window is main,
+            // we only want to enable `close(:_)`, `closeAllWindows(:_)` and other system defaults,
+            // system will validate `close(:_)` and others based on responder chain,
+            // so we only need to check `closeAllWindows(:_)` here
+            return [#selector(closeAllWindows(_:))].contains(item.action)
+        }
         switch item.action {
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
