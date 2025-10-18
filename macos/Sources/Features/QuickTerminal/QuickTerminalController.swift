@@ -301,6 +301,13 @@ class QuickTerminalController: BaseTerminalController {
         animateOut()
     }
 
+    override func toggleBackgroundOpacity() {
+        super.toggleBackgroundOpacity()
+
+        // Sync the window appearance with the new opacity state
+        syncAppearance()
+    }
+
     // MARK: Methods
 
     func toggle() {
@@ -563,7 +570,8 @@ class QuickTerminalController: BaseTerminalController {
         guard window.isVisible else { return }
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
-        if (self.derivedConfig.backgroundOpacity < 1) {
+        // Also check if the user has overridden transparency to be fully opaque.
+        if !isBackgroundOpaque && self.derivedConfig.backgroundOpacity < 1 {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
