@@ -23,6 +23,12 @@ extension Ghostty {
 
         @Ghostty.ConfigEntry("theme") var theme: Ghostty.Theme
         @Ghostty.ConfigEntry("font-family") var fontFamily: [RepeatableItem]
+        @Ghostty.ConfigEntry("font-size", from: Float.self) var fontSize: Double
+        @Ghostty.ConfigEntry("font-style") var fontStyle: String?
+        @Ghostty.ConfigEntry("font-style-bold") var fontStyleBold: String?
+        @Ghostty.ConfigEntry("font-style-italic") var fontStyleItalic: String?
+        @Ghostty.ConfigEntry("font-style-bold-italic") var fontStyleBoldItalic: String?
+        @Ghostty.ConfigEntry("font-codepoint-map") var fontCodePointMap: [RepeatableItem]
         @Ghostty.ConfigEntry("auto-update-channel") var updateChannel: AutoUpdateChannel
 
         deinit {

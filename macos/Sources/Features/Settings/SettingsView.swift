@@ -11,6 +11,17 @@ struct SettingsView: View {
                 }
             }
             .navigationSplitViewColumnWidth(200)
+            .toolbar {
+                #if DEBUG
+                Button("Open Original Config") {
+                    Ghostty.App.openConfig()
+                }
+
+                Button("Open Settings Config") {
+                    NSWorkspace.shared.open(Ghostty.ConfigFile.configFile)
+                }
+                #endif
+            }
         } detail: {
             switch currentCategory {
             case .general:
