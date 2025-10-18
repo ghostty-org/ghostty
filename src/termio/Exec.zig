@@ -172,6 +172,7 @@ pub fn threadEnter(
                 flatpakExit,
             ),
 
+            // Irrelevant, should've been caught by the xev.Process type
             .fork_exec => {},
         }
     }
@@ -587,10 +588,7 @@ const Subprocess = struct {
 
     /// Union that represents the running process type.
     const Process = union(enum) {
-        /// Standard POSIX fork/exec
         fork_exec: Command,
-
-        /// Flatpak DBus command
         flatpak: FlatpakHostCommand,
     };
 
@@ -911,6 +909,23 @@ const Subprocess = struct {
             self.pty = null;
         };
 
+        // Cleanup we only run in our parent when we successfully start
+        // the process.
+        defer if (!in_child and self.process != null) {
+            if (comptime builtin.os.tag != .windows) {
+                // Once our subcommand is started we can close the slave
+                // side. This prevents the slave fd from being leaked to
+                // future children.
+                _ = posix.close(pty.slave);
+            }
+
+            // Successful start we can clear out some memory.
+            if (self.env) |*env| {
+                env.deinit();
+                self.env = null;
+            }
+        };
+
         log.debug("starting command command={f}", .{ArgsFormatter{ .args = self.args }});
 
         // If we can't access the cwd, then don't set any cwd and inherit.
@@ -979,11 +994,6 @@ const Subprocess = struct {
                 pid,
             });
 
-            // Once started, we can close the pty child side. We do this after
-            // wait right now but that is fine too. This lets us read the
-            // parent and detect EOF.
-            _ = posix.close(pty.slave);
-
             return .{
                 .read = pty.master,
                 .write = pty.master,
@@ -1034,19 +1044,6 @@ const Subprocess = struct {
         log.info("started subcommand path={s} pid={?}", .{ self.args[0], cmd.pid });
         if (comptime builtin.os.tag == .linux) {
             log.info("subcommand cgroup={s}", .{self.linux_cgroup orelse "-"});
-        }
-
-        if (comptime builtin.os.tag != .windows) {
-            // Once our subcommand is started we can close the slave
-            // side. This prevents the slave fd from being leaked to
-            // future children.
-            _ = posix.close(pty.slave);
-        }
-
-        // Successful start we can clear out some memory.
-        if (self.env) |*env| {
-            env.deinit();
-            self.env = null;
         }
 
         self.process = .{ .fork_exec = cmd };
@@ -1138,41 +1135,45 @@ const Subprocess = struct {
                     _ = try command.wait(false);
                 },
 
-                else => if (getpgid(pid)) |pgid| {
-                    // It is possible to send a killpg between the time that
-                    // our child process calls setsid but before or simultaneous
-                    // to calling execve. In this case, the direct child dies
-                    // but grandchildren survive. To work around this, we loop
-                    // and repeatedly kill the process group until all
-                    // descendents are well and truly dead. We will not rest
-                    // until the entire family tree is obliterated.
-                    while (true) {
-                        switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
-                            .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
-                            else => |err| killpg: {
-                                if ((comptime builtin.target.os.tag.isDarwin()) and
-                                    err == .PERM)
-                                {
-                                    log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
-                                    break :killpg;
-                                }
+                else => try killPid(pid),
+            }
+        }
+    }
 
-                                log.warn("error killing process group pgid={} err={}", .{ pgid, err });
-                                return error.KillFailed;
-                            },
-                        }
+    fn killPid(pid: c.pid_t) !void {
+        const pgid = getpgid(pid) orelse return;
 
-                        // See Command.zig wait for why we specify WNOHANG.
-                        // The gist is that it lets us detect when children
-                        // are still alive without blocking so that we can
-                        // kill them again.
-                        const res = posix.waitpid(pid, std.c.W.NOHANG);
-                        log.debug("waitpid result={}", .{res.pid});
-                        if (res.pid != 0) break;
-                        std.Thread.sleep(10 * std.time.ns_per_ms);
+        // It is possible to send a killpg between the time that
+        // our child process calls setsid but before or simultaneous
+        // to calling execve. In this case, the direct child dies
+        // but grandchildren survive. To work around this, we loop
+        // and repeatedly kill the process group until all
+        // descendents are well and truly dead. We will not rest
+        // until the entire family tree is obliterated.
+        while (true) {
+            switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
+                .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
+                else => |err| killpg: {
+                    if ((comptime builtin.target.os.tag.isDarwin()) and
+                        err == .PERM)
+                    {
+                        log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
+                        break :killpg;
                     }
+
+                    log.warn("error killing process group pgid={} err={}", .{ pgid, err });
+                    return error.KillFailed;
                 },
             }
+
+            // See Command.zig wait for why we specify WNOHANG.
+            // The gist is that it lets us detect when children
+            // are still alive without blocking so that we can
+            // kill them again.
+            const res = posix.waitpid(pid, std.c.W.NOHANG);
+            log.debug("waitpid result={}", .{res.pid});
+            if (res.pid != 0) break;
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
     }
 
@@ -1404,18 +1405,34 @@ fn execCommand(
     command: configpkg.Command,
     comptime passwdpkg: type,
 ) (Allocator.Error || error{SystemError})![]const [:0]const u8 {
+    var args: std.ArrayList([:0]const u8) = .empty;
+    defer args.deinit(alloc);
+
+    // If we're on macOS, we use the posix_spawn trampoline no matter
+    // what, so prepend that.
+    if (comptime builtin.target.os.tag == .macos) {
+        var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const exe_bin_path = std.fs.selfExePath(&exe_buf) catch |err| {
+            log.warn("failed to get ghostty exe path err={}", .{err});
+            return error.SystemError;
+        };
+
+        try args.append(alloc, try alloc.dupeZ(u8, exe_bin_path));
+        try args.append(alloc, "+_macos-disclaim");
+    }
+
     // If we're on macOS, we have to use `login(1)` to get all of
     // the proper environment variables set, a login shell, and proper
     // hushlogin behavior.
-    if (comptime builtin.target.os.tag.isDarwin()) darwin: {
+    if (comptime builtin.target.os.tag == .macos) macos: {
         const passwd = passwdpkg.get(alloc) catch |err| {
             log.warn("failed to read passwd, not using a login shell err={}", .{err});
-            break :darwin;
+            break :macos;
         };
 
         const username = passwd.name orelse {
             log.warn("failed to get username, not using a login shell", .{});
-            break :darwin;
+            break :macos;
         };
 
         const hush = if (passwd.home) |home| hush: {
@@ -1431,17 +1448,10 @@ fn execCommand(
             break :hush if (dir.access(".hushlogin", .{})) true else |_| false;
         } else false;
 
-        // If we made it this far we're going to start building
-        // the actual command.
-        var args: std.ArrayList([:0]const u8) = try .initCapacity(
-            alloc,
-
-            // This capacity is chosen based on what we'd need to
-            // execute a shell command (very common). We can/will
-            // grow if necessary for a longer command (uncommon).
-            9,
-        );
-        defer args.deinit(alloc);
+        // This capacity is chosen based on what we'd need to
+        // execute a shell command (very common). We can/will
+        // grow if necessary for a longer command (uncommon).
+        try args.ensureUnusedCapacity(alloc, 9);
 
         // The reason for executing login this way is unclear. This
         // comment will attempt to explain but prepare for a truly
@@ -1526,12 +1536,20 @@ fn execCommand(
     }
 
     return switch (command) {
-        // We need to clone the command since there's no guarantee the config remains valid.
-        .direct => |_| (try command.clone(alloc)).direct,
+        // We need to clone the command since there's no guarantee the config
+        // remains valid.
+        .direct => |_| direct: {
+            const v = (try command.clone(alloc)).direct;
+            if (comptime builtin.target.os.tag != .macos) break :direct v;
+
+            // On macOS we need to use our args list because it has the
+            // disclaim helper.
+            try args.appendSlice(alloc, v);
+            break :direct try args.toOwnedSlice(alloc);
+        },
 
         .shell => |v| shell: {
-            var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 4);
-            defer args.deinit(alloc);
+            try args.ensureUnusedCapacity(alloc, 4);
 
             if (comptime builtin.os.tag == .windows) {
                 // We run our shell wrapped in `cmd.exe` so that we don't have
@@ -1571,8 +1589,8 @@ fn execCommand(
     };
 }
 
-test "execCommand darwin: shell command" {
-    if (comptime !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+test "execCommand macos: shell command" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
 
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
@@ -1587,19 +1605,21 @@ test "execCommand darwin: shell command" {
         }
     });
 
-    try testing.expectEqual(8, result.len);
-    try testing.expectEqualStrings(result[0], "/usr/bin/login");
-    try testing.expectEqualStrings(result[1], "-flp");
-    try testing.expectEqualStrings(result[2], "testuser");
-    try testing.expectEqualStrings(result[3], "/bin/bash");
-    try testing.expectEqualStrings(result[4], "--noprofile");
-    try testing.expectEqualStrings(result[5], "--norc");
-    try testing.expectEqualStrings(result[6], "-c");
-    try testing.expectEqualStrings(result[7], "exec -l foo bar baz");
+    try testing.expectEqual(10, result.len);
+    try testing.expect(result[0].len > 0); // ghostty executable path
+    try testing.expectEqualStrings(result[1], "+_macos-disclaim");
+    try testing.expectEqualStrings(result[2], "/usr/bin/login");
+    try testing.expectEqualStrings(result[3], "-flp");
+    try testing.expectEqualStrings(result[4], "testuser");
+    try testing.expectEqualStrings(result[5], "/bin/bash");
+    try testing.expectEqualStrings(result[6], "--noprofile");
+    try testing.expectEqualStrings(result[7], "--norc");
+    try testing.expectEqualStrings(result[8], "-c");
+    try testing.expectEqualStrings(result[9], "exec -l foo bar baz");
 }
 
-test "execCommand darwin: direct command" {
-    if (comptime !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+test "execCommand macos: direct command" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
 
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
@@ -1617,12 +1637,14 @@ test "execCommand darwin: direct command" {
         }
     });
 
-    try testing.expectEqual(5, result.len);
-    try testing.expectEqualStrings(result[0], "/usr/bin/login");
-    try testing.expectEqualStrings(result[1], "-flp");
-    try testing.expectEqualStrings(result[2], "testuser");
-    try testing.expectEqualStrings(result[3], "foo");
-    try testing.expectEqualStrings(result[4], "bar baz");
+    try testing.expectEqual(7, result.len);
+    try testing.expect(result[0].len > 0); // ghostty executable path
+    try testing.expectEqualStrings(result[1], "+_macos-disclaim");
+    try testing.expectEqualStrings(result[2], "/usr/bin/login");
+    try testing.expectEqualStrings(result[3], "-flp");
+    try testing.expectEqualStrings(result[4], "testuser");
+    try testing.expectEqualStrings(result[5], "foo");
+    try testing.expectEqualStrings(result[6], "bar baz");
 }
 
 test "execCommand: shell command, empty passwd" {
@@ -1633,7 +1655,7 @@ test "execCommand: shell command, empty passwd" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const result = try execCommand(
+    const command = try execCommand(
         alloc,
         .{ .shell = "foo bar baz" },
         struct {
@@ -1644,6 +1666,10 @@ test "execCommand: shell command, empty passwd" {
             }
         },
     );
+    const result = if (comptime builtin.os.tag == .macos)
+        command[2..]
+    else
+        command;
 
     try testing.expectEqual(3, result.len);
     try testing.expectEqualStrings(result[0], "/bin/sh");
@@ -1659,7 +1685,7 @@ test "execCommand: shell command, error passwd" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const result = try execCommand(
+    const command = try execCommand(
         alloc,
         .{ .shell = "foo bar baz" },
         struct {
@@ -1670,6 +1696,10 @@ test "execCommand: shell command, error passwd" {
             }
         },
     );
+    const result = if (comptime builtin.os.tag == .macos)
+        command[2..]
+    else
+        command;
 
     try testing.expectEqual(3, result.len);
     try testing.expectEqualStrings(result[0], "/bin/sh");
@@ -1685,7 +1715,7 @@ test "execCommand: direct command, error passwd" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const result = try execCommand(alloc, .{
+    const command = try execCommand(alloc, .{
         .direct = &.{
             "foo",
             "bar baz",
@@ -1697,6 +1727,10 @@ test "execCommand: direct command, error passwd" {
             return error.Fail;
         }
     });
+    const result = if (comptime builtin.os.tag == .macos)
+        command[2..]
+    else
+        command;
 
     try testing.expectEqual(2, result.len);
     try testing.expectEqualStrings(result[0], "foo");
@@ -1720,13 +1754,17 @@ test "execCommand: direct command, config freed" {
         },
     }).clone(command_alloc);
 
-    const result = try execCommand(alloc, command, struct {
+    const raw = try execCommand(alloc, command, struct {
         fn get(_: Allocator) !PasswdEntry {
             // Failed passwd entry means we can't construct a macOS
             // login command and falls back to POSIX behavior.
             return error.Fail;
         }
     });
+    const result = if (comptime builtin.os.tag == .macos)
+        raw[2..]
+    else
+        raw;
 
     command_arena.deinit();
 

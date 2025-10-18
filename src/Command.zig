@@ -409,7 +409,10 @@ pub fn getData(self: Command, comptime DT: type) ?*DT {
 
 // Copied from Zig. This is a publicly exported function but there is no
 // way to get it from the std package.
-fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
+fn createNullDelimitedEnvMap(
+    arena: mem.Allocator,
+    env_map: *const EnvMap,
+) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
 

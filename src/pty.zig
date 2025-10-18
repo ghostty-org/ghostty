@@ -83,7 +83,7 @@ const NullPty = struct {
 /// Linux PTY creation and management. This is just a thin layer on top
 /// of Linux syscalls. The caller is responsible for detail-oriented handling
 /// of the returned file handles.
-pub const PosixPty = struct {
+const PosixPty = struct {
     pub const Error = OpenError || GetModeError || GetSizeError || SetSizeError || ChildPreExecError;
 
     pub const Fd = posix.fd_t;
@@ -248,20 +248,6 @@ pub const PosixPty = struct {
         // Can close master/slave pair now
         posix.close(self.slave);
         posix.close(self.master);
-    }
-
-    /// This is the pre-exec that needs to happen for posix_spawn on macOS
-    /// because the API doesn't support all the actions/attrs we need to
-    /// create a proper terminal environment.
-    pub fn posixSpawnPreExec(self: PosixPty) !void {
-        // Set controlling terminal
-        switch (posix.errno(c.ioctl(self.slave, TIOCSCTTY, @as(c_ulong, 0)))) {
-            .SUCCESS => {},
-            else => |err| {
-                log.err("error setting controlling terminal errno={}", .{err});
-                return error.SetControllingTerminalFailed;
-            },
-        }
     }
 };
 
