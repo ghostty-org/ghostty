@@ -103,21 +103,20 @@ extension Ghostty {
             storage storageKeyPath: ReferenceWritableKeyPath<T, Self>
         ) -> Value {
             get {
+                let storedValue = instance[keyPath: storageKeyPath].storage.value ?? Value(ghosttyValue: nil)
+
+                if let value = instance[keyPath: storageKeyPath].storage.value {
+                    return value
+                }
                 let info = instance[keyPath: storageKeyPath].info
-                guard info.needsUpdate, let cfg = instance.config else {
-                    return instance[keyPath: storageKeyPath].storage.value
+                guard let cfg = instance.config else {
+                    return storedValue
                 }
-                guard let value = getValue(from: cfg, key: info.key) else {
-                    return instance[keyPath: storageKeyPath].storage.value
+                guard let newValue = getValue(from: cfg, key: info.key) else {
+                    return storedValue
                 }
-                instance[keyPath: storageKeyPath].info.needsUpdate = false
-                if let publisher = (instance as? any ObservableObject)?.objectWillChange as? ObservableObjectPublisher {
-                    DispatchQueue.main.async {
-                        publisher.send()
-                    }
-                }
-                instance[keyPath: storageKeyPath].storage.value = value
-                return value
+                instance[keyPath: storageKeyPath].storage.value = newValue
+                return newValue
             }
 
             set {
@@ -149,7 +148,6 @@ extension Ghostty {
 
         struct Info: Identifiable {
             var id: String { key }
-            fileprivate var needsUpdate = true
             let key: String
             let tip: String?
             let reloadOnSet: Bool
@@ -168,11 +166,11 @@ extension Ghostty {
             set { fatalError() }
         }
 
-        private var storage = CurrentValueSubject<Value, Never>(Value(ghosttyValue: nil))
+        private var storage = CurrentValueSubject<Value?, Never>(nil)
         @State private var info: Info
 
         var projectedValue: AnyPublisher<Value, Never> {
-            storage.eraseToAnyPublisher()
+            storage.map({ $0 ?? Value(ghosttyValue: nil) }).eraseToAnyPublisher()
         }
 
         init(_ key: String, tip: String? = nil, reload: Bool = true, bridge _: Bridge.Type) {
