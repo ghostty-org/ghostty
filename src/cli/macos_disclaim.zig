@@ -13,10 +13,24 @@ pub const Options = struct {
 };
 
 /// The `_macos-disclaim` command is an internal-only Ghostty command that
-/// is only available on macOS. It uses private posix_spawn APIs to
-/// make the child process the "responssible process" in macOS so it is
-/// in charge of its own TCC (permissions like Downloads folder access or
-/// camera) and resource accounting rather than Ghostty.
+/// is only available on macOS. It acts as a trampoline that uses private
+/// posix_spawn APIs to make the child process the "responsible process" in
+/// macOS so it is in charge of its own TCC (permissions like Downloads folder
+/// access or camera) and resource accounting rather than Ghostty.
+///
+/// ## Responsible Process Concept
+///
+/// In macOS, the "responsible process" is a system-level attribution mechanism
+/// used for TCC (Transparency, Consent, and Control) permissions and resource
+/// accounting (energy, memory, etc.). When a process spawns children, those
+/// children normally inherit the parent's responsible process designation. This
+/// means when programs launched from Ghostty request permissions or consume
+/// resources, macOS attributes those actions to Ghostty itself.
+///
+/// By using the private `responsibility_spawnattrs_setdisclaim` API, we make
+/// the spawned process responsible for itself rather than being attributed to
+/// Ghostty. This ensures that TCC prompts and resource accounting are correctly
+/// associated with the actual program being run, not the terminal emulator.
 pub fn run(alloc: Allocator) !u8 {
     // This helper is only for Apple systems. POSIX in general has posix_spawn
     // but we only use it on Apple platforms because it lets us shed our
@@ -33,7 +47,7 @@ pub fn run(alloc: Allocator) !u8 {
     _ = arg_iter.skip();
     _ = arg_iter.skip();
 
-    // Collect remaining args for exec
+    // Collect remaining args for exec.
     var args: std.ArrayList(?[*:0]const u8) = .empty;
     defer args.deinit(alloc);
     while (arg_iter.next()) |arg| try args.append(alloc, arg);
@@ -47,7 +61,9 @@ pub fn run(alloc: Allocator) !u8 {
     defer posix_spawn.spawn_attr.destroy(&attrs);
     {
         try posix_spawn.spawn_attr.setflags(&attrs, .{
-            // Act like exec(): replace this process.
+            // POSIX_SPAWN_SETEXEC is a macOS extension that makes posix_spawn
+            // behave like exec(), replacing the current process image with the
+            // spawned program.
             .setexec = true,
         });
 
@@ -57,6 +73,8 @@ pub fn run(alloc: Allocator) !u8 {
         try posix_spawn.spawn_attr.disclaim(&attrs, true);
     }
 
+    // On success, this call DOES NOT RETURN because POSIX_SPAWN_SETEXEC
+    // replaces this process image. On failure, we log and return 1.
     _ = posix_spawn.spawnp(
         std.mem.span(args.items[0].?),
         null,
@@ -71,6 +89,8 @@ pub fn run(alloc: Allocator) !u8 {
         return 1;
     };
 
-    // We set the exec flag so we can't reach this point.
+    // Unreachable because POSIX_SPAWN_SETEXEC replaces this process on success.
+    // If we reach here, either the spawn failed (handled above) or the platform
+    // didn't honor SETEXEC (which would be a serious bug).
     unreachable;
 }

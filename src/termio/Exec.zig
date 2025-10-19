@@ -1408,8 +1408,17 @@ fn execCommand(
     var args: std.ArrayList([:0]const u8) = .empty;
     defer args.deinit(alloc);
 
-    // If we're on macOS, we use the posix_spawn trampoline no matter
-    // what, so prepend that.
+    // On macOS, we ALWAYS route child processes through our internal
+    // +_macos-disclaim trampoline command. This trampoline uses posix_spawn
+    // with POSIX_SPAWN_SETEXEC and the private responsibility_spawnattrs_setdisclaim
+    // API to ensure the final process is not attributed to Ghostty for TCC
+    // permissions or resource accounting.
+    //
+    // The trampoline immediately replaces itself with the target command, so
+    // no intermediate process remains. The argv structure becomes:
+    //   [ghostty_path, "+_macos-disclaim", actual_command, actual_args...]
+    //
+    // See src/cli/macos_disclaim.zig for the trampoline implementation.
     if (comptime builtin.target.os.tag == .macos) {
         var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
         const exe_bin_path = std.fs.selfExePath(&exe_buf) catch |err| {

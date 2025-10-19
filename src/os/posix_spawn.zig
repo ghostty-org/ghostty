@@ -10,15 +10,34 @@ const errno = std.posix.errno;
 const fd_t = std.posix.fd_t;
 const pid_t = std.posix.pid_t;
 
+// Zig's standard library doesn't yet wrap posix_spawnattr_setsigdefault,
+// so we declare it here. This sets the signals that will be set to SIG_DFL
+// in the spawned child process. See man 3 posix_spawnattr_setsigdefault
+// for details. Only takes effect when used with POSIX_SPAWN_SETSIGDEF flag.
 extern "c" fn posix_spawnattr_setsigdefault(
     attr: *c.posix_spawnattr_t,
     sigdefault: *const std.posix.sigset_t,
 ) c_int;
+
+// This function is not part of any public Apple header and is not documented
+// in man pages. It controls whether a spawned process inherits the "responsible
+// process" designation from its parent for purposes of TCC (Transparency, Consent,
+// and Control) permissions and resource accounting.
+//
+// When `disclaim` is true, the spawned process becomes responsible for itself
+// rather than being attributed to the spawning process. This is critical for
+// terminal emulators to avoid having all child processes' permission requests
+// and resource usage attributed to the terminal itself.
+//
+// References:
+// - https://www.qt.io/blog/the-curious-case-of-the-responsible-process
+// - Reverse-engineered from various open source projects
 extern "c" fn responsibility_spawnattrs_setdisclaim(
     attrs: *const c.posix_spawnattr_t,
     disclaim: bool,
 ) c_int;
 
+/// Spawn a new process using PATH resolution.
 pub fn spawnp(
     path: [:0]const u8,
     actions: ?*file_actions.T,
@@ -91,6 +110,10 @@ pub const file_actions = struct {
         };
     }
 
+    /// Change working directory in the spawned process.
+    ///
+    /// Uses the non-portable (_np suffix) addchdir function which is available
+    /// on Darwin and some other platforms.
     pub fn chdir(
         actions: *T,
         path: [*:0]const u8,
@@ -136,6 +159,14 @@ pub const spawn_attr = struct {
         };
     }
 
+    /// Set signals to default (SIG_DFL) in the spawned process.
+    ///
+    /// This function sets which signals should be reset to their default
+    /// handlers in the child process. Only takes effect when the
+    /// POSIX_SPAWN_SETSIGDEF flag is set in the spawn attributes.
+    ///
+    /// This is typically paired with Flags.setsigdef = true to ensure
+    /// the child doesn't inherit custom signal handlers from the parent.
     pub fn setsigdefault(attr: *T, sigdefault: *const std.posix.sigset_t) UnexpectedError!void {
         return switch (errno(posix_spawnattr_setsigdefault(
             attr,
@@ -146,8 +177,9 @@ pub const spawn_attr = struct {
         };
     }
 
-    /// This is undocumented, private API, so I'll link to some resources
-    /// here: https://www.qt.io/blog/the-curious-case-of-the-responsible-process
+    /// Set the "disclaim" flag for macOS responsible process handling.
+    ///
+    /// See: https://www.qt.io/blog/the-curious-case-of-the-responsible-process
     pub fn disclaim(attr: *T, v: bool) UnexpectedError!void {
         return switch (errno(responsibility_spawnattrs_setdisclaim(
             attr,
@@ -159,20 +191,24 @@ pub const spawn_attr = struct {
     }
 };
 
+/// POSIX spawn flags with Apple/Darwin extensions.
+///
+/// Note: Several fields are Apple-specific extensions and will not work on
+/// other POSIX systems.
 pub const Flags = packed struct(c_short) {
-    resetids: bool = false,
-    setpgroup: bool = false,
-    setsigdef: bool = false,
-    setsigmask: bool = false,
+    resetids: bool = false, // Reset effective UID/GID to real UID/GID
+    setpgroup: bool = false, // Set process group
+    setsigdef: bool = false, // Reset signals to SIG_DFL (see setsigdefault)
+    setsigmask: bool = false, // Set signal mask in child
     _pad1: u2 = 0,
-    setexec: bool = false,
-    start_suspended: bool = false,
-    disable_aslr: bool = false,
+    setexec: bool = false, // Replace current process image (like exec)
+    start_suspended: bool = false, // Start process suspended (debugging)
+    disable_aslr: bool = false, // Disable ASLR for spawned process
     _pad2: u1 = 0,
-    setsid: bool = false,
-    reslide: bool = false,
+    setsid: bool = false, // Create new session (process becomes session leader)
+    reslide: bool = false, // Re-randomize ASLR slide
     _pad3: u2 = 0,
-    cloexec_default: bool = false,
+    cloexec_default: bool = false, // Default file descriptors to close-on-exec
     _pad4: u1 = 0,
 
     /// Integer value of this struct.
@@ -223,6 +259,10 @@ test "spawn_attr.setsigdefault" {
 }
 
 test "spawn_attr.disclaim" {
+    // This test uses the private macOS API and will only pass on Darwin
+    const builtin = @import("builtin");
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+
     var attr = try spawn_attr.create();
     defer spawn_attr.destroy(&attr);
     try spawn_attr.disclaim(&attr, true);
