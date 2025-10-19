@@ -63,6 +63,8 @@ pub fn run(alloc: Allocator) !u8 {
     );
 
     inline for (@typeInfo(Action).@"enum".fields) |field| {
+        // Skip internal commands (prefixed with underscore)
+        if (field.name[0] == '_') continue;
         try stdout.print("  +{s}\n", .{field.name});
     }
 

@@ -82,6 +82,9 @@ fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     );
 
     inline for (@typeInfo(Action).@"enum".fields) |field| {
+        // Skip internal commands (prefixed with underscore)
+        if (field.name[0] == '_') continue;
+
         const action_file = comptime action_file: {
             const action = @field(Action, field.name);
             break :action_file action.file();

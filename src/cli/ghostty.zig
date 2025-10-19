@@ -19,6 +19,7 @@ const crash_report = @import("crash_report.zig");
 const show_face = @import("show_face.zig");
 const boo = @import("boo.zig");
 const new_window = @import("new_window.zig");
+const macos_disclaim = @import("macos_disclaim.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -69,6 +70,9 @@ pub const Action = enum {
     // Use IPC to tell the running Ghostty to open a new window.
     @"new-window",
 
+    // Internal helper for posix_spawn that performs pre-exec setup
+    @"_macos-disclaim",
+
     pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(Action) {
         // If we see a "-e" and we haven't seen a command yet, then
         // we are done looking for commands. This special case enables
@@ -102,6 +106,9 @@ pub const Action = enum {
             // to find this action in the help strings and output that.
             help_error => err: {
                 inline for (@typeInfo(Action).@"enum".fields) |field| {
+                    // Skip internal commands (prefixed with underscore)
+                    if (field.name[0] == '_') continue;
+
                     // Future note: for now we just output the help text directly
                     // to stdout. In the future we can style this much prettier
                     // for all commands by just changing this one place.
@@ -147,6 +154,7 @@ pub const Action = enum {
             .@"show-face" => try show_face.run(alloc),
             .boo => try boo.run(alloc),
             .@"new-window" => try new_window.run(alloc),
+            .@"_macos-disclaim" => try macos_disclaim.run(alloc),
         };
     }
 
@@ -186,6 +194,7 @@ pub const Action = enum {
                 .@"show-face" => show_face.Options,
                 .boo => boo.Options,
                 .@"new-window" => new_window.Options,
+                .@"_macos-disclaim" => macos_disclaim.Options,
             };
         }
     }
