@@ -1386,8 +1386,17 @@ fn mouseRefreshLinks(
                     .sel = link[1],
                     .trim = false,
                 });
+
+                // Expand tilde paths for display
+                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const expanded = internal_os.expandHome(str, &path_buf) catch str;
+                const final_str = if (expanded.ptr != str.ptr)
+                    try alloc.dupeZ(u8, expanded)
+                else
+                    str;
+
                 break :link .{
-                    .{ .url = str },
+                    .{ .url = final_str },
                     self.config.link_previews == .true,
                 };
             },
@@ -1399,8 +1408,14 @@ fn mouseRefreshLinks(
                     log.warn("failed to get URI for OSC8 hyperlink", .{});
                     break :link .{ null, false };
                 };
+
+                // Expand tilde paths for display
+                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const expanded = internal_os.expandHome(uri, &path_buf) catch uri;
+                const final_uri = try alloc.dupeZ(u8, expanded);
+
                 break :link .{
-                    .{ .url = try alloc.dupeZ(u8, uri) },
+                    .{ .url = final_uri },
                     self.config.link_previews != .false,
                 };
             },
@@ -3932,7 +3947,12 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try self.openUrl(.{ .kind = .unknown, .url = str });
+
+            // Expand tilde paths before opening
+            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const expanded_str = internal_os.expandHome(str, &path_buf) catch str;
+
+            try self.openUrl(.{ .kind = .unknown, .url = expanded_str });
         },
 
         ._open_osc8 => {
@@ -3940,7 +3960,12 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 log.warn("failed to get URI for OSC8 hyperlink", .{});
                 return false;
             };
-            try self.openUrl(.{ .kind = .unknown, .url = uri });
+
+            // Expand tilde paths before opening
+            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const expanded_uri = internal_os.expandHome(uri, &path_buf) catch uri;
+
+            try self.openUrl(.{ .kind = .unknown, .url = expanded_uri });
         },
     }
 
