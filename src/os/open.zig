@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const apprt = @import("../apprt.zig");
+const internal_os = @import("main.zig");
 
 const log = std.log.scoped(.@"os-open");
 
@@ -20,21 +21,33 @@ pub fn open(
     kind: apprt.action.OpenUrl.Kind,
     url: []const u8,
 ) !void {
+    // Trim trailing punctuation that may have been captured by the regex
+    var trimmed_url = url;
+    while (trimmed_url.len > 0 and (trimmed_url[trimmed_url.len - 1] == ':' or
+                                     trimmed_url[trimmed_url.len - 1] == ',' or
+                                     trimmed_url[trimmed_url.len - 1] == '.')) {
+        trimmed_url = trimmed_url[0..trimmed_url.len - 1];
+    }
+
+    // Expand tilde paths before opening
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const expanded_url = internal_os.expandHome(trimmed_url, &path_buf) catch trimmed_url;
+
     var exe: std.process.Child = switch (builtin.os.tag) {
         .linux, .freebsd => .init(
-            &.{ "xdg-open", url },
+            &.{ "xdg-open", expanded_url },
             alloc,
         ),
 
         .windows => .init(
-            &.{ "rundll32", "url.dll,FileProtocolHandler", url },
+            &.{ "rundll32", "url.dll,FileProtocolHandler", expanded_url },
             alloc,
         ),
 
         .macos => .init(
             switch (kind) {
-                .text => &.{ "open", "-t", url },
-                .unknown => &.{ "open", url },
+                .text => &.{ "open", "-t", expanded_url },
+                .unknown => &.{ "open", expanded_url },
             },
             alloc,
         ),

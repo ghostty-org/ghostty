@@ -26,7 +26,7 @@ pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
     ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:~/|\.\.\/|\.\/|\/)[\w\-.~/?#@!$&*+;=%]*(?:\/[\w\-.~/?#@!$&*+;=%]*)*(?<!\.)
     ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -204,6 +204,39 @@ test "url regex" {
             .input = "[link](/home/user/ghostty.user/example)",
             .expect = "/home/user/ghostty.user/example",
         },
+        // Tilde path tests - positive cases
+        .{
+            .input = "~/.config/ghostty/config",
+            .expect = "~/.config/ghostty/config",
+        },
+        .{
+            .input = "~/Documents/file.txt",
+            .expect = "~/Documents/file.txt",
+        },
+        .{
+            .input = "Error at ~/.config/file.txt:42",
+            .expect = "~/.config/file.txt",
+        },
+        .{
+            .input = "foo ~/a.txt. more text",
+            .expect = "~/a.txt.", // Period is matched but trimmed when opening
+        },
+        .{
+            .input = "~/../foo",
+            .expect = "~/../foo",
+        },
+        .{
+            .input = "check ~/",
+            .expect = "~/",
+        },
+        .{
+            .input = "~/.bashrc: line 42: command not found",
+            .expect = "~/.bashrc",
+        },
+        .{
+            .input = "grep: ~/.config/file.txt: No such file",
+            .expect = "~/.config/file.txt",
+        },
         // IPv6 URL tests - Basic tests
         .{
             .input = "Serving HTTP on :: port 8000 (http://[::]:8000/)",
@@ -253,10 +286,22 @@ test "url regex" {
             .input = "IPv6 in markdown [link](http://[2001:db8::1]/docs)",
             .expect = "http://[2001:db8::1]/docs",
         },
+        // Tilde path tests - negative cases (should NOT match or match differently)
+        .{
+            .input = "echo \"~\"",
+            .expect = "~",
+            .num_matches = 0, // bare tilde should not match
+        },
+        .{
+            .input = "foo~bar",
+            .expect = "",
+            .num_matches = 0, // tilde in middle should not match
+        },
+        // TODO: Add test for ~user/file.txt when ~user support is implemented
     };
 
     for (cases) |case| {
-        //std.debug.print("input: {s}\n", .{case.input});
+        //std.debug.print("Testing input: {s}\n", .{case.input});
         //std.debug.print("match: {s}\n", .{case.expect});
         var reg = try re.search(case.input, .{});
         //std.debug.print("count: {d}\n", .{@as(usize, reg.count())});
@@ -264,7 +309,9 @@ test "url regex" {
         //std.debug.print("ends: {d}\n", .{reg.ends()});
         defer reg.deinit();
         try testing.expectEqual(@as(usize, case.num_matches), reg.count());
-        const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
-        try testing.expectEqualStrings(case.expect, match);
+        if (case.num_matches > 0) {
+            const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
+            try testing.expectEqualStrings(case.expect, match);
+        }
     }
 }
