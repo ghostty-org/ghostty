@@ -2986,7 +2986,7 @@ pub fn scrollCallback(
         // If we have an active mouse reporting mode, clear the selection.
         // The selection can occur if the user uses the shift mod key to
         // override mouse grabbing from the window.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             try self.setSelection(null);
         }
 
