@@ -1029,26 +1029,38 @@ extension Ghostty {
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
                     guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
 
-                    // For now, we return false if the window has no splits and we return
-                    // true if the window has ANY splits. This isn't strictly correct because
-                    // we should only be returning true if we actually performed the action,
-                    // but this handles the most common case of caring about goto_split performability
-                    // which is the no-split case.
+                    // If the window has no splits, the action is not performable
                     guard controller.surfaceTree.isSplit else { return false }
 
+                    // Convert the C API direction to our Swift type
+                    guard let splitDirection = SplitFocusDirection.from(direction: direction) else { return false }
+
+                    // Find the current node in the tree
+                    guard let targetNode = controller.surfaceTree.root?.node(view: surfaceView) else { return false }
+
+                    // Check if a split actually exists in the target direction before
+                    // returning true. This ensures performable keybinds only consume
+                    // the key event when we actually perform navigation.
+                    let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
+                    guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
+                        return false
+                    }
+
+                    // We have a valid target, post the notification to perform the navigation
                     NotificationCenter.default.post(
                         name: Notification.ghosttyFocusSplit,
                         object: surfaceView,
                         userInfo: [
-                            Notification.SplitDirectionKey: SplitFocusDirection.from(direction: direction) as Any,
+                            Notification.SplitDirectionKey: splitDirection as Any,
                         ]
                     )
 
+                    return true
+
                 default:
                     assertionFailure()
+                    return false
                 }
-
-                return true
         }
 
         private static func resizeSplit(

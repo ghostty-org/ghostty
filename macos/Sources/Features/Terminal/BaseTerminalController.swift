@@ -569,23 +569,12 @@ class BaseTerminalController: NSWindowController,
         // Get the direction from the notification
         guard let directionAny = notification.userInfo?[Ghostty.Notification.SplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
-        
-        // Convert Ghostty.SplitFocusDirection to our SplitTree.FocusDirection
-        let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection
-        switch direction {
-        case .previous: focusDirection = .previous
-        case .next: focusDirection = .next
-        case .up: focusDirection = .spatial(.up)
-        case .down: focusDirection = .spatial(.down)
-        case .left: focusDirection = .spatial(.left)
-        case .right: focusDirection = .spatial(.right)
-        }
 
         // Find the node for the target surface
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
         
         // Find the next surface to focus
-        guard let nextSurface = surfaceTree.focusTarget(for: focusDirection, from: targetNode) else {
+        guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
             return
         }
 
