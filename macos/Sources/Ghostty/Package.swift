@@ -223,7 +223,38 @@ extension Ghostty {
             }
         }
     }
+}
 
+#if canImport(AppKit)
+// MARK: SplitFocusDirection Extensions
+
+extension Ghostty.SplitFocusDirection {
+    /// Convert to a SplitTree.FocusDirection for the given ViewType.
+    func toSplitTreeFocusDirection<ViewType>() -> SplitTree<ViewType>.FocusDirection {
+        switch self {
+        case .previous:
+            return .previous
+
+        case .next:
+            return .next
+
+        case .up:
+            return .spatial(.up)
+
+        case .down:
+            return .spatial(.down)
+
+        case .left:
+            return .spatial(.left)
+
+        case .right:
+            return .spatial(.right)
+        }
+    }
+}
+#endif
+
+extension Ghostty {
     /// The type of a clipboard request
     enum ClipboardRequest {
         /// A direct paste of clipboard contents
