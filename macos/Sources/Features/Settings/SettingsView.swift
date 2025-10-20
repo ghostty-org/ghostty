@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State var currentCategory: SettingsCategory = .general
-    @State var presentedCategories: [SettingsCategory] = [.general]
+    @State var currentCategory: SettingsCategory = .themes
+    @State var isPreviewVisible: Bool = false
+    @EnvironmentObject var config: Ghostty.ConfigFile
     var body: some View {
         NavigationSplitView {
             List(SettingsCategory.allCases, selection: $currentCategory) { category in
@@ -11,8 +12,40 @@ struct SettingsView: View {
                 }
             }
             .navigationSplitViewColumnWidth(200)
-            .toolbar {
-                #if DEBUG
+        } detail: {
+            ZStack {
+                SurfacePreviewView()
+                    .opacity(isPreviewVisible ? 1 : 0)
+                    .disabled(!isPreviewVisible)
+                Group {
+                    switch currentCategory {
+                    case .general:
+                        GeneralContentView()
+                    case .themes:
+                        ThemeContentView()
+                    case .fonts:
+                        FontsContentView(config: config)
+                    }
+                }
+                .navigationTitle(currentCategory.rawValue)
+                .opacity(isPreviewVisible ? 0 : 1)
+                .disabled(isPreviewVisible)
+            }
+        }
+        .frame(minWidth: 500, minHeight: 500)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.smooth) {
+                        isPreviewVisible.toggle()
+                    }
+                } label: {
+                    Image(systemName: isPreviewVisible ? "eyes.inverse" : "eyes")
+                }
+                .help("Show Preview")
+            }
+            #if DEBUG
+            ToolbarItemGroup(placement: .secondaryAction) {
                 Button("Open Original Config") {
                     Ghostty.App.openConfig()
                 }
@@ -20,25 +53,16 @@ struct SettingsView: View {
                 Button("Open Settings Config") {
                     NSWorkspace.shared.open(Ghostty.ConfigFile.configFile)
                 }
-                #endif
             }
-        } detail: {
-            switch currentCategory {
-            case .general:
-                GeneralContentView()
-                    .navigationTitle(currentCategory.rawValue)
-            case .themes:
-                ThemeContentView()
-                    .navigationTitle(currentCategory.rawValue)
-            }
+            #endif
         }
-        .frame(minWidth: 500, minHeight: 500)
     }
 }
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "General"
     case themes = "Themes"
+    case fonts = "Fonts"
 
     var id: String { rawValue }
 
@@ -48,6 +72,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
             return "gearshape"
         case .themes:
             return "paintbrush"
+        case .fonts:
+            return "character.magnify"
         }
     }
 }
