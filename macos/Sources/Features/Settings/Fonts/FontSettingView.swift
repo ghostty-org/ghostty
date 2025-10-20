@@ -58,7 +58,7 @@ struct FontSettingView: View {
                 }
             }
         } header: {
-            Text("Font Settings")
+            Text("Settings")
         }
     }
 }
