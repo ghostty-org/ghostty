@@ -449,6 +449,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle secure input mode.",
         }},
 
+        .toggle_background_opacity => comptime &.{.{
+            .action = .toggle_background_opacity,
+            .title = "Toggle Background Opacity",
+            .description = "Toggle the window background between transparent and opaque.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
