@@ -574,10 +574,6 @@ extension Ghostty {
             case GHOSTTY_ACTION_SCROLLBAR:
                 scrollbar(app, target: target, v: action.action.scrollbar)
 
-            case GHOSTTY_ACTION_TOGGLE_MOUSE_REPORTING:
-                // Handled at Surface level, no app action needed
-                return true
-
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:

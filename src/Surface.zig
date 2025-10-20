@@ -3029,7 +3029,7 @@ pub fn scrollCallback(
         // the normal logic.
 
         // If we're scrolling up or down, then send a mouse event.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             for (0..@abs(y.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (y.direction()) {
@@ -3102,6 +3102,13 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 /// The type of action to report for a mouse event.
 const MouseReportAction = enum { press, release, motion };
 
+/// Returns true if mouse reporting is enabled both in the config and
+/// the terminal state.
+fn isMouseReporting(self: *const Surface) bool {
+    return self.config.mouse_reporting and
+        self.io.terminal.flags.mouse_event != .none;
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
@@ -3109,12 +3116,13 @@ fn mouseReport(
     mods: input.Mods,
     pos: apprt.CursorPos,
 ) !void {
-    // If mouse reporting is disabled, do nothing
-    if (!self.config.mouse_reporting) return;
+    // Mouse reporting must be enabled by both config and terminal state
+    assert(self.config.mouse_reporting);
+    assert(self.io.terminal.flags.mouse_event != .none);
 
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
-        .none => return,
+        .none => unreachable, // checked by assert above
 
         // X10 only reports clicks with mouse button 1, 2, 3. We verify
         // the button later.
@@ -3509,7 +3517,7 @@ pub fn mouseButtonCallback(
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        if (self.io.terminal.flags.mouse_event != .none) report: {
+        if (self.isMouseReporting()) report: {
             // If we have shift-pressed and we aren't allowed to capture it,
             // then we do not do a mouse report.
             if (mods.shift and !shift_capture) break :report;
@@ -4147,7 +4155,7 @@ pub fn cursorPosCallback(
     }
 
     // Do a mouse report
-    if (self.io.terminal.flags.mouse_event != .none) report: {
+    if (self.isMouseReporting()) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
         // This only applies if there is a mouse button pressed so that
         // movement reports are not affected.

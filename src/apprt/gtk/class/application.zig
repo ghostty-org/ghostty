@@ -729,9 +729,6 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
 
-            // Handled at Surface level (no apprt action needed)
-            .toggle_mouse_reporting => return true,
-
             // Unimplemented
             .secure_input,
             .close_all_windows,
