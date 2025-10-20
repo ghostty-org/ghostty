@@ -50,14 +50,15 @@ struct FontFamilySectionsView: View {
                     Text(setting.family.wrappedValue)
 
                     Spacer()
-                    Menu("Delete") {
+                    Menu {
                         Button("Delete \(setting.family.wrappedValue) and all its code points") {
                             viewModel.removeFontFamily(setting.wrappedValue)
                         }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
                     }
-                    .menuStyle(.borderedButton)
+                    .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
-                    .tint(.red)
                 }
             }
         }
