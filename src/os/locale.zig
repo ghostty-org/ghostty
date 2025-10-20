@@ -83,6 +83,13 @@ fn setLangFromCocoa() void {
     const lang = locale.getProperty(objc.Object, "languageCode");
     const country = locale.getProperty(objc.Object, "countryCode");
 
+    // If either property is nil, we can't construct a valid locale string.
+    // Return early and let the normal locale resolution continue.
+    if (lang.value == null or country.value == null) {
+        log.debug("languageCode or countryCode is nil", .{});
+        return;
+    }
+
     // Get our UTF8 string values
     const c_lang = lang.getProperty([*:0]const u8, "UTF8String");
     const c_country = country.getProperty([*:0]const u8, "UTF8String");
