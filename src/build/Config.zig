@@ -60,6 +60,7 @@ emit_macos_app: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
 emit_test_exe: bool = false,
+emit_themes: bool = false,
 emit_xcframework: bool = false,
 emit_webdata: bool = false,
 emit_unicode_table_gen: bool = false,
@@ -365,6 +366,12 @@ pub fn init(b: *std.Build) !Config {
         .Debug => true,
         .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
     };
+
+    config.emit_themes = b.option(
+        bool,
+        "emit-themes",
+        "Install bundled iTerm2-Color-Schemes Ghostty themes",
+    ) orelse true;
 
     config.emit_webdata = b.option(
         bool,
