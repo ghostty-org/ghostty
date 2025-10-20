@@ -346,6 +346,10 @@ fn legacy(
         // ever be a multi-codepoint sequence that triggers this.
         if (it.nextCodepoint() != null) break :modify_other;
 
+        // The mods we encode for this are just the binding mods (shift, ctrl,
+        // super, alt).
+        const mods = self.event.mods.binding();
+
         // This copies xterm's `ModifyOtherKeys` function that returns
         // whether modify other keys should be encoded for the given
         // input.
@@ -355,7 +359,7 @@ fn legacy(
                 break :should_modify true;
 
             // If we have anything other than shift pressed, encode.
-            var mods_no_shift = binding_mods;
+            var mods_no_shift = mods;
             mods_no_shift.shift = false;
             if (!mods_no_shift.empty()) break :should_modify true;
 
@@ -370,7 +374,7 @@ fn legacy(
 
         if (should_modify) {
             for (function_keys.modifiers, 2..) |modset, code| {
-                if (!binding_mods.equal(modset)) continue;
+                if (!mods.equal(modset)) continue;
                 return try std.fmt.bufPrint(
                     buf,
                     "\x1B[27;{};{}~",
@@ -1975,6 +1979,22 @@ test "legacy: ctrl+shift+char with modify other state 2" {
         .event = .{
             .key = .key_h,
             .mods = .{ .ctrl = true, .shift = true },
+            .utf8 = "H",
+        },
+        .modify_other_keys_state_2 = true,
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("\x1b[27;6;72~", actual);
+}
+
+test "legacy: ctrl+shift+char with modify other state 2 and consumed mods" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .key_h,
+            .mods = .{ .ctrl = true, .shift = true },
+            .consumed_mods = .{ .shift = true },
             .utf8 = "H",
         },
         .modify_other_keys_state_2 = true,
