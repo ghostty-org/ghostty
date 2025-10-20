@@ -6,54 +6,29 @@ struct SurfacePreviewView: View {
     @Environment(\.ghosttySurfaceView) var surfaceView
     let textAnchor: Character = "👻"
     @State private var isLoading: Bool = true
-    @State private var previewHeight: CGFloat = 300
-    @State private var themes = [Ghostty.ThemeOption]()
-    @State private var selectedLightTheme: Ghostty.ThemeOption?
-    @State private var selectedDarkTheme: Ghostty.ThemeOption?
     @EnvironmentObject var config: Ghostty.ConfigFile
     var body: some View {
-        Group {
-            // We separate this for now, since ghostty theme will affect appearance, if system is in light mode but ghostty is using dark theme, things start to become tricky...
-            Section {
-                Picker("Light", selection: $selectedLightTheme) {
-                    ForEach(themes) { theme in
-                        Text(theme.name).tag(theme)
-                    }
-                }
-                .pickerStyle(.menu)
-                Picker("Dark", selection: $selectedDarkTheme) {
-                    ForEach(themes) { theme in
-                        Text(theme.name).tag(theme)
-                    }
-                }
-                .pickerStyle(.menu)
+        GeometryReader { geo in
+            if let surfaceView {
+                Ghostty.SurfaceRepresentable(view: surfaceView, size: geo.size)
             }
-
-            Section {
-                GeometryReader { geo in
-                    if let surfaceView {
-                        Ghostty.SurfaceRepresentable(view: surfaceView, size: geo.size)
-                    }
-                }
-                .frame(height: previewHeight)
-                .opacity(isLoading ? 0 : 1)
-                .overlay {
-                    if isLoading {
-                        ProgressView("Loading theme preview...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
+        }
+        .opacity(isLoading ? 0 : 1)
+        .overlay {
+            if isLoading {
+                ProgressView("Loading theme preview...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .greatestFiniteMagnitude)
         .animation(.smooth, value: isLoading)
-        .task(id: selectedLightTheme) {
-            await updateTheme(for: .light, selectedTheme: selectedLightTheme)
+        .task(id: config.selectedLightTheme) {
+            await updateTheme(for: .light, selectedTheme: config.selectedLightTheme)
         }
-        .task(id: selectedDarkTheme) {
-            await updateTheme(for: .dark, selectedTheme: selectedDarkTheme)
+        .task(id: config.selectedDarkTheme) {
+            await updateTheme(for: .dark, selectedTheme: config.selectedDarkTheme)
         }
-        .onChange(of: themes) { newValue in
+        .onChange(of: config.themes) { newValue in
             updateSelectedTheme(newThemes: newValue)
         }
         .task {
@@ -89,7 +64,7 @@ struct SurfacePreviewView: View {
 
     @MainActor
     private func updateThemeList() async {
-        self.themes = (try? surfaceView?.surfaceModel?.themeOptions()) ?? []
+        config.themes = (try? surfaceView?.surfaceModel?.themeOptions()) ?? []
     }
 
     private func updateTheme(for colorScheme: ColorScheme, selectedTheme: Ghostty.ThemeOption?) async {
@@ -101,10 +76,10 @@ struct SurfacePreviewView: View {
     }
 
     private func updateSelectedTheme(newThemes: [Ghostty.ThemeOption]? = nil) {
-        let themes = newThemes ?? self.themes
+        let themes = newThemes ?? config.themes
         let defaultTheme = Ghostty.Theme.defaultValue
-        selectedLightTheme = themes.first(where: { $0.name == config.theme[.light] }) ?? themes.first(where: { $0.name == defaultTheme[.light] }) ?? themes.first
-        selectedDarkTheme = themes.first(where: { $0.name == config.theme[.dark] }) ?? themes.first(where: { $0.name == defaultTheme[.dark] }) ?? themes.first
+        config.selectedLightTheme = themes.first(where: { $0.name == config.theme[.light] }) ?? themes.first(where: { $0.name == defaultTheme[.light] }) ?? themes.first
+        config.selectedDarkTheme = themes.first(where: { $0.name == config.theme[.dark] }) ?? themes.first(where: { $0.name == defaultTheme[.dark] }) ?? themes.first
     }
 }
 

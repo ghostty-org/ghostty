@@ -20,6 +20,9 @@ extension Ghostty {
             .appendingPathComponent("ghostty-settings")
 
         @Published var saveError: Swift.Error? = nil
+        @Published var themes = [Ghostty.ThemeOption]()
+        @Published var selectedLightTheme: Ghostty.ThemeOption?
+        @Published var selectedDarkTheme: Ghostty.ThemeOption?
 
         @Ghostty.ConfigEntry("theme") var theme: Ghostty.Theme
         @Ghostty.ConfigEntry("font-family") var fontFamily: [RepeatableItem]
@@ -30,6 +33,8 @@ extension Ghostty {
         @Ghostty.ConfigEntry("font-style-bold-italic") var fontStyleBoldItalic: String?
         @Ghostty.ConfigEntry("font-codepoint-map") var fontCodePointMap: [RepeatableItem]
         @Ghostty.ConfigEntry("auto-update-channel") var updateChannel: AutoUpdateChannel
+        @Ghostty.ConfigEntry("font-synthetic-style") var fontSyntheticStyle: FontSyntheticStyle
+        @Ghostty.ConfigEntry("font-feature") var fontFeatures: [RepeatableItem]
 
         deinit {
             self.config = nil
