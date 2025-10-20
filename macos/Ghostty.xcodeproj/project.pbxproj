@@ -141,6 +141,7 @@
 				Ghostty/Ghostty.ConfigFile.swift,
 				Ghostty/Ghostty.Error.swift,
 				Ghostty/Ghostty.Event.swift,
+				Ghostty/Ghostty.FontSyntheticStyle.swift,
 				Ghostty/Ghostty.Input.swift,
 				Ghostty/Ghostty.Surface.swift,
 				Ghostty/Ghostty.Theme.swift,
