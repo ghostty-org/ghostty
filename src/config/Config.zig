@@ -839,6 +839,18 @@ palette: Palette = .{},
 ///   * `never`
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
+/// Enable or disable mouse reporting. When set to `false`, mouse events will
+/// not be reported to terminal applications even if they request it. This
+/// allows you to always use the mouse for selection and other terminal UI
+/// interactions without applications capturing mouse input.
+///
+/// When set to `true` (the default), terminal applications can request mouse
+/// reporting and will receive mouse events according to their requested mode.
+///
+/// This can be toggled at runtime using the `toggle_mouse_reporting` keybind
+/// action.
+@"mouse-reporting": bool = true,
+
 /// Multiplier for scrolling distance with the mouse wheel.
 ///
 /// A prefix of `precision:` or `discrete:` can be used to set the multiplier

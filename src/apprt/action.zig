@@ -301,6 +301,10 @@ pub const Action = union(Key) {
     /// A command has finished,
     command_finished: CommandFinished,
 
+    /// Toggle mouse reporting on or off. When off, mouse events are not
+    /// reported to terminal applications even if they request it.
+    toggle_mouse_reporting,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -358,6 +362,7 @@ pub const Action = union(Key) {
         progress_report,
         show_on_screen_keyboard,
         command_finished,
+        toggle_mouse_reporting,
     };
 
     /// Sync with: ghostty_action_u

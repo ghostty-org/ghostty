@@ -449,6 +449,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle secure input mode.",
         }},
 
+        .toggle_mouse_reporting => comptime &.{.{
+            .action = .toggle_mouse_reporting,
+            .title = "Toggle Mouse Reporting",
+            .description = "Toggle whether mouse events are reported to terminal applications.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",

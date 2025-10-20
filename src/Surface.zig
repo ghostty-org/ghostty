@@ -268,6 +268,7 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
+    mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
@@ -341,6 +342,7 @@ const DerivedConfig = struct {
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
+            .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
@@ -3107,6 +3109,9 @@ fn mouseReport(
     mods: input.Mods,
     pos: apprt.CursorPos,
 ) !void {
+    // If mouse reporting is disabled, do nothing
+    if (!self.config.mouse_reporting) return;
+
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
         .none => return,
@@ -5034,6 +5039,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .secure_input,
             .toggle,
         ),
+
+        .toggle_mouse_reporting => {
+            self.config.mouse_reporting = !self.config.mouse_reporting;
+            log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
 
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
