@@ -168,7 +168,7 @@ class SurfaceScrollView: NSView {
         // of our terminal which is not desirable.
         // See: https://github.com/ghostty-org/ghostty/discussions/9254
         let style = scrollView.verticalScroller?.scrollerStyle ?? NSScroller.preferredScrollerStyle
-        if style == .legacy {
+        if (style == .legacy) && (currentScrollbar?.active ?? true) {
             if (scrollView.verticalScroller?.isHidden ?? true) {
                 let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
                 contentSize.width -= scrollerWidth
@@ -255,6 +255,13 @@ class SurfaceScrollView: NSView {
         guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
             return
         }
+        // If we're changing from an active to an inactive scrollbar state or
+        // vice versa, we need a new layout to update the scrollbar inset.
+        if let currentScrollbar = currentScrollbar,
+            currentScrollbar.active != scrollbar.active
+        {
+            needsLayout = true
+        }
         currentScrollbar = scrollbar
         
         // Convert row units to pixels using cell height, ignore zero height.
@@ -271,7 +278,7 @@ class SurfaceScrollView: NSView {
         // Only update our actual scroll position if we're not actively scrolling.
         if !isLiveScrolling {
             // Invert coordinate system: terminal offset is from top, AppKit position from bottom
-            let offsetY = CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+            let offsetY = scrollbar.active ? CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight : 0
             scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
             
             // Track the current row position to avoid redundant movements when we
@@ -287,7 +294,7 @@ class SurfaceScrollView: NSView {
     private func documentHeight(_ scrollbar: Ghostty.Action.Scrollbar?) -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let cellHeight = surfaceView.cellSize.height
-        if cellHeight > 0, let scrollbar = scrollbar {
+        if cellHeight > 0, let scrollbar = scrollbar, scrollbar.active {
             // The document view must have the same vertical padding around the
             // scrollback grid as the content view has around the terminal grid
             // otherwise the content view loses alignment with the surface.
