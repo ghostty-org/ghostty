@@ -83,10 +83,8 @@ fn setLangFromCocoa() void {
     const lang = locale.getProperty(objc.Object, "languageCode");
     const country = locale.getProperty(objc.Object, "countryCode");
 
-    // If either property is nil, we can't construct a valid locale string.
-    // Return early and let the normal locale resolution continue.
     if (lang.value == null or country.value == null) {
-        log.debug("languageCode or countryCode is nil", .{});
+        log.warn("languageCode or countryCode not found. Locale may be incorrect.", .{});
         return;
     }
 
