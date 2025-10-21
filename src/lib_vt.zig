@@ -9,6 +9,9 @@
 //! this in the future.
 const lib = @This();
 
+const std = @import("std");
+const builtin = @import("builtin");
+
 // The public API below reproduces a lot of terminal/main.zig but
 // is separate because (1) we need our root file to be in `src/`
 // so we can access other directories and (2) we may want to withhold
@@ -125,6 +128,26 @@ comptime {
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
     }
 }
+
+pub const std_options: std.Options = options: {
+    if (builtin.target.cpu.arch.isWasm()) break :options .{
+        // Wasm builds we specifically want to optimize for space with small
+        // releases so we bump up to warn. Everything else acts pretty normal.
+        .log_level = switch (builtin.mode) {
+            .Debug => .debug,
+            .ReleaseSmall => .warn,
+            else => .info,
+        },
+
+        // Wasm doesn't have access to stdio so we have a custom log function.
+        .logFn = @import("os/wasm/log.zig").log,
+    };
+
+    // For everything else we currently use defaults. Longer term I'm
+    // SURE this isn't right (e.g. we definitely want to customize the log
+    // function for the C lib at least).
+    break :options .{};
+};
 
 test {
     _ = terminal;

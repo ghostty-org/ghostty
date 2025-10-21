@@ -204,6 +204,7 @@ jobs:
             aarch64-linux,
             x86_64-linux,
             x86_64-windows,
+            wasm32-freestanding,
           ]
     runs-on: namespace-profile-ghostty-sm
     needs: test

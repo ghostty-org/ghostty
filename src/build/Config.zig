@@ -173,7 +173,13 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         bool,
         "simd",
         "Build with SIMD-accelerated code paths. Results in significant performance improvements.",
-    ) orelse true;
+    ) orelse simd: {
+        // We can't build our SIMD dependencies for Wasm. Note that we may
+        // still use SIMD features in the Wasm-builds.
+        if (target.result.cpu.arch.isWasm()) break :simd false;
+
+        break :simd true;
+    };
 
     config.wayland = b.option(
         bool,

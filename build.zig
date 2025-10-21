@@ -101,10 +101,19 @@ pub fn build(b: *std.Build) !void {
     );
 
     // libghostty-vt
-    const libghostty_vt_shared = try buildpkg.GhosttyLibVt.initShared(
-        b,
-        &mod,
-    );
+    const libghostty_vt_shared = shared: {
+        if (config.target.result.cpu.arch.isWasm()) {
+            break :shared try buildpkg.GhosttyLibVt.initWasm(
+                b,
+                &mod,
+            );
+        }
+
+        break :shared try buildpkg.GhosttyLibVt.initShared(
+            b,
+            &mod,
+        );
+    };
     libghostty_vt_shared.install(libvt_step);
     libghostty_vt_shared.install(b.getInstallStep());
 

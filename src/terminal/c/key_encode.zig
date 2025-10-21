@@ -123,7 +123,9 @@ pub fn encode(
                 encoder_.?.opts,
             ) catch unreachable;
 
-            out_written.* = discarding.count;
+            // Discarding always uses a u64. If we're on 32-bit systems
+            // we cast down. We should make this safer in the future.
+            out_written.* = @intCast(discarding.count);
             return .out_of_memory;
         },
     };

@@ -1,6 +1,7 @@
 const GhosttyLibVt = @This();
 
 const std = @import("std");
+const assert = std.debug.assert;
 const RunStep = std.Build.Step.Run;
 const Config = @import("Config.zig");
 const GhosttyZig = @import("GhosttyZig.zig");
@@ -17,7 +18,35 @@ artifact: *std.Build.Step.InstallArtifact,
 /// The final library file
 output: std.Build.LazyPath,
 dsym: ?std.Build.LazyPath,
-pkg_config: std.Build.LazyPath,
+pkg_config: ?std.Build.LazyPath,
+
+pub fn initWasm(
+    b: *std.Build,
+    zig: *const GhosttyZig,
+) !GhosttyLibVt {
+    const target = zig.vt.resolved_target.?;
+    assert(target.result.cpu.arch.isWasm());
+
+    const exe = b.addExecutable(.{
+        .name = "ghostty-vt",
+        .root_module = zig.vt_c,
+        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+    });
+
+    // Allow exported symbols to actually be exported.
+    exe.rdynamic = true;
+
+    // There is no entrypoint for this wasm module.
+    exe.entry = .disabled;
+
+    return .{
+        .step = &exe.step,
+        .artifact = b.addInstallArtifact(exe, .{}),
+        .output = exe.getEmittedBin(),
+        .dsym = null,
+        .pkg_config = null,
+    };
+}
 
 pub fn initShared(
     b: *std.Build,
@@ -82,9 +111,11 @@ pub fn install(
 ) void {
     const b = step.owner;
     step.dependOn(&self.artifact.step);
-    step.dependOn(&b.addInstallFileWithDir(
-        self.pkg_config,
-        .prefix,
-        "share/pkgconfig/libghostty-vt.pc",
-    ).step);
+    if (self.pkg_config) |pkg_config| {
+        step.dependOn(&b.addInstallFileWithDir(
+            pkg_config,
+            .prefix,
+            "share/pkgconfig/libghostty-vt.pc",
+        ).step);
+    }
 }
