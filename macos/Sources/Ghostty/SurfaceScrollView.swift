@@ -19,6 +19,7 @@ class SurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
+    private var isScrollable = true
     
     /// The last row position sent via scroll_to_row action. Used to avoid
     /// sending redundant actions when the user drags the scrollbar but stays
@@ -153,7 +154,7 @@ class SurfaceScrollView: NSView {
         // of our terminal which is not desirable.
         // See: https://github.com/ghostty-org/ghostty/discussions/9254
         let style = scrollView.verticalScroller?.scrollerStyle ?? NSScroller.preferredScrollerStyle
-        if style == .legacy {
+        if isScrollable && (style == .legacy) {
             if (scrollView.verticalScroller?.isHidden ?? true) {
                 let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
                 contentSize.width -= scrollerWidth
@@ -242,24 +243,33 @@ class SurfaceScrollView: NSView {
         
         // Convert row units to pixels using cell height, ignore zero height.
         let cellHeight = surfaceView.cellSize.height
-        guard cellHeight > 0 else { return }
 
-        // The full document height must include the vertical padding around the cell
-        // grid, otherwise the content view ends up misaligned with the surface.
-        let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-        let gridHeight = CGFloat(scrollbar.len) * cellHeight
-        let padding = scrollView.contentSize.height - gridHeight
-        let documentHeight = documentGridHeight + padding
+        // A total length smaller than the visible length means that the current
+        // terminal state isn't scrollable, e.g., we're on the alternate screen.
+        // This matters for layouting.
+        let isScrollable =  (cellHeight > 0) && (scrollbar.total >= scrollbar.len)
+        if self.isScrollable != isScrollable {
+            self.isScrollable = isScrollable
+            needsLayout = true
+        }
 
-        // Our width should be the content width to account for visible scrollers.
-        // We don't do horizontal scrolling in terminals.
-        let newSize = CGSize(width: scrollView.contentSize.width, height: documentHeight)
-        documentView.setFrameSize(newSize)
+        if isScrollable {
+            // The full document height must include the vertical padding around the cell
+            // grid, otherwise the content view ends up misaligned with the surface.
+            let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
+            let gridHeight = CGFloat(scrollbar.len) * cellHeight
+            let padding = scrollView.contentSize.height - gridHeight
+            let documentHeight = documentGridHeight + padding
+            let newSize = CGSize(width: scrollView.contentSize.width, height: documentHeight)
+            documentView.setFrameSize(newSize)
+        } else {
+            documentView.setFrameSize(scrollView.contentSize)
+        }
         
         // Only update our actual scroll position if we're not actively scrolling.
         if !isLiveScrolling {
             // Invert coordinate system: terminal offset is from top, AppKit position from bottom
-            let offsetY = CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+            let offsetY = isScrollable ? CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight : 0
             scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
             
             // Track the current row position to avoid redundant movements when we
