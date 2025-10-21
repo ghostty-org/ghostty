@@ -418,15 +418,15 @@ extension Ghostty {
             setSurfaceSize(
                 width: UInt32(scaledSize.width),
                 height: UInt32(scaledSize.height),
-                scroller_width: UInt32(xScale * scrollerWidth),
+                scrollerWidth: UInt32(xScale * scrollerWidth),
             )
         }
 
-        private func setSurfaceSize(width: UInt32, height: UInt32, scroller_width: UInt32) {
+        private func setSurfaceSize(width: UInt32, height: UInt32, scrollerWidth: UInt32) {
             guard let surface = self.surface else { return }
 
             // Update our core surface
-            ghostty_surface_set_size(surface, width, height, scroller_width)
+            ghostty_surface_set_size(surface, width, height, scrollerWidth)
 
             // Update our cached size metrics
             let size = ghostty_surface_size(surface)
@@ -777,7 +777,7 @@ extension Ghostty {
             setSurfaceSize(
                 width: UInt32(fbFrame.size.width),
                 height: UInt32(fbFrame.size.height),
-                scroller_width: UInt32(xScale * scrollerWidth),
+                scrollerWidth: UInt32(xScale * scrollerWidth),
             )
         }
 
