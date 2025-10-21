@@ -25,6 +25,7 @@ const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
 const unicode = @import("unicode/main.zig");
 const rendererpkg = @import("renderer.zig");
+const linkpkg = @import("renderer/link.zig");
 const termio = @import("termio.zig");
 const objc = @import("objc");
 const imgui = @import("imgui");
@@ -285,44 +286,24 @@ const DerivedConfig = struct {
     window_width: u32,
     title: ?[:0]const u8,
     title_report: bool,
-    links: []Link,
+    link_set: linkpkg.Set,
     link_previews: configpkg.LinkPreviews,
     scroll_to_bottom: configpkg.Config.ScrollToBottom,
     notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
     notify_on_command_finish_after: Duration,
 
-    const Link = struct {
-        regex: oni.Regex,
-        action: input.Link.Action,
-        highlight: input.Link.Highlight,
-    };
-
     pub fn init(alloc_gpa: Allocator, config: *const configpkg.Config) !DerivedConfig {
         var arena = ArenaAllocator.init(alloc_gpa);
         errdefer arena.deinit();
         const alloc = arena.allocator();
 
-        // Build all of our links
-        const links = links: {
-            var links: std.ArrayList(Link) = .empty;
-            defer links.deinit(alloc);
-            for (config.link.links.items) |link| {
-                var regex = try link.oniRegex();
-                errdefer regex.deinit();
-                try links.append(alloc, .{
-                    .regex = regex,
-                    .action = link.action,
-                    .highlight = link.highlight,
-                });
-            }
-
-            break :links try links.toOwnedSlice(alloc);
-        };
-        errdefer {
-            for (links) |*link| link.regex.deinit();
-            alloc.free(links);
-        }
+        // Build the link.Set for URL matching
+        var link_set = try linkpkg.Set.fromConfig(
+            alloc,
+            config.link.links.items,
+        );
+        errdefer link_set.deinit(alloc);
 
         return .{
             .original_font_size = config.@"font-size",
@@ -358,7 +339,7 @@ const DerivedConfig = struct {
             .window_width = config.@"window-width",
             .title = config.title,
             .title_report = config.@"title-report",
-            .links = links,
+            .link_set = link_set,
             .link_previews = config.@"link-previews",
             .scroll_to_bottom = config.@"scroll-to-bottom",
             .notify_on_command_finish = config.@"notify-on-command-finish",
@@ -372,7 +353,7 @@ const DerivedConfig = struct {
     }
 
     pub fn deinit(self: *DerivedConfig) void {
-        for (self.links) |*link| link.regex.deinit();
+        self.link_set.deinit(self.arena.allocator());
         self.arena.deinit();
     }
 
@@ -1379,47 +1360,34 @@ fn mouseRefreshLinks(
             }
         }
 
-        const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
-        switch (link[0]) {
-            .open => {
-                const str = try self.io.terminal.screen.selectionString(alloc, .{
-                    .sel = link[1],
-                    .trim = false,
-                });
+        // Get the mouse mods
+        const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
-                // Expand tilde paths for display
-                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                const expanded = internal_os.expandHome(str, &path_buf) catch str;
-                const final_str = if (expanded.ptr != str.ptr)
-                    try alloc.dupeZ(u8, expanded)
-                else
-                    str;
+        // Fast lookup for the link under the mouse (doesn't build full match set)
+        const link_match = try self.config.link_set.matchForPin(
+            alloc,
+            &self.renderer_state.terminal.screen,
+            pos_vp,
+            mouse_mods,
+        ) orelse break :link .{ null, false };
 
-                break :link .{
-                    .{ .url = final_str },
-                    self.config.link_previews == .true,
-                };
-            },
+        // The URL is already expanded in the LinkMatch
+        // Duplicate it with alloc (not arena) so it outlives the defer deinit
+        const url = try alloc.dupeZ(u8, link_match.url);
+        errdefer alloc.free(url);
 
-            ._open_osc8 => {
-                // Show the URL in the status bar
-                const pin = link[1].start();
-                const uri = self.osc8URI(pin) orelse {
-                    log.warn("failed to get URI for OSC8 hyperlink", .{});
-                    break :link .{ null, false };
-                };
+        // Determine preview based on link type
+        // For regex links: link_previews == .true
+        // For OSC8 links: link_previews != .false
+        const show_preview = if (link_match.is_osc8)
+            self.config.link_previews != .false
+        else
+            self.config.link_previews == .true;
 
-                // Expand tilde paths for display
-                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                const expanded = internal_os.expandHome(uri, &path_buf) catch uri;
-                const final_uri = try alloc.dupeZ(u8, expanded);
-
-                break :link .{
-                    .{ .url = final_uri },
-                    self.config.link_previews != .false,
-                };
-            },
-        }
+        break :link .{
+            .{ .url = url },
+            show_preview,
+        };
     };
 
     // If we found a link, setup our internal state and notify the
@@ -3843,78 +3811,6 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     }
 }
 
-/// Returns the link at the given cursor position, if any.
-///
-/// Requires the renderer mutex is held.
-fn linkAtPos(
-    self: *Surface,
-    pos: apprt.CursorPos,
-) !?struct {
-    input.Link.Action,
-    terminal.Selection,
-} {
-    // Convert our cursor position to a screen point.
-    const screen = &self.renderer_state.terminal.screen;
-    const mouse_pin: terminal.Pin = mouse_pin: {
-        const point = self.posToViewport(pos.x, pos.y);
-        const pin = screen.pages.pin(.{ .viewport = point }) orelse {
-            log.warn("failed to get pin for clicked point", .{});
-            return null;
-        };
-        break :mouse_pin pin;
-    };
-
-    // Get our comparison mods
-    const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
-
-    // If we have the proper modifiers set then we can check for OSC8 links.
-    if (mouse_mods.equal(input.ctrlOrSuper(.{}))) hyperlink: {
-        const rac = mouse_pin.rowAndCell();
-        const cell = rac.cell;
-        if (!cell.hyperlink) break :hyperlink;
-        const sel = terminal.Selection.init(mouse_pin, mouse_pin, false);
-        return .{ ._open_osc8, sel };
-    }
-
-    // If we have no OSC8 links then we fallback to regex-based URL detection.
-    // If we have no configured links we can save a lot of work going forward.
-    if (self.config.links.len == 0) return null;
-
-    // Get the line we're hovering over.
-    const line = screen.selectLine(.{
-        .pin = mouse_pin,
-        .whitespace = null,
-        .semantic_prompt_boundary = false,
-    }) orelse return null;
-
-    var strmap: terminal.StringMap = undefined;
-    self.alloc.free(try screen.selectionString(self.alloc, .{
-        .sel = line,
-        .trim = false,
-        .map = &strmap,
-    }));
-    defer strmap.deinit(self.alloc);
-
-    // Go through each link and see if we clicked it
-    for (self.config.links) |link| {
-        switch (link.highlight) {
-            .always, .hover => {},
-            .always_mods, .hover_mods => |v| if (!v.equal(mouse_mods)) continue,
-        }
-
-        var it = strmap.searchIterator(link.regex);
-        while (true) {
-            var match = (try it.next()) orelse break;
-            defer match.deinit();
-            const sel = match.selection();
-            if (!sel.contains(screen, mouse_pin)) continue;
-            return .{ link.action, sel };
-        }
-    }
-
-    return null;
-}
-
 /// This returns the mouse mods to consider for link highlighting or
 /// other purposes taking into account when shift is pressed for releasing
 /// the mouse from capture.
@@ -3939,36 +3835,23 @@ fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
 ///
 /// Requires the renderer state mutex is held.
 fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
-    const action, const sel = try self.linkAtPos(pos) orelse return false;
-    switch (action) {
-        .open => {
-            const str = try self.io.terminal.screen.selectionString(self.alloc, .{
-                .sel = sel,
-                .trim = false,
-            });
-            defer self.alloc.free(str);
+    // Convert cursor position to viewport point
+    const pos_vp = self.posToViewport(pos.x, pos.y);
 
-            // Expand tilde paths before opening
-            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const expanded_str = internal_os.expandHome(str, &path_buf) catch str;
+    // Get mouse modifiers
+    const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
-            try self.openUrl(.{ .kind = .unknown, .url = expanded_str });
-        },
+    // Fast lookup for the link under the mouse (doesn't build full match set)
+    const link_match = try self.config.link_set.matchForPin(
+        self.alloc,
+        &self.renderer_state.terminal.screen,
+        pos_vp,
+        mouse_mods,
+    ) orelse return false;
+    defer self.alloc.free(link_match.url);
 
-        ._open_osc8 => {
-            const uri = self.osc8URI(sel.start()) orelse {
-                log.warn("failed to get URI for OSC8 hyperlink", .{});
-                return false;
-            };
-
-            // Expand tilde paths before opening
-            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const expanded_uri = internal_os.expandHome(uri, &path_buf) catch uri;
-
-            try self.openUrl(.{ .kind = .unknown, .url = expanded_uri });
-        },
-    }
-
+    // The URL is already expanded in the LinkMatch
+    try self.openUrl(.{ .kind = .unknown, .url = link_match.url });
     return true;
 }
 
@@ -3992,17 +3875,6 @@ fn openUrl(
         action.kind,
         action.url,
     );
-}
-
-/// Return the URI for an OSC8 hyperlink at the given position or null
-/// if there is no hyperlink.
-fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
-    _ = self;
-    const page = &pin.node.data;
-    const cell = pin.rowAndCell().cell;
-    const link_id = page.lookupHyperlink(cell) orelse return null;
-    const entry = page.hyperlink_set.get(page.memory, link_id);
-    return entry.uri.offset.ptr(page.memory)[0..entry.uri.len];
 }
 
 pub fn mousePressureCallback(
@@ -4709,39 +4581,28 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             if (!self.mouse.over_link) return false;
 
             const pos = try self.rt_surface.getCursorPos();
-            if (try self.linkAtPos(pos)) |link_info| {
-                const url_text = switch (link_info[0]) {
-                    .open => url_text: {
-                        // For regex links, get the text from selection
-                        break :url_text (self.io.terminal.screen.selectionString(self.alloc, .{
-                            .sel = link_info[1],
-                            .trim = self.config.clipboard_trim_trailing_spaces,
-                        })) catch |err| {
-                            log.err("error reading url string err={}", .{err});
-                            return false;
-                        };
-                    },
+            const pos_vp = self.posToViewport(pos.x, pos.y);
+            const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
-                    ._open_osc8 => url_text: {
-                        // For OSC8 links, get the URI directly from hyperlink data
-                        const uri = self.osc8URI(link_info[1].start()) orelse {
-                            log.warn("failed to get URI for OSC8 hyperlink", .{});
-                            return false;
-                        };
-                        break :url_text try self.alloc.dupeZ(u8, uri);
-                    },
-                };
-                defer self.alloc.free(url_text);
+            // Fast lookup for the link under the mouse (doesn't build full match set)
+            const link_match = try self.config.link_set.matchForPin(
+                self.alloc,
+                &self.renderer_state.terminal.screen,
+                pos_vp,
+                mouse_mods,
+            ) orelse return false;
+            defer self.alloc.free(link_match.url);
 
-                self.rt_surface.setClipboardString(url_text, .standard, false) catch |err| {
-                    log.err("error copying url to clipboard err={}", .{err});
-                    return false;
-                };
+            // For clipboard, we need a zero-terminated string
+            const url_text = try self.alloc.dupeZ(u8, link_match.url);
+            defer self.alloc.free(url_text);
 
-                return true;
-            }
+            self.rt_surface.setClipboardString(url_text, .standard, false) catch |err| {
+                log.err("error copying url to clipboard err={}", .{err});
+                return false;
+            };
 
-            return false;
+            return true;
         },
 
         .copy_title_to_clipboard => {

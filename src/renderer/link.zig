@@ -3,11 +3,11 @@ const Allocator = std.mem.Allocator;
 const oni = @import("oniguruma");
 const configpkg = @import("../config.zig");
 const inputpkg = @import("../input.zig");
+const internal_os = @import("../os/main.zig");
 const terminal = @import("../terminal/main.zig");
 const point = terminal.point;
 const Screen = terminal.Screen;
 const Terminal = terminal.Terminal;
-
 const log = std.log.scoped(.renderer_link);
 
 /// The link configuration needed for renderers.
@@ -22,6 +22,96 @@ pub const Link = struct {
         self.regex.deinit();
     }
 };
+
+/// A link match that stores the selection, link type, and expanded URL.
+/// Expansion happens during matching so the UI layer receives ready-to-open URLs.
+pub const LinkMatch = struct {
+    /// The selection coordinates of the match in the terminal
+    selection: terminal.Selection,
+
+    /// Whether this is an OSC8 hyperlink (true) or regex-detected URL (false)
+    is_osc8: bool,
+
+    /// The expanded URL ready to open (tilde paths already expanded)
+    url: []const u8,
+};
+
+/// Helper to trim trailing punctuation and line/column numbers from file paths.
+/// For file paths (~/..., /..., ../..., ./...), strips :line and :line:col patterns.
+/// For URLs with schemes (http://, ssh://, etc.), only removes trailing punctuation
+/// to preserve port numbers like :8080.
+fn trimTrailingPunctuation(url: []const u8) []const u8 {
+    var result = url;
+
+    // Check if this is a URL with a scheme (contains ://)
+    const has_scheme = has_scheme: {
+        for (0..result.len) |i| {
+            if (i + 2 < result.len and
+                result[i] == ':' and
+                result[i + 1] == '/' and
+                result[i + 2] == '/')
+            {
+                break :has_scheme true;
+            }
+        }
+        break :has_scheme false;
+    };
+
+    // Only strip line/column numbers from file paths (not URLs with schemes)
+    if (!has_scheme) {
+        // Strip line/column numbers (e.g., :42 or :42:10)
+        // Work backwards to handle :line:col pattern
+        for (0..2) |_| {
+            if (result.len == 0) break;
+
+            // Find the last colon
+            var last_colon: ?usize = null;
+            for (0..result.len) |i| {
+                if (result[i] == ':') last_colon = i;
+            }
+
+            if (last_colon) |colon_pos| {
+                // Check if everything after the colon is digits
+                const after_colon = result[colon_pos + 1 ..];
+                if (after_colon.len > 0) {
+                    var all_digits = true;
+                    for (after_colon) |c| {
+                        if (c < '0' or c > '9') {
+                            all_digits = false;
+                            break;
+                        }
+                    }
+
+                    if (all_digits) {
+                        result = result[0..colon_pos];
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    // Now strip trailing punctuation (for all URLs)
+    while (result.len > 0) {
+        const last = result[result.len - 1];
+        if (last == '.' or last == ',' or last == ';' or last == ':') {
+            result = result[0 .. result.len - 1];
+        } else {
+            break;
+        }
+    }
+
+    return result;
+}
+
+/// Expand tilde paths and allocate the result.
+/// Returns the expanded path or the original if expansion fails.
+fn expandAndDupeUrl(alloc: Allocator, url: []const u8) ![]const u8 {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const expanded = internal_os.expandHome(url, &path_buf) catch url;
+    return try alloc.dupe(u8, expanded);
+}
 
 /// A set of links. This provides a higher level API for renderers
 /// to match against a viewport and determine if cells are part of
@@ -74,11 +164,16 @@ pub const Set = struct {
         }) orelse return .{};
 
         // This contains our list of matches. The matches are stored
-        // as selections which contain the start and end points of
-        // the match. There is no way to map these back to the link
-        // configuration right now because we don't need to.
-        var matches: std.ArrayList(terminal.Selection) = .empty;
-        defer matches.deinit(alloc);
+        // as LinkMatch structs with just coordinates and type.
+        // No expansion happens here to keep this hot path fast.
+        var matches: std.ArrayList(LinkMatch) = .empty;
+        defer {
+            // Free all URLs in case we're unwinding before toOwnedSlice
+            for (matches.items) |match| {
+                alloc.free(match.url);
+            }
+            matches.deinit(alloc);
+        }
 
         // If our mouse is over an OSC8 link, then we can skip the regex
         // matches below since OSC8 takes priority.
@@ -101,13 +196,39 @@ pub const Set = struct {
             );
         }
 
-        return .{ .matches = try matches.toOwnedSlice(alloc) };
+        const owned_matches = try matches.toOwnedSlice(alloc);
+        // Success! Ownership transferred, so clear items to prevent defer from freeing
+        return .{ .matches = owned_matches };
+    }
+
+    /// Fast lookup for a single link under a specific pin.
+    /// Returns immediately upon finding a match without building the full match set.
+    /// This is more efficient for hover/click detection than matchSet().
+    pub fn matchForPin(
+        self: *const Set,
+        alloc: Allocator,
+        screen: *Screen,
+        mouse_vp_pt: point.Coordinate,
+        mouse_mods: inputpkg.Mods,
+    ) !?LinkMatch {
+        // Convert the viewport point to a screen point.
+        const mouse_pin = screen.pages.pin(.{
+            .viewport = mouse_vp_pt,
+        }) orelse return null;
+
+        // Check for OSC8 link first (takes priority)
+        if (try self.matchForPinOSC8(alloc, screen, mouse_pin, mouse_mods)) |match| {
+            return match;
+        }
+
+        // No OSC8 match, try regex links
+        return try self.matchForPinLinks(alloc, screen, mouse_pin, mouse_mods);
     }
 
     fn matchSetFromOSC8(
         self: *const Set,
         alloc: Allocator,
-        matches: *std.ArrayList(terminal.Selection),
+        matches: *std.ArrayList(LinkMatch),
         screen: *Screen,
         mouse_pin: terminal.Pin,
         mouse_mods: inputpkg.Mods,
@@ -127,18 +248,25 @@ pub const Set = struct {
         };
         const link = page.hyperlink_set.get(page.memory, link_id);
 
+        // Extract and expand the URI once for all matches
+        const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+        const expanded_url = try expandAndDupeUrl(alloc, uri);
+        errdefer alloc.free(expanded_url);
+
         // If our link has an implicit ID (no ID set explicitly via OSC8)
         // then we use an alternate matching technique that iterates forward
-        // and backward until it finds boundaries.
+        // and backward until it finds boundaries. The Implicit function takes
+        // ownership of expanded_url.
         if (link.id == .implicit) {
-            const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
             return try self.matchSetFromOSC8Implicit(
                 alloc,
                 matches,
                 mouse_pin,
-                uri,
+                expanded_url,
             );
         }
+        // errdefer no longer needed here since we duplicate for each match below
+        // and free the original at the end
 
         // Go through every row and find matching hyperlinks for the given ID.
         // Note the link ID is not the same as the OSC8 ID parameter. But
@@ -153,7 +281,13 @@ pub const Set = struct {
             // building our matching selection.
             if (!row.hyperlink) {
                 if (current) |sel| {
-                    try matches.append(alloc, sel);
+                    const url_copy = try alloc.dupe(u8, expanded_url);
+                    errdefer alloc.free(url_copy);
+                    try matches.append(alloc, .{
+                        .selection = sel,
+                        .is_osc8 = true,
+                        .url = url_copy,
+                    });
                     current = null;
                 }
 
@@ -190,11 +324,31 @@ pub const Set = struct {
 
                 // No match, if we have a current selection then complete it.
                 if (current) |sel| {
-                    try matches.append(alloc, sel);
+                    const url_copy = try alloc.dupe(u8, expanded_url);
+                    errdefer alloc.free(url_copy);
+                    try matches.append(alloc, .{
+                        .selection = sel,
+                        .is_osc8 = true,
+                        .url = url_copy,
+                    });
                     current = null;
                 }
             }
         }
+
+        // Complete any remaining selection
+        if (current) |sel| {
+            const url_copy = try alloc.dupe(u8, expanded_url);
+            errdefer alloc.free(url_copy);
+            try matches.append(alloc, .{
+                .selection = sel,
+                .is_osc8 = true,
+                .url = url_copy,
+            });
+        }
+
+        // Free the original expanded_url since we duplicated it for each match
+        alloc.free(expanded_url);
     }
 
     /// Match OSC8 links around the mouse pin for an OSC8 link with an
@@ -203,11 +357,18 @@ pub const Set = struct {
     fn matchSetFromOSC8Implicit(
         self: *const Set,
         alloc: Allocator,
-        matches: *std.ArrayList(terminal.Selection),
+        matches: *std.ArrayList(LinkMatch),
         mouse_pin: terminal.Pin,
-        uri: []const u8,
+        expanded_url: []const u8,
     ) !void {
         _ = self;
+
+        // Get the URI from the cell under the mouse so we can match against it
+        const page: *terminal.Page = &mouse_pin.node.data;
+        const mouse_cell = mouse_pin.rowAndCell().cell;
+        const link_id = page.lookupHyperlink(mouse_cell) orelse return;
+        const link = page.hyperlink_set.get(page.memory, link_id);
+        const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
 
         // Our selection starts with just our pin.
         var sel = terminal.Selection.init(mouse_pin, mouse_pin, false);
@@ -215,24 +376,24 @@ pub const Set = struct {
         // Expand it to the left.
         var it = mouse_pin.cellIterator(.left_up, null);
         while (it.next()) |cell_pin| {
-            const page: *terminal.Page = &cell_pin.node.data;
+            const cell_page: *terminal.Page = &cell_pin.node.data;
             const rac = cell_pin.rowAndCell();
             const cell = rac.cell;
 
             // If this cell isn't a hyperlink then we've found a boundary
             if (!cell.hyperlink) break;
 
-            const link_id = page.lookupHyperlink(cell) orelse {
+            const cell_link_id = cell_page.lookupHyperlink(cell) orelse {
                 log.warn("failed to find hyperlink for cell", .{});
                 break;
             };
-            const link = page.hyperlink_set.get(page.memory, link_id);
+            const cell_link = cell_page.hyperlink_set.get(cell_page.memory, cell_link_id);
 
             // If this link has an explicit ID then we found a boundary
-            if (link.id != .implicit) break;
+            if (cell_link.id != .implicit) break;
 
             // If this link has a different URI then we found a boundary
-            const cell_uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+            const cell_uri = cell_link.uri.offset.ptr(cell_page.memory)[0..cell_link.uri.len];
             if (!std.mem.eql(u8, uri, cell_uri)) break;
 
             sel.startPtr().* = cell_pin;
@@ -241,37 +402,198 @@ pub const Set = struct {
         // Expand it to the right
         it = mouse_pin.cellIterator(.right_down, null);
         while (it.next()) |cell_pin| {
-            const page: *terminal.Page = &cell_pin.node.data;
+            const cell_page: *terminal.Page = &cell_pin.node.data;
             const rac = cell_pin.rowAndCell();
             const cell = rac.cell;
 
             // If this cell isn't a hyperlink then we've found a boundary
             if (!cell.hyperlink) break;
 
-            const link_id = page.lookupHyperlink(cell) orelse {
+            const cell_link_id = cell_page.lookupHyperlink(cell) orelse {
                 log.warn("failed to find hyperlink for cell", .{});
                 break;
             };
-            const link = page.hyperlink_set.get(page.memory, link_id);
+            const cell_link = cell_page.hyperlink_set.get(cell_page.memory, cell_link_id);
 
             // If this link has an explicit ID then we found a boundary
-            if (link.id != .implicit) break;
+            if (cell_link.id != .implicit) break;
 
             // If this link has a different URI then we found a boundary
-            const cell_uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+            const cell_uri = cell_link.uri.offset.ptr(cell_page.memory)[0..cell_link.uri.len];
             if (!std.mem.eql(u8, uri, cell_uri)) break;
 
             sel.endPtr().* = cell_pin;
         }
 
-        try matches.append(alloc, sel);
+        try matches.append(alloc, .{
+            .selection = sel,
+            .is_osc8 = true,
+            .url = expanded_url,
+        });
+    }
+
+    /// Fast OSC8 link lookup for a single pin. Returns immediately if found.
+    fn matchForPinOSC8(
+        self: *const Set,
+        alloc: Allocator,
+        screen: *Screen,
+        mouse_pin: terminal.Pin,
+        mouse_mods: inputpkg.Mods,
+    ) !?LinkMatch {
+        _ = self;
+        _ = screen;
+
+        // Only check OSC8 if we have the right modifiers
+        if (!mouse_mods.equal(inputpkg.ctrlOrSuper(.{}))) return null;
+
+        const rac = mouse_pin.rowAndCell();
+        const cell = rac.cell;
+        if (!cell.hyperlink) return null;
+
+        const page: *terminal.Page = &mouse_pin.node.data;
+        const link_id = page.lookupHyperlink(cell) orelse return null;
+        const link = page.hyperlink_set.get(page.memory, link_id);
+
+        // Extract and expand the URI
+        const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+        const expanded_url = try expandAndDupeUrl(alloc, uri);
+
+        // For implicit IDs, we need to find the selection boundaries
+        if (link.id == .implicit) {
+            var sel = terminal.Selection.init(mouse_pin, mouse_pin, false);
+
+            // Expand left
+            var it = mouse_pin.cellIterator(.left_up, null);
+            while (it.next()) |cell_pin| {
+                const cell_page: *terminal.Page = &cell_pin.node.data;
+                const cell_rac = cell_pin.rowAndCell();
+                const cell_cell = cell_rac.cell;
+                if (!cell_cell.hyperlink) break;
+
+                const cell_link_id = cell_page.lookupHyperlink(cell_cell) orelse break;
+                const cell_link = cell_page.hyperlink_set.get(cell_page.memory, cell_link_id);
+                if (cell_link.id != .implicit) break;
+
+                const cell_uri = cell_link.uri.offset.ptr(cell_page.memory)[0..cell_link.uri.len];
+                if (!std.mem.eql(u8, uri, cell_uri)) break;
+
+                sel.startPtr().* = cell_pin;
+            }
+
+            // Expand right
+            it = mouse_pin.cellIterator(.right_down, null);
+            while (it.next()) |cell_pin| {
+                const cell_page: *terminal.Page = &cell_pin.node.data;
+                const cell_rac = cell_pin.rowAndCell();
+                const cell_cell = cell_rac.cell;
+                if (!cell_cell.hyperlink) break;
+
+                const cell_link_id = cell_page.lookupHyperlink(cell_cell) orelse break;
+                const cell_link = cell_page.hyperlink_set.get(cell_page.memory, cell_link_id);
+                if (cell_link.id != .implicit) break;
+
+                const cell_uri = cell_link.uri.offset.ptr(cell_page.memory)[0..cell_link.uri.len];
+                if (!std.mem.eql(u8, uri, cell_uri)) break;
+
+                sel.endPtr().* = cell_pin;
+            }
+
+            return .{
+                .selection = sel,
+                .is_osc8 = true,
+                .url = expanded_url,
+            };
+        }
+
+        // For explicit IDs, just return a single-cell selection
+        const sel = terminal.Selection.init(mouse_pin, mouse_pin, false);
+        return .{
+            .selection = sel,
+            .is_osc8 = true,
+            .url = expanded_url,
+        };
+    }
+
+    /// Fast regex link lookup for a single pin. Returns immediately if found.
+    fn matchForPinLinks(
+        self: *const Set,
+        alloc: Allocator,
+        screen: *Screen,
+        mouse_pin: terminal.Pin,
+        mouse_mods: inputpkg.Mods,
+    ) !?LinkMatch {
+        // Get just the line containing the mouse pin
+        const line_sel = screen.selectLine(.{
+            .pin = mouse_pin,
+            .whitespace = null,
+            .semantic_prompt_boundary = false,
+        }) orelse return null;
+
+        const strmap: terminal.StringMap = strmap: {
+            var strmap: terminal.StringMap = undefined;
+            const str = screen.selectionString(alloc, .{
+                .sel = line_sel,
+                .trim = false,
+                .map = &strmap,
+            }) catch return null;
+            alloc.free(str);
+            break :strmap strmap;
+        };
+        defer strmap.deinit(alloc);
+
+        // Check each configured link
+        for (self.links) |link| {
+            // Check highlight conditions
+            switch (link.highlight) {
+                .always => {},
+                .always_mods => |v| if (!mouse_mods.equal(v)) continue,
+                .hover => {},
+                .hover_mods => |v| if (!mouse_mods.equal(v)) continue,
+            }
+
+            // Search for matches
+            var it = strmap.searchIterator(link.regex);
+            while (true) {
+                const match_ = it.next() catch break;
+                var match = match_ orelse break;
+                defer match.deinit();
+                const sel = match.selection();
+
+                // For hover links, only match if pin is contained
+                switch (link.highlight) {
+                    .always, .always_mods => {},
+                    .hover, .hover_mods => if (!sel.contains(screen, mouse_pin)) continue,
+                }
+
+                // Check if this match contains our pin
+                if (!sel.contains(screen, mouse_pin)) continue;
+
+                // Found a match! Extract, trim, and expand
+                const url_text = try screen.selectionString(alloc, .{
+                    .sel = sel,
+                    .trim = false,
+                });
+                defer alloc.free(url_text);
+
+                const trimmed = trimTrailingPunctuation(url_text);
+                const expanded_url = try expandAndDupeUrl(alloc, trimmed);
+
+                return .{
+                    .selection = sel,
+                    .is_osc8 = false,
+                    .url = expanded_url,
+                };
+            }
+        }
+
+        return null;
     }
 
     /// Fills matches with the matches from regex link matches.
     fn matchSetFromLinks(
         self: *const Set,
         alloc: Allocator,
-        matches: *std.ArrayList(terminal.Selection),
+        matches: *std.ArrayList(LinkMatch),
         screen: *Screen,
         mouse_pin: terminal.Pin,
         mouse_mods: inputpkg.Mods,
@@ -334,7 +656,23 @@ pub const Set = struct {
                         => if (!sel.contains(screen, mouse_pin)) continue,
                     }
 
-                    try matches.append(alloc, sel);
+                    // Extract selection text, trim punctuation, and expand tilde
+                    const url_text = try screen.selectionString(alloc, .{
+                        .sel = sel,
+                        .trim = false,
+                    });
+                    defer alloc.free(url_text);
+
+                    const trimmed = trimTrailingPunctuation(url_text);
+                    const expanded_url = try expandAndDupeUrl(alloc, trimmed);
+                    errdefer alloc.free(expanded_url);
+
+                    // Store the selection, URL, and mark as regex (not OSC8)
+                    try matches.append(alloc, .{
+                        .selection = sel,
+                        .is_osc8 = false,
+                        .url = expanded_url,
+                    });
                 }
             }
         }
@@ -345,13 +683,17 @@ pub const Set = struct {
 /// all the matching links and operations on them such as whether a specific
 /// cell is part of a matched link.
 pub const MatchSet = struct {
-    /// The matches.
+    /// The lightweight matches (just selections and link type).
     ///
     /// Important: this must be in left-to-right top-to-bottom order.
-    matches: []const terminal.Selection = &.{},
+    matches: []const LinkMatch = &.{},
     i: usize = 0,
 
     pub fn deinit(self: *MatchSet, alloc: Allocator) void {
+        // Free URL memory for each match
+        for (self.matches) |match| {
+            alloc.free(match.url);
+        }
         alloc.free(self.matches);
     }
 
@@ -363,8 +705,8 @@ pub const MatchSet = struct {
         screen: *const Screen,
         pin: terminal.Pin,
     ) bool {
-        for (self.matches) |sel| {
-            if (sel.contains(screen, pin)) return true;
+        for (self.matches) |match| {
+            if (match.selection.contains(screen, pin)) return true;
         }
 
         return false;
@@ -384,12 +726,25 @@ pub const MatchSet = struct {
 
         // If our selection ends before the point, then no point will ever
         // again match this selection so we move on to the next one.
-        while (self.matches[self.i].end().before(pin)) {
+        while (self.matches[self.i].selection.end().before(pin)) {
             self.i += 1;
             if (self.i >= self.matches.len) return false;
         }
 
-        return self.matches[self.i].contains(screen, pin);
+        return self.matches[self.i].selection.contains(screen, pin);
+    }
+
+    /// Returns the LinkMatch for the given pin, if any.
+    /// The caller can use this to extract the URL and determine link type.
+    pub fn matchForPin(
+        self: *const MatchSet,
+        screen: *const Screen,
+        pin: terminal.Pin,
+    ) ?*const LinkMatch {
+        for (self.matches) |*match| {
+            if (match.selection.contains(screen, pin)) return match;
+        }
+        return null;
     }
 };
 

@@ -22,11 +22,16 @@ const oni = @import("oniguruma");
 ///
 /// There are many complicated cases where these heuristics break down, but
 /// handling them well requires a non-regex approach.
+///
+/// For file paths (including tilde paths like ~/file.txt), the regex matches
+/// liberally and trailing punctuation is trimmed later in the URL matching
+/// layer (src/renderer/link.zig). Tilde paths are expanded to absolute paths
+/// during the matching process, so the UI layer receives ready-to-open URLs.
 pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
     ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:~/|\.\.\/|\.\/|\/)[\w\-.~/?#@!$&*+;=%]*(?:\/[\w\-.~/?#@!$&*+;=%]*)*(?<!\.)
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:~/|\.\.\/|\.\/|\/)[\w\-.~:/?#@!$&*+,;=%]*(?:\/[\w\-.~:/?#@!$&*+,;=%]*)*
     ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -215,11 +220,11 @@ test "url regex" {
         },
         .{
             .input = "Error at ~/.config/file.txt:42",
-            .expect = "~/.config/file.txt",
+            .expect = "~/.config/file.txt:42", // Regex matches full path, colon trimmed later
         },
         .{
             .input = "foo ~/a.txt. more text",
-            .expect = "~/a.txt.", // Period is matched but trimmed when opening
+            .expect = "~/a.txt.", // Regex matches period, but trimmed in expansion layer
         },
         .{
             .input = "~/../foo",
@@ -230,12 +235,29 @@ test "url regex" {
             .expect = "~/",
         },
         .{
+            .input = "root directory /",
+            .expect = "/",
+        },
+        .{
             .input = "~/.bashrc: line 42: command not found",
-            .expect = "~/.bashrc",
+            .expect = "~/.bashrc:", // Regex matches colon, trimmed later in link.zig
         },
         .{
             .input = "grep: ~/.config/file.txt: No such file",
-            .expect = "~/.config/file.txt",
+            .expect = "~/.config/file.txt:", // Regex matches colon, trimmed later in link.zig
+        },
+        // Regression tests for paths with special punctuation (colons, commas)
+        .{
+            .input = "~/notes,2025.txt",
+            .expect = "~/notes,2025.txt",
+        },
+        .{
+            .input = "/mnt/foo:bar.log",
+            .expect = "/mnt/foo:bar.log",
+        },
+        .{
+            .input = "Error in ~/file,v2:backup.txt at line 10",
+            .expect = "~/file,v2:backup.txt",
         },
         // IPv6 URL tests - Basic tests
         .{
@@ -301,15 +323,15 @@ test "url regex" {
     };
 
     for (cases) |case| {
-        //std.debug.print("Testing input: {s}\n", .{case.input});
-        //std.debug.print("match: {s}\n", .{case.expect});
-        var reg = try re.search(case.input, .{});
-        //std.debug.print("count: {d}\n", .{@as(usize, reg.count())});
-        //std.debug.print("starts: {d}\n", .{reg.starts()});
-        //std.debug.print("ends: {d}\n", .{reg.ends()});
-        defer reg.deinit();
-        try testing.expectEqual(@as(usize, case.num_matches), reg.count());
-        if (case.num_matches > 0) {
+        if (case.num_matches == 0) {
+            // Negative test case - should not match
+            const result = re.search(case.input, .{});
+            try testing.expectError(oni.errors.Error.Mismatch, result);
+        } else {
+            // Positive test case - should match
+            var reg = try re.search(case.input, .{});
+            defer reg.deinit();
+            try testing.expectEqual(@as(usize, case.num_matches), reg.count());
             const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
             try testing.expectEqualStrings(case.expect, match);
         }
