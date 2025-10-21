@@ -583,6 +583,8 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
+            .goto_window => return Action.gotoWindow(value),
+
             .goto_tab => return Action.gotoTab(target, value),
 
             .initial_size => return Action.initialSize(target, value),
@@ -1864,6 +1866,40 @@ const Action = struct {
                 });
             },
         }
+    }
+
+    pub fn gotoWindow(
+        direction: apprt.action.GotoWindow,
+    ) bool {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        const node = glist.findCustom(null, findActiveWindow);
+
+        // Check based on direction if we are at beginning or end of window list to loop around
+        // else just go to next/previous window
+        switch(direction) {
+            .next => {
+                const next_node = node.f_next orelse glist;
+
+                const window: *gtk.Window = @ptrCast(@alignCast(next_node.f_data orelse return false));
+                gtk.Window.present(window);
+                return true;
+            },
+            .previous => {
+                const prev_node = node.f_prev orelse last: {
+                    var current = glist;
+                    while (current.f_next) |next| {
+                        current = next;
+                    } 
+                    break :last current;
+                };
+                const window: *gtk.Window = @ptrCast(@alignCast(prev_node.f_data orelse return false));
+                gtk.Window.present(window);
+                return true;
+            },
+        }
+        return false;
     }
 
     pub fn initialSize(

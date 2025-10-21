@@ -506,6 +506,12 @@ typedef enum {
   GHOSTTY_GOTO_SPLIT_RIGHT,
 } ghostty_action_goto_split_e;
 
+// apprt.action.GotoWindow
+typedef enum {
+  GHOSTTY_GOTO_WINDOW_PREVIOUS,
+  GHOSTTY_GOTO_WINDOW_NEXT,
+} ghostty_action_goto_window_e;
+
 // apprt.action.ResizeSplit.Direction
 typedef enum {
   GHOSTTY_RESIZE_SPLIT_UP,

@@ -129,6 +129,9 @@ pub const Action = union(Key) {
     /// Jump to a specific split.
     goto_split: GotoSplit,
 
+    /// Jump to next/previous window. 
+    goto_window: GotoWindow,
+
     /// Resize the split in the given direction.
     resize_split: ResizeSplit,
 
@@ -313,6 +316,7 @@ pub const Action = union(Key) {
         move_tab,
         goto_tab,
         goto_split,
+        goto_window,
         resize_split,
         equalize_splits,
         toggle_split_zoom,
@@ -443,6 +447,13 @@ pub const GotoSplit = enum(c_int) {
     left,
     down,
     right,
+};
+
+// This is made extern (c_int) to make interop easier with our embedded
+// runtime. The small size cost doesn't make a difference in our union.
+pub const GotoWindow = enum(c_int) {
+    previous,
+    next,
 };
 
 /// The amount to resize the split by and the direction to resize it in.
