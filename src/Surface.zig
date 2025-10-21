@@ -125,6 +125,10 @@ inspector: ?*inspectorpkg.Inspector = null,
 /// All our sizing information.
 size: rendererpkg.Size,
 
+/// Margin that must be added on the right due to a scrollbar. This is added to
+/// the config padding to calculate the overall padding that goes into size.
+scrollbar_width: u32,
+
 /// The configuration derived from the main config. We "derive" it so that
 /// we don't have a shared pointer hanging around that we need to worry about
 /// the lifetime of. This makes updating config at runtime easier.
@@ -470,10 +474,10 @@ pub fn init(
     );
 
     // Build our size struct which has all the sizes we need.
-    const size: rendererpkg.Size = size: {
+    const size: rendererpkg.Size, const scrollbar_width = size: {
+        const surface_size = try rt_surface.getSize();
         var size: rendererpkg.Size = .{
             .screen = screen: {
-                const surface_size = try rt_surface.getSize();
                 break :screen .{
                     .width = surface_size.width,
                     .height = surface_size.height,
@@ -493,8 +497,9 @@ pub fn init(
         } else {
             size.padding = explicit;
         }
+        size.padding.right += surface_size.scrollbar_width;
 
-        break :size size;
+        break :size .{ size, surface_size.scrollbar_width };
     };
 
     // Create our terminal grid with the initial size
@@ -551,6 +556,7 @@ pub fn init(
         .io_thread = io_thread,
         .io_thr = undefined,
         .size = size,
+        .scrollbar_width = scrollbar_width,
         .config = derived_config,
 
         // Our conditional state is initialized to the app state. This
@@ -643,7 +649,7 @@ pub fn init(
     // init stuff we should get rid of this. But this is required because
     // sizeCallback does retina-aware stuff we don't do here and don't want
     // to duplicate.
-    try self.resize(self.size.screen);
+    try self.resize(self.size.screen, null);
 
     // Give the renderer one more opportunity to finalize any surface
     // setup on the main thread prior to spinning up the rendering thread.
@@ -2018,7 +2024,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
 fn setCellSize(self: *Surface, size: rendererpkg.CellSize) !void {
     // Update our cell size within our size struct
     self.size.cell = size;
-    self.balancePaddingIfNeeded();
+    self.updatePadding(null);
 
     // Notify the terminal
     self.io.queueMessage(.{ .resize = self.size }, .unlocked);
@@ -2095,19 +2101,20 @@ pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
         .width = size.width,
         .height = size.height,
     };
+    const new_scrollbar_width = size.scrollbar_width;
 
     // Update our screen size, but only if it actually changed. And if
     // the screen size didn't change, then our grid size could not have
     // changed, so we just return.
-    if (self.size.screen.equals(new_screen_size)) return;
+    if (self.size.screen.equals(new_screen_size) and (self.scrollbar_width == new_scrollbar_width)) return;
 
-    try self.resize(new_screen_size);
+    try self.resize(new_screen_size, new_scrollbar_width);
 }
 
-fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
+fn resize(self: *Surface, size: rendererpkg.ScreenSize, scrollbar_width: ?u32) !void {
     // Save our screen size
     self.size.screen = size;
-    self.balancePaddingIfNeeded();
+    self.updatePadding(scrollbar_width);
 
     // Recalculate our grid size. Because Ghostty supports fluid resizing,
     // its possible the grid doesn't change at all even if the screen size changes.
@@ -2127,13 +2134,27 @@ fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
     self.io.queueMessage(.{ .resize = self.size }, .unlocked);
 }
 
-/// Recalculate the balanced padding if needed.
-fn balancePaddingIfNeeded(self: *Surface) void {
-    if (!self.config.window_padding_balance) return;
+/// Recalculate and balance the padding if needed.
+fn updatePadding(self: *Surface, scrollbar_width: ?u32) void {
+    const new_scrollbar_width = new: {
+        if (scrollbar_width) |width| {
+            self.scrollbar_width = width;
+            break :new true;
+        } else {
+            break :new false;
+        }
+    };
+    if (!new_scrollbar_width and !self.config.window_padding_balance) return;
     const content_scale = try self.rt_surface.getContentScale();
     const x_dpi = content_scale.x * font.face.default_dpi;
     const y_dpi = content_scale.y * font.face.default_dpi;
-    self.size.balancePadding(self.config.scaledPadding(x_dpi, y_dpi));
+    const explicit = self.config.scaledPadding(x_dpi, y_dpi);
+    if (self.config.window_padding_balance) {
+        self.size.balancePadding(explicit);
+    } else {
+        self.size.padding = explicit;
+    }
+    self.size.padding.right += self.scrollbar_width;
 }
 
 /// Called to set the preedit state for character input. Preedit is used
@@ -3092,11 +3113,12 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
     // unbalanced padding since balanced padding is not dependent on DPI.
     if (!self.config.window_padding_balance) {
         self.size.padding = self.config.scaledPadding(x_dpi, y_dpi);
+        self.size.padding.right += self.scrollbar_width;
     }
 
     // Force a resize event because the change in padding will affect
     // pixel-level changes to the renderer and viewport.
-    try self.resize(self.size.screen);
+    try self.resize(self.size.screen, null);
 }
 
 /// The type of action to report for a mouse event.

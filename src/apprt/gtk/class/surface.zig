@@ -1422,7 +1422,7 @@ pub const Surface = extern struct {
         // This should not be called before that. We ensure this by initializing
         // the surface in `glareaResize`. This is VERY important because it
         // avoids the pty having an incorrect initial size.
-        assert(priv.size.width >= 0 and priv.size.height >= 0);
+        assert(priv.size.width >= 0 and priv.size.height >= 0 and priv.size.scrollbar_width >= 0);
         return priv.size;
     }
 
@@ -1626,7 +1626,7 @@ pub const Surface = extern struct {
         priv.mouse_shape = .text;
         priv.mouse_hidden = false;
         priv.focused = true;
-        priv.size = .{ .width = 0, .height = 0 };
+        priv.size = .{ .width = 0, .height = 0, .scrollbar_width = 0 };
         priv.vadj_signal_group = null;
 
         // If our configuration is null then we get the configuration
@@ -2978,10 +2978,8 @@ pub const Surface = extern struct {
 
         // Store our cached size
         const priv = self.private();
-        priv.size = .{
-            .width = @intCast(width),
-            .height = @intCast(height),
-        };
+        priv.size.width = @intCast(width);
+        priv.size.height = @intCast(height);
 
         // If our surface is realize, we send callbacks.
         if (priv.core_surface) |surface| {

@@ -43,29 +43,14 @@ class SurfaceScrollView: NSView {
         documentView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         scrollView.documentView = documentView
         
-        // The document view contains our actual surface as a child.
-        // We synchronize the scrolling of the document with this surface
-        // so that our primary Ghostty renderer only needs to render the viewport.
-        documentView.addSubview(surfaceView)
-        
         super.init(frame: .zero)
         
-        // Our scroll view is our only view
+        // We stack the surface view and scroll view as subviews of this view
+        addSubview(surfaceView)
         addSubview(scrollView)
         
         // Apply initial scrollbar settings
         synchronizeAppearance()
-        
-        // We listen for scroll events through bounds notifications on our NSClipView.
-        // This is based on: https://christiantietze.de/posts/2018/07/synchronize-nsscrollview/
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleScrollChange(notification)
-        })
         
         // Listen for scrollbar updates from Ghostty
         observers.append(NotificationCenter.default.addObserver(
@@ -134,45 +119,34 @@ class SurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         
-        // Fill entire bounds with scroll view
+        // Fill entire bounds with the surface view and scroll view
+        surfaceView.frame = bounds
         scrollView.frame = bounds
         
-        // Use contentSize to account for visible scrollers
-        //
         // Only update sizes if we have a valid (non-zero) content size. The content size
         // can be zero when this is added early to a view, or to an invisible hierarchy.
         // Practically, this happened in the quick terminal.
-        var contentSize = scrollView.contentSize
-        guard contentSize.width > 0 && contentSize.height > 0 else {
-            synchronizeSurfaceView()
-            return
+        let contentSize = scrollView.contentSize
+        if contentSize.width > 0 && contentSize.height > 0 {
+            // Keep document width synchronized with content width
+            documentView.setFrameSize(CGSize(
+                width: contentSize.width,
+                height: documentView.frame.height
+            ))
         }
-        
-        // If we have a legacy scrollbar and its not visible, then we account for that
-        // in advance, because legacy scrollbars change our contentSize and force reflow
-        // of our terminal which is not desirable.
-        // See: https://github.com/ghostty-org/ghostty/discussions/9254
-        let style = scrollView.verticalScroller?.scrollerStyle ?? NSScroller.preferredScrollerStyle
-        if style == .legacy {
-            if (scrollView.verticalScroller?.isHidden ?? true) {
-                let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-                contentSize.width -= scrollerWidth
-            }
-        }
-        
-        // Keep document width synchronized with content width
-        documentView.setFrameSize(CGSize(
-            width: contentSize.width,
-            height: documentView.frame.height
-        ))
         
         // Inform the actual pty of our size change. This doesn't change the actual view
         // frame because we do want to render the whole thing, but it will prevent our
         // rows/cols from going into the non-content area.
-        surfaceView.sizeDidChange(contentSize)
-        
-        // When our scrollview changes make sure our surface view is synchronized
-        synchronizeSurfaceView()
+        let style = scrollView.verticalScroller?.scrollerStyle ?? NSScroller.preferredScrollerStyle
+        if style == .legacy {
+            // With legacy scrollers we add a corresponding margin avoid the
+            // scroll bar overlapping the content.
+            let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+            surfaceView.sizeDidChange(bounds.size, scrollerWidth)
+        } else {
+            surfaceView.sizeDidChange(bounds.size, 0)
+        }
     }
     
     // MARK: Scrolling
@@ -182,22 +156,7 @@ class SurfaceScrollView: NSView {
         scrollView.hasVerticalScroller = scrollbarConfig != .never
     }
     
-    /// Positions the surface view to fill the currently visible rectangle.
-    ///
-    /// This is called whenever the scroll position changes. The surface view (which does the
-    /// actual terminal rendering) always fills exactly the visible portion of the document view,
-    /// so the renderer only needs to render what's currently on screen.
-    private func synchronizeSurfaceView() {
-        let visibleRect = scrollView.contentView.documentVisibleRect
-        surfaceView.frame = visibleRect
-    }
-    
     // MARK: Notifications
-    
-    /// Handles bounds changes in the scroll view's clip view, keeping the surface view synchronized.
-    private func handleScrollChange(_ notification: Notification) {
-        synchronizeSurfaceView()
-    }
     
     /// Handles live scroll events (user actively dragging the scrollbar).
     ///
@@ -211,7 +170,7 @@ class SurfaceScrollView: NSView {
         guard cellHeight > 0 else { return }
         
         // AppKit views are +Y going up, so we calculate from the bottom
-        let visibleRect = scrollView.contentView.documentVisibleRect
+        let visibleRect = scrollView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
         let row = Int(scrollOffset / cellHeight)
@@ -247,12 +206,8 @@ class SurfaceScrollView: NSView {
         // The full document height must include the vertical padding around the cell
         // grid, otherwise the content view ends up misaligned with the surface.
         let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-        let gridHeight = CGFloat(scrollbar.len) * cellHeight
-        let padding = scrollView.contentSize.height - gridHeight
+        let padding = fmod(scrollView.contentSize.height, cellHeight)
         let documentHeight = documentGridHeight + padding
-
-        // Our width should be the content width to account for visible scrollers.
-        // We don't do horizontal scrolling in terminals.
         let newSize = CGSize(width: scrollView.contentSize.width, height: documentHeight)
         documentView.setFrameSize(newSize)
         
@@ -266,8 +221,5 @@ class SurfaceScrollView: NSView {
             // move the scrollbar.
             lastSentRow = Int(scrollbar.offset)
         }
-        
-        // Always update our scrolled view with the latest dimensions
-        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 }
