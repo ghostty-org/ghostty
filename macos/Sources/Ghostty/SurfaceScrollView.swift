@@ -48,6 +48,16 @@ class SurfaceScrollView: NSView {
         // We stack the surface view and scroll view as subviews of this view
         addSubview(surfaceView)
         addSubview(scrollView)
+
+        // In principle, surfaceView should have been a subview of
+        // scrollView.contentView; however, we have to make it a direct subview
+        // of this view to allow it to overlap with the scrollbar and draw a
+        // background behind it, rather than being tiled next to it like the
+        // contentView. However, we need events to propagate as if we had the
+        // usual hierarchy, otherwise mouse scroll events wouldn't be passed
+        // onto the terminal, so we wouldn't have scrolling in TUIs.
+        nextResponder = scrollView
+        scrollView.contentView.nextResponder = surfaceView
         
         // Apply initial scrollbar settings
         synchronizeAppearance()
@@ -227,5 +237,8 @@ class SurfaceScrollView: NSView {
             // move the scrollbar.
             lastSentRow = Int(scrollbar.offset)
         }
+        
+        // Always update our scrolled view with the latest dimensions
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 }
