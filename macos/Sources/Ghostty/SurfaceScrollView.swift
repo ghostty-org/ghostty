@@ -127,11 +127,17 @@ class SurfaceScrollView: NSView {
         // can be zero when this is added early to a view, or to an invisible hierarchy.
         // Practically, this happened in the quick terminal.
         let contentSize = scrollView.contentSize
-        if contentSize.width > 0 && contentSize.height > 0 {
-            // Keep document width synchronized with content width
+        let cellHeight = surfaceView.cellSize.height
+        if contentSize.width > 0 && contentSize.height > 0 && cellHeight > 0 {
+            // Recalculate the height of the document view to account for the
+            // change in padding around the cell grid due to the resize.
+            let oldDocumentHeight = documentView.frame.height
+            let oldPadding = fmod(oldDocumentHeight, cellHeight)
+            let newPadding = fmod(contentSize.height, cellHeight)
+            let newDocumentHeight = (oldDocumentHeight - oldPadding) + newPadding
             documentView.setFrameSize(CGSize(
                 width: contentSize.width,
-                height: documentView.frame.height
+                height: newDocumentHeight,
             ))
         }
         
