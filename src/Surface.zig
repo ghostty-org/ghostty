@@ -2136,15 +2136,11 @@ fn resize(self: *Surface, size: rendererpkg.ScreenSize, scrollbar_width: ?u32) !
 
 /// Recalculate and balance the padding if needed.
 fn updatePadding(self: *Surface, scrollbar_width: ?u32) void {
-    const new_scrollbar_width = new: {
-        if (scrollbar_width) |width| {
-            self.scrollbar_width = width;
-            break :new true;
-        } else {
-            break :new false;
-        }
-    };
-    if (!new_scrollbar_width and !self.config.window_padding_balance) return;
+    if (scrollbar_width) |width| {
+        self.scrollbar_width = width;
+    } else if (!self.config.window_padding_balance) {
+        return;
+    }
     const content_scale = try self.rt_surface.getContentScale();
     const x_dpi = content_scale.x * font.face.default_dpi;
     const y_dpi = content_scale.y * font.face.default_dpi;
