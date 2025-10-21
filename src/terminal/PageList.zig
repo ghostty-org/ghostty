@@ -248,6 +248,9 @@ fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
 /// terminal page size (not virtual memory page), otherwise we would always
 /// slightly exceed max_size in the limits.
 ///
+/// If max_size is 0, this page list will always produce a scrollbar state with
+/// zero total length to indicate that scrollback is disabled for this screen.
+///
 /// If max_size is null then there is no defined limit and the screen will
 /// grow forever. In reality, the limit is set to the byte limit that your
 /// computer can address in memory. If you somehow require more than that
@@ -2234,7 +2237,7 @@ pub const Scrollbar = struct {
 /// call this as needed and not too frequently.
 pub fn scrollbar(self: *PageList) Scrollbar {
     return .{
-        .total = self.total_rows,
+        .total = if (self.explicit_max_size > 0) self.total_rows else 0,
         .offset = self.viewportRowOffset(),
         .len = self.rows, // Length is always rows
     };
@@ -4725,9 +4728,10 @@ test "PageList grow prune required with a single page" {
     try testing.expect(new != null);
     try testing.expect(new != s.pages.first);
 
-    // Scrollbar should be in the active area
+    // Scrollbar should have zero total length to indicate that scrollback is
+    // disabled on this screen, as we initialized with max_size = 0.
     try testing.expectEqual(Scrollbar{
-        .total = s.totalRows(),
+        .total = 0,
         .offset = s.total_rows - s.rows,
         .len = s.rows,
     }, s.scrollbar());

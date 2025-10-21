@@ -789,9 +789,13 @@ pub const Surface = extern struct {
         // scrolled window.
         const vadj = self.getVAdjustment() orelse return;
 
-        // Check if values match existing adjustment and skip update if so
+        // Check if values match existing adjustment and skip update if so.
+        // We may have scrollbar.total < scrollbar.len, indicating that the
+        // terminal is not in a scrollable state (e.g., alternate screen). Since
+        // the GTK apprt does not adjust the surface size/layout to accommodate
+        // the scrollbar, this is irrelevant for us, so we just lower bound it.
         const value: f64 = @floatFromInt(scrollbar.offset);
-        const upper: f64 = @floatFromInt(scrollbar.total);
+        const upper: f64 = @floatFromInt(@max(scrollbar.total, scrollbar.len));
         const page_size: f64 = @floatFromInt(scrollbar.len);
 
         if (std.math.approxEqAbs(f64, vadj.getValue(), value, 0.001) and
