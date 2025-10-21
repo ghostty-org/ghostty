@@ -4951,11 +4951,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .toggle_readonly => {
             self.readonly = !self.readonly;
-            return try self.rt_app.performAction(
-                .{ .surface = self },
-                .toggle_readonly,
-                {},
-            );
+            return true;
         },
 
         .reset_window_size => return try self.rt_app.performAction(
