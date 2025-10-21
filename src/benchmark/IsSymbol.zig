@@ -91,12 +91,14 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 = undefined;
-    var r = f.reader(&read_buf);
+    var f_reader = f.reader(&read_buf);
+    var r = &f_reader.interface;
+
     var d: UTF8Decoder = .{};
     var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
-        const n = r.read(&buf) catch |err| {
-            log.warn("error reading data file err={}", .{err});
+        const n = r.readSliceShort(&buf) catch {
+            log.warn("error reading data file err={?}", .{f_reader.err});
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
@@ -116,12 +118,14 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 = undefined;
-    var r = f.reader(&read_buf);
+    var f_reader = f.reader(&read_buf);
+    var r = &f_reader.interface;
+
     var d: UTF8Decoder = .{};
     var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
-        const n = r.read(&buf) catch |err| {
-            log.warn("error reading data file err={}", .{err});
+        const n = r.readSliceShort(&buf) catch {
+            log.warn("error reading data file err={?}", .{f_reader.err});
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached

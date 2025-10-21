@@ -30,10 +30,8 @@ pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
         .rand = rand,
     };
 
-    var buf: [1024]u8 = undefined;
     while (true) {
-        const data = try gen.next(&buf);
-        writer.writeAll(data) catch |err| {
+        gen.next(writer, 1024) catch |err| {
             const Error = error{ WriteFailed, BrokenPipe } || @TypeOf(err);
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed

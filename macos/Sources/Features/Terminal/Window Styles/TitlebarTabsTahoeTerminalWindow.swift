@@ -8,6 +8,10 @@ import SwiftUI
 class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSToolbarDelegate {
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
+    
+    /// Titlebar tabs can't support the update accessory because of the way we layout
+    /// the native tabs back into the menu bar.
+    override var supportsUpdateAccessory: Bool { false }
 
     deinit {
         tabBarObserver = nil
@@ -15,9 +19,21 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
     // MARK: NSWindow
 
+    override var titlebarFont: NSFont? {
+        didSet {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.titleFont = self.titlebarFont
+            }
+        }
+    }
+
     override var title: String {
         didSet {
-            viewModel.title = title
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.title = self.title
+            }
         }
     }
 
@@ -42,17 +58,33 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Check if we have a tab bar and set it up if we have to. See the comment
         // on this function to learn why we need to check this here.
         setupTabBar()
+        
+        viewModel.isMainWindow = true
     }
 
+    override func resignMain() {
+        super.resignMain()
+        
+        viewModel.isMainWindow = false
+    }
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
     // this, detect the tab bar being added, and override its behavior.
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
         // If this is the tab bar then we need to set it up for the titlebar
         guard isTabBar(childViewController) else {
+            // After dragging a tab into a new window, `hasTabBar` needs to be
+            // updated to properly review window title
+            viewModel.hasTabBar = false
+            
             super.addTitlebarAccessoryViewController(childViewController)
             return
         }
 
+        // When an existing tab is being dragged in to another tab group,
+        // system will also try to add tab bar to this window, so we want to reset observer,
+        // to put tab bar where we want again
+        tabBarObserver = nil
+        
         // Some setup needs to happen BEFORE it is added, such as layout. If
         // we don't do this before the call below, we'll trigger an AppKit
         // assertion.
@@ -112,18 +144,33 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard tabBarObserver == nil else { return }
 
         // Find our tab bar. If it doesn't exist we don't do anything.
-        guard let tabBar = contentView?.rootView.firstDescendant(withClassName: "NSTabBar") else { return }
+        //
+        // In normal window, `NSTabBar` typically appears as a subview of `NSTitlebarView` within `NSThemeFrame`.
+        // In fullscreen, the system creates a dedicated fullscreen window and the view hierarchy changes;
+        // in that case, the `titlebarView` is only accessible via a reference on `NSThemeFrame`.
+        // ref: https://github.com/mozilla-firefox/firefox/blob/054e2b072785984455b3b59acad9444ba1eeffb4/widget/cocoa/nsCocoaWindow.mm#L7205
+        guard let themeFrameView = contentView?.rootView else { return }
+        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
+            themeFrameView.value(forKey: "titlebarView") as? NSView
+        } else {
+            NSView?.none
+        }
+        guard let tabBar = titlebarView?.firstDescendant(withClassName: "NSTabBar") else { return }
 
         // View model updates must happen on their own ticks.
-        DispatchQueue.main.async {
-            self.viewModel.hasTabBar = true
+        DispatchQueue.main.async { [weak self] in
+            self?.viewModel.hasTabBar = true
         }
 
         // Find our clip view
         guard let clipView = tabBar.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
-        guard let titlebarView = clipView.firstSuperview(withClassName: "NSTitlebarView") else { return }
+        guard let titlebarView else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
+        
+        // Make sure tabBar's height won't be stretched
+        guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
+        tabBar.frame.size.height = newTabButton.frame.width
 
         // The container is the view that we'll constrain our tab bar within.
         let container = toolbarView
@@ -205,6 +252,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         case .title:
             let item = NSToolbarItem(itemIdentifier: .title)
             item.view = NSHostingView(rootView: TitleItem(viewModel: viewModel))
+            // Fix: https://github.com/ghostty-org/ghostty/discussions/9027
+            item.view?.setContentCompressionResistancePriority(.required, for: .horizontal)
             item.visibilityPriority = .user
             item.isEnabled = true
 
@@ -221,8 +270,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     // MARK: SwiftUI
 
     class ViewModel: ObservableObject {
+        @Published var titleFont: NSFont?
         @Published var title: String = "👻 Ghostty"
         @Published var hasTabBar: Bool = false
+        @Published var isMainWindow: Bool = true
     }
 }
 
@@ -245,15 +296,24 @@ extension TitlebarTabsTahoeTerminalWindow {
 
         var body: some View {
             if !viewModel.hasTabBar {
-                Text(title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                titleText
             } else {
                 // 1x1.gif strikes again! For real: if we render a zero-sized
                 // view here then the toolbar just disappears our view. I don't
-                // know.
+                // know. This appears fixed in 26.1 Beta but keep it safe for 26.0.
                 Color.clear.frame(width: 1, height: 1)
             }
+        }
+        
+        @ViewBuilder
+        var titleText: some View {
+            Text(title)
+                .font(viewModel.titleFont.flatMap(Font.init(_:)))
+                .foregroundStyle(viewModel.isMainWindow ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .greatestFiniteMagnitude, alignment: .center)
+                .opacity(viewModel.hasTabBar ? 0 : 1) // hide when in fullscreen mode, where title bar will appear in the leading area under window buttons
         }
     }
 }

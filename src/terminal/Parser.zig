@@ -221,7 +221,7 @@ pub fn init() Parser {
         .params_idx = 0,
         .param_acc = 0,
         .param_acc_idx = 0,
-        .osc_parser = .init(),
+        .osc_parser = .init(null),
 
         .intermediates = undefined,
         .params = undefined,

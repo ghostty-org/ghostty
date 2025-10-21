@@ -389,8 +389,14 @@ pub const Tab = extern struct {
         // the terminal title if it exists, otherwise a default string.
         const plain = plain: {
             const default = "Ghostty";
+            const config_title: ?[*:0]const u8 = title: {
+                const config = config_ orelse break :title null;
+                break :title config.get().title orelse null;
+            };
+
             const plain = override_ orelse
                 terminal_ orelse
+                config_title orelse
                 break :plain default;
             break :plain std.mem.span(plain);
         };

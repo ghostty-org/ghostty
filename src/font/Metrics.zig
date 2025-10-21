@@ -38,6 +38,9 @@ cursor_height: u32,
 /// The constraint height for nerd fonts icons.
 icon_height: f64,
 
+/// The constraint height for nerd fonts icons limited to a single cell width.
+icon_height_single: f64,
+
 /// The unrounded face width, used in scaling calculations.
 face_width: f64,
 
@@ -60,6 +63,7 @@ const Minimums = struct {
     const cursor_thickness = 1;
     const cursor_height = 1;
     const icon_height = 1.0;
+    const icon_height_single = 1.0;
     const face_height = 1.0;
     const face_width = 1.0;
 };
@@ -251,8 +255,11 @@ pub fn calc(face: FaceMetrics) Metrics {
     const underline_position = @round(top_to_baseline - face.underlinePosition());
     const strikethrough_position = @round(top_to_baseline - face.strikethroughPosition());
 
-    // Same heuristic as the font_patcher script
-    const icon_height = (2 * cap_height + face_height) / 3;
+    // Same heuristic as the font_patcher script. We store icon_height
+    // separately from face_height such that modifiers can apply to the former
+    // without affecting the latter.
+    const icon_height = face_height;
+    const icon_height_single = (2 * cap_height + face_height) / 3;
 
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),
@@ -267,6 +274,7 @@ pub fn calc(face: FaceMetrics) Metrics {
         .box_thickness = @intFromFloat(underline_thickness),
         .cursor_height = @intFromFloat(cell_height),
         .icon_height = icon_height,
+        .icon_height_single = icon_height_single,
         .face_width = face_width,
         .face_height = face_height,
         .face_y = face_y,
@@ -327,6 +335,10 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                         self.overline_position -|= @as(i32, @intCast(diff_top));
                     }
                 }
+            },
+            inline .icon_height => {
+                self.icon_height = entry.value_ptr.apply(self.icon_height);
+                self.icon_height_single = entry.value_ptr.apply(self.icon_height_single);
             },
 
             inline else => |tag| {
@@ -529,6 +541,7 @@ fn init() Metrics {
         .box_thickness = 0,
         .cursor_height = 0,
         .icon_height = 0.0,
+        .icon_height_single = 0.0,
         .face_width = 0.0,
         .face_height = 0.0,
         .face_y = 0.0,
@@ -607,6 +620,48 @@ test "Metrics: adjust cell height larger" {
     try testing.expectEqual(@as(i32, 38), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
+}
+
+test "Metrics: adjust icon height by percentage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: ModifierSet = .{};
+    defer set.deinit(alloc);
+    try set.put(alloc, .icon_height, .{ .percent = 0.75 });
+
+    var m: Metrics = init();
+    m.icon_height = 100.0;
+    m.icon_height_single = 80.0;
+    m.face_height = 100.0;
+    m.face_y = 1.0;
+    m.apply(set);
+    try testing.expectEqual(75.0, m.icon_height);
+    try testing.expectEqual(60.0, m.icon_height_single);
+    // Face metrics not affected
+    try testing.expectEqual(100.0, m.face_height);
+    try testing.expectEqual(1.0, m.face_y);
+}
+
+test "Metrics: adjust icon height by absolute pixels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: ModifierSet = .{};
+    defer set.deinit(alloc);
+    try set.put(alloc, .icon_height, .{ .absolute = -5 });
+
+    var m: Metrics = init();
+    m.icon_height = 100.0;
+    m.icon_height_single = 80.0;
+    m.face_height = 100.0;
+    m.face_y = 1.0;
+    m.apply(set);
+    try testing.expectEqual(95.0, m.icon_height);
+    try testing.expectEqual(75.0, m.icon_height_single);
+    // Face metrics not affected
+    try testing.expectEqual(100.0, m.face_height);
+    try testing.expectEqual(1.0, m.face_y);
 }
 
 test "Modifier: parse absolute" {

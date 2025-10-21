@@ -102,24 +102,17 @@ pub fn threadEnter(
     errdefer self.subprocess.stop();
 
     // Watcher to detect subprocess exit
-    var process: ?xev.Process = process: {
+    var process: ?xev.Process = if (self.subprocess.process) |v| switch (v) {
+        .fork_exec => |cmd| try xev.Process.init(
+            cmd.pid orelse return error.ProcessNoPid,
+        ),
+
         // If we're executing via Flatpak then we can't do
         // traditional process watching (its implemented
         // as a special case in os/flatpak.zig) since the
         // command is on the host.
-        if (comptime build_config.flatpak) {
-            if (self.subprocess.flatpak_command != null) {
-                break :process null;
-            }
-        }
-
-        // Get the pid from the subprocess
-        const command = self.subprocess.command orelse
-            return error.ProcessNotStarted;
-        const pid = command.pid orelse
-            return error.ProcessNoPid;
-        break :process try xev.Process.init(pid);
-    };
+        .flatpak => null,
+    } else return error.ProcessNotStarted;
     errdefer if (process) |*p| p.deinit();
 
     // Track our process start time for abnormal exits
@@ -167,17 +160,19 @@ pub fn threadEnter(
         termio.Termio.ThreadData,
         td,
         processExit,
-    ) else if (comptime build_config.flatpak) {
-        // If we're in flatpak and we have a flatpak command
-        // then we can run the special flatpak logic for watching.
-        if (self.subprocess.flatpak_command) |*c| {
-            c.waitXev(
+    ) else if (comptime build_config.flatpak) flatpak: {
+        switch (self.subprocess.process orelse break :flatpak) {
+            // If we're in flatpak and we have a flatpak command
+            // then we can run the special flatpak logic for watching.
+            .flatpak => |*c| c.waitXev(
                 td.loop,
                 &td.backend.exec.flatpak_wait_c,
                 termio.Termio.ThreadData,
                 td,
                 flatpakExit,
-            );
+            ),
+
+            .fork_exec => {},
         }
     }
 
@@ -587,9 +582,17 @@ const Subprocess = struct {
     grid_size: renderer.GridSize,
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
-    command: ?Command = null,
-    flatpak_command: ?FlatpakHostCommand = null,
+    process: ?Process = null,
     linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
+
+    /// Union that represents the running process type.
+    const Process = union(enum) {
+        /// Standard POSIX fork/exec
+        fork_exec: Command,
+
+        /// Flatpak DBus command
+        flatpak: FlatpakHostCommand,
+    };
 
     const ArgsFormatter = struct {
         args: []const [:0]const u8,
@@ -883,7 +886,7 @@ const Subprocess = struct {
         read: Pty.Fd,
         write: Pty.Fd,
     } {
-        assert(self.pty == null and self.command == null);
+        assert(self.pty == null and self.process == null);
 
         // This function is funny because on POSIX systems it can
         // fail in the forked process. This is flipped to true if
@@ -906,6 +909,23 @@ const Subprocess = struct {
 
             pty.deinit();
             self.pty = null;
+        };
+
+        // Cleanup we only run in our parent when we successfully start
+        // the process.
+        defer if (!in_child and self.process != null) {
+            if (comptime builtin.os.tag != .windows) {
+                // Once our subcommand is started we can close the slave
+                // side. This prevents the slave fd from being leaked to
+                // future children.
+                _ = posix.close(pty.slave);
+            }
+
+            // Successful start we can clear out some memory.
+            if (self.env) |*env| {
+                env.deinit();
+                self.env = null;
+            }
         };
 
         log.debug("starting command command={f}", .{ArgsFormatter{ .args = self.args }});
@@ -959,15 +979,15 @@ const Subprocess = struct {
             }
 
             // Flatpak command must have a stable pointer.
-            self.flatpak_command = .{
+            self.process = .{ .flatpak = .{
                 .argv = self.args,
                 .cwd = cwd,
                 .env = if (self.env) |*env| env else null,
                 .stdin = pty.slave,
                 .stdout = pty.slave,
                 .stderr = pty.slave,
-            };
-            var cmd = &self.flatpak_command.?;
+            } };
+            var cmd = &self.process.?.flatpak;
             const pid = try cmd.spawn(alloc);
             errdefer killCommandFlatpak(cmd);
 
@@ -975,11 +995,6 @@ const Subprocess = struct {
                 self.args[0],
                 pid,
             });
-
-            // Once started, we can close the pty child side. We do this after
-            // wait right now but that is fine too. This lets us read the
-            // parent and detect EOF.
-            _ = posix.close(pty.slave);
 
             return .{
                 .read = pty.master,
@@ -1033,20 +1048,7 @@ const Subprocess = struct {
             log.info("subcommand cgroup={s}", .{self.linux_cgroup orelse "-"});
         }
 
-        if (comptime builtin.os.tag != .windows) {
-            // Once our subcommand is started we can close the slave
-            // side. This prevents the slave fd from being leaked to
-            // future children.
-            _ = posix.close(pty.slave);
-        }
-
-        // Successful start we can clear out some memory.
-        if (self.env) |*env| {
-            env.deinit();
-            self.env = null;
-        }
-
-        self.command = cmd;
+        self.process = .{ .fork_exec = cmd };
         return switch (builtin.os.tag) {
             .windows => .{
                 .read = pty.out_pipe,
@@ -1071,7 +1073,7 @@ const Subprocess = struct {
     /// Called to notify that we exited externally so we can unset our
     /// running state.
     pub fn externalExit(self: *Subprocess) void {
-        self.command = null;
+        self.process = null;
     }
 
     /// Stop the subprocess. This is safe to call anytime. This will wait
@@ -1079,25 +1081,23 @@ const Subprocess = struct {
     /// for it to terminate, so it will not block.
     /// This does not close the pty.
     pub fn stop(self: *Subprocess) void {
-        // Kill our command
-        if (self.command) |*cmd| {
-            // Note: this will also wait for the command to exit, so
-            // DO NOT call cmd.wait
-            killCommand(cmd) catch |err|
-                log.err("error sending SIGHUP to command, may hang: {}", .{err});
-            self.command = null;
-        }
+        switch (self.process orelse return) {
+            .fork_exec => |*cmd| {
+                // Note: this will also wait for the command to exit, so
+                // DO NOT call cmd.wait
+                killCommand(cmd) catch |err|
+                    log.err("error sending SIGHUP to command, may hang: {}", .{err});
+            },
 
-        // Kill our Flatpak command
-        if (comptime build_config.flatpak) {
-            if (self.flatpak_command) |*cmd| {
+            .flatpak => |*cmd| if (comptime build_config.flatpak) {
                 killCommandFlatpak(cmd) catch |err|
                     log.err("error sending SIGHUP to command, may hang: {}", .{err});
                 _ = cmd.wait() catch |err|
                     log.err("error waiting for command to exit: {}", .{err});
-                self.flatpak_command = null;
-            }
+            },
         }
+
+        self.process = null;
     }
 
     /// Resize the pty subprocess. This is safe to call anytime.
@@ -1137,41 +1137,45 @@ const Subprocess = struct {
                     _ = try command.wait(false);
                 },
 
-                else => if (getpgid(pid)) |pgid| {
-                    // It is possible to send a killpg between the time that
-                    // our child process calls setsid but before or simultaneous
-                    // to calling execve. In this case, the direct child dies
-                    // but grandchildren survive. To work around this, we loop
-                    // and repeatedly kill the process group until all
-                    // descendents are well and truly dead. We will not rest
-                    // until the entire family tree is obliterated.
-                    while (true) {
-                        switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
-                            .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
-                            else => |err| killpg: {
-                                if ((comptime builtin.target.os.tag.isDarwin()) and
-                                    err == .PERM)
-                                {
-                                    log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
-                                    break :killpg;
-                                }
+                else => try killPid(pid),
+            }
+        }
+    }
 
-                                log.warn("error killing process group pgid={} err={}", .{ pgid, err });
-                                return error.KillFailed;
-                            },
-                        }
+    fn killPid(pid: c.pid_t) !void {
+        const pgid = getpgid(pid) orelse return;
 
-                        // See Command.zig wait for why we specify WNOHANG.
-                        // The gist is that it lets us detect when children
-                        // are still alive without blocking so that we can
-                        // kill them again.
-                        const res = posix.waitpid(pid, std.c.W.NOHANG);
-                        log.debug("waitpid result={}", .{res.pid});
-                        if (res.pid != 0) break;
-                        std.Thread.sleep(10 * std.time.ns_per_ms);
+        // It is possible to send a killpg between the time that
+        // our child process calls setsid but before or simultaneous
+        // to calling execve. In this case, the direct child dies
+        // but grandchildren survive. To work around this, we loop
+        // and repeatedly kill the process group until all
+        // descendents are well and truly dead. We will not rest
+        // until the entire family tree is obliterated.
+        while (true) {
+            switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
+                .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
+                else => |err| killpg: {
+                    if ((comptime builtin.target.os.tag.isDarwin()) and
+                        err == .PERM)
+                    {
+                        log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
+                        break :killpg;
                     }
+
+                    log.warn("error killing process group pgid={} err={}", .{ pgid, err });
+                    return error.KillFailed;
                 },
             }
+
+            // See Command.zig wait for why we specify WNOHANG.
+            // The gist is that it lets us detect when children
+            // are still alive without blocking so that we can
+            // kill them again.
+            const res = posix.waitpid(pid, std.c.W.NOHANG);
+            log.debug("waitpid result={}", .{res.pid});
+            if (res.pid != 0) break;
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
     }
 

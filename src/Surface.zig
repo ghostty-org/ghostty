@@ -274,6 +274,7 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
+    mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
@@ -347,6 +348,7 @@ const DerivedConfig = struct {
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
+            .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
@@ -708,7 +710,22 @@ pub fn init(
             .set_title,
             .{ .title = title },
         );
-    }
+    } else if (command) |cmd| switch (cmd) {
+        // If a user specifies a command it is appropriate to set the title as argv[0]
+        // we know in the case of a direct command it has been supplied by the user
+        .direct => |cmd_str| if (cmd_str.len != 0) {
+            _ = try rt_app.performAction(
+                .{ .surface = self },
+                .set_title,
+                .{ .title = cmd_str[0] },
+            );
+        },
+
+        // We won't set the title in the case the shell expands the command
+        // as that should typically be used to launch a shell which should
+        // set its own titles
+        .shell => {},
+    };
 
     // We are no longer the first surface
     app.first = false;
@@ -977,6 +994,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .renderer_health => |health| self.updateRendererHealth(health),
 
+        .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
+
         .report_color_scheme => |force| self.reportColorScheme(force),
 
         .present_surface => try self.presentSurface(),
@@ -1050,6 +1069,16 @@ fn selectionScrollTick(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     const t: *terminal.Terminal = self.renderer_state.terminal;
+
+    // If our screen changed while this is happening, we stop our
+    // selection scroll.
+    if (self.mouse.left_click_screen != t.active_screen) {
+        self.io.queueMessage(
+            .{ .selection_scroll = false },
+            .locked,
+        );
+        return;
+    }
 
     // Scroll the viewport as required
     try t.scrollViewport(.{ .delta = delta });
@@ -1440,6 +1469,17 @@ fn updateRendererHealth(self: *Surface, health: rendererpkg.Health) void {
         health,
     ) catch |err| {
         log.warn("failed to notify app of renderer health change err={}", .{err});
+    };
+}
+
+/// Called when the scrollbar state changes.
+fn updateScrollbar(self: *Surface, scrollbar: terminal.Scrollbar) void {
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .scrollbar,
+        scrollbar,
+    ) catch |err| {
+        log.warn("failed to notify app of scrollbar change err={}", .{err});
     };
 }
 
@@ -2961,7 +3001,7 @@ pub fn scrollCallback(
         // If we have an active mouse reporting mode, clear the selection.
         // The selection can occur if the user uses the shift mod key to
         // override mouse grabbing from the window.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             try self.setSelection(null);
         }
 
@@ -3006,7 +3046,7 @@ pub fn scrollCallback(
         // the normal logic.
 
         // If we're scrolling up or down, then send a mouse event.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             for (0..@abs(y.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (y.direction()) {
@@ -3079,6 +3119,14 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 /// The type of action to report for a mouse event.
 const MouseReportAction = enum { press, release, motion };
 
+/// Returns true if mouse reporting is enabled both in the config and
+/// the terminal state, and the surface is not in read-only mode.
+fn isMouseReporting(self: *const Surface) bool {
+    return !self.readonly and
+        self.config.mouse_reporting and
+        self.io.terminal.flags.mouse_event != .none;
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
@@ -3086,12 +3134,16 @@ fn mouseReport(
     mods: input.Mods,
     pos: apprt.CursorPos,
 ) !void {
-    // If the surface is in read-only mode, do not send mouse reports to the PTY
-    if (self.readonly) return;
+    // Mouse reporting must be enabled by both config and terminal state
+    assert(self.config.mouse_reporting);
+    assert(self.io.terminal.flags.mouse_event != .none);
+
+    // Callers must verify the surface is not in read-only mode
+    assert(!self.readonly);
 
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
-        .none => return,
+        .none => unreachable, // checked by assert above
 
         // X10 only reports clicks with mouse button 1, 2, 3. We verify
         // the button later.
@@ -3486,7 +3538,7 @@ pub fn mouseButtonCallback(
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        if (self.io.terminal.flags.mouse_event != .none) report: {
+        if (self.isMouseReporting()) report: {
             // If we have shift-pressed and we aren't allowed to capture it,
             // then we do not do a mouse report.
             if (mods.shift and !shift_capture) break :report;
@@ -4124,7 +4176,7 @@ pub fn cursorPosCallback(
     }
 
     // Do a mouse report
-    if (self.io.terminal.flags.mouse_event != .none) report: {
+    if (self.isMouseReporting()) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
         // This only applies if there is a mouse button pressed so that
         // movement reports are not affected.
@@ -4156,6 +4208,12 @@ pub fn cursorPosCallback(
         // count because we don't want to handle selection.
         if (self.mouse.left_click_count == 0) break :select;
 
+        // If our terminal screen changed then we don't process this. We don't
+        // invalidate our pin or mouse state because if the screen switches
+        // back then we can continue our selection.
+        const t: *terminal.Terminal = self.renderer_state.terminal;
+        if (self.mouse.left_click_screen != t.active_screen) break :select;
+
         // All roads lead to requiring a re-render at this point.
         try self.queueRender();
 
@@ -4179,7 +4237,7 @@ pub fn cursorPosCallback(
         }
 
         // Convert to points
-        const screen = &self.renderer_state.terminal.screen;
+        const screen = &t.screen;
         const pin = screen.pages.pin(.{
             .viewport = .{
                 .x = pos_vp.x,
@@ -4803,12 +4861,27 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }, .unlocked);
         },
 
+        .scroll_to_row => |n| {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                t.screen.scroll(.{ .row = n });
+            }
+
+            try self.queueRender();
+        },
+
         .scroll_to_selection => {
-            self.renderer_state.mutex.lock();
-            defer self.renderer_state.mutex.unlock();
-            const sel = self.io.terminal.screen.selection orelse return false;
-            const tl = sel.topLeft(&self.io.terminal.screen);
-            self.io.terminal.screen.scroll(.{ .pin = tl });
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const sel = self.io.terminal.screen.selection orelse return false;
+                const tl = sel.topLeft(&self.io.terminal.screen);
+                self.io.terminal.screen.scroll(.{ .pin = tl });
+            }
+
+            try self.queueRender();
         },
 
         .scroll_page_up => {
@@ -5000,6 +5073,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .secure_input,
             .toggle,
         ),
+
+        .toggle_mouse_reporting => {
+            self.config.mouse_reporting = !self.config.mouse_reporting;
+            log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
 
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },

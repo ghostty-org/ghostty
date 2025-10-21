@@ -37,6 +37,7 @@ pub const Pin = PageList.Pin;
 pub const Point = point.Point;
 pub const Screen = @import("Screen.zig");
 pub const ScreenType = Terminal.ScreenType;
+pub const Scrollbar = PageList.Scrollbar;
 pub const Selection = @import("Selection.zig");
 pub const SizeReportStyle = csi.SizeReportStyle;
 pub const StringMap = @import("StringMap.zig");

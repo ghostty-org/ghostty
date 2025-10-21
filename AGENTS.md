@@ -29,3 +29,4 @@ A file for [guiding coding agents](https://agents.md/).
 
 - Do not use `xcodebuild`
 - Use `zig build` to build the macOS app and any shared Zig code
+- Run Xcode tests using `zig build test`

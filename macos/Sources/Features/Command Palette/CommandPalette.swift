@@ -5,7 +5,28 @@ struct CommandOption: Identifiable, Hashable {
     let title: String
     let description: String?
     let symbols: [String]?
+    let leadingIcon: String?
+    let badge: String?
+    let emphasis: Bool
     let action: () -> Void
+    
+    init(
+        title: String,
+        description: String? = nil,
+        symbols: [String]? = nil,
+        leadingIcon: String? = nil,
+        badge: String? = nil,
+        emphasis: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.description = description
+        self.symbols = symbols
+        self.leadingIcon = leadingIcon
+        self.badge = badge
+        self.emphasis = emphasis
+        self.action = action
+    }
 
     static func == (lhs: CommandOption, rhs: CommandOption) -> Bool {
         lhs.id == rhs.id
@@ -198,7 +219,7 @@ fileprivate struct CommandTable: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(options.enumerated()), id: \.1.id) { index, option in
                             CommandRow(
                                 option: option,
@@ -240,21 +261,46 @@ fileprivate struct CommandRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 8) {
+                if let icon = option.leadingIcon {
+                    Image(systemName: icon)
+                        .foregroundStyle(option.emphasis ? Color.accentColor : .secondary)
+                        .font(.system(size: 14, weight: .medium))
+                }
+                
                 Text(option.title)
+                    .fontWeight(option.emphasis ? .medium : .regular)
+                
                 Spacer()
+                
+                if let badge = option.badge, !badge.isEmpty {
+                    Text(badge)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(Color.accentColor.opacity(0.15))
+                        )
+                        .foregroundStyle(Color.accentColor)
+                }
+                
                 if let symbols = option.symbols {
                     ShortcutSymbolsView(symbols: symbols)
                         .foregroundStyle(.secondary)
                 }
             }
             .padding(8)
+            .contentShape(Rectangle())
             .background(
                 isSelected
                     ? Color.accentColor.opacity(0.2)
                     : (hoveredID == option.id
                        ? Color.secondary.opacity(0.2)
                        : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.accentColor.opacity(option.emphasis && !isSelected ? 0.3 : 0), lineWidth: 1.5)
             )
             .cornerRadius(5)
         }

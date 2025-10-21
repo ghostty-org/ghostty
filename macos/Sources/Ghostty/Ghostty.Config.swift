@@ -603,6 +603,17 @@ extension Ghostty {
             let str = String(cString: ptr)
             return MacShortcuts(rawValue: str) ?? defaultValue
         }
+
+        var scrollbar: Scrollbar {
+            let defaultValue = Scrollbar.system
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "scrollbar"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return Scrollbar(rawValue: str) ?? defaultValue
+        }
     }
 }
 
@@ -639,6 +650,11 @@ extension Ghostty.Config {
         case allow
         case deny
         case ask
+    }
+
+    enum Scrollbar: String {
+        case system
+        case never
     }
 
     enum ResizeOverlay : String {

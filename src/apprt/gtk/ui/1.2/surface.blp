@@ -174,6 +174,7 @@ template $GhosttySurface: Adw.Bin {
   notify::mouse-hover-url => $notify_mouse_hover_url();
   notify::mouse-hidden => $notify_mouse_hidden();
   notify::mouse-shape => $notify_mouse_shape();
+  notify::vadjustment => $notify_vadjustment();
   // Some history: we used to use a Stack here and swap between the
   // terminal and error pages as needed. But a Stack doesn't play nice
   // with our SplitTree and Gtk.Paned usage[^1]. Replacing this with

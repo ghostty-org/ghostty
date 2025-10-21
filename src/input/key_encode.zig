@@ -77,7 +77,7 @@ pub fn encode(
     event: key.KeyEvent,
     opts: Options,
 ) std.Io.Writer.Error!void {
-    // log.warn("KEYENCODER self={}", .{self.*});
+    //std.log.warn("KEYENCODER event={} opts={}", .{ event, opts });
     return if (opts.kitty_flags.int() != 0) try kitty(
         writer,
         event,
@@ -411,6 +411,10 @@ fn legacy(
         // ever be a multi-codepoint sequence that triggers this.
         if (it.nextCodepoint() != null) break :modify_other;
 
+        // The mods we encode for this are just the binding mods (shift, ctrl,
+        // super, alt).
+        const mods = event.mods.binding();
+
         // This copies xterm's `ModifyOtherKeys` function that returns
         // whether modify other keys should be encoded for the given
         // input.
@@ -420,7 +424,7 @@ fn legacy(
                 break :should_modify true;
 
             // If we have anything other than shift pressed, encode.
-            var mods_no_shift = binding_mods;
+            var mods_no_shift = mods;
             mods_no_shift.shift = false;
             if (!mods_no_shift.empty()) break :should_modify true;
 
@@ -435,7 +439,7 @@ fn legacy(
 
         if (should_modify) {
             for (function_keys.modifiers, 2..) |modset, code| {
-                if (!binding_mods.equal(modset)) continue;
+                if (!mods.equal(modset)) continue;
                 return try writer.print(
                     "\x1B[27;{};{}~",
                     .{ code, codepoint },
@@ -1963,6 +1967,20 @@ test "legacy: ctrl+shift+char with modify other state 2" {
     try legacy(&writer, .{
         .key = .key_h,
         .mods = .{ .ctrl = true, .shift = true },
+        .utf8 = "H",
+    }, .{
+        .modify_other_keys_state_2 = true,
+    });
+    try testing.expectEqualStrings("\x1b[27;6;72~", writer.buffered());
+}
+
+test "legacy: ctrl+shift+char with modify other state 2 and consumed mods" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_h,
+        .mods = .{ .ctrl = true, .shift = true },
+        .consumed_mods = .{ .shift = true },
         .utf8 = "H",
     }, .{
         .modify_other_keys_state_2 = true,

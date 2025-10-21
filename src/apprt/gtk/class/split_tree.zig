@@ -22,6 +22,7 @@ const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
+const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -874,7 +875,9 @@ pub const SplitTree = extern struct {
         current: Surface.Tree.Node.Handle,
     ) *gtk.Widget {
         return switch (tree.nodes[current.idx()]) {
-            .leaf => |v| v.as(gtk.Widget),
+            .leaf => |v| gobject.ext.newInstance(SurfaceScrolledWindow, .{
+                .surface = v,
+            }).as(gtk.Widget),
             .split => |s| SplitTreeSplit.new(
                 current,
                 &s,

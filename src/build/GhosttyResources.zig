@@ -125,14 +125,16 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     }
 
     // Themes
-    if (b.lazyDependency("iterm2_themes", .{})) |upstream| {
-        const install_step = b.addInstallDirectory(.{
-            .source_dir = upstream.path(""),
-            .install_dir = .{ .custom = "share" },
-            .install_subdir = b.pathJoin(&.{ "ghostty", "themes" }),
-            .exclude_extensions = &.{".md"},
-        });
-        try steps.append(b.allocator, &install_step.step);
+    if (cfg.emit_themes) {
+        if (b.lazyDependency("iterm2_themes", .{})) |upstream| {
+            const install_step = b.addInstallDirectory(.{
+                .source_dir = upstream.path(""),
+                .install_dir = .{ .custom = "share" },
+                .install_subdir = b.pathJoin(&.{ "ghostty", "themes" }),
+                .exclude_extensions = &.{".md"},
+            });
+            try steps.append(b.allocator, &install_step.step);
+        }
     }
 
     // Fish shell completions
@@ -225,7 +227,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     // 'ghostty.sublime-syntax' file from zig-out to the '~.config/bat/syntaxes'
     // directory. The syntax then needs to be mapped to the correct language in
     // the config file within the '~.config/bat' directory
-    // (ex: --map-syntax "/Users/user/.config/ghostty/config:Ghostty Config").
+    // (ex: --map-syntax "/Users/user/.config/ghostty/config.ghostty:Ghostty Config").
     {
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+sublime");

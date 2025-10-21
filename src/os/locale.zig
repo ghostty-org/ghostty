@@ -83,6 +83,11 @@ fn setLangFromCocoa() void {
     const lang = locale.getProperty(objc.Object, "languageCode");
     const country = locale.getProperty(objc.Object, "countryCode");
 
+    if (lang.value == null or country.value == null) {
+        log.warn("languageCode or countryCode not found. Locale may be incorrect.", .{});
+        return;
+    }
+
     // Get our UTF8 string values
     const c_lang = lang.getProperty([*:0]const u8, "UTF8String");
     const c_country = country.getProperty([*:0]const u8, "UTF8String");

@@ -54,16 +54,20 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     if contains cursor $features
         # Change the cursor to a beam on prompt.
         function __ghostty_set_cursor_beam --on-event fish_prompt -d "Set cursor shape"
-            echo -en "\e[5 q"
+            if not functions -q fish_vi_cursor_handle
+                echo -en "\e[5 q"
+            end
         end
         function __ghostty_reset_cursor --on-event fish_preexec -d "Reset cursor shape"
-            echo -en "\e[0 q"
+            if not functions -q fish_vi_cursor_handle
+                echo -en "\e[0 q"
+            end
         end
     end
 
     # Add Ghostty binary to PATH if the path feature is enabled
     if contains path $features; and test -n "$GHOSTTY_BIN_DIR"
-        fish_add_path --append "$GHOSTTY_BIN_DIR"
+        fish_add_path --global --path --append "$GHOSTTY_BIN_DIR"
     end
 
     # When using sudo shell integration feature, ensure $TERMINFO is set

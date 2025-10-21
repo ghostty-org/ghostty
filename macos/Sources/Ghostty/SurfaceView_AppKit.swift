@@ -1532,6 +1532,7 @@ extension Ghostty {
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
+            let scrollbar: Ghostty.Config.Scrollbar
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1539,6 +1540,7 @@ extension Ghostty {
                 self.macosWindowShadow = true
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
+                self.scrollbar = .system
             }
 
             init(_ config: Ghostty.Config) {
@@ -1547,6 +1549,7 @@ extension Ghostty {
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
+                self.scrollbar = config.scrollbar
             }
         }
 

@@ -104,6 +104,9 @@ pub const Message = union(enum) {
     /// of the command.
     stop_command: ?u8,
 
+    /// The scrollbar state changed for the surface.
+    scrollbar: terminal.Scrollbar,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 

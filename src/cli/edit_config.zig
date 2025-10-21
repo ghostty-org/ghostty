@@ -30,9 +30,9 @@ pub const Options = struct {
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
-/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config`.
+/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
 /// On macOS, this may also be located at
-/// `~/Library/Application Support/com.mitchellh.ghostty/config`.
+/// `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`.
 /// On macOS, whichever path exists and is non-empty will be prioritized,
 /// prioritizing the Application Support directory if neither are
 /// non-empty.
@@ -73,7 +73,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     defer config.deinit();
 
     // Find the preferred path.
-    const path = try Config.preferredDefaultFilePath(alloc);
+    const path = try configpkg.preferredDefaultFilePath(alloc);
     defer alloc.free(path);
 
     // We don't currently support Windows because we use the exec syscall.

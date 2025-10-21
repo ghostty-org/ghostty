@@ -216,11 +216,13 @@ pub const RenderOptions = struct {
         };
 
         pub const Height = enum {
-            /// Always use the full height of the cell for constraining this glyph.
+            /// Use the full line height of the primary face for
+            /// constraining this glyph.
             cell,
-            /// When the constraint width is 1, use the "icon height" from the grid
-            /// metrics as the height. (When the constraint width is >1, the
-            /// constraint height is always the full cell height.)
+            /// Use the icon height from the grid metrics for
+            /// constraining this glyph. Unlike `cell`, the value of
+            /// this height depends on both the constraint width and the
+            /// affected by the `adjust-icon-height` config option.
             icon,
         };
 
@@ -346,12 +348,14 @@ pub const RenderOptions = struct {
             const target_width = pad_width_factor * metrics.face_width;
             const target_height = pad_height_factor * switch (self.height) {
                 .cell => metrics.face_height,
-                // icon_height only applies with single-cell constraints.
-                // This mirrors font_patcher.
+                // Like font-patcher, the icon constraint height depends on the
+                // constraint width. Unlike font-patcher, the multi-cell
+                // icon_height may be different from face_height due to the
+                // `adjust-icon-height` config option.
                 .icon => if (multi_cell)
-                    metrics.face_height
+                    metrics.icon_height
                 else
-                    metrics.icon_height,
+                    metrics.icon_height_single,
             };
 
             var width_factor = target_width / group.width;
@@ -528,7 +532,8 @@ test "Constraints" {
         .box_thickness = 1,
         .cursor_thickness = 1,
         .cursor_height = 22,
-        .icon_height = 44.48 / 3.0,
+        .icon_height = 21.12,
+        .icon_height_single = 44.48 / 3.0,
         .face_width = 9.6,
         .face_height = 21.12,
         .face_y = 0.2,

@@ -41,6 +41,7 @@ fn computeIsSymbol(
     _ = tracking;
     const block = data.block;
     data.is_symbol = data.general_category == .other_private_use or
+        block == .arrows or
         block == .dingbats or
         block == .emoticons or
         block == .miscellaneous_symbols or

@@ -347,6 +347,10 @@ pub const Action = union(enum) {
     /// Scroll to the selected text.
     scroll_to_selection,
 
+    /// Scroll to the given absolute row in the screen with 0 being
+    /// the first row.
+    scroll_to_row: usize,
+
     /// Scroll the screen up by one page.
     scroll_page_up,
 
@@ -642,6 +646,17 @@ pub const Action = union(enum) {
     ///
     /// Only implemented on macOS, as this uses a built-in system API.
     toggle_secure_input,
+
+    /// Toggle mouse reporting on or off.
+    ///
+    /// When mouse reporting is disabled, mouse events will not be reported to
+    /// terminal applications even if they request it. This allows you to always
+    /// use the mouse for selection and other terminal UI interactions without
+    /// applications capturing mouse input.
+    ///
+    /// This can also be controlled via the `mouse-reporting` configuration
+    /// option.
+    toggle_mouse_reporting,
 
     /// Toggle the command palette.
     ///
@@ -1087,6 +1102,7 @@ pub const Action = union(enum) {
             .scroll_to_top,
             .scroll_to_bottom,
             .scroll_to_selection,
+            .scroll_to_row,
             .scroll_page_up,
             .scroll_page_down,
             .scroll_page_fractional,
@@ -1104,6 +1120,7 @@ pub const Action = union(enum) {
             .toggle_window_decorations,
             .toggle_window_float_on_top,
             .toggle_secure_input,
+            .toggle_mouse_reporting,
             .toggle_command_palette,
             .show_on_screen_keyboard,
             .reset_window_size,

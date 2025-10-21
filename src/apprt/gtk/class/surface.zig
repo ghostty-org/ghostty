@@ -40,12 +40,16 @@ pub const Surface = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.Bin;
+    pub const Implements = [_]type{gtk.Scrollable};
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttySurface",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
         .private = .{ .Type = Private, .offset = &Private.offset },
+        .implements = &.{
+            gobject.ext.implement(gtk.Scrollable, .{}),
+        },
     });
 
     /// A SplitTree implementation that stores surfaces.
@@ -301,6 +305,62 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const hadjustment = struct {
+            pub const name = "hadjustment";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*gtk.Adjustment,
+                .{
+                    .accessor = .{
+                        .getter = getHAdjustmentValue,
+                        .setter = setHAdjustmentValue,
+                    },
+                },
+            );
+        };
+
+        pub const vadjustment = struct {
+            pub const name = "vadjustment";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*gtk.Adjustment,
+                .{
+                    .accessor = .{
+                        .getter = getVAdjustmentValue,
+                        .setter = setVAdjustmentValue,
+                    },
+                },
+            );
+        };
+
+        pub const @"hscroll-policy" = struct {
+            pub const name = "hscroll-policy";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.ScrollablePolicy,
+                .{
+                    .default = .natural,
+                    .accessor = C.privateShallowFieldAccessor("hscroll_policy"),
+                },
+            );
+        };
+
+        pub const @"vscroll-policy" = struct {
+            pub const name = "vscroll-policy";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.ScrollablePolicy,
+                .{
+                    .default = .natural,
+                    .accessor = C.privateShallowFieldAccessor("vscroll_policy"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -548,6 +608,13 @@ pub const Surface = extern struct {
 
         action_group: ?*gio.SimpleActionGroup = null,
 
+        // Gtk.Scrollable interface adjustments
+        hadj: ?*gtk.Adjustment = null,
+        vadj: ?*gtk.Adjustment = null,
+        hscroll_policy: gtk.ScrollablePolicy = .natural,
+        vscroll_policy: gtk.ScrollablePolicy = .natural,
+        vadj_signal_group: ?*gobject.SignalGroup = null,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -714,6 +781,47 @@ pub const Surface = extern struct {
         return priv.im_context.as(gtk.IMContext).activateOsk(event) != 0;
     }
 
+    /// Set the scrollbar state for this surface. This will setup the
+    /// properties for our Gtk.Scrollable interface properly.
+    pub fn setScrollbar(self: *Self, scrollbar: terminal.Scrollbar) void {
+        // Update existing adjustment in-place. If we don't have an
+        // adjustment then we do nothing because we're not part of a
+        // scrolled window.
+        const vadj = self.getVAdjustment() orelse return;
+
+        // Check if values match existing adjustment and skip update if so
+        const value: f64 = @floatFromInt(scrollbar.offset);
+        const upper: f64 = @floatFromInt(scrollbar.total);
+        const page_size: f64 = @floatFromInt(scrollbar.len);
+
+        if (std.math.approxEqAbs(f64, vadj.getValue(), value, 0.001) and
+            std.math.approxEqAbs(f64, vadj.getUpper(), upper, 0.001) and
+            std.math.approxEqAbs(f64, vadj.getPageSize(), page_size, 0.001))
+        {
+            return;
+        }
+
+        // If we have a vadjustment we MUST have the signal group since
+        // it is setup in the prop handler.
+        const priv = self.private();
+        const group = priv.vadj_signal_group.?;
+
+        // During manual scrollbar changes from Ghostty core we don't
+        // want to emit value-changed signals so we block them. This would
+        // cause a waste of resources at best and infinite loops at worst.
+        group.block();
+        defer group.unblock();
+
+        vadj.configure(
+            value, // value: current scroll position
+            0, // lower: minimum value
+            upper, // upper: maximum value (total scrollable area)
+            1, // step_increment: amount to scroll on arrow click
+            page_size, // page_increment: amount to scroll on page up/down
+            page_size, // page_size: size of visible area
+        );
+    }
+
     /// Set the current progress report state.
     pub fn setProgressReport(
         self: *Self,
@@ -837,6 +945,8 @@ pub const Surface = extern struct {
             if (cfg.@"notify-on-command-finish" == .never) return true;
             if (cfg.@"notify-on-command-finish" == .unfocused and self.getFocused()) return true;
         }
+
+        if (value.duration.lte(cfg.@"notify-on-command-finish-after")) return true;
 
         const action = cfg.@"notify-on-command-finish-action";
 
@@ -1466,6 +1576,12 @@ pub const Surface = extern struct {
 
     pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
         const app = Application.default();
+        const priv: *Private = self.private();
+
+        const core_surface = priv.core_surface orelse {
+            log.warn("can't send notification because there is no core surface", .{});
+            return;
+        };
 
         const t = switch (title.len) {
             0 => "Ghostty",
@@ -1480,7 +1596,7 @@ pub const Surface = extern struct {
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
 
-        const pointer = glib.Variant.newUint64(@intFromPtr(self));
+        const pointer = glib.Variant.newUint64(@intFromPtr(core_surface));
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
             pointer,
@@ -1511,6 +1627,7 @@ pub const Surface = extern struct {
         priv.mouse_hidden = false;
         priv.focused = true;
         priv.size = .{ .width = 0, .height = 0 };
+        priv.vadj_signal_group = null;
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -1573,6 +1690,22 @@ pub const Surface = extern struct {
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
+        }
+
+        if (priv.vadj_signal_group) |group| {
+            group.setTarget(null);
+            group.as(gobject.Object).unref();
+            priv.vadj_signal_group = null;
+        }
+
+        if (priv.hadj) |v| {
+            v.as(gobject.Object).unref();
+            priv.hadj = null;
+        }
+
+        if (priv.vadj) |v| {
+            v.as(gobject.Object).unref();
+            priv.vadj = null;
         }
 
         if (priv.progress_bar_timer) |timer| {
@@ -1988,6 +2121,43 @@ pub const Surface = extern struct {
         self.as(gtk.Widget).setCursorFromName(name.ptr);
     }
 
+    fn vadjValueChanged(adj: *gtk.Adjustment, self: *Self) callconv(.c) void {
+        // This will trigger for every single pixel change in the adjustment,
+        // but our core surface handles the noise from this so that identical
+        // rows are cheap.
+        const core_surface = self.core() orelse return;
+        const row: usize = @intFromFloat(@round(adj.getValue()));
+        _ = core_surface.performBindingAction(.{ .scroll_to_row = row }) catch |err| {
+            log.err("error performing scroll_to_row action err={}", .{err});
+        };
+    }
+
+    fn propVAdjustment(
+        self: *Self,
+        _: *gobject.ParamSpec,
+        _: ?*anyopaque,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        // When vadjustment is first set, we setup the signal group lazily.
+        // This makes it so that if we don't use scrollbars, we never
+        // pay the memory cost of this.
+        const group: *gobject.SignalGroup = priv.vadj_signal_group orelse group: {
+            const group = gobject.SignalGroup.new(gtk.Adjustment.getGObjectType());
+            group.connect(
+                "value-changed",
+                @ptrCast(&vadjValueChanged),
+                self,
+            );
+
+            priv.vadj_signal_group = group;
+            break :group group;
+        };
+
+        // Setup our signal group target
+        group.setTarget(if (priv.vadj) |v| v.as(gobject.Object) else null);
+    }
+
     /// Handle bell features that need to happen every time a BEL is received
     /// Currently this is audio and system but this could change in the future.
     fn ringBell(self: *Self) void {
@@ -2050,6 +2220,66 @@ pub const Surface = extern struct {
             media_stream.setVolume(volume);
             media_stream.play();
         }
+    }
+
+    //---------------------------------------------------------------
+    // Gtk.Scrollable interface implementation
+
+    pub fn getHAdjustment(self: *Self) ?*gtk.Adjustment {
+        return self.private().hadj;
+    }
+
+    pub fn setHAdjustment(self: *Self, adj_: ?*gtk.Adjustment) void {
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.hadjustment.impl.param_spec);
+
+        const priv = self.private();
+        if (priv.hadj) |old| {
+            old.as(gobject.Object).unref();
+            priv.hadj = null;
+        }
+
+        const adj = adj_ orelse return;
+        _ = adj.as(gobject.Object).ref();
+        priv.hadj = adj;
+    }
+
+    fn getHAdjustmentValue(self: *Self, value: *gobject.Value) void {
+        gobject.ext.Value.set(value, self.getHAdjustment());
+    }
+
+    fn setHAdjustmentValue(self: *Self, value: *const gobject.Value) void {
+        self.setHAdjustment(gobject.ext.Value.get(value, ?*gtk.Adjustment));
+    }
+
+    pub fn getVAdjustment(self: *Self) ?*gtk.Adjustment {
+        return self.private().vadj;
+    }
+
+    pub fn setVAdjustment(self: *Self, adj_: ?*gtk.Adjustment) void {
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.vadjustment.impl.param_spec);
+
+        const priv = self.private();
+
+        if (priv.vadj) |old| {
+            old.as(gobject.Object).unref();
+            priv.vadj = null;
+        }
+
+        const adj = adj_ orelse return;
+        _ = adj.as(gobject.Object).ref();
+        priv.vadj = adj;
+    }
+
+    fn getVAdjustmentValue(self: *Self, value: *gobject.Value) void {
+        gobject.ext.Value.set(value, self.getVAdjustment());
+    }
+
+    fn setVAdjustmentValue(self: *Self, value: *const gobject.Value) void {
+        self.setVAdjustment(gobject.ext.Value.get(value, ?*gtk.Adjustment));
     }
 
     //---------------------------------------------------------------
@@ -3005,6 +3235,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
+            class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
 
@@ -3026,6 +3257,12 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+
+                // For Gtk.Scrollable
+                properties.hadjustment.impl,
+                properties.vadjustment.impl,
+                properties.@"hscroll-policy".impl,
+                properties.@"vscroll-policy".impl,
             });
 
             // Signals

@@ -1015,6 +1015,15 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
+        // Hide quick-terminal if set to autohide
+        if (self.isQuickTerminal()) {
+            if (self.getConfig()) |cfg| {
+                if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
+                    self.toggleVisibility();
+                }
+            }
+        }
+
         // Don't change urgency if we're not the active window.
         if (self.as(gtk.Window).isActive() == 0) return;
 
@@ -1585,6 +1594,9 @@ pub const Window = extern struct {
 
         // Grab focus
         surface.grabFocus();
+
+        // Bring the window to the front.
+        self.as(gtk.Window).present();
     }
 
     fn surfaceToggleFullscreen(

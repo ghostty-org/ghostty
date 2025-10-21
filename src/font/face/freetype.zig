@@ -378,6 +378,10 @@ pub const Face = struct {
             // else it won't look very good at all.
             .target_mono = self.load_flags.monochrome,
 
+            // Otherwise we select hinter based on the `light` flag.
+            .target_normal = !self.load_flags.light and !self.load_flags.monochrome,
+            .target_light = self.load_flags.light and !self.load_flags.monochrome,
+
             // NO_SVG set to true because we don't currently support rendering
             // SVG glyphs under FreeType, since that requires bundling another
             // dependency to handle rendering the SVG.
@@ -1143,7 +1147,7 @@ test {
             ft_font.glyphIndex('A').?,
             .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
         );
-        try testing.expectEqual(@as(u32, 20), g2.height);
+        try testing.expectEqual(@as(u32, 21), g2.height);
     }
 }
 
