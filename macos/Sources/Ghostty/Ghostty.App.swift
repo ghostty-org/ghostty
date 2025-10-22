@@ -27,7 +27,7 @@ extension Ghostty {
         /// The global app configuration. This defines the app level configuration plus any behavior
         /// for new windows, tabs, etc. Note that when creating a new window, it may inherit some
         /// configuration (i.e. font size) from the previously focused window. This would override this.
-        @Published fileprivate(set) var config: Config
+        @Published private(set) var config: Config
 
         /// Preferred config file than the default ones
         private var configPath: String?
