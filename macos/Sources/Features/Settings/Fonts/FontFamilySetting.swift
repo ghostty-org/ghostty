@@ -34,6 +34,9 @@ struct FontFamilySetting: Identifiable, Hashable {
     }
 
     var codePoints: [UnicodeRange] = []
+    var isForFallback: Bool {
+        !isForBold && !isForItalic && !isForBoldItalic && codePoints.isEmpty
+    }
     var isForBold = false
     var isForItalic = false
     var isForBoldItalic = false
