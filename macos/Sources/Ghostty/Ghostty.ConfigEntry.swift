@@ -82,11 +82,13 @@ extension Ghostty {
     // This could be turned into a macro
     @propertyWrapper
     struct ConfigEntry<Value: GhosttyConfigValueBridgeable, Bridge: GhosttyConfigValueConvertibleBridge>: DynamicProperty where Bridge.Value == Value, Bridge.UnderlyingValue == Value.UnderlyingValue {
-        static func getValue(from cfg: ghostty_config_t, key: String) -> Value? {
+        static func getValue(from cfg: ghostty_config_t, key: String, readDefaultValue: Bool) -> Value? {
             var v: Bridge.UnderlyingValue.GhosttyValue?
             // finalise a temporary config to get default values
             let tempCfg = ghostty_config_clone(cfg)
-            ghostty_config_finalize(tempCfg)
+            if readDefaultValue {
+                ghostty_config_finalize(tempCfg)
+            }
 
             let result = withUnsafeMutablePointer(to: &v) { p in
                 ghostty_config_get(tempCfg, p, key, UInt(key.count))
@@ -116,7 +118,7 @@ extension Ghostty {
                 guard let cfg = instance.config else {
                     return storedValue
                 }
-                guard let newValue = getValue(from: cfg, key: info.key) else {
+                guard let newValue = getValue(from: cfg, key: info.key, readDefaultValue: info.readDefaultValue) else {
                     return storedValue
                 }
                 instance[keyPath: storageKeyPath].storage.value = newValue
@@ -154,11 +156,7 @@ extension Ghostty {
             var id: String { key }
             let key: String
             let reloadOnSet: Bool
-
-            init(key: String, reloadOnSet: Bool) {
-                self.key = key
-                self.reloadOnSet = reloadOnSet
-            }
+            let readDefaultValue: Bool
         }
 
         @available(*, unavailable,
@@ -180,21 +178,21 @@ extension Ghostty {
             storage.map({ $0 ?? Value(underlyingValue: Value.UnderlyingValue(ghosttyValue: nil)) }).eraseToAnyPublisher()
         }
 
-        init(_ key: String, reload: Bool, bridge _: Bridge.Type) {
-            info = .init(key: key, reloadOnSet: reload)
+        init(_ key: String, reload: Bool, readDefaultValue: Bool, bridge _: Bridge.Type) {
+            info = .init(key: key, reloadOnSet: reload, readDefaultValue: readDefaultValue)
         }
     }
 }
 
 extension Ghostty.ConfigEntry where Bridge == TollFreeBridge<Value> {
-    init(_ key: String, reload: Bool = true) {
-        self.init(key, reload: reload, bridge: Bridge.self)
+    init(_ key: String, reload: Bool = true, readDefaultValue: Bool = true) {
+        self.init(key, reload: reload, readDefaultValue: readDefaultValue, bridge: Bridge.self)
     }
 }
 
 extension Ghostty.ConfigEntry where Bridge == GeneralGhosttyValueBridge<Value, Value.UnderlyingValue> {
-    init(parsing key: String, reload: Bool = true) {
-        self.init(key, reload: reload, bridge: Bridge.self)
+    init(parsing key: String, reload: Bool = true, readDefaultValue: Bool = true) {
+        self.init(key, reload: reload, readDefaultValue: readDefaultValue, bridge: Bridge.self)
     }
 }
 

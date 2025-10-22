@@ -20,11 +20,11 @@ struct FontSettingView: View {
                 Text(config.fontSyntheticStyle.representedValue)
             } popoverContent: {
                 Form {
-                    Toggle("Synthesize Bold Sytle", isOn: $config.fontSyntheticStyle.bold)
+                    Toggle("Bold", isOn: $config.fontSyntheticStyle.bold)
                         .padding(.vertical, 3)
-                    Toggle("Synthesize Italic Sytle", isOn: $config.fontSyntheticStyle.italic)
+                    Toggle("Italic", isOn: $config.fontSyntheticStyle.italic)
                         .padding(.vertical, 3)
-                    Toggle("Synthesize Bold Italic Sytle", isOn: $config.fontSyntheticStyle.boldItalic)
+                    Toggle("Bold Italic", isOn: $config.fontSyntheticStyle.boldItalic)
                         .padding(.vertical, 3)
                 }
                 .formStyle(.grouped)
