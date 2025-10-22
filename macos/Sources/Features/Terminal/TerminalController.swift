@@ -531,7 +531,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             frame.origin.x = max(screen.frame.origin.x, min(frame.origin.x, screen.frame.maxX - newWidth))
             frame.origin.y = max(screen.frame.origin.y, min(frame.origin.y, screen.frame.maxY - newHeight))
 
-            return frame
+            return adjustForWindowPosition(frame: frame, on: screen)
         }
 
         guard let initialFrame else { return nil }
@@ -549,7 +549,30 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         frame.origin.x = max(screen.frame.origin.x, min(frame.origin.x, screen.frame.maxX - newWidth))
         frame.origin.y = max(screen.frame.origin.y, min(frame.origin.y, screen.frame.maxY - newHeight))
 
-        return frame
+        return adjustForWindowPosition(frame: frame, on: screen)
+    }
+    
+    /// Adjusts the given frame for the configured window position.
+    func adjustForWindowPosition(frame: NSRect, on screen: NSScreen) -> NSRect {
+        guard let x = derivedConfig.windowPositionX else { return frame }
+        guard let y = derivedConfig.windowPositionY else { return frame }
+
+        // Convert top-left coordinates to bottom-left origin using our utility extension
+        let origin = screen.origin(
+            fromTopLeftOffsetX: CGFloat(x),
+            offsetY: CGFloat(y),
+            windowSize: frame.size)
+        
+        // Clamp the origin to ensure the window stays fully visible on screen
+        var safeOrigin = origin
+        let vf = screen.visibleFrame
+        safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
+        safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
+        
+        // Return our new origin
+        var result = frame
+        result.origin = safeOrigin
+        return result
     }
 
     /// This is called anytime a node in the surface tree is being removed.
@@ -1362,12 +1385,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let macosWindowButtons: Ghostty.MacOSWindowButtons
         let macosTitlebarStyle: String
         let maximize: Bool
+        let windowPositionX: Int16?
+        let windowPositionY: Int16?
 
         init() {
             self.backgroundColor = Color(NSColor.windowBackgroundColor)
             self.macosWindowButtons = .visible
             self.macosTitlebarStyle = "system"
             self.maximize = false
+            self.windowPositionX = nil
+            self.windowPositionY = nil
         }
 
         init(_ config: Ghostty.Config) {
@@ -1375,6 +1402,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self.macosWindowButtons = config.macosWindowButtons
             self.macosTitlebarStyle = config.macosTitlebarStyle
             self.maximize = config.maximize
+            self.windowPositionX = config.windowPositionX
+            self.windowPositionY = config.windowPositionY
         }
     }
 }

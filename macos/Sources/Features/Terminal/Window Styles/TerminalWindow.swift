@@ -84,8 +84,7 @@ class TerminalWindow: NSWindow {
         // fallback to original centering behavior
         setInitialWindowPosition(
             x: config.windowPositionX,
-            y: config.windowPositionY,
-            windowDecorations: config.windowDecorations)
+            y: config.windowPositionY)
 
         // If our traffic buttons should be hidden, then hide them
         if config.macosWindowButtons == .hidden {
@@ -463,7 +462,7 @@ class TerminalWindow: NSWindow {
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
     }
 
-    private func setInitialWindowPosition(x: Int16?, y: Int16?, windowDecorations: Bool) {
+    private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
         guard let x, let y else {
             if (!LastWindowPosition.shared.restore(self)) {
@@ -479,19 +478,14 @@ class TerminalWindow: NSWindow {
             return
         }
 
-        // Convert top-left coordinates to bottom-left origin using our utility extension
-        let origin = screen.origin(
-            fromTopLeftOffsetX: CGFloat(x),
-            offsetY: CGFloat(y),
-            windowSize: frame.size)
+        // We have an X/Y, use our controller function to set it up.
+        guard let terminalController else {
+            center()
+            return
+        }
         
-        // Clamp the origin to ensure the window stays fully visible on screen
-        var safeOrigin = origin
-        let vf = screen.visibleFrame
-        safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
-        safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
-        
-        setFrameOrigin(safeOrigin)
+        let frame = terminalController.adjustForWindowPosition(frame: frame, on: screen)
+        setFrameOrigin(frame.origin)
     }
 
     private func hideWindowButtons() {
