@@ -5679,10 +5679,14 @@ pub const RepeatableString = struct {
 
         const copy = try alloc.dupeZ(u8, value);
         try self.list.append(alloc, copy);
-        // Populate the C-compatible list: key is initially empty, set later in repeatableCval.
         try self.list_c.append(alloc, .{
             .key = "",
-            .value = copy,
+            .value = try std.fmt.allocPrintSentinel(
+                alloc,
+                "{s}",
+                .{copy},
+                0,
+            ),
         });
     }
 
@@ -5722,12 +5726,8 @@ pub const RepeatableString = struct {
         }
     }
 
-    /// Returns a C-compatible representation of the list with the specified key.
-    pub fn repeatableCval(self: *RepeatableString, key_str: [:0]const u8) RepeatableItemList {
-        // Set the key for each item to the provided key_str.
-        for (self.list_c.items) |*item| {
-            item.key = key_str;
-        }
+    /// Returns a C-compatible representation of the list.
+    pub fn cval(self: RepeatableString) RepeatableItemList {
         return .{
             .items = self.list_c.items.ptr,
             .len = self.list_c.items.len,
@@ -5826,11 +5826,11 @@ pub const RepeatableString = struct {
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "B");
 
-        const c_list = list.repeatableCval("test-key");
+        const c_list = list.cval();
         try testing.expectEqual(@as(usize, 2), c_list.len);
-        try testing.expectEqualStrings("test-key", std.mem.span(c_list.items[0].key));
+        try testing.expectEqualStrings("", std.mem.span(c_list.items[0].key));
         try testing.expectEqualStrings("A", std.mem.span(c_list.items[0].value));
-        try testing.expectEqualStrings("test-key", std.mem.span(c_list.items[1].key));
+        try testing.expectEqualStrings("", std.mem.span(c_list.items[1].key));
         try testing.expectEqualStrings("B", std.mem.span(c_list.items[1].value));
     }
 };
@@ -5888,11 +5888,7 @@ pub const RepeatableFontVariation = struct {
     }
 
     /// Return a C-compatible repeatable item list.
-    pub fn repeatableCval(self: *RepeatableFontVariation, key_str: [:0]const u8) RepeatableItemList {
-        // Set the key for each item to the provided key_str.
-        for (self.list_c.items) |*item| {
-            item.key = key_str;
-        }
+    pub fn cval(self: RepeatableFontVariation) RepeatableItemList {
         return .{
             .items = self.list_c.items.ptr,
             .len = self.list_c.items.len,
@@ -7480,8 +7476,7 @@ pub const RepeatableCodepointMap = struct {
     }
 
     /// Return a C-compatible repeatable item list.
-    pub fn repeatableCval(self: *RepeatableCodepointMap, key_str: [:0]const u8) RepeatableItemList {
-        _ = key_str; // unused, key is already populated on parse
+    pub fn cval(self: RepeatableCodepointMap) RepeatableItemList {
         return .{
             .items = self.list_c.items.ptr,
             .len = self.list_c.items.len,

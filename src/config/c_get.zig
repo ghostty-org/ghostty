@@ -65,14 +65,6 @@ fn getValue(k: Key, ptr_raw: *anyopaque, value: anytype) bool {
             },
 
             .@"struct" => |info| {
-                // If the struct implements repeatableCval and returns RepeatableItemList, call it with the key.
-                if (@hasDecl(T, "repeatableCval")) {
-                    const PtrT = @typeInfo(@TypeOf(T.repeatableCval)).@"fn".return_type.?;
-                    const ptr: *PtrT = @ptrCast(@alignCast(ptr_raw));
-                    ptr.* = @constCast(&value).repeatableCval(@tagName(k));
-                    return true;
-                }
-
                 // If the struct implements cval then we call then.
                 if (@hasDecl(T, "cval")) {
                     const PtrT = @typeInfo(@TypeOf(T.cval)).@"fn".return_type.?;
