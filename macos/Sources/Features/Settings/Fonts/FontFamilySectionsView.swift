@@ -9,10 +9,10 @@ import SwiftUI
 
 struct FontFamilySectionsView: View {
     @EnvironmentObject var config: Ghostty.ConfigFile
-    @EnvironmentObject var viewModel: FontSettingsViewModel
 
     var body: some View {
-        ForEach($viewModel.fontSettings) { setting in
+        let _ = Self._printChanges()
+        ForEach($config.fontSettings) { setting in
             Section {
                 Picker(selection: setting.family) {
                     ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) {
@@ -23,7 +23,7 @@ struct FontFamilySectionsView: View {
                     Text("Family Name")
                 }
 
-                CollapsedSettingsRow(help: "Explicitly specify this for selected styles") {
+                PopoverSettingsRow(help: "Explicitly specify this for selected styles") {
                     Text("Styles")
                 } popoverAnchor: {
                     Text("Select")
@@ -45,6 +45,35 @@ struct FontFamilySectionsView: View {
                 }
                 .tip("You can specify multiple ranges for this font separated by commas, such as U+ABCD-U+DEFG,U+1234-U+5678.\nOr just leave it empty")
 
+                if !setting.variationSettings.isEmpty {
+                    PopoverSettingsRow {
+                        Text("Variations")
+                    } popoverAnchor: {
+                        Text("Set")
+                    } popoverContent: {
+                        Form {
+                            ForEach(setting.variationSettings) { variation in
+                                let wrapped = variation.wrappedValue
+                                // using step with Liquid glass will add dots under the slider
+                                // which is really expensive to render
+                                // so we let the system decide the step
+                                // without explicitly setting them
+                                SettingsRow(help: wrapped.valueString) {
+                                    Slider(
+                                        value: variation.value,
+                                        in: wrapped.valueRange,
+                                        minimumValueLabel: Text(wrapped.minimumValueString).frame(width: 50, alignment: .trailing),
+                                        maximumValueLabel: Text(wrapped.maximumValueString).frame(width: 50, alignment: .leading)
+                                    ) {
+                                        Text(wrapped.name)
+                                    }
+                                }
+                            }
+                        }
+                        .formStyle(.grouped)
+                        .frame(width: 500)
+                    }
+                }
             } header: {
                 HStack {
                     Text(setting.family.wrappedValue)
@@ -52,7 +81,7 @@ struct FontFamilySectionsView: View {
                     Spacer()
                     Menu {
                         Button("Delete \(setting.family.wrappedValue) and all its code points") {
-                            viewModel.removeFontFamily(setting.wrappedValue)
+                            config.removeFontFamily(setting.wrappedValue)
                         }
                     } label: {
                         Image(systemName: "minus.circle.fill")

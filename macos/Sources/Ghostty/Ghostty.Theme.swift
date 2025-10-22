@@ -32,7 +32,7 @@ extension Ghostty {
     }
 
     /// Swift type for `ghostty_config_theme_s`, only supports name for now
-    struct Theme: GhosttyConfigValueConvertible {
+    struct Theme: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
         static let defaultValue = Self(light: "Ghostty Default Style Dark", dark: "Ghostty Default Style Dark")
 
         var light: String = ""
@@ -82,7 +82,7 @@ extension Ghostty {
             self.dark = dark
         }
 
-        var representedValue: [String] {
+        func representedValues(for key: String) -> [String] {
             guard light != dark, !light.isEmpty, !dark.isEmpty else {
                 return [light.isEmpty ? dark : light]
             }

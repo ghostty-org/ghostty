@@ -51,7 +51,7 @@ extension SettingsRow where Footer == Text? {
     }
 }
 
-struct CollapsedSettingsRow<Label: View, PopoverAnchor: View, PopoverContent: View>: View {
+struct PopoverSettingsRow<Label: View, PopoverAnchor: View, PopoverContent: View>: View {
     let label: Label
     let popoverAnchor: PopoverAnchor
     let popoverContent: PopoverContent

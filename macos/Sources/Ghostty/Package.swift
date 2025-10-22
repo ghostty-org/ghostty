@@ -92,7 +92,7 @@ extension Ghostty {
         }
     }
 
-    struct RepeatableItem: Identifiable {
+    struct RepeatableItem: Identifiable, Hashable {
         var id: String { key + value }
         let key: String
         var value: String

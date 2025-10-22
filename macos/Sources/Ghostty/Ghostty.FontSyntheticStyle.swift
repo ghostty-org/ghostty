@@ -9,18 +9,19 @@ import Foundation
 
 extension Ghostty {
     struct FontSyntheticStyle: Hashable {
-        internal init(bold: Bool = true, italic: Bool = true, boldItalic: Bool = true) {
+        init(bold: Bool = true, italic: Bool = true, boldItalic: Bool = true) {
             self.bold = bold
             self.italic = italic
             self.boldItalic = boldItalic
         }
-        
+
         var bold = true
         var italic = true
         var boldItalic = true
     }
 }
-extension Ghostty.FontSyntheticStyle: GhosttyConfigValueConvertible {
+
+extension Ghostty.FontSyntheticStyle: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = String
 
     init(ghosttyValue: String?) {
@@ -28,7 +29,7 @@ extension Ghostty.FontSyntheticStyle: GhosttyConfigValueConvertible {
             self.init()
             return
         }
-        let parts = ghosttyValue.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+        let parts = ghosttyValue.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         var style = Ghostty.FontSyntheticStyle()
         if parts.contains("no-bold") || parts.contains("false") {
             style.bold = false
@@ -42,11 +43,11 @@ extension Ghostty.FontSyntheticStyle: GhosttyConfigValueConvertible {
         self = style
     }
 
-    var representedValue: [String] {
+    var representedValue: String {
         if bold, italic, boldItalic {
-            return ["true"]
+            return "true"
         } else if !bold, !italic, !boldItalic {
-            return ["false"]
+            return "false"
         } else {
             var result: [String] = []
             if !bold {
@@ -58,7 +59,11 @@ extension Ghostty.FontSyntheticStyle: GhosttyConfigValueConvertible {
             if !boldItalic {
                 result.append("no-bold-italic")
             }
-            return [result.joined(separator: ",")]
+            return result.joined(separator: ",")
         }
+    }
+
+    func representedValues(for key: String) -> [String] {
+        [representedValue]
     }
 }

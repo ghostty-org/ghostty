@@ -8,19 +8,19 @@
 import SwiftUI
 
 struct FontStyleView: View {
-    @EnvironmentObject var viewModel: FontSettingsViewModel
+    @EnvironmentObject var config: Ghostty.ConfigFile
     var body: some View {
         Section {
-            Picker("Regular", selection: $viewModel.selectedRegularStyle) {
+            Picker("Regular", selection: $config.regularFontStyle) {
                 availableFontFacesView
             }
-            Picker("Bold", selection: $viewModel.selectedBoldStyle) {
+            Picker("Bold", selection: $config.boldFontStyle) {
                 availableFontFacesView
             }
-            Picker("Italic", selection: $viewModel.selectedItalicStyle) {
+            Picker("Italic", selection: $config.italicFontStyle) {
                 availableFontFacesView
             }
-            Picker("Bold Italic", selection: $viewModel.selectedBoldItalicStyle) {
+            Picker("Bold Italic", selection: $config.boldItalicFontStyle) {
                 availableFontFacesView
             }
         }
@@ -31,7 +31,7 @@ struct FontStyleView: View {
         Text("---").tag(String?.none) // unset
         Text("Disable").tag("false") // disable
         Divider()
-        ForEach(viewModel.availableFontFaces, id: \.self) { fontFace in
+        ForEach(config.availableFontFaces, id: \.self) { fontFace in
             Text(fontFace)
                 .tag(fontFace)
         }

@@ -5688,37 +5688,9 @@ pub const RepeatableString = struct {
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        // Copy the list and all the strings in the list.
-        var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
-            alloc,
-            self.list.items.len,
-        );
-        var list_c = try std.ArrayListUnmanaged(RepeatableItem).initCapacity(
-            alloc,
-            self.list_c.items.len,
-        );
-        errdefer {
-            for (list.items) |item| alloc.free(item);
-            list.deinit(alloc);
-            for (list_c.items) |item| {
-                alloc.free(std.mem.span(item.key));
-                alloc.free(std.mem.span(item.value));
-            }
-            list_c.deinit(alloc);
-        }
-        for (self.list.items, self.list_c.items) |str, item| {
-            const copy = try alloc.dupeZ(u8, str);
-            list.appendAssumeCapacity(copy);
-            // For list_c, key is initially empty, value is the copied string.
-            list_c.appendAssumeCapacity(.{
-                .key = try alloc.dupeZ(u8, std.mem.span(item.key)),
-                .value = copy,
-            });
-        }
-
         return .{
-            .list = list,
-            .list_c = list_c,
+            .list = try self.list.clone(alloc),
+            .list_c = try self.list_c.clone(alloc),
         };
     }
 
@@ -5880,6 +5852,8 @@ pub const RepeatableFontVariation = struct {
 
     // Allocator for the list is the arena for the parent config.
     list: std.ArrayListUnmanaged(fontpkg.face.Variation) = .{},
+    // C-compatible list of RepeatableItem (key populated on parse).
+    list_c: std.ArrayListUnmanaged(RepeatableItem) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
@@ -5892,12 +5866,14 @@ pub const RepeatableFontVariation = struct {
             .id = fontpkg.face.Variation.Id.init(@ptrCast(key.ptr)),
             .value = std.fmt.parseFloat(f64, value) catch return error.InvalidValue,
         });
+        try self.list_c.append(alloc, .{ .key = "", .value = try std.fmt.allocPrintSentinel(alloc, "{s}={s}", .{ key, value }, 0) });
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         return .{
             .list = try self.list.clone(alloc),
+            .list_c = try self.list_c.clone(alloc),
         };
     }
 
@@ -5909,6 +5885,18 @@ pub const RepeatableFontVariation = struct {
         for (itemsA, itemsB) |a, b| {
             if (!std.meta.eql(a, b)) return false;
         } else return true;
+    }
+
+    /// Return a C-compatible repeatable item list.
+    pub fn repeatableCval(self: *RepeatableFontVariation, key_str: [:0]const u8) RepeatableItemList {
+        // Set the key for each item to the provided key_str.
+        for (self.list_c.items) |*item| {
+            item.key = key_str;
+        }
+        return .{
+            .items = self.list_c.items.ptr,
+            .len = self.list_c.items.len,
+        };
     }
 
     /// Used by Formatter
@@ -7457,33 +7445,26 @@ pub const RepeatableCodepointMap = struct {
                 },
             });
 
-            try self.list_c.append(alloc, .{ .key = valueZ, .value = try std.fmt.allocPrintSentinel(alloc, "U+{X:0>4}-U+{X:0>4}", .{ range[0], range[1] }, 0) });
+            // key: codepoint range
+            // value: family name
+            try self.list_c.append(alloc, .{
+                .key = try std.fmt.allocPrintSentinel(
+                    alloc,
+                    "U+{X:0>4}-U+{X:0>4}",
+                    .{ range[0], range[1] },
+                    0,
+                ),
+                .value = valueZ,
+            });
         }
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        const copied_map = try self.map.clone(alloc);
-
-        // Clone the C-compatible list as well.
-        var list_c = try std.ArrayListUnmanaged(RepeatableItem).initCapacity(alloc, self.list_c.items.len);
-        errdefer {
-            // On error free allocated strings we appended so far.
-            for (list_c.items) |item| {
-                // keys and values were allocated as zero-terminated strings
-                alloc.free(std.mem.span(item.key));
-                alloc.free(std.mem.span(item.value));
-            }
-            list_c.deinit(alloc);
-        }
-
-        for (self.list_c.items) |item| {
-            const key_copy = try alloc.dupeZ(u8, std.mem.span(item.key));
-            const val_copy = try alloc.dupeZ(u8, std.mem.span(item.value));
-            try list_c.append(alloc, .{ .key = key_copy, .value = val_copy });
-        }
-
-        return .{ .map = copied_map, .list_c = list_c };
+        return .{
+            .map = try self.map.clone(alloc),
+            .list_c = try self.list_c.clone(alloc),
+        };
     }
 
     /// Compare if two of our value are equal. Required by Config.
@@ -7498,8 +7479,7 @@ pub const RepeatableCodepointMap = struct {
         } else return true;
     }
 
-    /// Return a C-compatible repeatable item list for this map. The provided
-    /// key_str will be set as the key for every returned item.
+    /// Return a C-compatible repeatable item list.
     pub fn repeatableCval(self: *RepeatableCodepointMap, key_str: [:0]const u8) RepeatableItemList {
         _ = key_str; // unused, key is already populated on parse
         return .{

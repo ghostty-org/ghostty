@@ -8,17 +8,16 @@
 import SwiftUI
 
 struct FontSettingView: View {
-    @EnvironmentObject var vm: FontSettingsViewModel
     @EnvironmentObject var config: Ghostty.ConfigFile
     @State private var isSyntheticStylePopoverOpen = false
     var body: some View {
         Section {
-            CollapsedSettingsRow(help: """
+            PopoverSettingsRow(help: """
                 If synthetic styles are disabled, then the regular style will be used instead if the requested style is not available. If the font has the requested style, then the font will be used as-is since the style is not synthetic.
                 """, attachmentAnchor: .point(.bottomTrailing)) {
                 Text("Synthesize Styles")
             } popoverAnchor: {
-                Text(config.fontSyntheticStyle.representedValue[0])
+                Text(config.fontSyntheticStyle.representedValue)
             } popoverContent: {
                 Form {
                     Toggle("Synthesize Bold Sytle", isOn: $config.fontSyntheticStyle.bold)
@@ -32,14 +31,13 @@ struct FontSettingView: View {
                 .frame(width: 200)
             }
 
-            CollapsedSettingsRow(help: "The named font style to use for each of the requested font styles") {
+            PopoverSettingsRow(help: "The named font style to use for each of the requested font styles") {
                 Text("Style Overrides")
             } popoverAnchor: {
                 Text("Set")
             } popoverContent: {
                 Form {
                     FontStyleView()
-                        .environmentObject(vm)
                 }
                 .formStyle(.grouped)
                 .frame(width: 300)
@@ -52,8 +50,8 @@ struct FontSettingView: View {
                 }
             }
 
-            SettingsRow(help: config.fontSize.formatted(.number.precision(.fractionLength(1)))) {
-                Slider(value: $config.fontSize, in: 8...80, step: 0.5, minimumValueLabel: Text("8"), maximumValueLabel: Text("80")) {
+            SettingsRow(help: config.fontSize.formatted(.number.precision(.fractionLength(1)).grouping(.never))) {
+                Slider(value: $config.fontSize, in: 8...80, minimumValueLabel: Text("8"), maximumValueLabel: Text("80")) {
                     Text("Font Size")
                 }
             }
