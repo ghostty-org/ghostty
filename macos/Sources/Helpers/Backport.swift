@@ -43,22 +43,6 @@ extension Backport where Content: View {
         #endif
     }
 
-    @MainActor @preconcurrency func backgroundExtensionEffect(isEnabled: Bool = true) -> some View {
-        if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, *) {
-            return content.backgroundExtensionEffect(isEnabled: isEnabled)
-        } else {
-            return content
-        }
-    }
-
-    nonisolated func scrollEdgeEffectStyle(_ style: BackportScrollEdgeEffectStyle?, for edge: Edge.Set) -> some View {
-        if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, *) {
-            return content.scrollEdgeEffectStyle(style?.official, for: edge)
-        } else {
-            return content
-        }
-    }
-
     nonisolated func contentMargins(_ edges: Edge.Set = .all, _ length: CGFloat?, for placement: BackportContentMarginPlacement = .automatic) -> some View {
         if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
             return content.contentMargins(edges, length, for: placement.official)
@@ -79,19 +63,6 @@ enum BackportVisibility {
         case .automatic: return .automatic
         case .visible: return .visible
         case .hidden: return .hidden
-        }
-    }
-}
-
-enum BackportScrollEdgeEffectStyle: Hashable, Sendable {
-    case automatic, hard, soft
-
-    @available(iOS 26.0, macOS 26.0, tvOS 26.0, watchOS 26.0, *)
-    var official: ScrollEdgeEffectStyle {
-        switch self {
-        case .automatic: return .automatic
-        case .hard: return .hard
-        case .soft: return .soft
         }
     }
 }
