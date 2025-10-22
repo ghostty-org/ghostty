@@ -75,7 +75,7 @@
  * char simple_paste[] = "pasted content";
  * char encoded[128];
  *
- * if (ghostty_paste_encoder_encode(simple_paste, strlen(simple_paste), encoder,
+ * if (ghostty_paste_encoder_encode(encoder, simple_paste, strlen(simple_paste),
  *                                  encoded, sizeof(encoded),
  *                                  &required) != GHOSTTY_SUCCESS) {
  *   printf("Failed to encode paste data\n");
@@ -197,9 +197,9 @@ void ghostty_paste_encoder_set_bracketed(GhosttyPasteEncoder encoder,
  * > WARNING: The input data is not checked for safety. See the
  * ghostty_paste_is_safe() function to check if the data is safe to paste.
  *
+ * @param encoder The paste encoder handle, (must not be NULL)
  * @param data The paste data to encode (must not be NULL)
  * @param len The length of the data in bytes
- * @param encoder The paste encoder handle, (must not be NULL)
  * @param out The output buffer to write the encoded data into (must not be
  * NULL)
  * @param out_len The length of the output buffer in bytes
@@ -209,9 +209,9 @@ void ghostty_paste_encoder_set_bracketed(GhosttyPasteEncoder encoder,
  *
  * @ingroup paste
  */
-GhosttyResult ghostty_paste_encoder_encode(char* data,
+GhosttyResult ghostty_paste_encoder_encode(GhosttyPasteEncoder encoder,
+                                           char* data,
                                            size_t len,
-                                           GhosttyPasteEncoder encoder,
                                            char* out,
                                            size_t out_len,
                                            size_t* out_written);

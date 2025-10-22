@@ -42,9 +42,9 @@ pub fn encoder_set_bracketed(encoder_: Encoder, enabled: bool) callconv(.c) void
 }
 
 pub fn encode(
+    encoder_: Encoder,
     data_: ?[*]u8,
     len: usize,
-    encoder_: Encoder,
     out_: ?[*]u8,
     out_len: usize,
     out_written_: ?*usize,
@@ -74,16 +74,6 @@ pub fn is_safe(data: ?[*]const u8, len: usize) callconv(.c) bool {
     return paste.isSafe(slice);
 }
 
-test "alloc paste encoder" {
-    const testing = std.testing;
-    var e: Encoder = undefined;
-    try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
-        &e,
-    ));
-    free(e);
-}
-
 test "is_safe with safe data" {
     const testing = std.testing;
     const safe = "hello world";
@@ -111,4 +101,84 @@ test "is_safe with empty data" {
 test "is_safe with null empty data" {
     const testing = std.testing;
     try testing.expect(is_safe(null, 0));
+}
+
+test "encode bracketed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var encoder: Encoder = undefined;
+    try testing.expect(new(&lib_alloc.test_allocator, &encoder) == .success);
+    encoder_set_bracketed(encoder, true);
+
+    const text: []u8 = try alloc.dupe(u8, "hello");
+    defer alloc.free(text);
+
+    var out: [128]u8 = undefined;
+    var out_len: usize = 0;
+
+    try testing.expect(encode(encoder, text.ptr, text.len, &out, out.len, &out_len) == .success);
+    try testing.expectEqualStrings("\x1b[200~hello\x1b[201~", out[0 .. out_len - 1]);
+
+    free(encoder);
+}
+
+test "encode unbracketed no newlines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var encoder: Encoder = undefined;
+    try testing.expect(new(&lib_alloc.test_allocator, &encoder) == .success);
+    encoder_set_bracketed(encoder, false);
+
+    const text: []u8 = try alloc.dupe(u8, "hello");
+    defer alloc.free(text);
+
+    var out: [128]u8 = undefined;
+    var out_len: usize = 0;
+
+    try testing.expect(encode(encoder, text.ptr, text.len, &out, out.len, &out_len) == .success);
+    try testing.expectEqualStrings("hello", out[0 .. out_len - 1]);
+
+    free(encoder);
+}
+
+test "encode unbracketed newlines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var encoder: Encoder = undefined;
+    try testing.expect(new(&lib_alloc.test_allocator, &encoder) == .success);
+    encoder_set_bracketed(encoder, false);
+
+    const text: []u8 = try alloc.dupe(u8, "hello\nworld");
+    defer alloc.free(text);
+
+    var out: [128]u8 = undefined;
+    var out_len: usize = 0;
+
+    try testing.expect(encode(encoder, text.ptr, text.len, &out, out.len, &out_len) == .success);
+    try testing.expectEqualStrings("hello\rworld", out[0 .. out_len - 1]);
+
+    free(encoder);
+}
+
+test "encode unbracketed windows-style newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var encoder: Encoder = undefined;
+    try testing.expect(new(&lib_alloc.test_allocator, &encoder) == .success);
+    encoder_set_bracketed(encoder, false);
+
+    const text: []u8 = try alloc.dupe(u8, "hello\r\nworld");
+    defer alloc.free(text);
+
+    var out: [128]u8 = undefined;
+    var out_len: usize = 0;
+
+    try testing.expect(encode(encoder, text.ptr, text.len, &out, out.len, &out_len) == .success);
+    try testing.expectEqualStrings("hello\r\rworld", out[0 .. out_len - 1]);
+
+    free(encoder);
 }

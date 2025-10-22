@@ -45,7 +45,7 @@ int main() {
   char simple_paste[] = "pasted content";
   char encoded[128];
 
-  if (ghostty_paste_encoder_encode(simple_paste, strlen(simple_paste), encoder,
+  if (ghostty_paste_encoder_encode(encoder, simple_paste, strlen(simple_paste),
                                    encoded, sizeof(encoded),
                                    &required) != GHOSTTY_SUCCESS) {
     printf("Failed to encode paste data\n");
@@ -69,7 +69,7 @@ int main() {
   char encoded_multi[128];
 
   if (ghostty_paste_encoder_encode(
-          multiline_paste, strlen(multiline_paste), encoder, encoded_multi,
+          encoder, multiline_paste, strlen(multiline_paste), encoded_multi,
           sizeof(encoded_multi), &required) != GHOSTTY_SUCCESS) {
     printf("Failed to encode multiline paste data\n");
     return 1;
