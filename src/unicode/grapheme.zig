@@ -151,35 +151,39 @@ fn graphemeBreakClass(
 /// If you build this file as a binary, we will verify the grapheme break
 /// implementation. This iterates over billions of codepoints so it is
 /// SLOW. It's not meant to be run in CI, but it's useful for debugging.
+/// TODO: this is hard to build with newer zig build, so
+/// https://github.com/ghostty-org/ghostty/pull/7806 took the approach of
+/// adding a `-Demit-unicode-test` option for `zig build`, but that
+/// hasn't been done here.
 pub fn main() !void {
-    const ziglyph = @import("ziglyph");
+    const uucode = @import("uucode");
 
     // Set the min and max to control the test range.
     const min = 0;
-    const max = std.math.maxInt(u21) + 1;
+    const max = uucode.config.max_code_point + 1;
 
     var state: BreakState = .{};
-    var zg_state: u3 = 0;
+    var uu_state: uucode.grapheme.BreakState = .default;
     for (min..max) |cp1| {
         if (cp1 % 1000 == 0) std.log.warn("progress cp1={}", .{cp1});
 
         if (cp1 == '\r' or cp1 == '\n' or
-            ziglyph.grapheme_break.isControl(@intCast(cp1))) continue;
+            uucode.get(.grapheme_break, @intCast(cp1)) == .control) continue;
 
         for (min..max) |cp2| {
             if (cp2 == '\r' or cp2 == '\n' or
-                ziglyph.grapheme_break.isControl(@intCast(cp2))) continue;
+                uucode.get(.grapheme_break, @intCast(cp1)) == .control) continue;
 
             const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
-            const zg_gb = ziglyph.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg_state);
-            if (gb != zg_gb) {
-                std.log.warn("cp1={x} cp2={x} gb={} state={} zg_gb={} zg_state={}", .{
+            const uu_gb = uucode.grapheme.isBreak(@intCast(cp1), @intCast(cp2), &uu_state);
+            if (gb != uu_gb) {
+                std.log.warn("cp1={x} cp2={x} gb={} state={} uu_gb={} uu_state={}", .{
                     cp1,
                     cp2,
                     gb,
                     state,
-                    zg_gb,
-                    zg_state,
+                    uu_gb,
+                    uu_state,
                 });
             }
         }

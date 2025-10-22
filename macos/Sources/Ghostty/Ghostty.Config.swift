@@ -314,17 +314,14 @@ extension Ghostty {
 
         var macosCustomIcon: String {
             #if os(macOS)
-            let homeDirURL = FileManager.default.homeDirectoryForCurrentUser
-            let ghosttyConfigIconPath = homeDirURL.appendingPathComponent(
-                ".config/ghostty/Ghostty.icns",
-                conformingTo: .fileURL).path()
-            let defaultValue = ghosttyConfigIconPath
+            let defaultValue = NSString("~/.config/ghostty/Ghostty.icns").expandingTildeInPath
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>? = nil
             let key = "macos-custom-icon"
             guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
             guard let ptr = v else { return defaultValue }
-            return String(cString: ptr)
+            guard let path = NSString(utf8String: ptr) else { return defaultValue }
+            return path.expandingTildeInPath
             #else
             return ""
             #endif
@@ -606,6 +603,17 @@ extension Ghostty {
             let str = String(cString: ptr)
             return MacShortcuts(rawValue: str) ?? defaultValue
         }
+
+        var scrollbar: Scrollbar {
+            let defaultValue = Scrollbar.system
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "scrollbar"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return Scrollbar(rawValue: str) ?? defaultValue
+        }
     }
 }
 
@@ -642,6 +650,11 @@ extension Ghostty.Config {
         case allow
         case deny
         case ask
+    }
+
+    enum Scrollbar: String {
+        case system
+        case never
     }
 
     enum ResizeOverlay : String {

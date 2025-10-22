@@ -7,7 +7,7 @@ pub const table = table: {
     // build.zig process, but due to Zig's lazy analysis we can still reference
     // it here.
     //
-    // An example process is the `main` in `props_ziglyph.zig`
+    // An example process is the `main` in `props_uucode.zig`
     const generated = @import("unicode_tables").Tables(Properties);
     const Tables = lut.Tables(Properties);
     break :table Tables{

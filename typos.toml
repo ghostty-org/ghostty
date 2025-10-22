@@ -5,6 +5,9 @@ extend-exclude = [
   "build.zig.zon.nix",
   "build.zig.zon.txt",
   "build.zig.zon.json",
+  # Build artifacts
+  "macos/build/*",
+  "zig-out/*",
   # vendored code
   "vendor/*",
   "pkg/*",
@@ -55,6 +58,10 @@ typ = "typ"
 kend = "kend"
 # GTK
 GIR = "GIR"
+# terminfo
+rin = "rin"
+# sprites
+ower = "ower"
 
 [type.po]
 extend-glob = ["*.po"]

@@ -106,7 +106,7 @@ fn FixedPoint(comptime T: type, int_bits: u64, frac_bits: u64) type {
             self: Self,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
-            writer: anytype,
+            writer: *std.Io.Writer,
         ) !void {
             _ = fmt;
             _ = options;
@@ -176,7 +176,7 @@ pub const SFNT = struct {
                 self: OffsetSubtable,
                 comptime fmt: []const u8,
                 options: std.fmt.FormatOptions,
-                writer: anytype,
+                writer: *std.Io.Writer,
             ) !void {
                 _ = fmt;
                 _ = options;
@@ -210,7 +210,7 @@ pub const SFNT = struct {
                 self: TableRecord,
                 comptime fmt: []const u8,
                 options: std.fmt.FormatOptions,
-                writer: anytype,
+                writer: *std.Io.Writer,
             ) !void {
                 _ = fmt;
                 _ = options;

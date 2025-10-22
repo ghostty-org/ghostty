@@ -55,19 +55,19 @@ pub fn build(b: *std.Build) !void {
     if (imgui_) |imgui| lib.addIncludePath(imgui.path(""));
     module.addIncludePath(b.path("vendor"));
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-DCIMGUI_FREETYPE=1",
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
     });
     if (target.result.os.tag == .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DIMGUI_IMPL_API=extern\t\"C\"\t__declspec(dllexport)",
         });
     } else {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DIMGUI_IMPL_API=extern\t\"C\"",
         });
     }

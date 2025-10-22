@@ -61,7 +61,7 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>New Ghostty Tab Here</string>
+				<string>New $(INFOPLIST_KEY_CFBundleDisplayName) Tab Here</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>openTab</string>
@@ -80,7 +80,7 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>New Ghostty Window Here</string>
+				<string>New $(INFOPLIST_KEY_CFBundleDisplayName) Window Here</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>openWindow</string>

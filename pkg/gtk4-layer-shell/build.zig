@@ -1,7 +1,6 @@
 const std = @import("std");
 
-// TODO: Import this from build.zig.zon when possible
-const version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 0 };
+const version = @import("build.zig.zon").version;
 
 const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
     .preferred_link_mode = .dynamic,
@@ -32,14 +31,18 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+    const lib_version = try std.SemanticVersion.parse(version);
     const target = options.target;
     const optimize = options.optimize;
 
     // Shared library
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "gtk4-layer-shell",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     b.installArtifact(lib);
 
@@ -114,19 +117,9 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .root = upstream.path("src"),
         .files = srcs,
         .flags = &.{
-            b.fmt("-DGTK_LAYER_SHELL_MAJOR={}", .{version.major}),
-            b.fmt("-DGTK_LAYER_SHELL_MINOR={}", .{version.minor}),
-            b.fmt("-DGTK_LAYER_SHELL_MICRO={}", .{version.patch}),
-
-            // Zig 0.14 regression: this is required because building with
-            // ubsan results in unknown symbols. Bundling the ubsan/compiler
-            // RT doesn't help. I'm not sure what the root cause is but I
-            // suspect its related to this:
-            // https://github.com/ziglang/zig/issues/23052
-            //
-            // We can remove this in the future for Zig updates and see
-            // if our binaries run in debug on NixOS.
-            "-fno-sanitize=undefined",
+            b.fmt("-DGTK_LAYER_SHELL_MAJOR={}", .{lib_version.major}),
+            b.fmt("-DGTK_LAYER_SHELL_MINOR={}", .{lib_version.minor}),
+            b.fmt("-DGTK_LAYER_SHELL_MICRO={}", .{lib_version.patch}),
         },
     });
 

@@ -32,6 +32,7 @@ const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
+const i18n = @import("../../../os/i18n.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -39,18 +40,29 @@ pub const Surface = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.Bin;
+    pub const Implements = [_]type{gtk.Scrollable};
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttySurface",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
         .private = .{ .Type = Private, .offset = &Private.offset },
+        .implements = &.{
+            gobject.ext.implement(gtk.Scrollable, .{}),
+        },
     });
 
     /// A SplitTree implementation that stores surfaces.
     pub const Tree = datastruct.SplitTree(Self);
 
     pub const properties = struct {
+        /// This property is set to true when the bell is ringing. Note that
+        /// this property will only emit a changed signal when there is a
+        /// full state change. If a bell is ringing and another bell event
+        /// comes through, the change notification will NOT be emitted.
+        ///
+        /// If you need to know every scenario the bell is triggered,
+        /// listen to the `bell` signal instead.
         pub const @"bell-ringing" = struct {
             pub const name = "bell-ringing";
             const impl = gobject.ext.defineProperty(
@@ -293,9 +305,78 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const hadjustment = struct {
+            pub const name = "hadjustment";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*gtk.Adjustment,
+                .{
+                    .accessor = .{
+                        .getter = getHAdjustmentValue,
+                        .setter = setHAdjustmentValue,
+                    },
+                },
+            );
+        };
+
+        pub const vadjustment = struct {
+            pub const name = "vadjustment";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*gtk.Adjustment,
+                .{
+                    .accessor = .{
+                        .getter = getVAdjustmentValue,
+                        .setter = setVAdjustmentValue,
+                    },
+                },
+            );
+        };
+
+        pub const @"hscroll-policy" = struct {
+            pub const name = "hscroll-policy";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.ScrollablePolicy,
+                .{
+                    .default = .natural,
+                    .accessor = C.privateShallowFieldAccessor("hscroll_policy"),
+                },
+            );
+        };
+
+        pub const @"vscroll-policy" = struct {
+            pub const name = "vscroll-policy";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.ScrollablePolicy,
+                .{
+                    .default = .natural,
+                    .accessor = C.privateShallowFieldAccessor("vscroll_policy"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
+        /// Emitted whenever the bell event is received. Unlike the
+        /// `bell-ringing` property, this is emitted every time the event
+        /// is received and not just on state changes.
+        pub const bell = struct {
+            pub const name = "bell";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
         /// Emitted whenever the surface would like to be closed for any
         /// reason.
         ///
@@ -525,6 +606,15 @@ pub const Surface = extern struct {
         // unfocused-split-* options
         is_split: bool = false,
 
+        action_group: ?*gio.SimpleActionGroup = null,
+
+        // Gtk.Scrollable interface adjustments
+        hadj: ?*gtk.Adjustment = null,
+        vadj: ?*gtk.Adjustment = null,
+        hscroll_policy: gtk.ScrollablePolicy = .natural,
+        vscroll_policy: gtk.ScrollablePolicy = .natural,
+        vadj_signal_group: ?*gobject.SignalGroup = null,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -691,6 +781,47 @@ pub const Surface = extern struct {
         return priv.im_context.as(gtk.IMContext).activateOsk(event) != 0;
     }
 
+    /// Set the scrollbar state for this surface. This will setup the
+    /// properties for our Gtk.Scrollable interface properly.
+    pub fn setScrollbar(self: *Self, scrollbar: terminal.Scrollbar) void {
+        // Update existing adjustment in-place. If we don't have an
+        // adjustment then we do nothing because we're not part of a
+        // scrolled window.
+        const vadj = self.getVAdjustment() orelse return;
+
+        // Check if values match existing adjustment and skip update if so
+        const value: f64 = @floatFromInt(scrollbar.offset);
+        const upper: f64 = @floatFromInt(scrollbar.total);
+        const page_size: f64 = @floatFromInt(scrollbar.len);
+
+        if (std.math.approxEqAbs(f64, vadj.getValue(), value, 0.001) and
+            std.math.approxEqAbs(f64, vadj.getUpper(), upper, 0.001) and
+            std.math.approxEqAbs(f64, vadj.getPageSize(), page_size, 0.001))
+        {
+            return;
+        }
+
+        // If we have a vadjustment we MUST have the signal group since
+        // it is setup in the prop handler.
+        const priv = self.private();
+        const group = priv.vadj_signal_group.?;
+
+        // During manual scrollbar changes from Ghostty core we don't
+        // want to emit value-changed signals so we block them. This would
+        // cause a waste of resources at best and infinite loops at worst.
+        group.block();
+        defer group.unblock();
+
+        vadj.configure(
+            value, // value: current scroll position
+            0, // lower: minimum value
+            upper, // upper: maximum value (total scrollable area)
+            1, // step_increment: amount to scroll on arrow click
+            page_size, // page_increment: amount to scroll on page up/down
+            page_size, // page_size: size of visible area
+        );
+    }
+
     /// Set the current progress report state.
     pub fn setProgressReport(
         self: *Self,
@@ -787,6 +918,67 @@ pub const Surface = extern struct {
             .{},
             null,
         );
+    }
+
+    pub fn commandFinished(self: *Self, value: apprt.Action.Value(.command_finished)) bool {
+        const app = Application.default();
+        const alloc = app.allocator();
+        const priv: *Private = self.private();
+
+        const notify_next_command_finish = notify: {
+            const simple_action_group = priv.action_group orelse break :notify false;
+            const action_group = simple_action_group.as(gio.ActionGroup);
+            const state = action_group.getActionState("notify-on-next-command-finish") orelse break :notify false;
+            const bool_variant_type = glib.ext.VariantType.newFor(bool);
+            defer bool_variant_type.free();
+            if (state.isOfType(bool_variant_type) == 0) break :notify false;
+            const notify = state.getBoolean() != 0;
+            action_group.changeActionState("notify-on-next-command-finish", glib.Variant.newBoolean(@intFromBool(false)));
+            break :notify notify;
+        };
+
+        const config = priv.config orelse return false;
+
+        const cfg = config.get();
+
+        if (!notify_next_command_finish) {
+            if (cfg.@"notify-on-command-finish" == .never) return true;
+            if (cfg.@"notify-on-command-finish" == .unfocused and self.getFocused()) return true;
+        }
+
+        if (value.duration.lte(cfg.@"notify-on-command-finish-after")) return true;
+
+        const action = cfg.@"notify-on-command-finish-action";
+
+        if (action.bell) self.setBellRinging(true);
+
+        if (action.notify) notify: {
+            const title_ = title: {
+                const exit_code = value.exit_code orelse break :title i18n._("Command Finished");
+                if (exit_code == 0) break :title i18n._("Command Succeeded");
+                break :title i18n._("Command Failed");
+            };
+            const title = std.mem.span(title_);
+            const body = body: {
+                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintSentinel(
+                    alloc,
+                    "Command took {f}.",
+                    .{value.duration.round(std.time.ns_per_ms)},
+                    0,
+                ) catch break :notify;
+                break :body std.fmt.allocPrintSentinel(
+                    alloc,
+                    "Command took {f} and exited with code {d}.",
+                    .{ value.duration.round(std.time.ns_per_ms), exit_code },
+                    0,
+                ) catch break :notify;
+            };
+            defer alloc.free(body);
+
+            self.sendDesktopNotification(title, body);
+        }
+
+        return true;
     }
 
     /// Key press event (press or release).
@@ -1295,11 +1487,11 @@ pub const Surface = extern struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var env_to_remove = std.ArrayList([]const u8).init(alloc);
-        var env_to_update = std.ArrayList(struct {
+        var env_to_remove: std.ArrayList([]const u8) = .empty;
+        var env_to_update: std.ArrayList(struct {
             key: []const u8,
             value: []const u8,
-        }).init(alloc);
+        }) = .empty;
 
         var it = env_map.iterator();
         while (it.next()) |entry| {
@@ -1312,13 +1504,11 @@ pub const Surface = extern struct {
 
             // Any env var starting with SNAP must be removed
             if (std.mem.startsWith(u8, key, "SNAP_")) {
-                try env_to_remove.append(key);
+                try env_to_remove.append(alloc, key);
                 continue;
             }
 
-            var filtered_paths = std.ArrayList([]const u8).init(alloc);
-            defer filtered_paths.deinit();
-
+            var filtered_paths: std.ArrayList([]const u8) = .empty;
             var modified = false;
             var paths = std.mem.splitAny(u8, value, ":");
             while (paths.next()) |path| {
@@ -1331,15 +1521,15 @@ pub const Surface = extern struct {
                         break;
                     }
                 };
-                if (include) try filtered_paths.append(path);
+                if (include) try filtered_paths.append(alloc, path);
             }
 
             if (modified) {
                 if (filtered_paths.items.len > 0) {
                     const new_value = try std.mem.join(alloc, ":", filtered_paths.items);
-                    try env_to_update.append(.{ .key = key, .value = new_value });
+                    try env_to_update.append(alloc, .{ .key = key, .value = new_value });
                 } else {
-                    try env_to_remove.append(key);
+                    try env_to_remove.append(alloc, key);
                 }
             }
         }
@@ -1384,6 +1574,40 @@ pub const Surface = extern struct {
         _ = priv.gl_area.as(gtk.Widget).grabFocus();
     }
 
+    pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
+        const app = Application.default();
+        const priv: *Private = self.private();
+
+        const core_surface = priv.core_surface orelse {
+            log.warn("can't send notification because there is no core surface", .{});
+            return;
+        };
+
+        const t = switch (title.len) {
+            0 => "Ghostty",
+            else => title,
+        };
+
+        const notification = gio.Notification.new(t);
+        defer notification.unref();
+        notification.setBody(body);
+
+        const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
+        defer icon.unref();
+        notification.setIcon(icon.as(gio.Icon));
+
+        const pointer = glib.Variant.newUint64(@intFromPtr(core_surface));
+        notification.setDefaultActionAndTargetValue(
+            "app.present-surface",
+            pointer,
+        );
+
+        // We set the notification ID to the body content. If the content is the
+        // same, this notification may replace a previous notification
+        const gio_app = app.as(gio.Application);
+        gio_app.sendNotification(body, notification);
+    }
+
     //---------------------------------------------------------------
     // Virtual Methods
 
@@ -1403,6 +1627,7 @@ pub const Surface = extern struct {
         priv.mouse_hidden = false;
         priv.focused = true;
         priv.size = .{ .width = 0, .height = 0 };
+        priv.vadj_signal_group = null;
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -1440,11 +1665,23 @@ pub const Surface = extern struct {
     }
 
     fn initActionMap(self: *Self) void {
+        const priv: *Private = self.private();
+
         const actions = [_]ext.actions.Action(Self){
-            .init("prompt-title", actionPromptTitle, null),
+            .init(
+                "prompt-title",
+                actionPromptTitle,
+                null,
+            ),
+            .initStateful(
+                "notify-on-next-command-finish",
+                actionNotifyOnNextCommandFinish,
+                null,
+                glib.Variant.newBoolean(@intFromBool(false)),
+            ),
         };
 
-        ext.actions.addAsGroup(Self, self, "surface", &actions);
+        priv.action_group = ext.actions.addAsGroup(Self, self, "surface", &actions);
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1453,6 +1690,22 @@ pub const Surface = extern struct {
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
+        }
+
+        if (priv.vadj_signal_group) |group| {
+            group.setTarget(null);
+            group.as(gobject.Object).unref();
+            priv.vadj_signal_group = null;
+        }
+
+        if (priv.hadj) |v| {
+            v.as(gobject.Object).unref();
+            priv.hadj = null;
+        }
+
+        if (priv.vadj) |v| {
+            v.as(gobject.Object).unref();
+            priv.vadj = null;
         }
 
         if (priv.progress_bar_timer) |timer| {
@@ -1506,7 +1759,7 @@ pub const Surface = extern struct {
             priv.core_surface = null;
         }
         if (priv.mouse_hover_url) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
         }
         if (priv.default_size) |v| {
@@ -1522,15 +1775,15 @@ pub const Surface = extern struct {
             priv.min_size = null;
         }
         if (priv.pwd) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.pwd = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
         if (priv.title_override) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
         self.clearCgroup();
@@ -1554,7 +1807,7 @@ pub const Surface = extern struct {
     /// title. For manually set titles see `setTitleOverride`.
     pub fn setTitle(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title = null;
         if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
@@ -1564,7 +1817,7 @@ pub const Surface = extern struct {
     /// unless this is unset (null).
     pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title_override) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title_override = null;
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
@@ -1578,7 +1831,7 @@ pub const Surface = extern struct {
     /// Set the pwd for this surface, copies the value.
     pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.pwd) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.pwd) |v| glib.free(@ptrCast(@constCast(v)));
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -1663,7 +1916,7 @@ pub const Surface = extern struct {
 
     pub fn setMouseHoverUrl(self: *Self, url: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.mouse_hover_url) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.mouse_hover_url) |v| glib.free(@ptrCast(@constCast(v)));
         priv.mouse_hover_url = null;
         if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);
@@ -1674,6 +1927,16 @@ pub const Surface = extern struct {
     }
 
     pub fn setBellRinging(self: *Self, ringing: bool) void {
+        // Prevent duplicate change notifications if the signals we emit
+        // in this function cause this state to change again.
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+
+        // Logic around bell reaction happens on every event even if we're
+        // already in the ringing state.
+        if (ringing) self.ringBell();
+
+        // Property change only happens on actual state change
         const priv = self.private();
         if (priv.bell_ringing == ringing) return;
         priv.bell_ringing = ringing;
@@ -1858,20 +2121,63 @@ pub const Surface = extern struct {
         self.as(gtk.Widget).setCursorFromName(name.ptr);
     }
 
-    fn propBellRinging(
+    fn vadjValueChanged(adj: *gtk.Adjustment, self: *Self) callconv(.c) void {
+        // This will trigger for every single pixel change in the adjustment,
+        // but our core surface handles the noise from this so that identical
+        // rows are cheap.
+        const core_surface = self.core() orelse return;
+        const row: usize = @intFromFloat(@round(adj.getValue()));
+        _ = core_surface.performBindingAction(.{ .scroll_to_row = row }) catch |err| {
+            log.err("error performing scroll_to_row action err={}", .{err});
+        };
+    }
+
+    fn propVAdjustment(
         self: *Self,
         _: *gobject.ParamSpec,
         _: ?*anyopaque,
     ) callconv(.c) void {
         const priv = self.private();
-        if (!priv.bell_ringing) return;
+
+        // When vadjustment is first set, we setup the signal group lazily.
+        // This makes it so that if we don't use scrollbars, we never
+        // pay the memory cost of this.
+        const group: *gobject.SignalGroup = priv.vadj_signal_group orelse group: {
+            const group = gobject.SignalGroup.new(gtk.Adjustment.getGObjectType());
+            group.connect(
+                "value-changed",
+                @ptrCast(&vadjValueChanged),
+                self,
+            );
+
+            priv.vadj_signal_group = group;
+            break :group group;
+        };
+
+        // Setup our signal group target
+        group.setTarget(if (priv.vadj) |v| v.as(gobject.Object) else null);
+    }
+
+    /// Handle bell features that need to happen every time a BEL is received
+    /// Currently this is audio and system but this could change in the future.
+    fn ringBell(self: *Self) void {
+        const priv = self.private();
+
+        // Emit the signal
+        signals.bell.impl.emit(
+            self,
+            null,
+            .{},
+            null,
+        );
 
         // Activate actions if they exist
         _ = self.as(gtk.Widget).activateAction("tab.ring-bell", null);
         _ = self.as(gtk.Widget).activateAction("win.ring-bell", null);
 
-        // Do our sound
         const config = if (priv.config) |c| c.get() else return;
+
+        // Do our sound
         if (config.@"bell-features".audio) audio: {
             const config_path = config.@"bell-audio-path" orelse break :audio;
             const path, const required = switch (config_path) {
@@ -1917,6 +2223,66 @@ pub const Surface = extern struct {
     }
 
     //---------------------------------------------------------------
+    // Gtk.Scrollable interface implementation
+
+    pub fn getHAdjustment(self: *Self) ?*gtk.Adjustment {
+        return self.private().hadj;
+    }
+
+    pub fn setHAdjustment(self: *Self, adj_: ?*gtk.Adjustment) void {
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.hadjustment.impl.param_spec);
+
+        const priv = self.private();
+        if (priv.hadj) |old| {
+            old.as(gobject.Object).unref();
+            priv.hadj = null;
+        }
+
+        const adj = adj_ orelse return;
+        _ = adj.as(gobject.Object).ref();
+        priv.hadj = adj;
+    }
+
+    fn getHAdjustmentValue(self: *Self, value: *gobject.Value) void {
+        gobject.ext.Value.set(value, self.getHAdjustment());
+    }
+
+    fn setHAdjustmentValue(self: *Self, value: *const gobject.Value) void {
+        self.setHAdjustment(gobject.ext.Value.get(value, ?*gtk.Adjustment));
+    }
+
+    pub fn getVAdjustment(self: *Self) ?*gtk.Adjustment {
+        return self.private().vadj;
+    }
+
+    pub fn setVAdjustment(self: *Self, adj_: ?*gtk.Adjustment) void {
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.vadjustment.impl.param_spec);
+
+        const priv = self.private();
+
+        if (priv.vadj) |old| {
+            old.as(gobject.Object).unref();
+            priv.vadj = null;
+        }
+
+        const adj = adj_ orelse return;
+        _ = adj.as(gobject.Object).ref();
+        priv.vadj = adj;
+    }
+
+    fn getVAdjustmentValue(self: *Self, value: *gobject.Value) void {
+        gobject.ext.Value.set(value, self.getVAdjustment());
+    }
+
+    fn setVAdjustmentValue(self: *Self, value: *const gobject.Value) void {
+        self.setVAdjustment(gobject.ext.Value.get(value, ?*gtk.Adjustment));
+    }
+
+    //---------------------------------------------------------------
     // Signal Handlers
 
     pub fn actionPromptTitle(
@@ -1928,6 +2294,20 @@ pub const Surface = extern struct {
         _ = surface.performBindingAction(.prompt_surface_title) catch |err| {
             log.warn("unable to perform prompt title action err={}", .{err});
         };
+    }
+
+    pub fn actionNotifyOnNextCommandFinish(
+        action: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        _: *Self,
+    ) callconv(.c) void {
+        const state = action.as(gio.Action).getState() orelse glib.Variant.newBoolean(@intFromBool(false));
+        defer state.unref();
+        const bool_variant_type = glib.ext.VariantType.newFor(bool);
+        defer bool_variant_type.free();
+        if (state.isOfType(bool_variant_type) == 0) return;
+        const value = state.getBoolean() != 0;
+        action.setState(glib.Variant.newBoolean(@intFromBool(!value)));
     }
 
     fn childExitedClose(
@@ -1967,13 +2347,11 @@ pub const Surface = extern struct {
         const alloc = Application.default().allocator();
 
         if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
 
             const list: ?*glib.SList = list: {
                 const unboxed = value.getBoxed() orelse return 0;
@@ -2001,7 +2379,7 @@ pub const Surface = extern struct {
                 }
             }
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -2014,13 +2392,11 @@ pub const Surface = extern struct {
             const object = value.getObject() orelse return 0;
             const file = gobject.ext.cast(gio.File, object) orelse return 0;
             const path = file.getPath() orelse return 0;
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
             writer.writeAll(std.mem.span(path)) catch |err| {
                 log.err("unable to write path to buffer: {}", .{err});
                 return 0;
@@ -2030,7 +2406,7 @@ pub const Surface = extern struct {
                 return 0;
             };
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -2859,7 +3235,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
-            class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
+            class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
 
@@ -2881,9 +3257,16 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+
+                // For Gtk.Scrollable
+                properties.hadjustment.impl,
+                properties.vadjustment.impl,
+                properties.@"hscroll-policy".impl,
+                properties.@"vscroll-policy".impl,
             });
 
             // Signals
+            signals.bell.impl.register(.{});
             signals.@"close-request".impl.register(.{});
             signals.@"clipboard-read".impl.register(.{});
             signals.@"clipboard-write".impl.register(.{});

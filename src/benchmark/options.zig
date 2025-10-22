@@ -10,7 +10,7 @@ pub fn dataFile(path_: ?[]const u8) !?std.fs.File {
     const path = path_ orelse return null;
 
     // Stdin
-    if (std.mem.eql(u8, path, "-")) return std.io.getStdIn();
+    if (std.mem.eql(u8, path, "-")) return .stdin();
 
     // Normal file
     const file = try std.fs.cwd().openFile(path, .{});

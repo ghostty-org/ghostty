@@ -52,15 +52,15 @@ parts:
       rm -rf $CRAFT_PART_SRC/*
 
       if [[ -n $arch ]]; then
-        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.14.0/zig-linux-$arch-0.14.0.tar.xz
+        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.15.2/zig-$arch-linux-0.15.2.tar.xz
       else
         echo "Unsupported arch"
         exit 1
       fi
 
-      tar xf zig-lin*xz
+      tar xf zig-$arch-lin*xz
       rm -f *xz
-      mv zig-linux*/* .
+      mv zig-$arch-linux*/* .
     prime:
       - -*
 

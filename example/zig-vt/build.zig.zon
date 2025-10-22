@@ -2,7 +2,7 @@
     .name = .zig_vt,
     .version = "0.0.0",
     .fingerprint = 0x6045575a7a8387e6,
-    .minimum_zig_version = "0.14.1",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{
         // Ghostty dependency. In reality, you'd probably use a URL-based
         // dependency like the one showed (and commented out) below this one.

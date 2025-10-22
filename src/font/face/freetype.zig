@@ -170,7 +170,7 @@ pub const Face = struct {
                     if (string.len > 1024) break :skip;
                     var tmp: [512]u16 = undefined;
                     const max = string.len / 2;
-                    for (@as([]const u16, @alignCast(@ptrCast(string))), 0..) |c, j| tmp[j] = @byteSwap(c);
+                    for (@as([]const u16, @ptrCast(@alignCast(string))), 0..) |c, j| tmp[j] = @byteSwap(c);
                     const len = std.unicode.utf16LeToUtf8(buf, tmp[0..max]) catch return string;
                     return buf[0..len];
                 }
@@ -351,26 +351,16 @@ pub const Face = struct {
         return glyph.*.bitmap.pixel_mode == freetype.c.FT_PIXEL_MODE_BGRA;
     }
 
-    /// Render a glyph using the glyph index. The rendered glyph is stored in the
-    /// given texture atlas.
-    pub fn renderGlyph(
-        self: Face,
-        alloc: Allocator,
-        atlas: *font.Atlas,
-        glyph_index: u32,
-        opts: font.face.RenderOptions,
-    ) !Glyph {
-        self.ft_mutex.lock();
-        defer self.ft_mutex.unlock();
-
+    /// Set the load flags to use when loading a glyph for measurement or
+    /// rendering.
+    fn glyphLoadFlags(self: Face, constrained: bool) freetype.LoadFlags {
         // Hinting should only be enabled if the configured load flags specify
         // it and the provided constraint doesn't actually do anything, since
         // if it does, then it'll mess up the hinting anyway when it moves or
         // resizes the glyph.
-        const do_hinting = self.load_flags.hinting and !opts.constraint.doesAnything();
+        const do_hinting = self.load_flags.hinting and !constrained;
 
-        // Load the glyph.
-        try self.face.loadGlyph(glyph_index, .{
+        return .{
             // If our glyph has color, we want to render the color
             .color = self.face.hasColor(),
 
@@ -388,46 +378,75 @@ pub const Face = struct {
             // else it won't look very good at all.
             .target_mono = self.load_flags.monochrome,
 
+            // Otherwise we select hinter based on the `light` flag.
+            .target_normal = !self.load_flags.light and !self.load_flags.monochrome,
+            .target_light = self.load_flags.light and !self.load_flags.monochrome,
+
             // NO_SVG set to true because we don't currently support rendering
             // SVG glyphs under FreeType, since that requires bundling another
             // dependency to handle rendering the SVG.
             .no_svg = true,
-        });
+        };
+    }
+
+    /// Get a rect that represents the position and size of the loaded glyph.
+    fn getGlyphSize(glyph: freetype.c.FT_GlyphSlot) font.face.GlyphSize {
+        // If we're dealing with an outline glyph then we get the
+        // outline's bounding box instead of using the built-in
+        // metrics, since that's more precise and allows better
+        // cell-fitting.
+        if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
+            // Get the glyph's bounding box before we transform it at all.
+            // We use this rather than the metrics, since it's more precise.
+            var bbox: freetype.c.FT_BBox = undefined;
+            _ = freetype.c.FT_Outline_Get_BBox(&glyph.*.outline, &bbox);
+
+            return .{
+                .x = f26dot6ToF64(bbox.xMin),
+                .y = f26dot6ToF64(bbox.yMin),
+                .width = f26dot6ToF64(bbox.xMax - bbox.xMin),
+                .height = f26dot6ToF64(bbox.yMax - bbox.yMin),
+            };
+        }
+
+        return .{
+            .x = f26dot6ToF64(glyph.*.metrics.horiBearingX),
+            .y = f26dot6ToF64(glyph.*.metrics.horiBearingY - glyph.*.metrics.height),
+            .width = f26dot6ToF64(glyph.*.metrics.width),
+            .height = f26dot6ToF64(glyph.*.metrics.height),
+        };
+    }
+
+    /// Render a glyph using the glyph index. The rendered glyph is stored in the
+    /// given texture atlas.
+    pub fn renderGlyph(
+        self: Face,
+        alloc: Allocator,
+        atlas: *font.Atlas,
+        glyph_index: u32,
+        opts: font.face.RenderOptions,
+    ) !Glyph {
+        self.ft_mutex.lock();
+        defer self.ft_mutex.unlock();
+
+        // Load the glyph.
+        try self.face.loadGlyph(glyph_index, self.glyphLoadFlags(opts.constraint.doesAnything()));
         const glyph = self.face.handle.*.glyph;
 
+        // For synthetic bold, we embolden the glyph.
+        if (self.synthetic.bold) {
+            // We need to scale the embolden amount based on the font size.
+            // This is a heuristic I found worked well across a variety of
+            // founts: 1 pixel per 64 units of height.
+            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
+            const ratio: f64 = 64.0 / 2048.0;
+            const amount = @ceil(font_height * ratio);
+            _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
+        }
+
         // We get a rect that represents the position
-        // and size of the glyph before any changes.
-        const rect: struct {
-            x: f64,
-            y: f64,
-            width: f64,
-            height: f64,
-        } = metrics: {
-            // If we're dealing with an outline glyph then we get the
-            // outline's bounding box instead of using the built-in
-            // metrics, since that's more precise and allows better
-            // cell-fitting.
-            if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
-                // Get the glyph's bounding box before we transform it at all.
-                // We use this rather than the metrics, since it's more precise.
-                var bbox: freetype.c.FT_BBox = undefined;
-                _ = freetype.c.FT_Outline_Get_BBox(&glyph.*.outline, &bbox);
-
-                break :metrics .{
-                    .x = f26dot6ToF64(bbox.xMin),
-                    .y = f26dot6ToF64(bbox.yMin),
-                    .width = f26dot6ToF64(bbox.xMax - bbox.xMin),
-                    .height = f26dot6ToF64(bbox.yMax - bbox.yMin),
-                };
-            }
-
-            break :metrics .{
-                .x = f26dot6ToF64(glyph.*.metrics.horiBearingX),
-                .y = f26dot6ToF64(glyph.*.metrics.horiBearingY - glyph.*.metrics.height),
-                .width = f26dot6ToF64(glyph.*.metrics.width),
-                .height = f26dot6ToF64(glyph.*.metrics.height),
-            };
-        };
+        // and size of the glyph before constraints.
+        const rect = getGlyphSize(glyph);
 
         // If our glyph is smaller than a quarter pixel in either axis
         // then it has no outlines or they're too small to render.
@@ -443,30 +462,12 @@ pub const Face = struct {
                 .atlas_y = 0,
             };
 
-        // For synthetic bold, we embolden the glyph.
-        if (self.synthetic.bold) {
-            // We need to scale the embolden amount based on the font size.
-            // This is a heuristic I found worked well across a variety of
-            // founts: 1 pixel per 64 units of height.
-            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
-            const ratio: f64 = 64.0 / 2048.0;
-            const amount = @ceil(font_height * ratio);
-            _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
-        }
-
         const metrics = opts.grid_metrics;
         const cell_width: f64 = @floatFromInt(metrics.cell_width);
         const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
         // Next we apply any constraints to get the final size of the glyph.
-        var constraint = opts.constraint;
-
-        // We eliminate any negative vertical padding since these overlap
-        // values aren't needed  with how precisely we apply constraints,
-        // and they can lead to extra height that looks bad for things like
-        // powerline glyphs.
-        constraint.pad_top = @max(0.0, constraint.pad_top);
-        constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+        const constraint = opts.constraint;
 
         // We need to add the baseline position before passing to the constrain
         // function since it operates on cell-relative positions, not baseline.
@@ -488,6 +489,24 @@ pub const Face = struct {
         var x = glyph_size.x;
         var y = glyph_size.y;
 
+        // We center all glyphs within the pixel-rounded and adjusted
+        // cell width if it's larger than the face width, so that they
+        // aren't weirdly off to the left.
+        //
+        // We don't do this if the glyph has a stretch constraint,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
+            // We add half the difference to re-center.
+            //
+            // NOTE: We round this to a whole-pixel amount because under
+            //       FreeType, the outlines will be hinted, which isn't
+            //       the case under CoreText. If we move the outlines by
+            //       a non-whole-pixel amount, it completely ruins the
+            //       hinting.
+            x += @round((cell_width - metrics.face_width) / 2);
+        }
+
         // If this is a bitmap glyph, it will always render as full pixels,
         // not fractional pixels, so we need to quantize its position and
         // size accordingly to align to full pixels so we get good results.
@@ -496,27 +515,6 @@ pub const Face = struct {
             height = cell_height - @round(cell_height - height - y) - @round(y);
             x = @round(x);
             y = @round(y);
-        }
-
-        // If the cell width was adjusted wider, we re-center all glyphs
-        // in the new width, so that they aren't weirdly off to the left.
-        if (metrics.original_cell_width) |original| recenter: {
-            // We don't do this if the constraint has a horizontal alignment,
-            // since in that case the position was already calculated with the
-            // new cell width in mind.
-            if (opts.constraint.align_horizontal != .none) break :recenter;
-
-            // If the original width was wider then we don't do anything.
-            if (original >= metrics.cell_width) break :recenter;
-
-            // We add half the difference to re-center.
-            //
-            // NOTE: We round this to a whole-pixel amount because under
-            //       FreeType, the outlines will be hinted, which isn't
-            //       the case under CoreText. If we move the outlines by
-            //       a non-whole-pixel amount, it completely ruins the
-            //       hinting.
-            x += @round((cell_width - @as(f64, @floatFromInt(original))) / 2);
         }
 
         // Now we can render the glyph.
@@ -976,23 +974,15 @@ pub const Face = struct {
             var c: u8 = ' ';
             while (c < 127) : (c += 1) {
                 if (face.getCharIndex(c)) |glyph_index| {
-                    if (face.loadGlyph(glyph_index, .{
-                        .render = false,
-                        .no_svg = true,
-                    })) {
+                    if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
                         const glyph = face.handle.*.glyph;
                         max = @max(
                             f26dot6ToF64(glyph.*.advance.x),
                             max,
                         );
-                        top = @max(
-                            f26dot6ToF64(glyph.*.metrics.horiBearingY),
-                            top,
-                        );
-                        bottom = @min(
-                            f26dot6ToF64(glyph.*.metrics.horiBearingY - glyph.*.metrics.height),
-                            bottom,
-                        );
+                        const rect = getGlyphSize(glyph);
+                        top = @max(rect.y + rect.height, top);
+                        bottom = @min(rect.y, bottom);
                     } else |_| {}
                 }
             }
@@ -1031,11 +1021,8 @@ pub const Face = struct {
                     self.ft_mutex.lock();
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('H')) |glyph_index| {
-                        if (face.loadGlyph(glyph_index, .{
-                            .render = false,
-                            .no_svg = true,
-                        })) {
-                            break :cap f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
+                        if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
+                            break :cap getGlyphSize(face.handle.*.glyph).height;
                         } else |_| {}
                     }
                     break :cap null;
@@ -1044,11 +1031,8 @@ pub const Face = struct {
                     self.ft_mutex.lock();
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('x')) |glyph_index| {
-                        if (face.loadGlyph(glyph_index, .{
-                            .render = false,
-                            .no_svg = true,
-                        })) {
-                            break :ex f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
+                        if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
+                            break :ex getGlyphSize(face.handle.*.glyph).height;
                         } else |_| {}
                     }
                     break :ex null;
@@ -1063,10 +1047,7 @@ pub const Face = struct {
 
             const glyph = face.getCharIndex('水') orelse break :ic_width null;
 
-            face.loadGlyph(glyph, .{
-                .render = false,
-                .no_svg = true,
-            }) catch break :ic_width null;
+            face.loadGlyph(glyph, self.glyphLoadFlags(false)) catch break :ic_width null;
 
             const ft_glyph = face.handle.*.glyph;
 
@@ -1078,21 +1059,19 @@ pub const Face = struct {
             // This can sometimes happen if there's a CJK font that has been
             // patched with the nerd fonts patcher and it butchers the advance
             // values so the advance ends up half the width of the actual glyph.
-            if (ft_glyph.*.metrics.width > ft_glyph.*.advance.x) {
+            const ft_glyph_width = getGlyphSize(ft_glyph).width;
+            const advance = f26dot6ToF64(ft_glyph.*.advance.x);
+            if (ft_glyph_width > advance) {
                 var buf: [1024]u8 = undefined;
                 const font_name = self.name(&buf) catch "<Error getting font name>";
                 log.warn(
                     "(getMetrics) Width of glyph '水' for font \"{s}\" is greater than its advance ({d} > {d}), discarding ic_width metric.",
-                    .{
-                        font_name,
-                        f26dot6ToF64(ft_glyph.*.metrics.width),
-                        f26dot6ToF64(ft_glyph.*.advance.x),
-                    },
+                    .{ font_name, ft_glyph_width, advance },
                 );
                 break :ic_width null;
             }
 
-            break :ic_width f26dot6ToF64(ft_glyph.*.advance.x);
+            break :ic_width advance;
         };
 
         return .{
@@ -1168,7 +1147,7 @@ test {
             ft_font.glyphIndex('A').?,
             .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
         );
-        try testing.expectEqual(@as(u32, 20), g2.height);
+        try testing.expectEqual(@as(u32, 21), g2.height);
     }
 }
 
@@ -1201,37 +1180,6 @@ test "color emoji" {
         try testing.expect(ft_font.hasColor());
         const glyph_id = ft_font.glyphIndex('🥸').?;
         try testing.expect(ft_font.isColorGlyph(glyph_id));
-    }
-
-    // resize
-    // TODO: Comprehensive tests for constraints,
-    //       this is just an adapted legacy test.
-    {
-        const glyph = try ft_font.renderGlyph(
-            alloc,
-            &atlas,
-            ft_font.glyphIndex('🥸').?,
-            .{ .grid_metrics = .{
-                .cell_width = 13,
-                .cell_height = 24,
-                .cell_baseline = 0,
-                .underline_position = 0,
-                .underline_thickness = 0,
-                .strikethrough_position = 0,
-                .strikethrough_thickness = 0,
-                .overline_position = 0,
-                .overline_thickness = 0,
-                .box_thickness = 0,
-                .cursor_height = 0,
-                .icon_height = 0,
-            }, .constraint_width = 2, .constraint = .{
-                .size_horizontal = .cover,
-                .size_vertical = .cover,
-                .align_horizontal = .center,
-                .align_vertical = .center,
-            } },
-        );
-        try testing.expectEqual(@as(u32, 24), glyph.height);
     }
 }
 

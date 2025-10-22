@@ -11,19 +11,22 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
 
-    const stdout = std.io.getStdOut().writer();
-    try stdout.writeAll(
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
+    const writer = &stdout.interface;
+    try writer.writeAll(
         \\// THIS FILE IS AUTO GENERATED
         \\
         \\
     );
 
-    try genConfig(alloc, stdout);
-    try genActions(alloc, stdout);
-    try genKeybindActions(alloc, stdout);
+    try genConfig(alloc, writer);
+    try genActions(alloc, writer);
+    try genKeybindActions(alloc, writer);
+    try stdout.end();
 }
 
-fn genConfig(alloc: std.mem.Allocator, writer: anytype) !void {
+fn genConfig(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     var ast = try std.zig.Ast.parse(alloc, @embedFile("config/Config.zig"), .zig);
     defer ast.deinit(alloc);
 
@@ -44,7 +47,7 @@ fn genConfig(alloc: std.mem.Allocator, writer: anytype) !void {
 
 fn genConfigField(
     alloc: std.mem.Allocator,
-    writer: anytype,
+    writer: *std.Io.Writer,
     ast: std.zig.Ast,
     comptime field: []const u8,
 ) !void {
@@ -69,7 +72,7 @@ fn genConfigField(
     }
 }
 
-fn genActions(alloc: std.mem.Allocator, writer: anytype) !void {
+fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\
         \\/// Actions help
@@ -115,7 +118,7 @@ fn genActions(alloc: std.mem.Allocator, writer: anytype) !void {
     try writer.writeAll("};\n");
 }
 
-fn genKeybindActions(alloc: std.mem.Allocator, writer: anytype) !void {
+fn genKeybindActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     var ast = try std.zig.Ast.parse(alloc, @embedFile("input/Binding.zig"), .zig);
     defer ast.deinit(alloc);
 
@@ -149,24 +152,24 @@ fn extractDocComments(
     } else unreachable;
 
     // Go through and build up the lines.
-    var lines = std.ArrayList([]const u8).init(alloc);
-    defer lines.deinit();
+    var lines: std.ArrayList([]const u8) = .empty;
+    defer lines.deinit(alloc);
     for (start_idx..index + 1) |i| {
         const token = tokens[i];
         if (token != .doc_comment) break;
-        try lines.append(ast.tokenSlice(@intCast(i))[3..]);
+        try lines.append(alloc, ast.tokenSlice(@intCast(i))[3..]);
     }
 
     // Convert the lines to a multiline string.
-    var buffer = std.ArrayList(u8).init(alloc);
-    const writer = buffer.writer();
+    var buffer: std.Io.Writer.Allocating = .init(alloc);
+    defer buffer.deinit();
     const prefix = findCommonPrefix(lines);
     for (lines.items) |line| {
-        try writer.writeAll("    \\\\");
-        try writer.writeAll(line[@min(prefix, line.len)..]);
-        try writer.writeAll("\n");
+        try buffer.writer.writeAll("    \\\\");
+        try buffer.writer.writeAll(line[@min(prefix, line.len)..]);
+        try buffer.writer.writeAll("\n");
     }
-    try writer.writeAll(";\n");
+    try buffer.writer.writeAll(";\n");
 
     return buffer.toOwnedSlice();
 }

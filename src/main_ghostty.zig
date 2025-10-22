@@ -35,7 +35,9 @@ pub fn main() !MainReturn {
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
     state.init() catch |err| {
-        const stderr = std.io.getStdErr().writer();
+        var buffer: [1024]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&buffer);
+        const stderr = &stderr_writer.interface;
         defer posix.exit(1);
         const ErrSet = @TypeOf(err) || error{Unknown};
         switch (@as(ErrSet, @errorCast(err))) {
@@ -54,6 +56,7 @@ pub fn main() !MainReturn {
 
             else => try stderr.print("invalid CLI invocation err={}\n", .{err}),
         }
+        try stderr.flush();
     };
     defer state.deinit();
     const alloc = state.alloc;
@@ -154,8 +157,12 @@ fn logFn(
 
         .stderr => {
             // Always try default to send to stderr
-            const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
+            var buffer: [1024]u8 = undefined;
+            var stderr = std.fs.File.stderr().writer(&buffer);
+            const writer = &stderr.interface;
+            nosuspend writer.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
+            // TODO: Do we want to use flushless stderr in the future?
+            writer.flush() catch {};
         },
     }
 }
@@ -191,8 +198,8 @@ test {
     _ = @import("simd/main.zig");
     _ = @import("synthetic/main.zig");
     _ = @import("unicode/main.zig");
-    _ = @import("unicode/props_ziglyph.zig");
-    _ = @import("unicode/symbols_ziglyph.zig");
+    _ = @import("unicode/props_uucode.zig");
+    _ = @import("unicode/symbols_uucode.zig");
 
     // Extra
     _ = @import("extra/bash.zig");

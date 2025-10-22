@@ -5,7 +5,9 @@
     # We want to stay as up to date as possible but need to be careful that the
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
-    nixpkgs.url = "https://channels.nixos.org/nixos-25.05/nixexprs.tar.xz";
+    #
+    # We are currently on unstable to get Zig 0.15 for our package.nix
+    nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz";
     flake-utils.url = "github:numtide/flake-utils";
 
     # Used for shell.nix
@@ -47,7 +49,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in {
           devShell.${system} = pkgs.callPackage ./nix/devShell.nix {
-            zig = zig.packages.${system}."0.14.1";
+            zig = zig.packages.${system}."0.15.2";
             wraptest = pkgs.callPackage ./nix/wraptest.nix {};
             zon2nix = zon2nix;
           };

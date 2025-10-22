@@ -12,9 +12,8 @@ const winproto = @import("winproto.zig");
 pub fn accelFromTrigger(
     buf: []u8,
     trigger: input.Binding.Trigger,
-) error{NoSpaceLeft}!?[:0]const u8 {
-    var buf_stream = std.io.fixedBufferStream(buf);
-    const writer = buf_stream.writer();
+) error{WriteFailed}!?[:0]const u8 {
+    var writer: std.Io.Writer = .fixed(buf);
 
     // Modifiers
     if (trigger.mods.shift) try writer.writeAll("<Shift>");
@@ -23,11 +22,11 @@ pub fn accelFromTrigger(
     if (trigger.mods.super) try writer.writeAll("<Super>");
 
     // Write our key
-    if (!try writeTriggerKey(writer, trigger)) return null;
+    if (!try writeTriggerKey(&writer, trigger)) return null;
 
     // We need to make the string null terminated.
     try writer.writeByte(0);
-    const slice = buf_stream.getWritten();
+    const slice = writer.buffered();
     return slice[0 .. slice.len - 1 :0];
 }
 
@@ -36,9 +35,8 @@ pub fn accelFromTrigger(
 pub fn xdgShortcutFromTrigger(
     buf: []u8,
     trigger: input.Binding.Trigger,
-) error{NoSpaceLeft}!?[:0]const u8 {
-    var buf_stream = std.io.fixedBufferStream(buf);
-    const writer = buf_stream.writer();
+) error{WriteFailed}!?[:0]const u8 {
+    var writer: std.Io.Writer = .fixed(buf);
 
     // Modifiers
     if (trigger.mods.shift) try writer.writeAll("SHIFT+");
@@ -52,15 +50,18 @@ pub fn xdgShortcutFromTrigger(
     // to *X11's* keysyms (which I assume is a subset of libxkbcommon's).
     // I haven't been able to any evidence to back up that assumption but
     // this works for now
-    if (!try writeTriggerKey(writer, trigger)) return null;
+    if (!try writeTriggerKey(&writer, trigger)) return null;
 
     // We need to make the string null terminated.
     try writer.writeByte(0);
-    const slice = buf_stream.getWritten();
+    const slice = writer.buffered();
     return slice[0 .. slice.len - 1 :0];
 }
 
-fn writeTriggerKey(writer: anytype, trigger: input.Binding.Trigger) error{NoSpaceLeft}!bool {
+fn writeTriggerKey(
+    writer: *std.Io.Writer,
+    trigger: input.Binding.Trigger,
+) error{WriteFailed}!bool {
     switch (trigger.key) {
         .physical => |k| {
             const keyval = keyvalFromKey(k) orelse return false;

@@ -24,6 +24,7 @@ const cli = @import("../cli.zig");
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
+const file_load = @import("file_load.zig");
 const formatterpkg = @import("formatter.zig");
 const themepkg = @import("theme.zig");
 const url = @import("url.zig");
@@ -412,13 +413,13 @@ pub const compatibility = std.StaticStringMap(
 @"adjust-box-thickness": ?MetricModifier = null,
 /// Height in pixels or percentage adjustment of maximum height for nerd font icons.
 ///
-/// Increasing this value will allow nerd font icons to be larger, but won't
-/// necessarily force them to be. Decreasing this value will make nerd font
-/// icons smaller.
+/// A positive (negative) value will increase (decrease) the maximum icon
+/// height. This may not affect all icons equally: the effect depends on whether
+/// the default size of the icon is height-constrained, which in turn depends on
+/// the aspect ratio of both the icon and your primary font.
 ///
-/// The default value for the icon height is 1.2 times the height of capital
-/// letters in your primary font, so something like -16.6% would make icons
-/// roughly the same height as capital letters.
+/// Certain icons designed for box drawing and terminal graphics, such as
+/// Powerline symbols, are not affected by this option.
 ///
 /// See the notes about adjustments in `adjust-cell-width`.
 ///
@@ -474,6 +475,11 @@ pub const compatibility = std.StaticStringMap(
 ///     you're using a pixel font. Disabled by default.
 ///
 ///   * `autohint` - Enable the freetype auto-hinter. Enabled by default.
+///
+///   * `light` - Use a light hinting style, better preserving glyph shapes.
+///     This is the most common setting in GTK apps and therefore also Ghostty's
+///     default. This has no effect if `monochrome` is enabled. Enabled by
+///     default.
 ///
 /// Example: `hinting`, `no-hinting`, `force-autohint`, `no-force-autohint`
 @"freetype-load-flags": FreetypeLoadFlags = .{},
@@ -833,14 +839,32 @@ palette: Palette = .{},
 ///   * `never`
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
-/// Multiplier for scrolling distance with the mouse wheel. Any value less
-/// than 0.01 or greater than 10,000 will be clamped to the nearest valid
-/// value.
+/// Enable or disable mouse reporting. When set to `false`, mouse events will
+/// not be reported to terminal applications even if they request it. This
+/// allows you to always use the mouse for selection and other terminal UI
+/// interactions without applications capturing mouse input.
 ///
-/// A value of "3" (default) scrolls 3 lines per tick.
+/// When set to `true` (the default), terminal applications can request mouse
+/// reporting and will receive mouse events according to their requested mode.
 ///
-/// Available since: 1.2.0
-@"mouse-scroll-multiplier": f64 = 3.0,
+/// This can be toggled at runtime using the `toggle_mouse_reporting` keybind
+/// action.
+@"mouse-reporting": bool = true,
+
+/// Multiplier for scrolling distance with the mouse wheel.
+///
+/// A prefix of `precision:` or `discrete:` can be used to set the multiplier
+/// only for scrolling with the specific type of devices. These can be
+/// comma-separated to set both types of multipliers at the same time, e.g.
+/// `precision:0.1,discrete:3`. If no prefix is used, the multiplier applies
+/// to all scrolling devices. Specifying a prefix was introduced in Ghostty
+/// 1.2.1.
+///
+/// The value will be clamped to [0.01, 10,000]. Both of these are extreme
+/// and you're likely to have a bad experience if you set either extreme.
+///
+/// The default value is "3" for discrete devices and "1" for precision devices.
+@"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
@@ -995,6 +1019,82 @@ command: ?Command = null,
 ///     manually.
 @"initial-command": ?Command = null,
 
+/// Controls when command finished notifications are sent. There are
+/// three options:
+///
+/// * `never` - Never send notifications (the default).
+/// * `unfocused` - Only send notifications if the surface that the command is
+///   running in is not focused.
+/// * `always` - Always send notifications.
+///
+/// Command finished notifications requires that either shell integration is
+/// enabled, or that your shell sends OSC 133 escape sequences to mark the start
+/// and end of commands.
+///
+/// On GTK, there is a context menu item that will enable command finished
+/// notifications for a single command, overriding the `never` and `unfocused`
+/// options.
+///
+/// GTK only.
+///
+/// Available since 1.3.0.
+@"notify-on-command-finish": NotifyOnCommandFinish = .never,
+
+/// If command finished notifications are enabled, this controls how the user is
+/// notified.
+///
+/// Available options:
+///
+/// * `bell` - enabled by default
+/// * `notify` - disabled by default
+///
+/// Options can be combined by listing them as a comma separated list. Options
+/// can be negated by prefixing them with `no-`. For example `no-bell,notify`.
+///
+/// GTK only.
+///
+/// Available since 1.3.0.
+@"notify-on-command-finish-action": NotifyOnCommandFinishAction = .{
+    .bell = true,
+    .notify = false,
+},
+
+/// If command finished notifications are enabled, this controls how long a
+/// command must have been running before a notification will be sent. The
+/// default is five seconds.
+///
+/// The duration is specified as a series of numbers followed by time units.
+/// Whitespace is allowed between numbers and units. Each number and unit will
+/// be added together to form the total duration.
+///
+/// The allowed time units are as follows:
+///
+///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
+///     are made for leap years or leap seconds.
+///   * `d` - one SI day, or 86400 seconds.
+///   * `h` - one hour, or 3600 seconds.
+///   * `m` - one minute, or 60 seconds.
+///   * `s` - one second.
+///   * `ms` - one millisecond, or 0.001 second.
+///   * `us` or `µs` - one microsecond, or 0.000001 second.
+///   * `ns` - one nanosecond, or 0.000000001 second.
+///
+/// Examples:
+///   * `1h30m`
+///   * `45s`
+///
+/// Units can be repeated and will be added together. This means that
+/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
+/// A future update may disallow this.
+///
+/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
+/// value larger than this will be clamped to the maximum value.
+///
+/// GTK only.
+///
+/// Available since 1.3.0
+@"notify-on-command-finish-after": Duration = .{ .duration = 5 * std.time.ns_per_s },
+
 /// Extra environment variables to pass to commands launched in a terminal
 /// surface. The format is `env=KEY=VALUE`.
 ///
@@ -1113,6 +1213,24 @@ input: RepeatableReadableIO = .{},
 ///
 /// This can be changed at runtime but will only affect new terminal surfaces.
 @"scrollback-limit": usize = 10_000_000, // 10MB
+
+/// Control when the scrollbar is shown to scroll the scrollback buffer.
+///
+/// The default value is `system`.
+///
+/// Valid values:
+///
+///   * `system` - Respect the system settings for when to show scrollbars.
+///     For example, on macOS, this will respect the "Scrollbar behavior"
+///     system setting which by default usually only shows scrollbars while
+///     actively scrolling or hovering the gutter.
+///
+///   * `never` - Never show a scrollbar. You can still scroll using the mouse,
+///     keybind actions, etc. but you will not have a visual UI widget showing
+///     a scrollbar.
+///
+/// This only applies to macOS currently. GTK doesn't yet support scrollbars.
+scrollbar: Scrollbar = .system,
 
 /// Match a regular expression against the terminal text and associate clicking
 /// it with an action. This can be used to match URLs, file paths, etc. Actions
@@ -1989,7 +2107,7 @@ keybind: Keybinds = .{},
 
 /// When this is true, the default configuration file paths will be loaded.
 /// The default configuration file paths are currently only the XDG
-/// config path ($XDG_CONFIG_HOME/ghostty/config).
+/// config path ($XDG_CONFIG_HOME/ghostty/config.ghostty).
 ///
 /// If this is false, the default configuration paths will not be loaded.
 /// This is targeted directly at using Ghostty from the CLI in a way
@@ -2349,6 +2467,11 @@ keybind: Keybinds = .{},
 ///     If desired, the `+ssh-cache` CLI action can be used to manage the installation
 ///     cache manually using various arguments.
 ///     (Available since: 1.2.0)
+///
+///   * `path` - Add Ghostty's binary directory to PATH. This ensures the `ghostty`
+///     command is available in the shell even if shell init scripts reset PATH.
+///     This is particularly useful on macOS where PATH is often overridden by
+///     system scripts. The directory is only added if not already present.
 ///
 /// SSH features work independently and can be combined for optimal experience:
 /// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
@@ -2771,7 +2894,7 @@ keybind: Keybinds = .{},
 ///
 /// The values `left` or `right` enable this for the left or right *Option*
 /// key, respectively.
-@"macos-option-as-alt": ?OptionAsAlt = null,
+@"macos-option-as-alt": ?inputpkg.OptionAsAlt = null,
 
 /// Whether to enable the macOS window shadow. The default value is true.
 /// With some window managers and window transparency settings, you may
@@ -2867,10 +2990,7 @@ keybind: Keybinds = .{},
 /// Supported formats include PNG, JPEG, and ICNS.
 ///
 /// Defaults to `~/.config/ghostty/Ghostty.icns`
-///
-/// Note: This configuration is required when `macos-icon` is set to
-/// `custom`
-@"macos-custom-icon": ?[]const u8 = null,
+@"macos-custom-icon": ?[:0]const u8 = null,
 
 /// The material to use for the frame of the macOS app icon.
 ///
@@ -3313,7 +3433,7 @@ pub fn loadIter(
 /// `path` must be resolved and absolute.
 pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     assert(std.fs.path.isAbsolute(path));
-    var file = openFile(path) catch |err| switch (err) {
+    var file = file_load.open(path) catch |err| switch (err) {
         error.NotAFile => {
             log.warn(
                 "config-file {s}: not reading because it is not a file",
@@ -3327,10 +3447,10 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     defer file.close();
 
     std.log.info("reading configuration file path={s}", .{path});
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
-    const Iter = cli.args.LineIterator(@TypeOf(reader));
-    var iter: Iter = .{ .r = reader, .filepath = path };
+    var buf: [2048]u8 = undefined;
+    var file_reader = file.reader(&buf);
+    const reader = &file_reader.interface;
+    var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
@@ -3367,140 +3487,75 @@ fn writeConfigTemplate(path: []const u8) !void {
     }
     const file = try std.fs.createFileAbsolute(path, .{});
     defer file.close();
-    try std.fmt.format(
-        file.writer(),
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    const writer = &file_writer.interface;
+    try writer.print(
         @embedFile("./config-template"),
         .{ .path = path },
     );
 }
 
 /// Load configurations from the default configuration files. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
+/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
 ///
-/// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
+/// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/`
 /// is also loaded.
+///
+/// The legacy `config` file (without extension) is first loaded,
+/// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     // Load XDG first
-    const xdg_path = try defaultXdgPath(alloc);
+    const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
+    defer alloc.free(legacy_xdg_path);
+    const xdg_path = try file_load.defaultXdgPath(alloc);
     defer alloc.free(xdg_path);
-    const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+    const xdg_loaded: bool = xdg_loaded: {
+        const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
+        const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+        if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
+            log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
+            log.warn("loading them both in that order", .{});
+            break :xdg_loaded true;
+        }
+
+        break :xdg_loaded xdg_action != .not_found or
+            legacy_xdg_action != .not_found;
+    };
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
-        const app_support_path = try defaultAppSupportPath(alloc);
+        const legacy_app_support_path = try file_load.legacyDefaultAppSupportPath(alloc);
+        defer alloc.free(legacy_app_support_path);
+        const app_support_path = try file_load.preferredAppSupportPath(alloc);
         defer alloc.free(app_support_path);
-        const app_support_action = self.loadOptionalFile(alloc, app_support_path);
+        const app_support_loaded: bool = loaded: {
+            const legacy_app_support_action = self.loadOptionalFile(alloc, legacy_app_support_path);
+            const app_support_action = self.loadOptionalFile(alloc, app_support_path);
+            if (app_support_action != .not_found and legacy_app_support_action != .not_found) {
+                log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_app_support_path, app_support_path });
+                log.warn("loading them both in that order", .{});
+                break :loaded true;
+            }
+
+            break :loaded app_support_action != .not_found or
+                legacy_app_support_action != .not_found;
+        };
 
         // If both files are not found, then we create a template file.
         // For macOS, we only create the template file in the app support
-        if (app_support_action == .not_found and xdg_action == .not_found) {
+        if (!app_support_loaded and !xdg_loaded) {
             writeConfigTemplate(app_support_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
         }
     } else {
-        if (xdg_action == .not_found) {
+        if (!xdg_loaded) {
             writeConfigTemplate(xdg_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
         }
     }
-}
-
-/// Default path for the XDG home configuration file. Returned value
-/// must be freed by the caller.
-fn defaultXdgPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.xdg.config(
-        alloc,
-        .{ .subdir = "ghostty/config" },
-    );
-}
-
-/// Default path for the macOS Application Support configuration file.
-/// Returned value must be freed by the caller.
-fn defaultAppSupportPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.macos.appSupportDir(alloc, "config");
-}
-
-/// Returns the path to the preferred default configuration file.
-/// This is the file where users should place their configuration.
-///
-/// This doesn't create or populate the file with any default
-/// contents; downstream callers must handle this.
-///
-/// The returned value must be freed by the caller.
-pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
-    switch (builtin.os.tag) {
-        .macos => {
-            // macOS prefers the Application Support directory
-            // if it exists.
-            const app_support_path = try defaultAppSupportPath(alloc);
-            if (openFile(app_support_path)) |f| {
-                f.close();
-                return app_support_path;
-            } else |_| {}
-
-            // Try the XDG path if it exists
-            const xdg_path = try defaultXdgPath(alloc);
-            if (openFile(xdg_path)) |f| {
-                f.close();
-                alloc.free(app_support_path);
-                return xdg_path;
-            } else |_| {}
-            defer alloc.free(xdg_path);
-
-            // Neither exist, use app support
-            return app_support_path;
-        },
-
-        // All other platforms use XDG only
-        else => return try defaultXdgPath(alloc),
-    }
-}
-
-const OpenFileError = error{
-    FileNotFound,
-    FileIsEmpty,
-    FileOpenFailed,
-    NotAFile,
-};
-
-/// Opens the file at the given path and returns the file handle
-/// if it exists and is non-empty. This also constrains the possible
-/// errors to a smaller set that we can explicitly handle.
-fn openFile(path: []const u8) OpenFileError!std.fs.File {
-    assert(std.fs.path.isAbsolute(path));
-
-    var file = std.fs.openFileAbsolute(
-        path,
-        .{},
-    ) catch |err| switch (err) {
-        error.FileNotFound => return OpenFileError.FileNotFound,
-        else => {
-            log.warn("unexpected file open error path={s} err={}", .{
-                path,
-                err,
-            });
-            return OpenFileError.FileOpenFailed;
-        },
-    };
-    errdefer file.close();
-
-    const stat = file.stat() catch |err| {
-        log.warn("error getting file stat path={s} err={}", .{
-            path,
-            err,
-        });
-        return OpenFileError.FileOpenFailed;
-    };
-    switch (stat.kind) {
-        .file => {},
-        else => return OpenFileError.NotAFile,
-    }
-
-    if (stat.size == 0) return OpenFileError.FileIsEmpty;
-
-    return file;
 }
 
 /// Load and parse the CLI args.
@@ -3538,17 +3593,17 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
 
             // Next, take all remaining args and use that to build up
             // a command to execute.
-            var builder = std.ArrayList([:0]const u8).init(arena_alloc);
-            errdefer builder.deinit();
+            var builder: std.ArrayList([:0]const u8) = .empty;
+            errdefer builder.deinit(arena_alloc);
             for (args) |arg_raw| {
                 const arg = std.mem.sliceTo(arg_raw, 0);
                 const copy = try arena_alloc.dupeZ(u8, arg);
                 try self._replay_steps.append(arena_alloc, .{ .arg = copy });
-                try builder.append(copy);
+                try builder.append(arena_alloc, copy);
             }
 
             self.@"_xdg-terminal-exec" = true;
-            self.@"initial-command" = .{ .direct = try builder.toOwnedSlice() };
+            self.@"initial-command" = .{ .direct = try builder.toOwnedSlice(arena_alloc) };
             return;
         }
     }
@@ -3620,13 +3675,13 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
     // PRIOR to the "-e" in our replay steps, since everything
     // after "-e" becomes an "initial-command". To do this, we
     // dupe the values if we find it.
-    var replay_suffix = std.ArrayList(Replay.Step).init(alloc_gpa);
-    defer replay_suffix.deinit();
+    var replay_suffix: std.ArrayList(Replay.Step) = .empty;
+    defer replay_suffix.deinit(alloc_gpa);
     for (self._replay_steps.items, 0..) |step, i| if (step == .@"-e") {
         // We don't need to clone the steps because they should
         // all be allocated in our arena and we're keeping our
         // arena.
-        try replay_suffix.appendSlice(self._replay_steps.items[i..]);
+        try replay_suffix.appendSlice(alloc_gpa, self._replay_steps.items[i..]);
 
         // Remove our old values. Again, don't need to free any
         // memory here because its all part of our arena.
@@ -3654,10 +3709,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         // We must only load a unique file once
         if (try loaded.fetchPut(path, {}) != null) {
             const diag: cli.Diagnostic = .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "config-file {s}: cycle detected",
                     .{path},
+                    0,
                 ),
             };
 
@@ -3669,10 +3725,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
             if (err != error.FileNotFound or !optional) {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "error opening config-file {s}: {}",
                         .{ path, err },
+                        0,
                     ),
                 };
 
@@ -3688,10 +3745,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             .file => {},
             else => |kind| {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "config-file {s}: not reading because file type is {s}",
                         .{ path, @tagName(kind) },
+                        0,
                     ),
                 };
 
@@ -3702,10 +3760,10 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         }
 
         log.info("loading config-file path={s}", .{path});
-        var buf_reader = std.io.bufferedReader(file.reader());
-        const reader = buf_reader.reader();
-        const Iter = cli.args.LineIterator(@TypeOf(reader));
-        var iter: Iter = .{ .r = reader, .filepath = path };
+        var buf: [2048]u8 = undefined;
+        var file_reader = file.reader(&buf);
+        const reader = &file_reader.interface;
+        var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
         try self.loadIter(alloc_gpa, &iter);
         try self.expandPaths(std.fs.path.dirname(path).?);
     }
@@ -3854,10 +3912,10 @@ fn loadTheme(self: *Config, theme: Theme) !void {
     errdefer new_config.deinit();
 
     // Load our theme
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
-    const Iter = cli.args.LineIterator(@TypeOf(reader));
-    var iter: Iter = .{ .r = reader, .filepath = path };
+    var buf: [2048]u8 = undefined;
+    var file_reader = file.reader(&buf);
+    const reader = &file_reader.interface;
+    var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try new_config.loadIter(alloc_gpa, &iter);
 
     // Setup our replay to be conditional.
@@ -4077,7 +4135,8 @@ pub fn finalize(self: *Config) !void {
     }
 
     // Clamp our mouse scroll multiplier
-    self.@"mouse-scroll-multiplier" = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier"));
+    self.@"mouse-scroll-multiplier".precision = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".precision));
+    self.@"mouse-scroll-multiplier".discrete = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".discrete));
 
     // Clamp our split opacity
     self.@"unfocused-split-opacity" = @min(1.0, @max(0.15, self.@"unfocused-split-opacity"));
@@ -4085,7 +4144,7 @@ pub fn finalize(self: *Config) !void {
     // Clamp our contrast
     self.@"minimum-contrast" = @min(21, @max(1, self.@"minimum-contrast"));
 
-    // Minimmum window size
+    // Minimum window size
     if (self.@"window-width" > 0) self.@"window-width" = @max(10, self.@"window-width");
     if (self.@"window-height" > 0) self.@"window-height" = @max(4, self.@"window-height");
 
@@ -4099,7 +4158,7 @@ pub fn finalize(self: *Config) !void {
     if (self.@"quit-after-last-window-closed-delay") |duration| {
         if (duration.duration < 5 * std.time.ns_per_s) {
             log.warn(
-                "quit-after-last-window-closed-delay is set to a very short value ({}), which might cause problems",
+                "quit-after-last-window-closed-delay is set to a very short value ({f}), which might cause problems",
                 .{duration},
             );
         }
@@ -4130,22 +4189,23 @@ pub fn parseManuallyHook(
 
         // Build up the command. We don't clean this up because we take
         // ownership in our allocator.
-        var command: std.ArrayList([:0]const u8) = .init(alloc);
-        errdefer command.deinit();
+        var command: std.ArrayList([:0]const u8) = .empty;
+        errdefer command.deinit(alloc);
 
         while (iter.next()) |param| {
             const copy = try alloc.dupeZ(u8, param);
             try self._replay_steps.append(alloc, .{ .arg = copy });
-            try command.append(copy);
+            try command.append(alloc, copy);
         }
 
         if (command.items.len == 0) {
             try self._diagnostics.append(alloc, .{
                 .location = try cli.Location.fromIter(iter, alloc),
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     alloc,
                     "missing command after {s}",
                     .{arg},
+                    0,
                 ),
             });
 
@@ -4280,10 +4340,11 @@ pub fn addDiagnosticFmt(
 ) Allocator.Error!void {
     const alloc = self._arena.?.allocator();
     try self._diagnostics.append(alloc, .{
-        .message = try std.fmt.allocPrintZ(
+        .message = try std.fmt.allocPrintSentinel(
             alloc,
             fmt,
             args,
+            0,
         ),
     });
 }
@@ -4726,14 +4787,6 @@ pub const NonNativeFullscreen = enum(c_int) {
     @"padded-notch",
 };
 
-/// Valid values for macos-option-as-alt.
-pub const OptionAsAlt = enum {
-    false,
-    true,
-    left,
-    right,
-};
-
 pub const WindowPaddingColor = enum {
     background,
     extend,
@@ -4801,7 +4854,7 @@ pub const Color = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Color, formatter: anytype) !void {
+    pub fn formatEntry(self: Color, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         try formatter.formatEntry(
             []const u8,
@@ -4868,12 +4921,12 @@ pub const Color = struct {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var color: Color = .{ .r = 10, .g = 11, .b = 12 };
-        try color.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = #0a0b0c\n", buf.items);
+        try color.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = #0a0b0c\n", buf.written());
     }
 
     test "parseCLI with whitespace" {
@@ -4904,7 +4957,7 @@ pub const TerminalColor = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: TerminalColor, formatter: anytype) !void {
+    pub fn formatEntry(self: TerminalColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
 
@@ -4939,12 +4992,12 @@ pub const TerminalColor = union(enum) {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var sc: TerminalColor = .@"cell-foreground";
-        try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.items);
+        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.written());
     }
 };
 
@@ -4960,7 +5013,7 @@ pub const BoldColor = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: BoldColor, formatter: anytype) !void {
+    pub fn formatEntry(self: BoldColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
             .bright => try formatter.formatEntry(
@@ -4991,12 +5044,12 @@ pub const BoldColor = union(enum) {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var sc: BoldColor = .bright;
-        try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try testing.expectEqualSlices(u8, "a = bright\n", buf.items);
+        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try testing.expectEqualSlices(u8, "a = bright\n", buf.written());
     }
 };
 
@@ -5083,8 +5136,7 @@ pub const ColorList = struct {
         // Build up the value of our config. Our buffer size should be
         // sized to contain all possible maximum values.
         var buf: [1024]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        var writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         for (self.colors.items, 0..) |color, i| {
             var color_buf: [128]u8 = undefined;
             const color_str = try color.formatBuf(&color_buf);
@@ -5094,7 +5146,7 @@ pub const ColorList = struct {
 
         try formatter.formatEntry(
             []const u8,
-            fbs.getWritten(),
+            writer.buffered(),
         );
     }
 
@@ -5123,7 +5175,7 @@ pub const ColorList = struct {
 
     test "format" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5132,8 +5184,8 @@ pub const ColorList = struct {
 
         var p: Self = .{};
         try p.parseCLI(alloc, "black,white");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.written());
     }
 };
 
@@ -5194,7 +5246,7 @@ pub const Palette = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         for (0.., self.value) |k, v| {
             try formatter.formatEntry(
@@ -5249,12 +5301,12 @@ pub const Palette = struct {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: Self = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = 0=#1d1f21\n", buf.items[0..14]);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = 0=#1d1f21\n", buf.written()[0..14]);
     }
 
     test "parseCLI with whitespace" {
@@ -5348,7 +5400,7 @@ pub const RepeatableString = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // If no items, we want to render an empty field.
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});
@@ -5395,17 +5447,17 @@ pub const RepeatableString = struct {
 
     test "formatConfig empty" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: Self = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = \n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
     test "formatConfig single item" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5414,13 +5466,13 @@ pub const RepeatableString = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "A");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
     test "formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5430,8 +5482,8 @@ pub const RepeatableString = struct {
         var list: Self = .{};
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "B");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.written());
     }
 };
 
@@ -5547,7 +5599,7 @@ pub const RepeatableFontVariation = struct {
 
     test "formatConfig single" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5556,8 +5608,8 @@ pub const RepeatableFontVariation = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "wght = 200");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = wght=200\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = wght=200\n", buf.written());
     }
 };
 
@@ -6358,7 +6410,7 @@ pub const Keybinds = struct {
     }
 
     /// Like formatEntry but has an option to include docs.
-    pub fn formatEntryDocs(self: Keybinds, formatter: anytype, docs: bool) !void {
+    pub fn formatEntryDocs(self: Keybinds, formatter: formatterpkg.EntryFormatter, docs: bool) !void {
         if (self.set.bindings.size == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -6387,14 +6439,14 @@ pub const Keybinds = struct {
                 }
             }
 
-            var buffer_stream = std.io.fixedBufferStream(&buf);
-            std.fmt.format(buffer_stream.writer(), "{}", .{k}) catch return error.OutOfMemory;
-            try v.formatEntries(&buffer_stream, formatter);
+            var writer: std.Io.Writer = .fixed(&buf);
+            writer.print("{f}", .{k}) catch return error.OutOfMemory;
+            try v.formatEntries(&writer, formatter);
         }
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Keybinds, formatter: anytype) !void {
+    pub fn formatEntry(self: Keybinds, formatter: formatterpkg.EntryFormatter) !void {
         try self.formatEntryDocs(formatter, false);
     }
 
@@ -6411,7 +6463,7 @@ pub const Keybinds = struct {
 
     test "formatConfig single" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6420,14 +6472,14 @@ pub const Keybinds = struct {
 
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "shift+a=csi:hello");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = shift+a=csi:hello\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = shift+a=csi:hello\n", buf.written());
     }
 
     // Regression test for https://github.com/ghostty-org/ghostty/issues/2734
     test "formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6437,7 +6489,7 @@ pub const Keybinds = struct {
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "ctrl+z>1=goto_tab:1");
         try list.parseCLI(alloc, "ctrl+z>2=goto_tab:2");
-        try list.formatEntry(formatterpkg.entryFormatter("keybind", buf.writer()));
+        try list.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
 
         // Note they turn into translated keys because they match
         // their ASCII mapping.
@@ -6446,12 +6498,12 @@ pub const Keybinds = struct {
             \\keybind = ctrl+z>1=goto_tab:1
             \\
         ;
-        try std.testing.expectEqualStrings(want, buf.items);
+        try std.testing.expectEqualStrings(want, buf.written());
     }
 
     test "formatConfig multiple items nested" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6463,7 +6515,7 @@ pub const Keybinds = struct {
         try list.parseCLI(alloc, "ctrl+a>ctrl+b>w=close_window");
         try list.parseCLI(alloc, "ctrl+a>ctrl+c>t=new_tab");
         try list.parseCLI(alloc, "ctrl+b>ctrl+d>a=previous_tab");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
 
         // NB: This does not currently retain the order of the keybinds.
         const want =
@@ -6473,7 +6525,7 @@ pub const Keybinds = struct {
             \\a = ctrl+b>ctrl+d>a=previous_tab
             \\
         ;
-        try std.testing.expectEqualStrings(want, buf.items);
+        try std.testing.expectEqualStrings(want, buf.written());
     }
 };
 
@@ -6508,7 +6560,7 @@ pub const RepeatableCodepointMap = struct {
         return .{ .map = try self.map.clone(alloc) };
     }
 
-    /// Compare if two of our value are requal. Required by Config.
+    /// Compare if two of our value are equal. Required by Config.
     pub fn equal(self: Self, other: Self) bool {
         const itemsA = self.map.list.slice();
         const itemsB = other.map.list.slice();
@@ -6699,7 +6751,7 @@ pub const RepeatableCodepointMap = struct {
 
     test "formatConfig single" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6708,13 +6760,13 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+ABCD=Comic Sans");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = U+ABCD=Comic Sans\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = U+ABCD=Comic Sans\n", buf.written());
     }
 
     test "formatConfig range" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6723,13 +6775,13 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0001 - U+0005=Verdana");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = U+0001-U+0005=Verdana\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = U+0001-U+0005=Verdana\n", buf.written());
     }
 
     test "formatConfig multiple" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6738,12 +6790,12 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0006-U+0009, U+ABCD=Courier");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8,
             \\a = U+0006-U+0009=Courier
             \\a = U+ABCD=Courier
             \\
-        , buf.items);
+        , buf.written());
     }
 };
 
@@ -6795,7 +6847,7 @@ pub const FontStyle = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .default, .false => try formatter.formatEntry(
                 []const u8,
@@ -6827,7 +6879,7 @@ pub const FontStyle = union(enum) {
 
     test "formatConfig default" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6836,13 +6888,13 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "default");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = default\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = default\n", buf.written());
     }
 
     test "formatConfig false" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6851,13 +6903,13 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "false");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = false\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = false\n", buf.written());
     }
 
     test "formatConfig named" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6866,8 +6918,8 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "bold");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = bold\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = bold\n", buf.written());
     }
 };
 
@@ -6927,7 +6979,7 @@ pub const RepeatableLink = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // This currently can't be set so we don't format anything.
         _ = self;
         _ = formatter;
@@ -6984,6 +7036,7 @@ pub const ShellIntegrationFeatures = packed struct {
     title: bool = true,
     @"ssh-env": bool = false,
     @"ssh-terminfo": bool = false,
+    path: bool = true,
 };
 
 pub const RepeatableCommand = struct {
@@ -7010,6 +7063,7 @@ pub const RepeatableCommand = struct {
             inputpkg.Command,
             alloc,
             input,
+            null,
         );
         try self.value.append(alloc, cmd);
     }
@@ -7035,7 +7089,10 @@ pub const RepeatableCommand = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: RepeatableCommand, formatter: anytype) !void {
+    pub fn formatEntry(
+        self: RepeatableCommand,
+        formatter: formatterpkg.EntryFormatter,
+    ) !void {
         if (self.value.items.len == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -7043,22 +7100,23 @@ pub const RepeatableCommand = struct {
 
         for (self.value.items) |item| {
             var buf: [4096]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&buf);
-            var writer = fbs.writer();
+            var writer: std.Io.Writer = .fixed(&buf);
 
-            writer.writeAll("title:\"") catch return error.OutOfMemory;
-            std.zig.stringEscape(item.title, "", .{}, writer) catch return error.OutOfMemory;
-            writer.writeAll("\"") catch return error.OutOfMemory;
+            writer.print(
+                "title:\"{f}\"",
+                .{std.zig.fmtString(item.title)},
+            ) catch return error.OutOfMemory;
 
             if (item.description.len > 0) {
-                writer.writeAll(",description:\"") catch return error.OutOfMemory;
-                std.zig.stringEscape(item.description, "", .{}, writer) catch return error.OutOfMemory;
-                writer.writeAll("\"") catch return error.OutOfMemory;
+                writer.print(
+                    ",description:\"{f}\"",
+                    .{std.zig.fmtString(item.description)},
+                ) catch return error.OutOfMemory;
             }
 
-            writer.print(",action:\"{}\"", .{item.action}) catch return error.OutOfMemory;
+            writer.print(",action:\"{f}\"", .{item.action}) catch return error.OutOfMemory;
 
-            try formatter.formatEntry([]const u8, fbs.getWritten());
+            try formatter.formatEntry([]const u8, writer.buffered());
         }
     }
 
@@ -7104,17 +7162,17 @@ pub const RepeatableCommand = struct {
 
     test "RepeatableCommand formatConfig empty" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: RepeatableCommand = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = \n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
     test "RepeatableCommand formatConfig single item" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -7123,13 +7181,13 @@ pub const RepeatableCommand = struct {
 
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:Bober");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:Bober\"\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:Bober\"\n", buf.written());
     }
 
     test "RepeatableCommand formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -7139,14 +7197,12 @@ pub const RepeatableCommand = struct {
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:kurwa");
         try list.parseCLI(alloc, "title:Ja,   description: pierdole,  action:text:jakie bydle");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:kurwa\"\na = title:\"Ja\",description:\"pierdole\",action:\"text:jakie bydle\"\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:kurwa\"\na = title:\"Ja\",description:\"pierdole\",action:\"text:jakie bydle\"\n", buf.written());
     }
 
     test "RepeatableCommand parseCLI commas" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
-        defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -7319,6 +7375,108 @@ pub const MouseShiftCapture = enum {
     never,
 };
 
+/// See mouse-scroll-multiplier
+pub const MouseScrollMultiplier = struct {
+    const Self = @This();
+
+    precision: f64 = 1,
+    discrete: f64 = 3,
+
+    pub const default: MouseScrollMultiplier = .{};
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+        const input = input_ orelse return error.ValueRequired;
+        self.* = cli.args.parseAutoStruct(
+            MouseScrollMultiplier,
+            alloc,
+            input,
+            self.*,
+        ) catch |err| switch (err) {
+            error.InvalidValue => bare: {
+                const v = std.fmt.parseFloat(
+                    f64,
+                    input,
+                ) catch return error.InvalidValue;
+                break :bare .{
+                    .precision = v,
+                    .discrete = v,
+                };
+            },
+            else => return err,
+        };
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        _ = alloc;
+        return self.*;
+    }
+
+    /// Compare if two of our value are equal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return self.precision == other.precision and self.discrete == other.discrete;
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        var buf: [4096]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        writer.print(
+            "precision:{d},discrete:{d}",
+            .{ self.precision, self.discrete },
+        ) catch return error.OutOfMemory;
+        try formatter.formatEntry([]const u8, writer.buffered());
+    }
+
+    test "parse" {
+        const testing = std.testing;
+        const alloc = testing.allocator;
+        const epsilon = 0.00001;
+
+        var args: Self = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "3");
+        try testing.expectApproxEqAbs(3, args.precision, epsilon);
+        try testing.expectApproxEqAbs(3, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "precision:1");
+        try testing.expectApproxEqAbs(1, args.precision, epsilon);
+        try testing.expectApproxEqAbs(3, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "discrete:5");
+        try testing.expectApproxEqAbs(0.1, args.precision, epsilon);
+        try testing.expectApproxEqAbs(5, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "precision:3,discrete:7");
+        try testing.expectApproxEqAbs(3, args.precision, epsilon);
+        try testing.expectApproxEqAbs(7, args.discrete, epsilon);
+
+        args = .{ .precision = 0.1, .discrete = 3 };
+        try args.parseCLI(alloc, "discrete:8,precision:6");
+        try testing.expectApproxEqAbs(6, args.precision, epsilon);
+        try testing.expectApproxEqAbs(8, args.discrete, epsilon);
+
+        args = .default;
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "foo:1"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:bar"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:1,discrete:3,foo:5"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:1,,discrete:3"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, ",precision:1,discrete:3"));
+    }
+
+    test "format entry MouseScrollMultiplier" {
+        const testing = std.testing;
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+
+        var args: Self = .{ .precision = 1.5, .discrete = 2.5 };
+        try args.formatEntry(formatterpkg.entryFormatter("mouse-scroll-multiplier", &buf.writer));
+        try testing.expectEqualSlices(u8, "mouse-scroll-multiplier = precision:1.5,discrete:2.5\n", buf.written());
+    }
+};
+
 /// How to treat requests to write to or read from the clipboard
 pub const ClipboardAccess = enum {
     allow,
@@ -7432,7 +7590,7 @@ pub const QuickTerminalSize = struct {
             return error.MissingUnit;
         }
 
-        fn format(self: Size, writer: anytype) !void {
+        fn format(self: Size, writer: *std.Io.Writer) !void {
             switch (self) {
                 .percentage => |v| try writer.print("{d}%", .{v}),
                 .pixels => |v| try writer.print("{}px", .{v}),
@@ -7550,20 +7708,19 @@ pub const QuickTerminalSize = struct {
         };
     }
 
-    pub fn formatEntry(self: QuickTerminalSize, formatter: anytype) !void {
+    pub fn formatEntry(self: QuickTerminalSize, formatter: formatterpkg.EntryFormatter) !void {
         const primary = self.primary orelse return;
 
         var buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
 
-        primary.format(writer) catch return error.OutOfMemory;
+        primary.format(&writer) catch return error.OutOfMemory;
         if (self.secondary) |secondary| {
             writer.writeByte(',') catch return error.OutOfMemory;
-            secondary.format(writer) catch return error.OutOfMemory;
+            secondary.format(&writer) catch return error.OutOfMemory;
         }
 
-        try formatter.formatEntry([]const u8, fbs.getWritten());
+        try formatter.formatEntry([]const u8, writer.buffered());
     }
 
     test "parse QuickTerminalSize" {
@@ -7746,11 +7903,15 @@ pub const BackgroundImageFit = enum {
 pub const FreetypeLoadFlags = packed struct {
     // The defaults here at the time of writing this match the defaults
     // for Freetype itself. Ghostty hasn't made any opinionated changes
-    // to these defaults.
+    // to these defaults. (Strictly speaking, `light` isn't FreeType's
+    // own default, but appears to be the effective default with most
+    // Fontconfig-aware software using FreeType, so until Ghostty
+    // implements Fontconfig support we default to `light`.)
     hinting: bool = true,
     @"force-autohint": bool = false,
     monochrome: bool = false,
     autohint: bool = true,
+    light: bool = true,
 };
 
 /// See linux-cgroup
@@ -7933,6 +8094,7 @@ pub const Theme = struct {
                 Theme,
                 alloc,
                 input,
+                null,
             );
             return;
         }
@@ -8045,6 +8207,10 @@ pub const Duration = struct {
         return .{ .duration = self.duration / to * to };
     }
 
+    pub fn lte(self: Duration, other: Duration) bool {
+        return self.duration <= other.duration;
+    }
+
     pub fn parseCLI(input: ?[]const u8) !Duration {
         var remaining = input orelse return error.ValueRequired;
 
@@ -8118,15 +8284,17 @@ pub const Duration = struct {
         return if (value) |v| .{ .duration = v } else error.ValueRequired;
     }
 
-    pub fn formatEntry(self: Duration, formatter: anytype) !void {
+    pub fn formatEntry(self: Duration, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [64]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
-        try self.format("", .{}, writer);
-        try formatter.formatEntry([]const u8, fbs.getWritten());
+        var writer: std.Io.Writer = .fixed(&buf);
+        try self.format(&writer);
+        try formatter.formatEntry([]const u8, writer.buffered());
     }
 
-    pub fn format(self: Duration, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(
+        self: Duration,
+        writer: *std.Io.Writer,
+    ) !void {
         var value = self.duration;
         var i: usize = 0;
         for (units) |unit| {
@@ -8193,7 +8361,7 @@ pub const WindowPadding = struct {
         }
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         if (self.top_left == self.bottom_right) {
             try formatter.formatEntry(
@@ -8250,12 +8418,31 @@ pub const WindowPadding = struct {
     }
 };
 
+/// See scrollbar
+pub const Scrollbar = enum {
+    system,
+    never,
+};
+
 /// See scroll-to-bottom
 pub const ScrollToBottom = packed struct {
     keystroke: bool = true,
     output: bool = false,
 
     pub const default: ScrollToBottom = .{};
+};
+
+/// See notify-on-command-finish
+pub const NotifyOnCommandFinish = enum {
+    never,
+    unfocused,
+    always,
+};
+
+/// See notify-on-command-finish-action
+pub const NotifyOnCommandFinishAction = packed struct {
+    bell: bool = true,
+    notify: bool = false,
 };
 
 test "parse duration" {
@@ -8342,7 +8529,7 @@ test "test format" {
     inline for (Duration.units) |unit| {
         const d: Duration = .{ .duration = unit.factor };
         var actual_buf: [16]u8 = undefined;
-        const actual = try std.fmt.bufPrint(&actual_buf, "{}", .{d});
+        const actual = try std.fmt.bufPrint(&actual_buf, "{f}", .{d});
         var expected_buf: [16]u8 = undefined;
         const expected = if (!std.mem.eql(u8, unit.name, "us"))
             try std.fmt.bufPrint(&expected_buf, "1{s}", .{unit.name})
@@ -8353,12 +8540,12 @@ test "test format" {
 }
 
 test "test entryFormatter" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buf.deinit();
 
     var p: Duration = .{ .duration = std.math.maxInt(u64) };
-    try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-    try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
+    try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+    try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.written());
 }
 
 const TestIterator = struct {
@@ -8468,15 +8655,20 @@ test "clone can then change conditional state" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme_light", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_light"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_light"));
+        try writer.end();
     }
     {
         var file = try td.dir.createFile("theme_dark", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_dark"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
+        try writer.end();
     }
     var light_buf: [std.fs.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
@@ -8602,10 +8794,13 @@ test "theme loading" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
+        try writer.end();
     }
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
@@ -8638,10 +8833,13 @@ test "theme loading preserves conditional state" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
+        try writer.end();
     }
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
@@ -8668,10 +8866,13 @@ test "theme priority is lower than config" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
+        try writer.end();
     }
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
@@ -8702,15 +8903,20 @@ test "theme loading correct light/dark" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme_light", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_light"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_light"));
+        try writer.end();
     }
     {
         var file = try td.dir.createFile("theme_dark", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_dark"));
+        var writer = file.writer(&buf);
+        try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
+        try writer.end();
     }
     var light_buf: [std.fs.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);

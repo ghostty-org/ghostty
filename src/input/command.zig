@@ -50,7 +50,7 @@ pub const Command = struct {
 
         return .{
             .action_key = @tagName(self.action),
-            .action = std.fmt.comptimePrint("{s}", .{self.action}),
+            .action = std.fmt.comptimePrint("{t}", .{self.action}),
             .title = self.title,
             .description = self.description,
         };
@@ -94,6 +94,7 @@ pub const defaults: []const Command = defaults: {
 
 /// Defaults in C-compatible form.
 pub const defaultsC: []const Command.C = defaults: {
+    @setEvalBranchQuota(100_000);
     var result: [defaults.len]Command.C = undefined;
     for (defaults, 0..) |cmd, i| result[i] = cmd.comptimeCval();
     const final = result;
@@ -448,6 +449,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle secure input mode.",
         }},
 
+        .toggle_mouse_reporting => comptime &.{.{
+            .action = .toggle_mouse_reporting,
+            .title = "Toggle Mouse Reporting",
+            .description = "Toggle whether mouse events are reported to terminal applications.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
@@ -486,6 +493,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .cursor_key,
         .set_font_size,
+        .scroll_to_row,
         .scroll_page_fractional,
         .scroll_page_lines,
         .adjust_selection,

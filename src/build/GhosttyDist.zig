@@ -3,6 +3,7 @@ const GhosttyDist = @This();
 const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const GhosttyFrameData = @import("GhosttyFrameData.zig");
 
 /// The final source tarball.
 archive: std.Build.LazyPath,
@@ -25,6 +26,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         try resources.append(alloc, gtk.resources_c);
         try resources.append(alloc, gtk.resources_h);
     }
+    {
+        const framedata = GhosttyFrameData.distResources(b);
+        try resources.append(alloc, framedata.framedata);
+    }
 
     // git archive to create the final tarball. "git archive" is the
     // easiest way I can find to create a tarball that ignores stuff
@@ -38,10 +43,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
 
     // embed the Ghostty version in the tarball
     {
-        const version = b.addWriteFiles().add("VERSION", b.fmt("{}", .{cfg.version}));
+        const version = b.addWriteFiles().add("VERSION", b.fmt("{f}", .{cfg.version}));
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
-        git_archive.addArg(b.fmt("--prefix=ghostty-{}/", .{
+        git_archive.addArg(b.fmt("--prefix=ghostty-{f}/", .{
             cfg.version,
         }));
         git_archive.addPrefixedFileArg("--add-file=", version);
@@ -60,7 +65,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
 
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
-        git_archive.addArg(b.fmt("--prefix=ghostty-{}/{s}/", .{
+        git_archive.addArg(b.fmt("--prefix=ghostty-{f}/{s}/", .{
             cfg.version,
             std.fs.path.dirname(resource.dist).?,
         }));
@@ -72,11 +77,11 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         // This is important. Standard source tarballs extract into
         // a directory named `project-version`. This is expected by
         // standard tooling such as debhelper and rpmbuild.
-        b.fmt("--prefix=ghostty-{}/", .{cfg.version}),
+        b.fmt("--prefix=ghostty-{f}/", .{cfg.version}),
         "-o",
     });
     const output = git_archive.addOutputFileArg(b.fmt(
-        "ghostty-{}.tar.gz",
+        "ghostty-{f}.tar.gz",
         .{cfg.version},
     ));
     git_archive.addArg("HEAD");
@@ -84,7 +89,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // The install step to put the dist into the build directory.
     const install = b.addInstallFile(
         output,
-        b.fmt("dist/ghostty-{}.tar.gz", .{cfg.version}),
+        b.fmt("dist/ghostty-{f}.tar.gz", .{cfg.version}),
     );
 
     // The check step to ensure the archive works.
@@ -96,7 +101,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // i.e. this is way `build.zig` is.
     const extract_dir = check
         .addOutputDirectoryArg("ghostty")
-        .path(b, b.fmt("ghostty-{}", .{cfg.version}));
+        .path(b, b.fmt("ghostty-{f}", .{cfg.version}));
 
     // Check that tests pass within the extracted directory. This isn't
     // a fully hermetic test because we're sharing the Zig cache. In

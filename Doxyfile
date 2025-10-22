@@ -2,9 +2,42 @@
 
 DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = "libghostty"
-INPUT                  = include/ghostty/vt.h
+PROJECT_LOGO           = images/gnome/64.png
+INPUT                  = include/ghostty
 INPUT_ENCODING         = UTF-8
-RECURSIVE              = NO
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h
+EXAMPLE_PATH           = example
+EXAMPLE_RECURSIVE      = YES
+EXAMPLE_PATTERNS       = *
+FULL_PATH_NAMES        = NO
+STRIP_FROM_INC_PATH    = include
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCES_RELATION    = YES
+REFERENCED_BY_RELATION = YES
+
+#---------------------------------------------------------------------------
+# C API Optimization
+#---------------------------------------------------------------------------
+
+# Optimize output for C API documentation
+OPTIMIZE_OUTPUT_FOR_C  = YES
+TYPEDEF_HIDES_STRUCT   = YES
+HIDE_SCOPE_NAMES       = YES
+
+# Clean path names
+FULL_PATH_NAMES        = NO
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    = include
+
+# Hide undocumented and internal APIs
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+EXTRACT_ALL            = NO
+INTERNAL_DOCS          = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_LOCAL_CLASSES  = NO
 
 #---------------------------------------------------------------------------
 # HTML Output
@@ -12,6 +45,26 @@ RECURSIVE              = NO
 
 GENERATE_HTML          = YES
 HTML_OUTPUT            = zig-out/share/ghostty/doc/libghostty
+HTML_EXTRA_STYLESHEET  = dist/doxygen/ghostty.css
+HTML_EXTRA_FILES       = dist/doxygen/favicon.png \
+                         dist/doxygen/mobile-nav.js
+HTML_COLORSTYLE        = DARK
+HTML_CODE_FOLDING      = NO
+HTML_HEADER            = dist/doxygen/header.html
+LAYOUT_FILE            = DoxygenLayout.xml
+GENERATE_TREEVIEW      = YES
+HTML_DYNAMIC_SECTIONS  = YES
+SEARCHENGINE           = YES
+ALPHABETICAL_INDEX     = YES
+HTML_TIMESTAMP         = NO
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+
+#---------------------------------------------------------------------------
+# Graphs and Diagrams
+#---------------------------------------------------------------------------
+
+HAVE_DOT               = NO
 
 #---------------------------------------------------------------------------
 # Man Output
@@ -20,6 +73,7 @@ HTML_OUTPUT            = zig-out/share/ghostty/doc/libghostty
 GENERATE_MAN           = YES
 MAN_OUTPUT             = zig-out/share/man
 MAN_EXTENSION          = .3
+MAN_LINKS              = YES
 
 #---------------------------------------------------------------------------
 # Other Output

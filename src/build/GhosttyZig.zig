@@ -5,18 +5,17 @@ const GhosttyZig = @This();
 const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
 
+/// The `_c`-suffixed modules are built with the C ABI enabled.
 vt: *std.Build.Module,
+vt_c: *std.Build.Module,
 
 pub fn init(
     b: *std.Build,
     cfg: *const Config,
     deps: *const SharedDeps,
 ) !GhosttyZig {
-    // General build options
-    const general_options = b.addOptions();
-    try cfg.addOptions(general_options);
-
     // Terminal module build options
     var vt_options = cfg.terminalOptions();
     vt_options.artifact = .lib;
@@ -25,7 +24,41 @@ pub fn init(
     // conditionally do this.
     vt_options.oniguruma = false;
 
-    const vt = b.addModule("ghostty-vt", .{
+    return .{
+        .vt = try initVt(
+            "ghostty-vt",
+            b,
+            cfg,
+            deps,
+            vt_options,
+        ),
+
+        .vt_c = try initVt(
+            "ghostty-vt-c",
+            b,
+            cfg,
+            deps,
+            options: {
+                var dup = vt_options;
+                dup.c_abi = true;
+                break :options dup;
+            },
+        ),
+    };
+}
+
+fn initVt(
+    name: []const u8,
+    b: *std.Build,
+    cfg: *const Config,
+    deps: *const SharedDeps,
+    vt_options: TerminalBuildOptions,
+) !*std.Build.Module {
+    // General build options
+    const general_options = b.addOptions();
+    try cfg.addOptions(general_options);
+
+    const vt = b.addModule(name, .{
         .root_source_file = b.path("src/lib_vt.zig"),
         .target = cfg.target,
         .optimize = cfg.optimize,
@@ -45,5 +78,5 @@ pub fn init(
         try SharedDeps.addSimd(b, vt, null);
     }
 
-    return .{ .vt = vt };
+    return vt;
 }

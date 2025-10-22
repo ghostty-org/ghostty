@@ -102,24 +102,17 @@ pub fn threadEnter(
     errdefer self.subprocess.stop();
 
     // Watcher to detect subprocess exit
-    var process: ?xev.Process = process: {
+    var process: ?xev.Process = if (self.subprocess.process) |v| switch (v) {
+        .fork_exec => |cmd| try xev.Process.init(
+            cmd.pid orelse return error.ProcessNoPid,
+        ),
+
         // If we're executing via Flatpak then we can't do
         // traditional process watching (its implemented
         // as a special case in os/flatpak.zig) since the
         // command is on the host.
-        if (comptime build_config.flatpak) {
-            if (self.subprocess.flatpak_command != null) {
-                break :process null;
-            }
-        }
-
-        // Get the pid from the subprocess
-        const command = self.subprocess.command orelse
-            return error.ProcessNotStarted;
-        const pid = command.pid orelse
-            return error.ProcessNoPid;
-        break :process try xev.Process.init(pid);
-    };
+        .flatpak => null,
+    } else return error.ProcessNotStarted;
     errdefer if (process) |*p| p.deinit();
 
     // Track our process start time for abnormal exits
@@ -167,17 +160,19 @@ pub fn threadEnter(
         termio.Termio.ThreadData,
         td,
         processExit,
-    ) else if (comptime build_config.flatpak) {
-        // If we're in flatpak and we have a flatpak command
-        // then we can run the special flatpak logic for watching.
-        if (self.subprocess.flatpak_command) |*c| {
-            c.waitXev(
+    ) else if (comptime build_config.flatpak) flatpak: {
+        switch (self.subprocess.process orelse break :flatpak) {
+            // If we're in flatpak and we have a flatpak command
+            // then we can run the special flatpak logic for watching.
+            .flatpak => |*c| c.waitXev(
                 td.loop,
                 &td.backend.exec.flatpak_wait_c,
                 termio.Termio.ThreadData,
                 td,
                 flatpakExit,
-            );
+            ),
+
+            .fork_exec => {},
         }
     }
 
@@ -587,9 +582,28 @@ const Subprocess = struct {
     grid_size: renderer.GridSize,
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
-    command: ?Command = null,
-    flatpak_command: ?FlatpakHostCommand = null,
+    process: ?Process = null,
     linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
+
+    /// Union that represents the running process type.
+    const Process = union(enum) {
+        /// Standard POSIX fork/exec
+        fork_exec: Command,
+
+        /// Flatpak DBus command
+        flatpak: FlatpakHostCommand,
+    };
+
+    const ArgsFormatter = struct {
+        args: []const [:0]const u8,
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            for (this.args, 0..) |a, i| {
+                if (i > 0) try writer.writeAll(", ");
+                try writer.print("`{s}`", .{a});
+            }
+        }
+    };
 
     /// Initialize the subprocess. This will NOT start it, this only sets
     /// up the internal state necessary to start it later.
@@ -872,7 +886,7 @@ const Subprocess = struct {
         read: Pty.Fd,
         write: Pty.Fd,
     } {
-        assert(self.pty == null and self.command == null);
+        assert(self.pty == null and self.process == null);
 
         // This function is funny because on POSIX systems it can
         // fail in the forked process. This is flipped to true if
@@ -897,7 +911,24 @@ const Subprocess = struct {
             self.pty = null;
         };
 
-        log.debug("starting command command={s}", .{self.args});
+        // Cleanup we only run in our parent when we successfully start
+        // the process.
+        defer if (!in_child and self.process != null) {
+            if (comptime builtin.os.tag != .windows) {
+                // Once our subcommand is started we can close the slave
+                // side. This prevents the slave fd from being leaked to
+                // future children.
+                _ = posix.close(pty.slave);
+            }
+
+            // Successful start we can clear out some memory.
+            if (self.env) |*env| {
+                env.deinit();
+                self.env = null;
+            }
+        };
+
+        log.debug("starting command command={f}", .{ArgsFormatter{ .args = self.args }});
 
         // If we can't access the cwd, then don't set any cwd and inherit.
         // This is important because our cwd can be set by the shell (OSC 7)
@@ -948,27 +979,22 @@ const Subprocess = struct {
             }
 
             // Flatpak command must have a stable pointer.
-            self.flatpak_command = .{
+            self.process = .{ .flatpak = .{
                 .argv = self.args,
                 .cwd = cwd,
                 .env = if (self.env) |*env| env else null,
                 .stdin = pty.slave,
                 .stdout = pty.slave,
                 .stderr = pty.slave,
-            };
-            var cmd = &self.flatpak_command.?;
+            } };
+            var cmd = &self.process.?.flatpak;
             const pid = try cmd.spawn(alloc);
             errdefer killCommandFlatpak(cmd);
 
-            log.info("started subcommand on host via flatpak API path={s} pid={?}", .{
+            log.info("started subcommand on host via flatpak API path={s} pid={}", .{
                 self.args[0],
                 pid,
             });
-
-            // Once started, we can close the pty child side. We do this after
-            // wait right now but that is fine too. This lets us read the
-            // parent and detect EOF.
-            _ = posix.close(pty.slave);
 
             return .{
                 .read = pty.master,
@@ -1022,20 +1048,7 @@ const Subprocess = struct {
             log.info("subcommand cgroup={s}", .{self.linux_cgroup orelse "-"});
         }
 
-        if (comptime builtin.os.tag != .windows) {
-            // Once our subcommand is started we can close the slave
-            // side. This prevents the slave fd from being leaked to
-            // future children.
-            _ = posix.close(pty.slave);
-        }
-
-        // Successful start we can clear out some memory.
-        if (self.env) |*env| {
-            env.deinit();
-            self.env = null;
-        }
-
-        self.command = cmd;
+        self.process = .{ .fork_exec = cmd };
         return switch (builtin.os.tag) {
             .windows => .{
                 .read = pty.out_pipe,
@@ -1060,7 +1073,7 @@ const Subprocess = struct {
     /// Called to notify that we exited externally so we can unset our
     /// running state.
     pub fn externalExit(self: *Subprocess) void {
-        self.command = null;
+        self.process = null;
     }
 
     /// Stop the subprocess. This is safe to call anytime. This will wait
@@ -1068,25 +1081,23 @@ const Subprocess = struct {
     /// for it to terminate, so it will not block.
     /// This does not close the pty.
     pub fn stop(self: *Subprocess) void {
-        // Kill our command
-        if (self.command) |*cmd| {
-            // Note: this will also wait for the command to exit, so
-            // DO NOT call cmd.wait
-            killCommand(cmd) catch |err|
-                log.err("error sending SIGHUP to command, may hang: {}", .{err});
-            self.command = null;
-        }
+        switch (self.process orelse return) {
+            .fork_exec => |*cmd| {
+                // Note: this will also wait for the command to exit, so
+                // DO NOT call cmd.wait
+                killCommand(cmd) catch |err|
+                    log.err("error sending SIGHUP to command, may hang: {}", .{err});
+            },
 
-        // Kill our Flatpak command
-        if (comptime build_config.flatpak) {
-            if (self.flatpak_command) |*cmd| {
+            .flatpak => |*cmd| if (comptime build_config.flatpak) {
                 killCommandFlatpak(cmd) catch |err|
                     log.err("error sending SIGHUP to command, may hang: {}", .{err});
                 _ = cmd.wait() catch |err|
                     log.err("error waiting for command to exit: {}", .{err});
-                self.flatpak_command = null;
-            }
+            },
         }
+
+        self.process = null;
     }
 
     /// Resize the pty subprocess. This is safe to call anytime.
@@ -1126,41 +1137,45 @@ const Subprocess = struct {
                     _ = try command.wait(false);
                 },
 
-                else => if (getpgid(pid)) |pgid| {
-                    // It is possible to send a killpg between the time that
-                    // our child process calls setsid but before or simultaneous
-                    // to calling execve. In this case, the direct child dies
-                    // but grandchildren survive. To work around this, we loop
-                    // and repeatedly kill the process group until all
-                    // descendents are well and truly dead. We will not rest
-                    // until the entire family tree is obliterated.
-                    while (true) {
-                        switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
-                            .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
-                            else => |err| killpg: {
-                                if ((comptime builtin.target.os.tag.isDarwin()) and
-                                    err == .PERM)
-                                {
-                                    log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
-                                    break :killpg;
-                                }
+                else => try killPid(pid),
+            }
+        }
+    }
 
-                                log.warn("error killing process group pgid={} err={}", .{ pgid, err });
-                                return error.KillFailed;
-                            },
-                        }
+    fn killPid(pid: c.pid_t) !void {
+        const pgid = getpgid(pid) orelse return;
 
-                        // See Command.zig wait for why we specify WNOHANG.
-                        // The gist is that it lets us detect when children
-                        // are still alive without blocking so that we can
-                        // kill them again.
-                        const res = posix.waitpid(pid, std.c.W.NOHANG);
-                        log.debug("waitpid result={}", .{res.pid});
-                        if (res.pid != 0) break;
-                        std.time.sleep(10 * std.time.ns_per_ms);
+        // It is possible to send a killpg between the time that
+        // our child process calls setsid but before or simultaneous
+        // to calling execve. In this case, the direct child dies
+        // but grandchildren survive. To work around this, we loop
+        // and repeatedly kill the process group until all
+        // descendents are well and truly dead. We will not rest
+        // until the entire family tree is obliterated.
+        while (true) {
+            switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
+                .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
+                else => |err| killpg: {
+                    if ((comptime builtin.target.os.tag.isDarwin()) and
+                        err == .PERM)
+                    {
+                        log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
+                        break :killpg;
                     }
+
+                    log.warn("error killing process group pgid={} err={}", .{ pgid, err });
+                    return error.KillFailed;
                 },
             }
+
+            // See Command.zig wait for why we specify WNOHANG.
+            // The gist is that it lets us detect when children
+            // are still alive without blocking so that we can
+            // kill them again.
+            const res = posix.waitpid(pid, std.c.W.NOHANG);
+            log.debug("waitpid result={}", .{res.pid});
+            if (res.pid != 0) break;
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
     }
 
@@ -1180,7 +1195,7 @@ const Subprocess = struct {
             const pgid = c.getpgid(pid);
             if (pgid == my_pgid) {
                 log.warn("pgid is our own, retrying", .{});
-                std.time.sleep(10 * std.time.ns_per_ms);
+                std.Thread.sleep(10 * std.time.ns_per_ms);
                 continue;
             }
 
@@ -1429,7 +1444,7 @@ fn execCommand(
             // grow if necessary for a longer command (uncommon).
             9,
         );
-        defer args.deinit();
+        defer args.deinit(alloc);
 
         // The reason for executing login this way is unclear. This
         // comment will attempt to explain but prepare for a truly
@@ -1476,40 +1491,41 @@ fn execCommand(
         // macOS.
         //
         // Awesome.
-        try args.append("/usr/bin/login");
-        if (hush) try args.append("-q");
-        try args.append("-flp");
-        try args.append(username);
+        try args.append(alloc, "/usr/bin/login");
+        if (hush) try args.append(alloc, "-q");
+        try args.append(alloc, "-flp");
+        try args.append(alloc, username);
 
         switch (command) {
             // Direct args can be passed directly to login, since
             // login uses execvp we don't need to worry about PATH
             // searching.
-            .direct => |v| try args.appendSlice(v),
+            .direct => |v| try args.appendSlice(alloc, v),
 
             .shell => |v| {
                 // Use "exec" to replace the bash process with
                 // our intended command so we don't have a parent
                 // process hanging around.
-                const cmd = try std.fmt.allocPrintZ(
+                const cmd = try std.fmt.allocPrintSentinel(
                     alloc,
                     "exec -l {s}",
                     .{v},
+                    0,
                 );
 
                 // We execute bash with "--noprofile --norc" so that it doesn't
                 // load startup files so that (1) our shell integration doesn't
                 // break and (2) user configuration doesn't mess this process
                 // up.
-                try args.append("/bin/bash");
-                try args.append("--noprofile");
-                try args.append("--norc");
-                try args.append("-c");
-                try args.append(cmd);
+                try args.append(alloc, "/bin/bash");
+                try args.append(alloc, "--noprofile");
+                try args.append(alloc, "--norc");
+                try args.append(alloc, "-c");
+                try args.append(alloc, cmd);
             },
         }
 
-        return try args.toOwnedSlice();
+        return try args.toOwnedSlice(alloc);
     }
 
     return switch (command) {
@@ -1518,7 +1534,7 @@ fn execCommand(
 
         .shell => |v| shell: {
             var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 4);
-            defer args.deinit();
+            defer args.deinit(alloc);
 
             if (comptime builtin.os.tag == .windows) {
                 // We run our shell wrapped in `cmd.exe` so that we don't have
@@ -1539,21 +1555,21 @@ fn execCommand(
                     "cmd.exe",
                 });
 
-                try args.append(cmd);
-                try args.append("/C");
+                try args.append(alloc, cmd);
+                try args.append(alloc, "/C");
             } else {
                 // We run our shell wrapped in `/bin/sh` so that we don't have
                 // to parse the command line ourselves if it has arguments.
                 // Additionally, some environments (NixOS, I found) use /bin/sh
                 // to setup some environment variables that are important to
                 // have set.
-                try args.append("/bin/sh");
-                if (internal_os.isFlatpak()) try args.append("-l");
-                try args.append("-c");
+                try args.append(alloc, "/bin/sh");
+                if (internal_os.isFlatpak()) try args.append(alloc, "-l");
+                try args.append(alloc, "-c");
             }
 
-            try args.append(v);
-            break :shell try args.toOwnedSlice();
+            try args.append(alloc, v);
+            break :shell try args.toOwnedSlice(alloc);
         },
     };
 }

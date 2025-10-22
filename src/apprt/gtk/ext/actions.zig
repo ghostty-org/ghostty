@@ -40,20 +40,44 @@ test "gActionNameIsValid" {
 /// Function to create a structure for describing an action.
 pub fn Action(comptime T: type) type {
     return struct {
+        const Self = @This();
         pub const Callback = *const fn (*gio.SimpleAction, ?*glib.Variant, *T) callconv(.c) void;
 
         name: [:0]const u8,
         callback: Callback,
         parameter_type: ?*const glib.VariantType,
+        state: ?*glib.Variant = null,
 
-        /// Function to initialize a new action so that we can comptime check the name.
-        pub fn init(comptime name: [:0]const u8, callback: Callback, parameter_type: ?*const glib.VariantType) @This() {
+        /// Function to initialize a new action so that we can comptime check
+        /// the name.
+        pub fn init(
+            comptime name: [:0]const u8,
+            callback: Callback,
+            parameter_type: ?*const glib.VariantType,
+        ) Self {
             comptime assert(gActionNameIsValid(name));
 
             return .{
                 .name = name,
                 .callback = callback,
                 .parameter_type = parameter_type,
+            };
+        }
+
+        /// Function to initialize a new stateful action so that we can comptime
+        /// check the name.
+        pub fn initStateful(
+            comptime name: [:0]const u8,
+            callback: Callback,
+            parameter_type: ?*const glib.VariantType,
+            state: *glib.Variant,
+        ) Self {
+            comptime assert(gActionNameIsValid(name));
+            return .{
+                .name = name,
+                .callback = callback,
+                .parameter_type = parameter_type,
+                .state = state,
             };
         }
     };
@@ -68,10 +92,19 @@ pub fn add(comptime T: type, self: *T, actions: []const Action(T)) void {
 pub fn addToMap(comptime T: type, self: *T, map: *gio.ActionMap, actions: []const Action(T)) void {
     for (actions) |entry| {
         assert(gActionNameIsValid(entry.name));
-        const action = gio.SimpleAction.new(
-            entry.name,
-            entry.parameter_type,
-        );
+        const action = action: {
+            if (entry.state) |state| {
+                break :action gio.SimpleAction.newStateful(
+                    entry.name,
+                    entry.parameter_type,
+                    state,
+                );
+            }
+            break :action gio.SimpleAction.new(
+                entry.name,
+                entry.parameter_type,
+            );
+        };
         defer action.unref();
         _ = gio.SimpleAction.signals.activate.connect(
             action,
@@ -85,7 +118,7 @@ pub fn addToMap(comptime T: type, self: *T, map: *gio.ActionMap, actions: []cons
 }
 
 /// Add actions to a widget that doesn't implement ActionGroup directly.
-pub fn addAsGroup(comptime T: type, self: *T, comptime name: [:0]const u8, actions: []const Action(T)) void {
+pub fn addAsGroup(comptime T: type, self: *T, comptime name: [:0]const u8, actions: []const Action(T)) *gio.SimpleActionGroup {
     comptime assert(gActionNameIsValid(name));
 
     // Collect our actions into a group since we're just a plain widget that
@@ -99,6 +132,8 @@ pub fn addAsGroup(comptime T: type, self: *T, comptime name: [:0]const u8, actio
         name,
         group.as(gio.ActionGroup),
     );
+
+    return group;
 }
 
 test "adding actions to an object" {
@@ -138,7 +173,7 @@ test "adding actions to an object" {
             .init("test", callbacks.callback, i32_variant_type),
         };
 
-        addAsGroup(gtk.Box, box, "test", &actions);
+        _ = addAsGroup(gtk.Box, box, "test", &actions);
     }
 
     const expected = std.crypto.random.intRangeAtMost(i32, 1, std.math.maxInt(u31));

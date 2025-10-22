@@ -7,6 +7,10 @@
 //! by thousands of users for years. However, the API itself (functions,
 //! types, etc.) may change without warning. We're working on stabilizing
 //! this in the future.
+const lib = @This();
+
+const std = @import("std");
+const builtin = @import("builtin");
 
 // The public API below reproduces a lot of terminal/main.zig but
 // is separate because (1) we need our root file to be in `src/`
@@ -30,8 +34,8 @@ pub const size = terminal.size;
 pub const x11_color = terminal.x11_color;
 
 pub const Charset = terminal.Charset;
-pub const CharsetSlot = terminal.Slots;
-pub const CharsetActiveSlot = terminal.ActiveSlot;
+pub const CharsetSlot = terminal.CharsetSlot;
+pub const CharsetActiveSlot = terminal.CharsetActiveSlot;
 pub const Cell = page.Cell;
 pub const Coordinate = point.Coordinate;
 pub const CSI = Parser.Action.CSI;
@@ -65,19 +69,91 @@ pub const EraseLine = terminal.EraseLine;
 pub const TabClear = terminal.TabClear;
 pub const Attribute = terminal.Attribute;
 
+/// Terminal-specific input encoding is also part of libghostty-vt.
+pub const input = struct {
+    // We have to be careful to only import targeted files within
+    // the input package because the full package brings in too many
+    // other dependencies.
+    const paste = @import("input/paste.zig");
+    const key = @import("input/key.zig");
+    const key_encode = @import("input/key_encode.zig");
+
+    // Paste-related APIs
+    pub const PasteError = paste.Error;
+    pub const PasteOptions = paste.Options;
+    pub const isSafePaste = paste.isSafe;
+    pub const encodePaste = paste.encode;
+
+    // Key encoding
+    pub const Key = key.Key;
+    pub const KeyAction = key.Action;
+    pub const KeyEvent = key.KeyEvent;
+    pub const KeyMods = key.Mods;
+    pub const KeyEncodeOptions = key_encode.Options;
+    pub const encodeKey = key_encode.encode;
+};
+
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
-    if (terminal.is_c_lib) {
+    if (@import("root") == lib) {
         const c = terminal.c_api;
         @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
         @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
+        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
+        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
+        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
+        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
+        @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
+        @export(&c.key_event_free, .{ .name = "ghostty_key_event_free" });
+        @export(&c.key_event_set_action, .{ .name = "ghostty_key_event_set_action" });
+        @export(&c.key_event_get_action, .{ .name = "ghostty_key_event_get_action" });
+        @export(&c.key_event_set_key, .{ .name = "ghostty_key_event_set_key" });
+        @export(&c.key_event_get_key, .{ .name = "ghostty_key_event_get_key" });
+        @export(&c.key_event_set_mods, .{ .name = "ghostty_key_event_set_mods" });
+        @export(&c.key_event_get_mods, .{ .name = "ghostty_key_event_get_mods" });
+        @export(&c.key_event_set_consumed_mods, .{ .name = "ghostty_key_event_set_consumed_mods" });
+        @export(&c.key_event_get_consumed_mods, .{ .name = "ghostty_key_event_get_consumed_mods" });
+        @export(&c.key_event_set_composing, .{ .name = "ghostty_key_event_set_composing" });
+        @export(&c.key_event_get_composing, .{ .name = "ghostty_key_event_get_composing" });
+        @export(&c.key_event_set_utf8, .{ .name = "ghostty_key_event_set_utf8" });
+        @export(&c.key_event_get_utf8, .{ .name = "ghostty_key_event_get_utf8" });
+        @export(&c.key_event_set_unshifted_codepoint, .{ .name = "ghostty_key_event_set_unshifted_codepoint" });
+        @export(&c.key_event_get_unshifted_codepoint, .{ .name = "ghostty_key_event_get_unshifted_codepoint" });
+        @export(&c.key_encoder_new, .{ .name = "ghostty_key_encoder_new" });
+        @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
+        @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
+        @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
+        @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
     }
 }
 
+pub const std_options: std.Options = options: {
+    if (builtin.target.cpu.arch.isWasm()) break :options .{
+        // Wasm builds we specifically want to optimize for space with small
+        // releases so we bump up to warn. Everything else acts pretty normal.
+        .log_level = switch (builtin.mode) {
+            .Debug => .debug,
+            .ReleaseSmall => .warn,
+            else => .info,
+        },
+
+        // Wasm doesn't have access to stdio so we have a custom log function.
+        .logFn = @import("os/wasm/log.zig").log,
+    };
+
+    // For everything else we currently use defaults. Longer term I'm
+    // SURE this isn't right (e.g. we definitely want to customize the log
+    // function for the C lib at least).
+    break :options .{};
+};
+
 test {
     _ = terminal;
-
-    // Tests always test the C API
-    _ = terminal.c_api;
+    _ = @import("lib/main.zig");
+    @import("std").testing.refAllDecls(input);
+    if (comptime terminal.options.c_abi) {
+        _ = terminal.c_api;
+    }
 }

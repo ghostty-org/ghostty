@@ -1,8 +1,6 @@
 const builtin = @import("builtin");
-const build_options = @import("terminal_options");
 
 const charsets = @import("charsets.zig");
-const sanitize = @import("sanitize.zig");
 const stream = @import("stream.zig");
 const ansi = @import("ansi.zig");
 const csi = @import("csi.zig");
@@ -21,7 +19,7 @@ pub const page = @import("page.zig");
 pub const parse_table = @import("parse_table.zig");
 pub const search = @import("search.zig");
 pub const size = @import("size.zig");
-pub const tmux = if (build_options.tmux_control_mode) @import("tmux.zig") else struct {};
+pub const tmux = if (options.tmux_control_mode) @import("tmux.zig") else struct {};
 pub const x11_color = @import("x11_color.zig");
 
 pub const Charset = charsets.Charset;
@@ -39,6 +37,7 @@ pub const Pin = PageList.Pin;
 pub const Point = point.Point;
 pub const Screen = @import("Screen.zig");
 pub const ScreenType = Terminal.ScreenType;
+pub const Scrollbar = PageList.Scrollbar;
 pub const Selection = @import("Selection.zig");
 pub const SizeReportStyle = csi.SizeReportStyle;
 pub const StringMap = @import("StringMap.zig");
@@ -60,11 +59,11 @@ pub const EraseLine = csi.EraseLine;
 pub const TabClear = csi.TabClear;
 pub const Attribute = sgr.Attribute;
 
-pub const isSafePaste = sanitize.isSafePaste;
+pub const Options = @import("build_options.zig").Options;
+pub const options = @import("terminal_options");
 
 /// This is set to true when we're building the C library.
-pub const is_c_lib = @import("root") == @import("../lib_vt.zig");
-pub const c_api = @import("c_api.zig");
+pub const c_api = if (options.c_abi) @import("c/main.zig") else void;
 
 test {
     @import("std").testing.refAllDecls(@This());

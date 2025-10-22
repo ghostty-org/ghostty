@@ -697,6 +697,19 @@ pub const Window = extern struct {
         var it = tree.iterator();
         while (it.next()) |entry| {
             const surface = entry.view;
+            // Before adding any new signal handlers, disconnect any that we may
+            // have added before. Otherwise we may get multiple handlers for the
+            // same signal.
+            _ = gobject.signalHandlersDisconnectMatched(
+                surface.as(gobject.Object),
+                .{ .data = true },
+                0,
+                0,
+                null,
+                null,
+                self,
+            );
+
             _ = Surface.signals.@"present-request".connect(
                 surface,
                 *Self,
@@ -1002,6 +1015,15 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
+        // Hide quick-terminal if set to autohide
+        if (self.isQuickTerminal()) {
+            if (self.getConfig()) |cfg| {
+                if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
+                    self.toggleVisibility();
+                }
+            }
+        }
+
         // Don't change urgency if we're not the active window.
         if (self.as(gtk.Window).isActive() == 0) return;
 
@@ -1489,6 +1511,13 @@ pub const Window = extern struct {
         const priv = self.private();
         if (priv.tab_view.getNPages() == 0) {
             // If we have no pages left then we want to close window.
+
+            // If the tab overview is open, then we don't close the window
+            // because its a rather abrupt experience. This also fixes an
+            // issue where dragging out the last tab in the tab overview
+            // won't cause Ghostty to exit.
+            if (priv.tab_overview.getOpen() != 0) return;
+
             self.as(gtk.Window).close();
         }
     }
@@ -1565,6 +1594,9 @@ pub const Window = extern struct {
 
         // Grab focus
         surface.grabFocus();
+
+        // Bring the window to the front.
+        self.as(gtk.Window).present();
     }
 
     fn surfaceToggleFullscreen(

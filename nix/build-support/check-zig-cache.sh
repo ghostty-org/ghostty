@@ -79,7 +79,7 @@ elif [ "$1" != "--update" ]; then
   exit 1
 fi
 
-zon2nix "$BUILD_ZIG_ZON" --14 --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
+zon2nix "$BUILD_ZIG_ZON" --15 --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
 alejandra --quiet "$WORK_DIR/build.zig.zon.nix"
 prettier --log-level warn --write "$WORK_DIR/build.zig.zon.json"
 prettier --log-level warn --write "$WORK_DIR/zig-packages.json"

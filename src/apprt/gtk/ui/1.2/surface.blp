@@ -169,12 +169,12 @@ template $GhosttySurface: Adw.Bin {
     "surface",
   ]
 
-  notify::bell-ringing => $notify_bell_ringing();
   notify::config => $notify_config();
   notify::error => $notify_error();
   notify::mouse-hover-url => $notify_mouse_hover_url();
   notify::mouse-hidden => $notify_mouse_hidden();
   notify::mouse-shape => $notify_mouse_shape();
+  notify::vadjustment => $notify_vadjustment();
   // Some history: we used to use a Stack here and swap between the
   // terminal and error pages as needed. But a Stack doesn't play nice
   // with our SplitTree and Gtk.Paned usage[^1]. Replacing this with
@@ -203,6 +203,11 @@ menu context_menu_model {
     item {
       label: _("Paste");
       action: "win.paste";
+    }
+
+    item {
+      label: _("Notify on Next Command Finish");
+      action: "surface.notify-on-next-command-finish";
     }
   }
 

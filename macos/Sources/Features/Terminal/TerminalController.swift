@@ -23,11 +23,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case "hidden": "TerminalHiddenTitlebar"
         case "transparent": "TerminalTransparentTitlebar"
         case "tabs":
+#if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 "TerminalTabsTitlebarTahoe"
             } else {
                 "TerminalTabsTitlebarVentura"
             }
+#else
+            "TerminalTabsTitlebarVentura"
+#endif
         default: defaultValue
         }
 

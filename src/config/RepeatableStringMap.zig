@@ -104,7 +104,7 @@ pub fn equal(self: RepeatableStringMap, other: RepeatableStringMap) bool {
 }
 
 /// Used by formatter
-pub fn formatEntry(self: RepeatableStringMap, formatter: anytype) !void {
+pub fn formatEntry(self: RepeatableStringMap, formatter: formatterpkg.EntryFormatter) !void {
     // If no items, we want to render an empty field.
     if (self.map.count() == 0) {
         try formatter.formatEntry(void, {});
@@ -146,12 +146,12 @@ test "RepeatableStringMap: parseCLI" {
 
 test "RepeatableStringMap: formatConfig empty" {
     const testing = std.testing;
-    var buf = std.ArrayList(u8).init(testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
     defer buf.deinit();
 
     var list: RepeatableStringMap = .{};
-    try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-    try std.testing.expectEqualSlices(u8, "a = \n", buf.items);
+    try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+    try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
 }
 
 test "RepeatableStringMap: formatConfig single item" {
@@ -162,20 +162,20 @@ test "RepeatableStringMap: formatConfig single item" {
     const alloc = arena.allocator();
 
     {
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         var map: RepeatableStringMap = .{};
         try map.parseCLI(alloc, "A=B");
-        try map.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A=B\n", buf.items);
+        try map.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A=B\n", buf.written());
     }
     {
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         var map: RepeatableStringMap = .{};
         try map.parseCLI(alloc, " A = B ");
-        try map.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A=B\n", buf.items);
+        try map.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A=B\n", buf.written());
     }
 }
 
@@ -187,12 +187,12 @@ test "RepeatableStringMap: formatConfig multiple items" {
     const alloc = arena.allocator();
 
     {
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         var list: RepeatableStringMap = .{};
         try list.parseCLI(alloc, "A=B");
         try list.parseCLI(alloc, "B = C");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A=B\na = B=C\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A=B\na = B=C\n", buf.written());
     }
 }

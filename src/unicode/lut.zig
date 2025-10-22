@@ -54,12 +54,14 @@ pub fn Generator(
             defer blocks_map.deinit();
 
             // Our stages
-            var stage1 = std.ArrayList(u16).init(alloc);
-            defer stage1.deinit();
-            var stage2 = std.ArrayList(u16).init(alloc);
-            defer stage2.deinit();
-            var stage3 = std.ArrayList(Elem).init(alloc);
-            defer stage3.deinit();
+            var stage1: std.ArrayList(u16) = .empty;
+            var stage2: std.ArrayList(u16) = .empty;
+            var stage3: std.ArrayList(Elem) = .empty;
+            defer {
+                stage1.deinit(alloc);
+                stage2.deinit(alloc);
+                stage3.deinit(alloc);
+            }
 
             var block: Block = undefined;
             var block_len: u16 = 0;
@@ -74,7 +76,7 @@ pub fn Generator(
                     }
 
                     const idx = stage3.items.len;
-                    try stage3.append(elem);
+                    try stage3.append(alloc, elem);
                     break :block_idx idx;
                 };
 
@@ -96,11 +98,11 @@ pub fn Generator(
                         u16,
                         stage2.items.len,
                     ) orelse return error.Stage2TooLarge;
-                    for (block[0..block_len]) |entry| try stage2.append(entry);
+                    for (block[0..block_len]) |entry| try stage2.append(alloc, entry);
                 }
 
                 // Map stage1 => stage2 and reset our block
-                try stage1.append(gop.value_ptr.*);
+                try stage1.append(alloc, gop.value_ptr.*);
                 block_len = 0;
             }
 
@@ -109,11 +111,11 @@ pub fn Generator(
             assert(stage2.items.len <= std.math.maxInt(u16));
             assert(stage3.items.len <= std.math.maxInt(u16));
 
-            const stage1_owned = try stage1.toOwnedSlice();
+            const stage1_owned = try stage1.toOwnedSlice(alloc);
             errdefer alloc.free(stage1_owned);
-            const stage2_owned = try stage2.toOwnedSlice();
+            const stage2_owned = try stage2.toOwnedSlice(alloc);
             errdefer alloc.free(stage2_owned);
-            const stage3_owned = try stage3.toOwnedSlice();
+            const stage3_owned = try stage3.toOwnedSlice(alloc);
             errdefer alloc.free(stage3_owned);
 
             return .{
@@ -145,7 +147,7 @@ pub fn Tables(comptime Elem: type) type {
         /// Writes the lookup table as Zig to the given writer. The
         /// written file exports three constants: stage1, stage2, and
         /// stage3. These can be used to rebuild the lookup table in Zig.
-        pub fn writeZig(self: *const Self, writer: anytype) !void {
+        pub fn writeZig(self: *const Self, writer: *std.Io.Writer) !void {
             try writer.print(
                 \\//! This file is auto-generated. Do not edit.
                 \\
@@ -168,7 +170,13 @@ pub fn Tables(comptime Elem: type) type {
                 \\
                 \\pub const stage3: [{}]Elem = .{{
             , .{self.stage3.len});
-            for (self.stage3) |entry| try writer.print("{},", .{entry});
+            for (self.stage3) |entry| {
+                if (@typeInfo(@TypeOf(entry)) == .@"struct" and
+                    @hasDecl(@TypeOf(entry), "format"))
+                    try writer.print("{f},", .{entry})
+                else
+                    try writer.print("{},", .{entry});
+            }
             try writer.writeAll(
                 \\};
                 \\    };

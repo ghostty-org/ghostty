@@ -68,7 +68,7 @@ pub const MutableArray = opaque {
         comptime Elem: type,
         value: *const Elem,
     ) void {
-        CFArrayAppendValue(self, @constCast(@ptrCast(value)));
+        CFArrayAppendValue(self, @ptrCast(@constCast(value)));
     }
 
     pub fn removeValue(self: *MutableArray, idx: usize) void {

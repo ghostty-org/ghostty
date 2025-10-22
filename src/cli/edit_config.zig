@@ -30,9 +30,9 @@ pub const Options = struct {
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
-/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config`.
+/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
 /// On macOS, this may also be located at
-/// `~/Library/Application Support/com.mitchellh.ghostty/config`.
+/// `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`.
 /// On macOS, whichever path exists and is non-empty will be prioritized,
 /// prioritizing the Application Support directory if neither are
 /// non-empty.
@@ -47,7 +47,9 @@ pub fn run(alloc: Allocator) !u8 {
     // not using `exec` anymore and because this command isn't performance
     // critical where setting up the defer cleanup is a problem.
 
-    const stderr = std.io.getStdErr().writer();
+    var buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    const stderr = &stderr_writer.interface;
 
     var opts: Options = .{};
     defer opts.deinit();
@@ -58,13 +60,20 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
+    const result = runInner(alloc, stderr);
+    // Flushing *shouldn't* fail but...
+    stderr.flush() catch {};
+    return result;
+}
+
+fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     // We load the configuration once because that will write our
     // default configuration files to disk. We don't use the config.
     var config = try Config.load(alloc);
     defer config.deinit();
 
     // Find the preferred path.
-    const path = try Config.preferredDefaultFilePath(alloc);
+    const path = try configpkg.preferredDefaultFilePath(alloc);
     defer alloc.free(path);
 
     // We don't currently support Windows because we use the exec syscall.
@@ -133,23 +142,13 @@ pub fn run(alloc: Allocator) !u8 {
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    errdefer buf.deinit(alloc);
-
-    const writer = buf.writer(alloc);
-    var shellescape: internal_os.ShellEscapeWriter(std.ArrayListUnmanaged(u8).Writer) = .init(writer);
-    var shellescapewriter = shellescape.writer();
-
-    try writer.writeAll(editor);
-    try writer.writeByte(' ');
-    try shellescapewriter.writeAll(path);
-
-    const command = try buf.toOwnedSliceSentinel(alloc, 0);
-    defer alloc.free(command);
-
+    const editorZ = try alloc.dupeZ(u8, editor);
+    defer alloc.free(editorZ);
+    const pathZ = try alloc.dupeZ(u8, path);
+    defer alloc.free(pathZ);
     const err = std.posix.execvpeZ(
-        "sh",
-        &.{ "sh", "-c", command },
+        editorZ,
+        &.{ editorZ, pathZ },
         std.c.environ,
     );
 

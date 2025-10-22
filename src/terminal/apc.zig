@@ -65,7 +65,9 @@ pub const Handler = struct {
             .kitty => |*p| kitty: {
                 if (comptime !build_options.kitty_graphics) unreachable;
 
-                const command = p.complete() catch |err| {
+                // Use the same allocator that was used to create the parser.
+                const alloc = p.arena.child_allocator;
+                const command = p.complete(alloc) catch |err| {
                     log.warn("kitty graphics protocol error: {}", .{err});
                     break :kitty null;
                 };

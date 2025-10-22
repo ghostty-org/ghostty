@@ -64,7 +64,7 @@ pub const Handler = struct {
                         .state = .{
                             .tmux = .{
                                 .max_bytes = self.max_bytes,
-                                .buffer = try std.ArrayList(u8).initCapacity(
+                                .buffer = try .initCapacity(
                                     alloc,
                                     128, // Arbitrary choice to limit initial reallocs
                                 ),
@@ -83,7 +83,7 @@ pub const Handler = struct {
                     // https://github.com/mitchellh/ghostty/issues/517
                     'q' => .{
                         .state = .{
-                            .xtgettcap = try std.ArrayList(u8).initCapacity(
+                            .xtgettcap = try .initCapacity(
                                 alloc,
                                 128, // Arbitrary choice
                             ),
@@ -134,11 +134,11 @@ pub const Handler = struct {
             } else unreachable,
 
             .xtgettcap => |*list| {
-                if (list.items.len >= self.max_bytes) {
+                if (list.written().len >= self.max_bytes) {
                     return error.OutOfMemory;
                 }
 
-                try list.append(byte);
+                try list.writer.writeByte(byte);
             },
 
             .decrqss => |*buffer| {
@@ -170,11 +170,12 @@ pub const Handler = struct {
                 break :tmux .{ .tmux = .{ .exit = {} } };
             } else unreachable,
 
-            .xtgettcap => |list| xtgettcap: {
-                for (list.items, 0..) |b, i| {
-                    list.items[i] = std.ascii.toUpper(b);
-                }
-                break :xtgettcap .{ .xtgettcap = .{ .data = list } };
+            .xtgettcap => |*list| xtgettcap: {
+                // Note: purposely do not deinit our state here because
+                // we copy it into the resulting command.
+                const items = list.written();
+                for (items, 0..) |b, i| items[i] = std.ascii.toUpper(b);
+                break :xtgettcap .{ .xtgettcap = .{ .data = list.* } };
             },
 
             .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
@@ -216,8 +217,8 @@ pub const Command = union(enum) {
     else
         void,
 
-    pub fn deinit(self: Command) void {
-        switch (self) {
+    pub fn deinit(self: *Command) void {
+        switch (self.*) {
             .xtgettcap => |*v| v.data.deinit(),
             .decrqss => {},
             .tmux => {},
@@ -225,16 +226,16 @@ pub const Command = union(enum) {
     }
 
     pub const XTGETTCAP = struct {
-        data: std.ArrayList(u8),
+        data: std.Io.Writer.Allocating,
         i: usize = 0,
 
         /// Returns the next terminfo key being requested and null
         /// when there are no more keys. The returned value is NOT hex-decoded
         /// because we expect to use a comptime lookup table.
         pub fn next(self: *XTGETTCAP) ?[]const u8 {
-            if (self.i >= self.data.items.len) return null;
-
-            var rem = self.data.items[self.i..];
+            const items = self.data.written();
+            if (self.i >= items.len) return null;
+            var rem = items[self.i..];
             const idx = std.mem.indexOf(u8, rem, ";") orelse rem.len;
 
             // Note that if we're at the end, idx + 1 is len + 1 so we're over
@@ -271,7 +272,7 @@ const State = union(enum) {
     ignore: void,
 
     /// XTGETTCAP
-    xtgettcap: std.ArrayList(u8),
+    xtgettcap: std.Io.Writer.Allocating,
 
     /// DECRQSS
     decrqss: struct {

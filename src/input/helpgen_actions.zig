@@ -13,7 +13,7 @@ pub const Format = enum {
     /// Markdown formatted output
     markdown,
 
-    fn formatFieldName(self: Format, writer: anytype, field_name: []const u8) !void {
+    fn formatFieldName(self: Format, writer: *std.Io.Writer, field_name: []const u8) !void {
         switch (self) {
             .plaintext => {
                 try writer.writeAll(field_name);
@@ -27,16 +27,16 @@ pub const Format = enum {
         }
     }
 
-    fn formatDocLine(self: Format, writer: anytype, line: []const u8) !void {
+    fn formatDocLine(self: Format, writer: *std.Io.Writer, line: []const u8) !void {
         switch (self) {
             .plaintext => {
-                try writer.appendSlice("  ");
-                try writer.appendSlice(line);
-                try writer.appendSlice("\n");
+                try writer.writeAll("  ");
+                try writer.writeAll(line);
+                try writer.writeAll("\n");
             },
             .markdown => {
-                try writer.appendSlice(line);
-                try writer.appendSlice("\n");
+                try writer.writeAll(line);
+                try writer.writeAll("\n");
             },
         }
     }
@@ -61,7 +61,7 @@ pub const Format = enum {
 
 /// Generate keybind actions documentation with the specified format
 pub fn generate(
-    writer: anytype,
+    writer: *std.Io.Writer,
     format: Format,
     show_docs: bool,
     page_allocator: std.mem.Allocator,
@@ -70,8 +70,8 @@ pub fn generate(
         try writer.writeAll(header);
     }
 
-    var buffer = std.ArrayList(u8).init(page_allocator);
-    defer buffer.deinit();
+    var stream: std.Io.Writer.Allocating = .init(page_allocator);
+    defer stream.deinit();
 
     const fields = @typeInfo(KeybindAction).@"union".fields;
     inline for (fields) |field| {
@@ -79,10 +79,9 @@ pub fn generate(
 
         // Write previously stored doc comment below all related actions
         if (show_docs and @hasDecl(help_strings.KeybindAction, field.name)) {
-            try writer.writeAll(buffer.items);
+            try writer.writeAll(stream.written());
             try writer.writeAll("\n");
-
-            buffer.clearRetainingCapacity();
+            stream.clearRetainingCapacity();
         }
 
         if (show_docs) {
@@ -101,13 +100,13 @@ pub fn generate(
             while (iter.next()) |s| {
                 // If it is the last line and empty, then skip it.
                 if (iter.peek() == null and s.len == 0) continue;
-                try format.formatDocLine(&buffer, s);
+                try format.formatDocLine(&stream.writer, s);
             }
         }
     }
 
     // Write any remaining buffered documentation
-    if (buffer.items.len > 0) {
-        try writer.writeAll(buffer.items);
+    if (stream.written().len > 0) {
+        try writer.writeAll(stream.written());
     }
 }

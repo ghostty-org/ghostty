@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// Options set by Zig build.zig and exposed via `terminal_options`.
 pub const Options = struct {
     /// The target artifact to build. This will gate some functionality.
     artifact: Artifact,
@@ -23,6 +24,10 @@ pub const Options = struct {
     /// generally be disabled in production builds.
     slow_runtime_safety: bool,
 
+    /// Force C ABI mode on or off. If not set, then it will be set based on
+    /// Options.
+    c_abi: bool,
+
     /// Add the required build options for the terminal module.
     pub fn add(
         self: Options,
@@ -31,6 +36,7 @@ pub const Options = struct {
     ) void {
         const opts = b.addOptions();
         opts.addOption(Artifact, "artifact", self.artifact);
+        opts.addOption(bool, "c_abi", self.c_abi);
         opts.addOption(bool, "oniguruma", self.oniguruma);
         opts.addOption(bool, "simd", self.simd);
         opts.addOption(bool, "slow_runtime_safety", self.slow_runtime_safety);

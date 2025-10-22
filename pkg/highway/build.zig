@@ -31,9 +31,9 @@ pub fn build(b: *std.Build) !void {
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         // Avoid changing binaries based on the current time and date.
         "-Wno-builtin-macro-redefined",
         "-D__DATE__=\"redacted\"",
@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) !void {
         "-fno-vectorize",
     });
     if (target.result.os.tag != .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-fmath-errno",
             "-fno-exceptions",
         });

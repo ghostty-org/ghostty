@@ -38,7 +38,7 @@ jobs:
           tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a289cf5d2fcd6874376aa92f0ef7f99dc923592a # v1.2.17
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix

@@ -114,6 +114,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// True if the window is focused
         focused: bool,
 
+        /// The most recent scrollbar state. We use this as a cache to
+        /// determine if we need to notify the apprt that there was a
+        /// scrollbar change.
+        scrollbar: terminal.Scrollbar,
+        scrollbar_dirty: bool,
+
         /// The foreground color set by an OSC 10 sequence. If unset then
         /// default_foreground_color is used.
         foreground_color: ?terminal.color.RGB,
@@ -184,7 +190,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
-        /// Set whenever the background image changes, singalling
+        /// Set whenever the background image changes, signalling
         /// that the new background image needs to be uploaded to
         /// the GPU.
         ///
@@ -683,6 +689,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .grid_metrics = font_critical.metrics,
                 .size = options.size,
                 .focused = true,
+                .scrollbar = .zero,
+                .scrollbar_dirty = false,
                 .foreground_color = null,
                 .default_foreground_color = options.config.foreground,
                 .background_color = null,
@@ -1060,6 +1068,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Update relevant uniforms
             self.updateFontGridUniforms();
+
+            // Force a full rebuild, because cached rows may still reference
+            // an outdated atlas from the old grid and this can cause garbage
+            // to be rendered.
+            self.cells_viewport = null;
         }
 
         /// Update uniforms that are based on the font grid.
@@ -1087,6 +1100,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 preedit: ?renderer.State.Preedit,
                 cursor_style: ?renderer.CursorStyle,
                 color_palette: terminal.color.Palette,
+                scrollbar: terminal.Scrollbar,
 
                 /// If true, rebuild the full screen.
                 full_rebuild: bool,
@@ -1110,6 +1124,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     log.debug("synchronized output started, skipping render", .{});
                     return;
                 }
+
+                // Get our scrollbar out of the terminal. We synchronize
+                // the scrollbar read with frame data updates because this
+                // naturally limits the number of calls to this method (it
+                // can be expensive) and also makes it so we don't need another
+                // cross-thread mailbox message within the IO path.
+                const scrollbar = state.terminal.screen.pages.scrollbar();
 
                 // Swap bg/fg if the terminal is reversed
                 const bg = self.background_color orelse self.default_background_color;
@@ -1238,6 +1259,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .preedit = preedit,
                     .cursor_style = cursor_style,
                     .color_palette = state.terminal.color_palette.colors,
+                    .scrollbar = scrollbar,
                     .full_rebuild = full_rebuild,
                 };
             };
@@ -1266,6 +1288,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
 
+                // The scrollbar is only emitted during draws so we also
+                // check the scrollbar cache here and update if needed.
+                // This is pretty fast.
+                if (!self.scrollbar.eql(critical.scrollbar)) {
+                    self.scrollbar = critical.scrollbar;
+                    self.scrollbar_dirty = true;
+                }
+
                 // Update our background color
                 self.uniforms.bg_color = .{
                     critical.bg.r,
@@ -1288,6 +1318,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // data we access while we're in the middle of drawing.
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
+
+            // After the graphics API is complete (so we defer) we want to
+            // update our scrollbar state.
+            defer if (self.scrollbar_dirty) {
+                // Fail instantly if the surface mailbox if full, we'll just
+                // get it on the next frame.
+                if (self.surface_mailbox.push(.{
+                    .scrollbar = self.scrollbar,
+                }, .instant) > 0) self.scrollbar_dirty = false;
+            };
 
             // Let our graphics API do any bookkeeping, etc.
             // that it needs to do before / after `drawFrame`.
@@ -3093,8 +3133,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // its cell(s), we don't modify the alignment at all.
                     .constraint = getConstraint(cp) orelse
                         if (cellpkg.isSymbol(cp)) .{
-                            .size_horizontal = .fit,
-                            .size_vertical = .fit,
+                            .size = .fit,
                         } else .none,
                     .constraint_width = constraintWidth(cell_pin),
                 },

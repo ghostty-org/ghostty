@@ -166,21 +166,20 @@ pub const Command = union(enum) {
         };
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .shell => |v| try formatter.formatEntry([]const u8, v),
 
             .direct => |v| {
                 var buf: [4096]u8 = undefined;
-                var fbs = std.io.fixedBufferStream(&buf);
-                const writer = fbs.writer();
+                var writer: std.Io.Writer = .fixed(&buf);
                 writer.writeAll("direct:") catch return error.OutOfMemory;
                 for (v) |arg| {
                     writer.writeAll(arg) catch return error.OutOfMemory;
                     writer.writeByte(' ') catch return error.OutOfMemory;
                 }
 
-                const written = fbs.getWritten();
+                const written = writer.buffered();
                 try formatter.formatEntry(
                     []const u8,
                     written[0..@intCast(written.len - 1)],
@@ -292,13 +291,13 @@ pub const Command = union(enum) {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "echo hello");
-        try v.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = echo hello\n", buf.items);
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = echo hello\n", buf.written());
     }
 
     test "Command: formatConfig direct" {
@@ -307,13 +306,13 @@ pub const Command = union(enum) {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "direct: echo hello");
-        try v.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = direct:echo hello\n", buf.items);
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = direct:echo hello\n", buf.written());
     }
 };
 

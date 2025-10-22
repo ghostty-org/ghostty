@@ -100,6 +100,18 @@ extension Ghostty.Action {
         let state: State
         let progress: UInt8?
     }
+    
+    struct Scrollbar {
+        let total: UInt64
+        let offset: UInt64
+        let len: UInt64
+        
+        init(c: ghostty_action_scrollbar_s) {
+            total = c.total
+            offset = c.offset            
+            len = c.len
+        }
+    }
 }
 
 // Putting the initializer in an extension preserves the automatic one.

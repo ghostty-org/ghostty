@@ -394,6 +394,14 @@ pub const Application = extern struct {
             .{ .detail = "config" },
         );
 
+        _ = gtk.CssProvider.signals.parsing_error.connect(
+            css_provider,
+            *Self,
+            signalCssParsingError,
+            self,
+            .{},
+        );
+
         // Trigger initial config changes
         self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
 
@@ -524,13 +532,23 @@ pub const Application = extern struct {
                 if (!config.@"quit-after-last-window-closed") break :q false;
 
                 // If the quit timer has expired, quit.
-                if (priv.quit_timer == .expired) break :q true;
+                if (priv.quit_timer == .expired) {
+                    log.debug("must_quit due to quit timer expired", .{});
+                    break :q true;
+                }
 
                 // If we have no windows attached to our app, also quit.
-                if (priv.requested_window and @as(
-                    ?*glib.List,
-                    self.as(gtk.Application).getWindows(),
-                ) == null) break :q true;
+                // We only do this if we don't have the closed delay set,
+                // because with the closed delay set we'll exit eventually.
+                if (config.@"quit-after-last-window-closed-delay" == null) {
+                    if (priv.requested_window and @as(
+                        ?*glib.List,
+                        self.as(gtk.Application).getWindows(),
+                    ) == null) {
+                        log.debug("must_quit due to no app windows", .{});
+                        break :q true;
+                    }
+                }
 
                 // No quit conditions met
                 break :q false;
@@ -691,6 +709,8 @@ pub const Application = extern struct {
 
             .ring_bell => Action.ringBell(target),
 
+            .scrollbar => Action.scrollbar(target, value),
+
             .set_title => Action.setTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
@@ -707,6 +727,7 @@ pub const Application = extern struct {
             .toggle_command_palette => return Action.toggleCommandPalette(target),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
+            .command_finished => return Action.commandFinished(target, value),
 
             // Unimplemented
             .secure_input,
@@ -799,19 +820,19 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadRuntimeCss(self: *Self) Allocator.Error!void {
+    fn loadRuntimeCss(self: *Self) (Allocator.Error || std.Io.Writer.Error)!void {
         const alloc = self.allocator();
+        const priv: *Private = self.private();
+        const config = priv.config.get();
 
-        const config = self.private().config.get();
+        var buf: std.Io.Writer.Allocating = try .initCapacity(alloc, 2048);
+        defer buf.deinit();
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(alloc, 2048);
-        defer buf.deinit(alloc);
-
-        const writer = buf.writer(alloc);
+        const writer = &buf.writer;
 
         // Load standard css first as it can override some of the user configured styling.
-        try loadRuntimeCss414(config, &writer);
-        try loadRuntimeCss416(config, &writer);
+        try loadRuntimeCss414(config, writer);
+        try loadRuntimeCss416(config, writer);
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -851,25 +872,22 @@ pub const Application = extern struct {
             , .{ .font_family = font_family });
         }
 
-        // ensure that we have a sentinel
-        try writer.writeByte(0);
+        const contents = buf.written();
 
-        const data = buf.items[0 .. buf.items.len - 1 :0];
+        log.debug("runtime CSS is {d} bytes", .{contents.len});
 
-        log.debug("runtime CSS is {d} bytes", .{data.len + 1});
+        const bytes = glib.Bytes.new(contents.ptr, contents.len);
+        defer bytes.unref();
 
         // Clears any previously loaded CSS from this provider
-        loadCssProviderFromData(
-            self.private().css_provider,
-            data,
-        );
+        priv.css_provider.loadFromBytes(bytes);
     }
 
     /// Load runtime CSS for older than GTK 4.16
     fn loadRuntimeCss414(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -904,8 +922,8 @@ pub const Application = extern struct {
     /// Load runtime for GTK 4.16 and newer
     fn loadRuntimeCss416(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeUntil(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -1001,8 +1019,8 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadCustomCss(self: *Self) !void {
-        const priv = self.private();
+    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+        const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
             log.warn("unable to get display", .{});
@@ -1019,7 +1037,7 @@ pub const Application = extern struct {
         }
         priv.custom_css_providers.clearRetainingCapacity();
 
-        const config = priv.config.getMut();
+        const config = priv.config.get();
         for (config.@"gtk-custom-css".value.items) |p| {
             const path, const optional = switch (p) {
                 .optional => |path| .{ path, true },
@@ -1036,23 +1054,42 @@ pub const Application = extern struct {
             };
             defer file.close();
 
+            const css_file_size_limit = 5 * 1024 * 1024; // 5MB
+
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = try file.reader().readAllAlloc(
+            const contents = file.readToEndAlloc(
                 alloc,
-                5 * 1024 * 1024, // 5MB,
-            );
+                css_file_size_limit,
+            ) catch |err| switch (err) {
+                error.FileTooBig => {
+                    log.warn("gtk-custom-css file {s} was larger than {Bi}", .{ path, css_file_size_limit });
+                    continue;
+                },
+                else => |e| return e,
+            };
             defer alloc.free(contents);
 
-            const data = try alloc.dupeZ(u8, contents);
-            defer alloc.free(data);
+            const bytes = glib.Bytes.new(contents.ptr, contents.len);
+            defer bytes.unref();
 
-            const provider = gtk.CssProvider.new();
-            errdefer provider.unref();
-            try priv.custom_css_providers.append(alloc, provider);
-            loadCssProviderFromData(provider, data);
+            const css_provider = gtk.CssProvider.new();
+            errdefer css_provider.unref();
+
+            _ = gtk.CssProvider.signals.parsing_error.connect(
+                css_provider,
+                *Self,
+                signalCssParsingError,
+                self,
+                .{},
+            );
+
+            try priv.custom_css_providers.append(alloc, css_provider);
+
+            css_provider.loadFromBytes(bytes);
+
             gtk.StyleContext.addProviderForDisplay(
                 display,
-                provider.as(gtk.StyleProvider),
+                css_provider.as(gtk.StyleProvider),
                 gtk.STYLE_PROVIDER_PRIORITY_USER,
             );
         }
@@ -1108,8 +1145,8 @@ pub const Application = extern struct {
             // This should really never, never happen. Its not critical enough
             // to actually crash, but this is a bug somewhere. An accelerator
             // for a trigger can't possibly be more than 1024 bytes.
-            error.NoSpaceLeft => {
-                log.warn("accelerator somehow longer than 1024 bytes: {}", .{trigger});
+            error.WriteFailed => {
+                log.warn("accelerator somehow longer than 1024 bytes: {f}", .{trigger});
                 return;
             },
         };
@@ -1155,7 +1192,7 @@ pub const Application = extern struct {
         // just stuck with the old CSS but we don't want to fail the entire
         // config change operation.
         self.loadRuntimeCss() catch |err| switch (err) {
-            error.OutOfMemory => log.warn(
+            error.WriteFailed, error.OutOfMemory => log.warn(
                 "out of memory loading runtime CSS, no runtime CSS applied",
                 .{},
             ),
@@ -1166,6 +1203,37 @@ pub const Application = extern struct {
                 .{err},
             );
         };
+    }
+
+    /// Log CSS parsing error
+    fn signalCssParsingError(
+        _: *gtk.CssProvider,
+        css_section: *gtk.CssSection,
+        err: *glib.Error,
+        _: *Self,
+    ) callconv(.c) void {
+        const location = css_section.toString();
+        defer glib.free(location);
+        if (comptime gtk_version.atLeast(4, 16, 0)) bytes: {
+            const bytes = css_section.getBytes() orelse break :bytes;
+            var len: usize = undefined;
+            const ptr = bytes.getData(&len) orelse break :bytes;
+            const data = ptr[0..len];
+            log.warn("css parsing failed at {s}: {s} {d} {s}\n{s}", .{
+                location,
+                glib.quarkToString(err.f_domain),
+                err.f_code,
+                err.f_message orelse "«unknown»",
+                data,
+            });
+            return;
+        }
+        log.warn("css parsing failed at {s}: {s} {d} {s}", .{
+            location,
+            glib.quarkToString(err.f_domain),
+            err.f_code,
+            err.f_message orelse "«unknown»",
+        });
     }
 
     //---------------------------------------------------------------
@@ -1818,13 +1886,13 @@ const Action = struct {
         target: apprt.Target,
         n: apprt.action.DesktopNotification,
     ) void {
-        // TODO: We should move the surface target to a function call
-        // on Surface and emit a signal that embedders can connect to. This
-        // will let us handle notifications differently depending on where
-        // a surface is presented. At the time of writing this, we always
-        // want to show the notification AND the logic below was directly
-        // ported from "legacy" GTK so this is fine, but I want to leave this
-        // note so we can do it one day.
+        switch (target) {
+            .app => {},
+            .surface => |v| {
+                v.rt_surface.gobj().sendDesktopNotification(n.title, n.body);
+                return;
+            },
+        }
 
         // Set a default title if we don't already have one
         const t = switch (n.title.len) {
@@ -1839,14 +1907,9 @@ const Action = struct {
         const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
-
-        const pointer = glib.Variant.newUint64(switch (target) {
-            .app => 0,
-            .surface => |v| @intFromPtr(v),
-        });
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
-            pointer,
+            glib.Variant.newUint64(0),
         );
 
         // We set the notification ID to the body content. If the content is the
@@ -2266,6 +2329,16 @@ const Action = struct {
         }
     }
 
+    pub fn scrollbar(
+        target: apprt.Target,
+        value: apprt.Action.Value(.scrollbar),
+    ) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setScrollbar(value),
+        }
+    }
+
     pub fn setTitle(
         target: apprt.Target,
         value: apprt.action.SetTitle,
@@ -2451,6 +2524,15 @@ const Action = struct {
             },
         }
     }
+
+    pub fn commandFinished(target: apprt.Target, value: apprt.Action.Value(.command_finished)) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().commandFinished(value);
+            },
+        }
+    }
 };
 
 /// This sets various GTK-related environment variables as necessary
@@ -2566,9 +2648,4 @@ fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) 
     // but we want to return 0 to indicate equality.
     // Abusing integers to be enums and booleans is a terrible idea, C.
     return if (window.isActive() != 0) 0 else -1;
-}
-
-fn loadCssProviderFromData(provider: *gtk.CssProvider, data: [:0]const u8) void {
-    assert(gtk_version.runtimeAtLeast(4, 12, 0));
-    provider.loadFromString(data);
 }

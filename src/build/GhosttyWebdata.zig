@@ -12,8 +12,8 @@ pub fn init(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyWebdata {
-    var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
-    errdefer steps.deinit();
+    var steps: std.ArrayList(*std.Build.Step) = .empty;
+    errdefer steps.deinit(b.allocator);
 
     {
         const webgen_config = b.addExecutable(.{
@@ -43,7 +43,7 @@ pub fn init(
         const webgen_config_step = b.addRunArtifact(webgen_config);
         const webgen_config_out = webgen_config_step.captureStdOut();
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             webgen_config_out,
             "share/ghostty/webdata/config.mdx",
         ).step);
@@ -52,8 +52,10 @@ pub fn init(
     {
         const webgen_actions = b.addExecutable(.{
             .name = "webgen_actions",
-            .root_source_file = b.path("src/main.zig"),
-            .target = b.graph.host,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = b.graph.host,
+            }),
         });
         deps.help_strings.addImport(webgen_actions);
 
@@ -72,7 +74,7 @@ pub fn init(
         const webgen_actions_step = b.addRunArtifact(webgen_actions);
         const webgen_actions_out = webgen_actions_step.captureStdOut();
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             webgen_actions_out,
             "share/ghostty/webdata/actions.mdx",
         ).step);
@@ -81,8 +83,10 @@ pub fn init(
     {
         const webgen_commands = b.addExecutable(.{
             .name = "webgen_commands",
-            .root_source_file = b.path("src/main.zig"),
-            .target = b.graph.host,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = b.graph.host,
+            }),
         });
         deps.help_strings.addImport(webgen_commands);
 
@@ -101,7 +105,7 @@ pub fn init(
         const webgen_commands_step = b.addRunArtifact(webgen_commands);
         const webgen_commands_out = webgen_commands_step.captureStdOut();
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             webgen_commands_out,
             "share/ghostty/webdata/commands.mdx",
         ).step);

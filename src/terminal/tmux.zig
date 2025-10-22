@@ -17,7 +17,7 @@ pub const Client = struct {
     state: State = .idle,
 
     /// The buffer used to store in-progress notifications, output, etc.
-    buffer: std.ArrayList(u8),
+    buffer: std.Io.Writer.Allocating,
 
     /// The maximum size in bytes of the buffer. This is used to limit
     /// memory usage. If the buffer exceeds this size, the client will
@@ -49,7 +49,7 @@ pub const Client = struct {
 
     // Handle a byte of input.
     pub fn put(self: *Client, byte: u8) !?Notification {
-        if (self.buffer.items.len >= self.max_bytes) {
+        if (self.buffer.written().len >= self.max_bytes) {
             self.broken();
             return error.OutOfMemory;
         }
@@ -81,18 +81,19 @@ pub const Client = struct {
             // If we're in a block then we accumulate until we see a newline
             // and then we check to see if that line ended the block.
             .block => if (byte == '\n') {
+                const written = self.buffer.written();
                 const idx = if (std.mem.lastIndexOfScalar(
                     u8,
-                    self.buffer.items,
+                    written,
                     '\n',
                 )) |v| v + 1 else 0;
-                const line = self.buffer.items[idx..];
+                const line = written[idx..];
 
                 if (std.mem.startsWith(u8, line, "%end") or
                     std.mem.startsWith(u8, line, "%error"))
                 {
                     const err = std.mem.startsWith(u8, line, "%error");
-                    const output = std.mem.trimRight(u8, self.buffer.items[0..idx], "\r\n");
+                    const output = std.mem.trimRight(u8, written[0..idx], "\r\n");
 
                     // If it is an error then log it.
                     if (err) log.warn("tmux control mode error={s}", .{output});
@@ -107,7 +108,7 @@ pub const Client = struct {
             },
         }
 
-        try self.buffer.append(byte);
+        try self.buffer.writer.writeByte(byte);
 
         return null;
     }
@@ -116,7 +117,7 @@ pub const Client = struct {
         assert(self.state == .notification);
 
         const line = line: {
-            var line = self.buffer.items;
+            var line = self.buffer.written();
             if (line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
             break :line line;
         };
@@ -274,7 +275,7 @@ pub const Client = struct {
     // Mark the tmux state as broken.
     fn broken(self: *Client) void {
         self.state = .broken;
-        self.buffer.clearAndFree();
+        self.buffer.deinit();
     }
 };
 
@@ -313,7 +314,7 @@ test "tmux begin/end empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
     for ("%end 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
@@ -326,7 +327,7 @@ test "tmux begin/error empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
     for ("%error 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
@@ -339,7 +340,7 @@ test "tmux begin/end data" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
     for ("hello\nworld\n") |byte| try testing.expect(try c.put(byte) == null);
@@ -353,7 +354,7 @@ test "tmux output" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%output %42 foo bar baz") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -366,7 +367,7 @@ test "tmux session-changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%session-changed $42 foo") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -379,7 +380,7 @@ test "tmux sessions-changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%sessions-changed") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -390,7 +391,7 @@ test "tmux sessions-changed carriage return" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%sessions-changed\r") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -401,7 +402,7 @@ test "tmux window-add" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%window-add @14") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -413,7 +414,7 @@ test "tmux window-renamed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%window-renamed @42 bar") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;

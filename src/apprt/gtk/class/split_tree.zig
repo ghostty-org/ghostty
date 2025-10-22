@@ -22,6 +22,7 @@ const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
+const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -198,7 +199,7 @@ pub const SplitTree = extern struct {
             .init("zoom", actionZoom, null),
         };
 
-        ext.actions.addAsGroup(Self, self, "split-tree", &actions);
+        _ = ext.actions.addAsGroup(Self, self, "split-tree", &actions);
     }
 
     /// Create a new split in the given direction from the currently
@@ -268,7 +269,7 @@ pub const SplitTree = extern struct {
         );
         defer new_tree.deinit();
         log.debug(
-            "new split at={} direction={} old_tree={} new_tree={}",
+            "new split at={} direction={} old_tree={f} new_tree={f}",
             .{ handle, direction, old_tree, &new_tree },
         );
 
@@ -874,7 +875,9 @@ pub const SplitTree = extern struct {
         current: Surface.Tree.Node.Handle,
     ) *gtk.Widget {
         return switch (tree.nodes[current.idx()]) {
-            .leaf => |v| v.as(gtk.Widget),
+            .leaf => |v| gobject.ext.newInstance(SurfaceScrolledWindow, .{
+                .surface = v,
+            }).as(gtk.Widget),
             .split => |s| SplitTreeSplit.new(
                 current,
                 &s,

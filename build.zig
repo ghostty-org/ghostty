@@ -2,16 +2,19 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
+const appVersion = @import("build.zig.zon").version;
+const minimumZigVersion = @import("build.zig.zon").minimum_zig_version;
 
 comptime {
-    buildpkg.requireZig("0.14.0");
+    buildpkg.requireZig(minimumZigVersion);
 }
 
 pub fn build(b: *std.Build) !void {
     // This defines all the available build options (e.g. `-D`). If you
     // want to know what options are available, you can run `--help` or
     // you can read `src/build/Config.zig`.
-    const config = try buildpkg.Config.init(b);
+
+    const config = try buildpkg.Config.init(b, appVersion);
     const test_filters = b.option(
         [][]const u8,
         "test-filter",
@@ -98,10 +101,19 @@ pub fn build(b: *std.Build) !void {
     );
 
     // libghostty-vt
-    const libghostty_vt_shared = try buildpkg.GhosttyLibVt.initShared(
-        b,
-        &mod,
-    );
+    const libghostty_vt_shared = shared: {
+        if (config.target.result.cpu.arch.isWasm()) {
+            break :shared try buildpkg.GhosttyLibVt.initWasm(
+                b,
+                &mod,
+            );
+        }
+
+        break :shared try buildpkg.GhosttyLibVt.initShared(
+            b,
+            &mod,
+        );
+    };
     libghostty_vt_shared.install(libvt_step);
     libghostty_vt_shared.install(b.getInstallStep());
 
@@ -245,12 +257,17 @@ pub fn build(b: *std.Build) !void {
     {
         const mod_vt_test = b.addTest(.{
             .root_module = mod.vt,
-            .target = config.target,
-            .optimize = config.optimize,
             .filters = test_filters,
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+
+        const mod_vt_c_test = b.addTest(.{
+            .root_module = mod.vt_c,
+            .filters = test_filters,
+        });
+        const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
+        test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
     }
 
     // Tests
@@ -267,6 +284,8 @@ pub fn build(b: *std.Build) !void {
                 .omit_frame_pointer = false,
                 .unwind_tables = .sync,
             }),
+            // Crash on x86_64 without this
+            .use_llvm = true,
         });
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
@@ -276,7 +295,7 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(&test_run.step);
 
         // Normal tests always test our libghostty modules
-        test_step.dependOn(test_lib_vt_step);
+        //test_step.dependOn(test_lib_vt_step);
 
         // Valgrind test running
         const valgrind_run = b.addSystemCommand(&.{

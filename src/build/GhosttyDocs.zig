@@ -12,8 +12,8 @@ pub fn init(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyDocs {
-    var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
-    errdefer steps.deinit();
+    var steps: std.ArrayList(*std.Build.Step) = .empty;
+    errdefer steps.deinit(b.allocator);
 
     const manpages = [_]struct {
         name: []const u8,
@@ -52,7 +52,7 @@ pub fn init(
         const generate_markdown_step = b.addRunArtifact(generate_markdown);
         const markdown_output = generate_markdown_step.captureStdOut();
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             markdown_output,
             "share/ghostty/doc/" ++ manpage.name ++ "." ++ manpage.section ++ ".md",
         ).step);
@@ -67,7 +67,7 @@ pub fn init(
         });
         generate_html.addFileArg(markdown_output);
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             generate_html.captureStdOut(),
             "share/ghostty/doc/" ++ manpage.name ++ "." ++ manpage.section ++ ".html",
         ).step);
@@ -82,7 +82,7 @@ pub fn init(
         });
         generate_manpage.addFileArg(markdown_output);
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             generate_manpage.captureStdOut(),
             "share/man/man" ++ manpage.section ++ "/" ++ manpage.name ++ "." ++ manpage.section,
         ).step);

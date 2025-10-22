@@ -194,7 +194,9 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // child process so there isn't much we can do. We try to output
     // something reasonable. Its important to note we MUST NOT return
     // any other error condition from here on out.
-    const stderr = std.io.getStdErr().writer();
+    var stderr_buf: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_writer.interface;
     switch (err) {
         error.FileNotFound => stderr.print(
             \\Requested executable not found. Please verify the command is on
@@ -211,6 +213,7 @@ fn startPosix(self: *Command, arena: Allocator) !void {
             .{err},
         ) catch {},
     }
+    stderr.flush() catch {};
 
     // We return a very specific error that can be detected to determine
     // we're in the child.
@@ -464,34 +467,35 @@ fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u1
 
 /// Copied from Zig. This function could be made public in child_process.zig instead.
 fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) ![:0]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
     defer buf.deinit();
+    const writer = &buf.writer;
 
     for (argv, 0..) |arg, arg_i| {
-        if (arg_i != 0) try buf.append(' ');
+        if (arg_i != 0) try writer.writeByte(' ');
         if (mem.indexOfAny(u8, arg, " \t\n\"") == null) {
-            try buf.appendSlice(arg);
+            try writer.writeAll(arg);
             continue;
         }
-        try buf.append('"');
+        try writer.writeByte('"');
         var backslash_count: usize = 0;
         for (arg) |byte| {
             switch (byte) {
                 '\\' => backslash_count += 1,
                 '"' => {
-                    try buf.appendNTimes('\\', backslash_count * 2 + 1);
-                    try buf.append('"');
+                    try writer.splatByteAll('\\', backslash_count * 2 + 1);
+                    try writer.writeByte('"');
                     backslash_count = 0;
                 },
                 else => {
-                    try buf.appendNTimes('\\', backslash_count);
-                    try buf.append(byte);
+                    try writer.splatByteAll('\\', backslash_count);
+                    try writer.writeByte(byte);
                     backslash_count = 0;
                 },
             }
         }
-        try buf.appendNTimes('\\', backslash_count * 2);
-        try buf.append('"');
+        try writer.splatByteAll('\\', backslash_count * 2);
+        try writer.writeByte('"');
     }
 
     return buf.toOwnedSliceSentinel(0);

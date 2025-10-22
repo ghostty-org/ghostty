@@ -1,86 +1,138 @@
-/// KeyEncoder is responsible for processing keyboard input and generating
-/// the proper VT sequence for any events.
-///
-/// A new KeyEncoder should be created for each individual key press.
-/// These encoders are not meant to be reused.
-const KeyEncoder = @This();
-
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
-
-const key = @import("key.zig");
-const config = @import("../config.zig");
+const KittyFlags = @import("../terminal/kitty/key.zig").Flags;
+const OptionAsAlt = @import("config.zig").OptionAsAlt;
+const Terminal = @import("../terminal/Terminal.zig");
 const function_keys = @import("function_keys.zig");
-const terminal = @import("../terminal/main.zig");
+const key = @import("key.zig");
 const KittyEntry = @import("kitty.zig").Entry;
 const kitty_entries = @import("kitty.zig").entries;
-const KittyFlags = terminal.kitty.KeyFlags;
 
-const log = std.log.scoped(.key_encoder);
+/// Options that affect key encoding behavior. This is a mix of behavior
+/// from terminal state as well as application configuration.
+pub const Options = struct {
+    /// Terminal DEC mode 1
+    cursor_key_application: bool = false,
 
-event: key.KeyEvent,
+    /// Terminal DEC mode 66
+    keypad_key_application: bool = false,
 
-/// The state of various modes of a terminal that impact encoding.
-macos_option_as_alt: config.OptionAsAlt = .false,
-alt_esc_prefix: bool = false,
-cursor_key_application: bool = false,
-keypad_key_application: bool = false,
-ignore_keypad_with_numlock: bool = false,
-modify_other_keys_state_2: bool = false,
-kitty_flags: KittyFlags = .{},
+    /// Terminal DEC mode 1035
+    ignore_keypad_with_numlock: bool = false,
 
-/// Perform the proper encoding depending on the terminal state.
+    /// Terminal DEC mode 1036
+    alt_esc_prefix: bool = false,
+
+    /// xterm "modifyOtherKeys mode 2". Details here:
+    /// https://invisible-island.net/xterm/modified-keys.html
+    modify_other_keys_state_2: bool = false,
+
+    /// Kitty keyboard protocol flags.
+    kitty_flags: KittyFlags = .disabled,
+
+    /// Determines whether the "option" key on macOS is treated
+    /// as "alt" or not. See the Ghostty `macos_option-as-alt` config
+    /// docs for a more detailed description of why this is needed.
+    macos_option_as_alt: OptionAsAlt = .false,
+
+    pub const default: Options = .{
+        .cursor_key_application = false,
+        .keypad_key_application = false,
+        .ignore_keypad_with_numlock = false,
+        .alt_esc_prefix = false,
+        .modify_other_keys_state_2 = false,
+        .kitty_flags = .disabled,
+        .macos_option_as_alt = .false,
+    };
+
+    /// Initialize our options from the terminal state.
+    ///
+    /// Note that `macos_option_as_alt` cannot be determined from
+    /// terminal state so it must be set manually after this call.
+    pub fn fromTerminal(t: *const Terminal) Options {
+        return .{
+            .alt_esc_prefix = t.modes.get(.alt_esc_prefix),
+            .cursor_key_application = t.modes.get(.cursor_keys),
+            .keypad_key_application = t.modes.get(.keypad_keys),
+            .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
+            .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
+            .kitty_flags = t.screen.kitty_keyboard.current(),
+
+            // These can't be known from the terminal state.
+            .macos_option_as_alt = .false,
+        };
+    }
+};
+
+/// Encode the key event to the writer in the proper format given
+/// the options. For example, this will properly encode a key press
+/// such as "ctrl+A" to Kitty format if Kitty encoding is enabled.
+///
+/// Not all key events will result in output. It is up to the caller
+/// to use a writer that can track whether any output was written if
+/// they care about that.
 pub fn encode(
-    self: *const KeyEncoder,
-    buf: []u8,
-) ![]const u8 {
-    // log.warn("KEYENCODER self={}", .{self.*});
-    if (self.kitty_flags.int() != 0) return try self.kitty(buf);
-    return try self.legacy(buf);
+    writer: *std.Io.Writer,
+    event: key.KeyEvent,
+    opts: Options,
+) std.Io.Writer.Error!void {
+    //std.log.warn("KEYENCODER event={} opts={}", .{ event, opts });
+    return if (opts.kitty_flags.int() != 0) try kitty(
+        writer,
+        event,
+        opts,
+    ) else try legacy(
+        writer,
+        event,
+        opts,
+    );
 }
 
 /// Perform Kitty keyboard protocol encoding of the key event.
 fn kitty(
-    self: *const KeyEncoder,
-    buf: []u8,
-) ![]const u8 {
+    writer: *std.Io.Writer,
+    event: key.KeyEvent,
+    opts: Options,
+) std.Io.Writer.Error!void {
     // This should never happen but we'll check anyway.
-    if (self.kitty_flags.int() == 0) return try self.legacy(buf);
+    if (opts.kitty_flags.int() == 0) return try legacy(
+        writer,
+        event,
+        opts,
+    );
 
     // We only processed "press" events unless report events is active
-    if (self.event.action == .release) {
-        if (!self.kitty_flags.report_events) {
-            return "";
-        }
+    if (event.action == .release) {
+        if (!opts.kitty_flags.report_events) return;
 
         // Enter, backspace, and tab do not report release events unless "report
         // all" is set
-        if (!self.kitty_flags.report_all) {
-            switch (self.event.key) {
-                .enter, .backspace, .tab => return "",
+        if (!opts.kitty_flags.report_all) {
+            switch (event.key) {
+                .enter, .backspace, .tab => return,
                 else => {},
             }
         }
     }
 
-    const all_mods = self.event.mods;
-    const effective_mods = self.event.effectiveMods();
+    const all_mods = event.mods;
+    const effective_mods = event.effectiveMods();
     const binding_mods = effective_mods.binding();
 
     // Find the entry for this key in the kitty table.
     const entry_: ?KittyEntry = entry: {
         // Functional or predefined keys
         for (kitty_entries) |entry| {
-            if (entry.key == self.event.key) break :entry entry;
+            if (entry.key == event.key) break :entry entry;
         }
 
         // Otherwise, we use our unicode codepoint from UTF8. We
         // always use the unshifted value.
-        if (self.event.unshifted_codepoint > 0) {
+        if (event.unshifted_codepoint > 0) {
             break :entry .{
-                .key = self.event.key,
-                .code = self.event.unshifted_codepoint,
+                .key = event.key,
+                .code = event.unshifted_codepoint,
                 .final = 'u',
                 .modifier = false,
             };
@@ -91,32 +143,32 @@ fn kitty(
 
     preprocessing: {
         // When composing, the only keys sent are plain modifiers.
-        if (self.event.composing) {
+        if (event.composing) {
             if (entry_) |entry| {
                 if (entry.modifier) break :preprocessing;
             }
 
-            return "";
+            return;
         }
 
         // IME confirmation still sends an enter key so if we have enter
         // and UTF8 text we just send it directly since we assume that is
         // whats happening. See legacy()'s similar logic for more details
         // on how to verify this.
-        if (self.event.utf8.len > 0) utf8: {
-            switch (self.event.key) {
+        if (event.utf8.len > 0) utf8: {
+            switch (event.key) {
                 else => {},
                 inline .enter, .backspace => |tag| {
                     // See legacy for why we handle this this way.
-                    if (isControlUtf8(self.event.utf8)) break :utf8;
-                    if (comptime tag == .backspace) return "";
-                    return try copyToBuf(buf, self.event.utf8);
+                    if (isControlUtf8(event.utf8)) break :utf8;
+                    if (comptime tag == .backspace) return;
+                    return try writer.writeAll(event.utf8);
                 },
             }
         }
 
         // If we're reporting all then we always send CSI sequences.
-        if (!self.kitty_flags.report_all) {
+        if (!opts.kitty_flags.report_all) {
             // Quote:
             // The only exceptions are the Enter, Tab and Backspace keys which
             // still generate the same bytes as in legacy mode this is to allow the
@@ -127,63 +179,73 @@ fn kitty(
             // Note that all keys are reported as escape codes, including Enter,
             // Tab, Backspace etc.
             if (effective_mods.empty()) {
-                switch (self.event.key) {
-                    .enter => return try copyToBuf(buf, "\r"),
-                    .tab => return try copyToBuf(buf, "\t"),
-                    .backspace => return try copyToBuf(buf, "\x7F"),
+                switch (event.key) {
+                    .enter => return try writer.writeByte('\r'),
+                    .tab => return try writer.writeByte('\t'),
+                    .backspace => return try writer.writeByte(0x7F),
                     else => {},
                 }
             }
 
             // Send plain-text non-modified text directly to the terminal.
             // We don't send release events because those are specially encoded.
-            if (self.event.utf8.len > 0 and
+            if (event.utf8.len > 0 and
                 binding_mods.empty() and
-                self.event.action != .release)
+                event.action != .release)
             plain_text: {
                 // We only do this for printable characters. We should
                 // inspect the real unicode codepoint properties here but
                 // the real world issue is usually control characters.
-                const view = try std.unicode.Utf8View.init(self.event.utf8);
+                const view = std.unicode.Utf8View.init(event.utf8) catch {
+                    // Invalid UTF-8 so let's fallback to encoding the
+                    // key press as if it didn't produce UTF-8 text. I'm
+                    // not sure what should happen here according to the spec,
+                    // since it doesn't specify this behavior. Presumably
+                    // this is a caller bug.
+                    break :plain_text;
+                };
                 var it = view.iterator();
                 while (it.nextCodepoint()) |cp| {
                     if (isControl(cp)) break :plain_text;
                 }
 
-                return try copyToBuf(buf, self.event.utf8);
+                return try writer.writeAll(event.utf8);
             }
         }
     }
 
-    const entry = entry_ orelse return "";
+    const entry = entry_ orelse return;
 
     // If this is just a modifier we require "report all" to send the sequence.
-    if (entry.modifier and !self.kitty_flags.report_all) return "";
+    if (entry.modifier and !opts.kitty_flags.report_all) return;
 
     const seq: KittySequence = seq: {
         var seq: KittySequence = .{
             .key = entry.code,
             .final = entry.final,
             .mods = .fromInput(
-                self.event.action,
-                self.event.key,
+                event.action,
+                event.key,
                 all_mods,
             ),
         };
 
-        if (self.kitty_flags.report_events) {
-            seq.event = switch (self.event.action) {
+        if (opts.kitty_flags.report_events) {
+            seq.event = switch (event.action) {
                 .press => .press,
                 .release => .release,
                 .repeat => .repeat,
             };
         }
 
-        if (self.kitty_flags.report_alternates) alternates: {
+        if (opts.kitty_flags.report_alternates) alternates: {
             // Break early if this is a control key
             if (isControl(seq.key)) break :alternates;
 
-            const view = try std.unicode.Utf8View.init(self.event.utf8);
+            const view = std.unicode.Utf8View.init(event.utf8) catch {
+                // Assume invalid UTF-8 means no UTF-8.
+                break :alternates;
+            };
             var it = view.iterator();
 
             // If we have a codepoint in our UTF-8 sequence, then we can
@@ -198,7 +260,7 @@ fn kitty(
 
                 // Set the base layout key. We only report this if this codepoint
                 // differs from our pressed key.
-                if (self.event.key.codepoint()) |base| {
+                if (event.key.codepoint()) |base| {
                     if (base != seq.key and
                         (cp1 != base and !has_cp2))
                     {
@@ -208,20 +270,20 @@ fn kitty(
             } else {
                 // No UTF-8 so we can't report a shifted key but we can still
                 // report a base layout key.
-                if (self.event.key.codepoint()) |base| {
+                if (event.key.codepoint()) |base| {
                     if (base != seq.key) seq.alternates[1] = base;
                 }
             }
         }
 
-        if (self.kitty_flags.report_associated and
+        if (opts.kitty_flags.report_associated and
             seq.event != .release)
         associated: {
             // Determine if the Alt modifier should be treated as an actual
             // modifier (in which case it prevents associated text) or as
             // the macOS Option key, which does not prevent associated text.
             const alt_prevents_text = if (comptime builtin.os.tag == .macos)
-                switch (self.macos_option_as_alt) {
+                switch (opts.macos_option_as_alt) {
                     .left => all_mods.sides.alt == .left,
                     .right => all_mods.sides.alt == .right,
                     .true => true,
@@ -232,13 +294,13 @@ fn kitty(
 
             if (seq.mods.preventsText(alt_prevents_text)) break :associated;
 
-            seq.text = self.event.utf8;
+            seq.text = event.utf8;
         }
 
         break :seq seq;
     };
 
-    return try seq.encode(buf);
+    return try seq.encode(writer);
 }
 
 /// Perform legacy encoding of the key event. "Legacy" in this case
@@ -248,28 +310,28 @@ fn kitty(
 /// meant to be extensions that do not change any existing behavior
 /// and therefore safe to combine.
 fn legacy(
-    self: *const KeyEncoder,
-    buf: []u8,
-) ![]const u8 {
-    const all_mods = self.event.mods;
-    const effective_mods = self.event.effectiveMods();
+    writer: *std.Io.Writer,
+    event: key.KeyEvent,
+    opts: Options,
+) std.Io.Writer.Error!void {
+    const all_mods = event.mods;
+    const effective_mods = event.effectiveMods();
     const binding_mods = effective_mods.binding();
 
     // Legacy encoding only does press/repeat
-    if (self.event.action != .press and
-        self.event.action != .repeat) return "";
+    if (event.action != .press and event.action != .repeat) return;
 
     // If we're in a dead key state then we never emit a sequence.
-    if (self.event.composing) return "";
+    if (event.composing) return;
 
     // If we match a PC style function key then that is our result.
     if (pcStyleFunctionKey(
-        self.event.key,
+        event.key,
         all_mods,
-        self.cursor_key_application,
-        self.keypad_key_application,
-        self.ignore_keypad_with_numlock,
-        self.modify_other_keys_state_2,
+        opts.cursor_key_application,
+        opts.keypad_key_application,
+        opts.ignore_keypad_with_numlock,
+        opts.modify_other_keys_state_2,
     )) |sequence| pc_style: {
         // If we have UTF-8 text, then we never emit PC style function
         // keys. Many function keys (escape, enter, backspace) have
@@ -280,71 +342,78 @@ fn legacy(
         //   - Korean: escape commits the dead key state
         //   - Korean: backspace should delete a single preedit char
         //
-        if (self.event.utf8.len > 0) utf8: {
-            switch (self.event.key) {
+        if (event.utf8.len > 0) utf8: {
+            switch (event.key) {
                 else => {},
                 inline .backspace, .enter, .escape => |tag| {
                     // We want to ignore control characters. This is because
                     // some apprts (macOS) will send control characters as
                     // UTF-8 encodings and we handle that manually.
-                    if (isControlUtf8(self.event.utf8)) break :utf8;
+                    if (isControlUtf8(event.utf8)) break :utf8;
 
                     // Backspace encodes nothing because we modified IME.
                     // Enter/escape don't encode the PC-style encoding
                     // because we want to encode committed text.
-                    if (comptime tag == .backspace) return "";
+                    if (comptime tag == .backspace) return;
                     break :pc_style;
                 },
             }
         }
 
-        return copyToBuf(buf, sequence);
+        return try writer.writeAll(sequence);
     }
 
     // If we match a control sequence, we output that directly. For
     // ctrlSeq we have to use all mods because we want it to only
     // match ctrl+<char>.
     if (ctrlSeq(
-        self.event.key,
-        self.event.utf8,
-        self.event.unshifted_codepoint,
+        event.key,
+        event.utf8,
+        event.unshifted_codepoint,
         all_mods,
     )) |char| {
         // C0 sequences support alt-as-esc prefixing.
         if (binding_mods.alt) {
-            if (buf.len < 2) return error.OutOfMemory;
-            buf[0] = 0x1B;
-            buf[1] = char;
-            return buf[0..2];
+            try writer.writeByte(0x1B);
+            try writer.writeByte(char);
+            return;
         }
 
-        if (buf.len < 1) return error.OutOfMemory;
-        buf[0] = char;
-        return buf[0..1];
+        try writer.writeByte(char);
+        return;
     }
 
     // If we have no UTF8 text then the only possibility is the
     // alt-prefix handling of unshifted codepoints... so we process that.
-    const utf8 = self.event.utf8;
+    const utf8 = event.utf8;
     if (utf8.len == 0) {
-        if (try self.legacyAltPrefix(binding_mods, all_mods)) |byte| {
-            return try std.fmt.bufPrint(buf, "\x1B{c}", .{byte});
-        }
-
-        return "";
+        if (try legacyAltPrefix(
+            event,
+            binding_mods,
+            all_mods,
+            opts,
+        )) |byte| try writer.print("\x1B{c}", .{byte});
+        return;
     }
 
     // In modify other keys state 2, we send the CSI 27 sequence
     // for any char with a modifier. Ctrl sequences like Ctrl+a
     // are already handled above.
-    if (self.modify_other_keys_state_2) modify_other: {
-        const view = try std.unicode.Utf8View.init(utf8);
+    if (opts.modify_other_keys_state_2) modify_other: {
+        const view = std.unicode.Utf8View.init(utf8) catch {
+            // Assume invalid UTF-8 means we no UTF-8.
+            break :modify_other;
+        };
         var it = view.iterator();
         const codepoint = it.nextCodepoint() orelse break :modify_other;
 
         // We only do this if we have a single codepoint. There shouldn't
         // ever be a multi-codepoint sequence that triggers this.
         if (it.nextCodepoint() != null) break :modify_other;
+
+        // The mods we encode for this are just the binding mods (shift, ctrl,
+        // super, alt).
+        const mods = event.mods.binding();
 
         // This copies xterm's `ModifyOtherKeys` function that returns
         // whether modify other keys should be encoded for the given
@@ -355,7 +424,7 @@ fn legacy(
                 break :should_modify true;
 
             // If we have anything other than shift pressed, encode.
-            var mods_no_shift = binding_mods;
+            var mods_no_shift = mods;
             mods_no_shift.shift = false;
             if (!mods_no_shift.empty()) break :should_modify true;
 
@@ -370,9 +439,8 @@ fn legacy(
 
         if (should_modify) {
             for (function_keys.modifiers, 2..) |modset, code| {
-                if (!binding_mods.equal(modset)) continue;
-                return try std.fmt.bufPrint(
-                    buf,
+                if (!mods.equal(modset)) continue;
+                return try writer.print(
                     "\x1B[27;{};{}~",
                     .{ code, codepoint },
                 );
@@ -383,17 +451,17 @@ fn legacy(
     // Let's see if we should apply fixterms to this codepoint.
     // At this stage of key processing, we only need to apply fixterms
     // to unicode codepoints if we have ctrl set.
-    if (self.event.mods.ctrl) csiu: {
+    if (event.mods.ctrl) csiu: {
         // Important: we want to use the original mods here, not the
         // effective mods. The fixterms spec states the shifted chars
         // should be sent uppercase but Kitty changes that behavior
         // so we'll send all the mods.
         const csi_u_mods, const char = mods: {
-            var mods = CsiUMods.fromInput(self.event.mods);
+            var mods = CsiUMods.fromInput(event.mods);
 
             // Get our codepoint. If we have more than one codepoint this
             // can't be valid CSIu.
-            const view = std.unicode.Utf8View.init(self.event.utf8) catch break :csiu;
+            const view = std.unicode.Utf8View.init(event.utf8) catch break :csiu;
             var it = view.iterator();
             var char = it.nextCodepoint() orelse break :csiu;
             if (it.nextCodepoint() != null) break :csiu;
@@ -414,25 +482,27 @@ fn legacy(
             // then we consider shift. Otherwise, we do not because the
             // shift key was used to obtain the character. This is specified
             // by fixterms.
-            if (self.event.unshifted_codepoint != char) {
+            if (event.unshifted_codepoint != char) {
                 mods.shift = false;
             }
 
             break :mods .{ mods, char };
         };
-        const result = try std.fmt.bufPrint(
-            buf,
+        return try writer.print(
             "\x1B[{};{}u",
             .{ char, csi_u_mods.seqInt() },
         );
-        // std.log.warn("CSI_U: {s}", .{result});
-        return result;
     }
 
     // If we have alt-pressed and alt-esc-prefix is enabled, then
     // we need to prefix the utf8 sequence with an esc.
-    if (try self.legacyAltPrefix(binding_mods, all_mods)) |byte| {
-        return try std.fmt.bufPrint(buf, "\x1B{c}", .{byte});
+    if (try legacyAltPrefix(
+        event,
+        binding_mods,
+        all_mods,
+        opts,
+    )) |byte| {
+        return try writer.print("\x1B{c}", .{byte});
     }
 
     // If we are on macOS, command+keys do not encode text. It isn't
@@ -445,25 +515,26 @@ fn legacy(
     // For example on Gnome Console Super+b will encode a "b" character
     // with legacy encoding.
     if ((comptime builtin.os.tag == .macos) and all_mods.super) {
-        return "";
+        return;
     }
 
-    return try copyToBuf(buf, utf8);
+    return try writer.writeAll(utf8);
 }
 
 fn legacyAltPrefix(
-    self: *const KeyEncoder,
+    event: key.KeyEvent,
     binding_mods: key.Mods,
     mods: key.Mods,
+    opts: Options,
 ) !?u8 {
     // This only takes effect with alt pressed
-    if (!binding_mods.alt or !self.alt_esc_prefix) return null;
+    if (!binding_mods.alt or !opts.alt_esc_prefix) return null;
 
     // On macOS, we only handle option like alt in certain
     // circumstances. Otherwise, macOS does a unicode translation
     // and we allow that to happen.
     if (comptime builtin.os.tag == .macos) {
-        switch (self.macos_option_as_alt) {
+        switch (opts.macos_option_as_alt) {
             .false => return null,
             .left => if (mods.sides.alt == .right) return null,
             .right => if (mods.sides.alt == .left) return null,
@@ -472,7 +543,7 @@ fn legacyAltPrefix(
     }
 
     // Otherwise, we require utf8 to already have the byte represented.
-    const utf8 = self.event.utf8;
+    const utf8 = event.utf8;
     if (utf8.len == 1) {
         if (std.math.cast(u8, utf8[0])) |byte| {
             return byte;
@@ -480,10 +551,10 @@ fn legacyAltPrefix(
     }
 
     // If UTF8 isn't set, we will allow unshifted codepoints through.
-    if (self.event.unshifted_codepoint > 0) {
+    if (event.unshifted_codepoint > 0) {
         if (std.math.cast(
             u8,
-            self.event.unshifted_codepoint,
+            event.unshifted_codepoint,
         )) |byte| {
             return byte;
         }
@@ -897,19 +968,18 @@ const KittySequence = struct {
         release = 3,
     };
 
-    pub fn encode(self: KittySequence, buf: []u8) ![]const u8 {
-        if (self.final == 'u' or self.final == '~') return try self.encodeFull(buf);
-        return try self.encodeSpecial(buf);
+    pub fn encode(
+        self: KittySequence,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        if (self.final == 'u' or self.final == '~') return try self.encodeFull(writer);
+        return try self.encodeSpecial(writer);
     }
 
-    fn encodeFull(self: KittySequence, buf: []u8) ![]const u8 {
-        // Boilerplate to basically create a string builder that writes
-        // over our buffer (but no more).
-        var fba = std.heap.FixedBufferAllocator.init(buf);
-        const alloc = fba.allocator();
-        var builder = try std.ArrayListUnmanaged(u8).initCapacity(alloc, buf.len);
-        const writer = builder.writer(alloc);
-
+    fn encodeFull(
+        self: KittySequence,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         // Key section
         try writer.print("\x1B[{d}", .{self.key});
         // Write our alternates
@@ -937,8 +1007,11 @@ const KittySequence = struct {
         }
 
         // Text section
-        if (self.text.len > 0) {
-            const view = try std.unicode.Utf8View.init(self.text);
+        if (self.text.len > 0) text: {
+            const view = std.unicode.Utf8View.init(self.text) catch {
+                // Assume invalid UTF-8 means we have no text.
+                break :text;
+            };
             var it = view.iterator();
             var count: usize = 0;
             while (it.nextCodepoint()) |cp| {
@@ -960,13 +1033,15 @@ const KittySequence = struct {
         }
 
         try writer.print("{c}", .{self.final});
-        return builder.items;
     }
 
-    fn encodeSpecial(self: KittySequence, buf: []u8) ![]const u8 {
+    fn encodeSpecial(
+        self: KittySequence,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         const mods = self.mods.seqInt();
         if (self.event != .none) {
-            return try std.fmt.bufPrint(buf, "\x1B[1;{d}:{d}{c}", .{
+            return try writer.print("\x1B[1;{d}:{d}{c}", .{
                 mods,
                 @intFromEnum(self.event),
                 self.final,
@@ -974,13 +1049,13 @@ const KittySequence = struct {
         }
 
         if (mods > 1) {
-            return try std.fmt.bufPrint(buf, "\x1B[1;{d}{c}", .{
+            return try writer.print("\x1B[1;{d}{c}", .{
                 mods,
                 self.final,
             });
         }
 
-        return try std.fmt.bufPrint(buf, "\x1B[{c}", .{self.final});
+        return try writer.print("\x1B[{c}", .{self.final});
     }
 };
 
@@ -989,27 +1064,30 @@ test "KittySequence: backspace" {
 
     // Plain
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{ .key = 127, .final = 'u' };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1B[127u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1B[127u", writer.buffered());
     }
 
     // Release event
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{ .key = 127, .final = 'u', .event = .release };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1B[127;1:3u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1B[127;1:3u", writer.buffered());
     }
 
     // Shift
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{
             .key = 127,
             .final = 'u',
             .mods = .{ .shift = true },
         };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1B[127;2u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1B[127;2u", writer.buffered());
     }
 }
 
@@ -1018,221 +1096,214 @@ test "KittySequence: text" {
 
     // Plain
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{
             .key = 127,
             .final = 'u',
             .text = "A",
         };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1B[127;;65u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1B[127;;65u", writer.buffered());
     }
 
     // Release
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{
             .key = 127,
             .final = 'u',
             .event = .release,
             .text = "A",
         };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1B[127;1:3;65u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1B[127;1:3;65u", writer.buffered());
     }
 
     // Shift
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{
             .key = 127,
             .final = 'u',
             .mods = .{ .shift = true },
             .text = "A",
         };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1B[127;2;65u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1B[127;2;65u", writer.buffered());
     }
 }
-
+//
 test "KittySequence: text with control characters" {
     var buf: [128]u8 = undefined;
 
     // By itself
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{
             .key = 127,
             .final = 'u',
             .text = "\n",
         };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1b[127u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1b[127u", writer.buffered());
     }
 
     // With other printables
     {
+        var writer: std.Io.Writer = .fixed(&buf);
         var seq: KittySequence = .{
             .key = 127,
             .final = 'u',
             .text = "A\n",
         };
-        const actual = try seq.encode(&buf);
-        try testing.expectEqualStrings("\x1b[127;;65u", actual);
+        try seq.encode(&writer);
+        try testing.expectEqualStrings("\x1b[127;;65u", writer.buffered());
     }
 }
-
+//
 test "KittySequence: special no mods" {
     var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
     var seq: KittySequence = .{ .key = 1, .final = 'A' };
-    const actual = try seq.encode(&buf);
-    try testing.expectEqualStrings("\x1B[A", actual);
+    try seq.encode(&writer);
+    try testing.expectEqualStrings("\x1B[A", writer.buffered());
 }
 
 test "KittySequence: special mods only" {
     var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
     var seq: KittySequence = .{ .key = 1, .final = 'A', .mods = .{ .shift = true } };
-    const actual = try seq.encode(&buf);
-    try testing.expectEqualStrings("\x1B[1;2A", actual);
+    try seq.encode(&writer);
+    try testing.expectEqualStrings("\x1B[1;2A", writer.buffered());
 }
 
 test "KittySequence: special mods and event" {
     var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
     var seq: KittySequence = .{
         .key = 1,
         .final = 'A',
         .event = .release,
         .mods = .{ .shift = true },
     };
-    const actual = try seq.encode(&buf);
-    try testing.expectEqualStrings("\x1B[1;2:3A", actual);
+    try seq.encode(&writer);
+    try testing.expectEqualStrings("\x1B[1;2:3A", writer.buffered());
 }
 
 test "kitty: plain text" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_a,
-            .mods = .{},
-            .utf8 = "abcd",
-        },
-
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_a,
+        .mods = .{},
+        .utf8 = "abcd",
+    }, .{
         .kitty_flags = .{ .disambiguate = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("abcd", actual);
+    });
+    try testing.expectEqualStrings("abcd", writer.buffered());
 }
 
 test "kitty: repeat with just disambiguate" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_a,
-            .action = .repeat,
-            .mods = .{},
-            .utf8 = "a",
-        },
-
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_a,
+        .action = .repeat,
+        .mods = .{},
+        .utf8 = "a",
+    }, .{
         .kitty_flags = .{ .disambiguate = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("a", actual);
+    });
+    try testing.expectEqualStrings("a", writer.buffered());
 }
-
+//
 test "kitty: enter, backspace, tab" {
     var buf: [128]u8 = undefined;
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .key = .enter, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .key = .enter, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{ .disambiguate = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\r", actual);
+        });
+        try testing.expectEqualStrings("\r", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .key = .backspace, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .key = .backspace, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{ .disambiguate = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x7f", actual);
+        });
+        try testing.expectEqualStrings("\x7f", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .key = .tab, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .key = .tab, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{ .disambiguate = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\t", actual);
+        });
+        try testing.expectEqualStrings("\t", writer.buffered());
     }
 
     // No release events if "report_all" is not set
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .action = .release, .key = .enter, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .action = .release, .key = .enter, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{ .disambiguate = true, .report_events = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("", actual);
+        });
+        try testing.expectEqualStrings("", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .action = .release, .key = .backspace, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .action = .release, .key = .backspace, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{ .disambiguate = true, .report_events = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("", actual);
+        });
+        try testing.expectEqualStrings("", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .action = .release, .key = .tab, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .action = .release, .key = .tab, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{ .disambiguate = true, .report_events = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("", actual);
+        });
+        try testing.expectEqualStrings("", writer.buffered());
     }
 
     // Release events if "report_all" is set
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .action = .release, .key = .enter, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .action = .release, .key = .enter, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{
                 .disambiguate = true,
                 .report_events = true,
                 .report_all = true,
             },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x1b[13;1:3u", actual);
+        });
+        try testing.expectEqualStrings("\x1b[13;1:3u", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .action = .release, .key = .backspace, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .action = .release, .key = .backspace, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{
                 .disambiguate = true,
                 .report_events = true,
                 .report_all = true,
             },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x1b[127;1:3u", actual);
+        });
+        try testing.expectEqualStrings("\x1b[127;1:3u", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .action = .release, .key = .tab, .mods = .{}, .utf8 = "" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .action = .release, .key = .tab, .mods = .{}, .utf8 = "" }, .{
             .kitty_flags = .{
                 .disambiguate = true,
                 .report_events = true,
                 .report_all = true,
             },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x1b[9;1:3u", actual);
+        });
+        try testing.expectEqualStrings("\x1b[9;1:3u", writer.buffered());
     }
 }
-
+//
 test "kitty: enter with all flags" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{ .key = .enter, .mods = .{}, .utf8 = "" },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{ .key = .enter, .mods = .{}, .utf8 = "" }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1240,15 +1311,15 @@ test "kitty: enter with all flags" {
             .report_all = true,
             .report_associated = true,
         },
-    };
-    const actual = try enc.kitty(&buf);
+    });
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[13u", actual[1..]);
 }
-
+//
 test "kitty: ctrl with all flags" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{ .key = .control_left, .mods = .{ .ctrl = true }, .utf8 = "" },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{ .key = .control_left, .mods = .{ .ctrl = true }, .utf8 = "" }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1256,20 +1327,20 @@ test "kitty: ctrl with all flags" {
             .report_all = true,
             .report_associated = true,
         },
-    };
-    const actual = try enc.kitty(&buf);
+    });
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[57442;5u", actual[1..]);
 }
 
 test "kitty: ctrl release with ctrl mod set" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .action = .release,
-            .key = .control_left,
-            .mods = .{ .ctrl = true },
-            .utf8 = "",
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .action = .release,
+        .key = .control_left,
+        .mods = .{ .ctrl = true },
+        .utf8 = "",
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1277,210 +1348,191 @@ test "kitty: ctrl release with ctrl mod set" {
             .report_all = true,
             .report_associated = true,
         },
-    };
-    const actual = try enc.kitty(&buf);
+    });
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[57442;5:3u", actual[1..]);
 }
 
 test "kitty: delete" {
     var buf: [128]u8 = undefined;
     {
-        var enc: KeyEncoder = .{
-            .event = .{ .key = .delete, .mods = .{}, .utf8 = "\x7F" },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{ .key = .delete, .mods = .{}, .utf8 = "\x7F" }, .{
             .kitty_flags = .{ .disambiguate = true },
-        };
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x1b[3~", actual);
+        });
+        try testing.expectEqualStrings("\x1b[3~", writer.buffered());
     }
 }
 
 test "kitty: composing with no modifier" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_a,
-            .mods = .{ .shift = true },
-            .composing = true,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_a,
+        .mods = .{ .shift = true },
+        .composing = true,
+    }, .{
         .kitty_flags = .{ .disambiguate = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("", actual);
+    });
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "kitty: composing with modifier" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .shift_left,
-            .mods = .{ .shift = true },
-            .composing = true,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .shift_left,
+        .mods = .{ .shift = true },
+        .composing = true,
+    }, .{
         .kitty_flags = .{ .disambiguate = true, .report_all = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[57441;2u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[57441;2u", writer.buffered());
 }
 
 test "kitty: shift+a on US keyboard" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_a,
-            .mods = .{ .shift = true },
-            .utf8 = "A",
-            .unshifted_codepoint = 97, // lowercase A
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_a,
+        .mods = .{ .shift = true },
+        .utf8 = "A",
+        .unshifted_codepoint = 97, // lowercase A
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_alternates = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[97:65;2u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[97:65;2u", writer.buffered());
 }
 
 test "kitty: matching unshifted codepoint" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_a,
-            .mods = .{ .shift = true },
-            .utf8 = "A",
-            .unshifted_codepoint = 65,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_a,
+        .mods = .{ .shift = true },
+        .utf8 = "A",
+        .unshifted_codepoint = 65,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_alternates = true,
         },
-    };
-
+    });
     // WARNING: This is not a valid encoding. This is a hypothetical encoding
     // just to test that our logic is correct around matching unshifted
     // codepoints. We get an alternate here because the unshifted_codepoint does
     // not match the base key
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[65::97;2u", actual);
+    try testing.expectEqualStrings("\x1b[65::97;2u", writer.buffered());
 }
 
 test "kitty: report alternates with caps" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_j,
-            .mods = .{ .caps_lock = true },
-            .utf8 = "J",
-            .unshifted_codepoint = 106,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_j,
+        .mods = .{ .caps_lock = true },
+        .utf8 = "J",
+        .unshifted_codepoint = 106,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[106;65;74u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[106;65;74u", writer.buffered());
 }
 
 test "kitty: report alternates colon (shift+';')" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .semicolon,
-            .mods = .{ .shift = true },
-            .utf8 = ":",
-            .unshifted_codepoint = ';',
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .semicolon,
+        .mods = .{ .shift = true },
+        .utf8 = ":",
+        .unshifted_codepoint = ';',
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[59:58;2;58u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[59:58;2;58u", writer.buffered());
 }
 
 test "kitty: report alternates with ru layout" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .semicolon,
-            .mods = .{},
-            .utf8 = "ч",
-            .unshifted_codepoint = 1095,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .semicolon,
+        .mods = .{},
+        .utf8 = "ч",
+        .unshifted_codepoint = 1095,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[1095::59;;1095u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[1095::59;;1095u", writer.buffered());
 }
 
 test "kitty: report alternates with ru layout shifted" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .semicolon,
-            .mods = .{ .shift = true },
-            .utf8 = "Ч",
-            .unshifted_codepoint = 1095,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .semicolon,
+        .mods = .{ .shift = true },
+        .utf8 = "Ч",
+        .unshifted_codepoint = 1095,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[1095:1063:59;2;1063u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[1095:1063:59;2;1063u", writer.buffered());
 }
 
 test "kitty: report alternates with ru layout caps lock" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .semicolon,
-            .mods = .{ .caps_lock = true },
-            .utf8 = "Ч",
-            .unshifted_codepoint = 1095,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .semicolon,
+        .mods = .{ .caps_lock = true },
+        .utf8 = "Ч",
+        .unshifted_codepoint = 1095,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[1095::59;65;1063u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[1095::59;65;1063u", writer.buffered());
 }
 
 test "kitty: report alternates with hu layout release" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .action = .release,
-            .key = .bracket_left,
-            .mods = .{ .ctrl = true },
-            .utf8 = "",
-            .unshifted_codepoint = 337,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .action = .release,
+        .key = .bracket_left,
+        .mods = .{ .ctrl = true },
+        .utf8 = "",
+        .unshifted_codepoint = 337,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
@@ -1488,88 +1540,75 @@ test "kitty: report alternates with hu layout release" {
             .report_associated = true,
             .report_events = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
+    });
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[337::91;5:3u", actual[1..]);
 }
 
 // macOS generates utf8 text for arrow keys.
 test "kitty: up arrow with utf8" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .arrow_up,
-            .mods = .{},
-            .utf8 = &.{30},
-        },
-
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .arrow_up,
+        .mods = .{},
+        .utf8 = &.{30},
+    }, .{
         .kitty_flags = .{ .disambiguate = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[A", actual);
+    });
+    try testing.expectEqualStrings("\x1b[A", writer.buffered());
 }
 
 test "kitty: shift+tab" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .tab,
-            .mods = .{ .shift = true },
-            .utf8 = "", // tab
-        },
-
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .tab,
+        .mods = .{ .shift = true },
+        .utf8 = "", // tab
+    }, .{
         .kitty_flags = .{ .disambiguate = true, .report_alternates = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[9;2u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[9;2u", writer.buffered());
 }
 
 test "kitty: left shift" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .shift_left,
-            .mods = .{},
-            .utf8 = "",
-        },
-
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .shift_left,
+        .mods = .{},
+        .utf8 = "",
+    }, .{
         .kitty_flags = .{ .disambiguate = true, .report_alternates = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("", actual);
+    });
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "kitty: left shift with report all" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .shift_left,
-            .mods = .{},
-            .utf8 = "",
-        },
-
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .shift_left,
+        .mods = .{},
+        .utf8 = "",
+    }, .{
         .kitty_flags = .{ .disambiguate = true, .report_all = true },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[57441u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[57441u", writer.buffered());
 }
 
 test "kitty: report associated with alt text on macOS with option" {
     if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
 
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_w,
-            .mods = .{ .alt = true },
-            .utf8 = "∑",
-            .unshifted_codepoint = 119,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_w,
+        .mods = .{ .alt = true },
+        .utf8 = "∑",
+        .unshifted_codepoint = 119,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
@@ -1577,10 +1616,8 @@ test "kitty: report associated with alt text on macOS with option" {
             .report_associated = true,
         },
         .macos_option_as_alt = .false,
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[119;3;8721u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[119;3;8721u", writer.buffered());
 }
 
 test "kitty: report associated with alt text on macOS with alt" {
@@ -1589,13 +1626,13 @@ test "kitty: report associated with alt text on macOS with alt" {
     {
         // With Alt modifier
         var buf: [128]u8 = undefined;
-        var enc: KeyEncoder = .{
-            .event = .{
-                .key = .key_w,
-                .mods = .{ .alt = true },
-                .utf8 = "∑",
-                .unshifted_codepoint = 119,
-            },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{
+            .key = .key_w,
+            .mods = .{ .alt = true },
+            .utf8 = "∑",
+            .unshifted_codepoint = 119,
+        }, .{
             .kitty_flags = .{
                 .disambiguate = true,
                 .report_all = true,
@@ -1603,22 +1640,20 @@ test "kitty: report associated with alt text on macOS with alt" {
                 .report_associated = true,
             },
             .macos_option_as_alt = .true,
-        };
-
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x1b[119;3u", actual);
+        });
+        try testing.expectEqualStrings("\x1b[119;3u", writer.buffered());
     }
 
     {
         // Without Alt modifier
         var buf: [128]u8 = undefined;
-        var enc: KeyEncoder = .{
-            .event = .{
-                .key = .key_w,
-                .mods = .{},
-                .utf8 = "∑",
-                .unshifted_codepoint = 119,
-            },
+        var writer: std.Io.Writer = .fixed(&buf);
+        try kitty(&writer, .{
+            .key = .key_w,
+            .mods = .{},
+            .utf8 = "∑",
+            .unshifted_codepoint = 119,
+        }, .{
             .kitty_flags = .{
                 .disambiguate = true,
                 .report_all = true,
@@ -1626,65 +1661,59 @@ test "kitty: report associated with alt text on macOS with alt" {
                 .report_associated = true,
             },
             .macos_option_as_alt = .true,
-        };
-
-        const actual = try enc.kitty(&buf);
-        try testing.expectEqualStrings("\x1b[119;;8721u", actual);
+        });
+        try testing.expectEqualStrings("\x1b[119;;8721u", writer.buffered());
     }
 }
 
 test "kitty: report associated with modifiers" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_j,
-            .mods = .{ .ctrl = true },
-            .utf8 = "j",
-            .unshifted_codepoint = 106,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_j,
+        .mods = .{ .ctrl = true },
+        .utf8 = "j",
+        .unshifted_codepoint = 106,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[106;5u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[106;5u", writer.buffered());
 }
 
 test "kitty: report associated" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_j,
-            .mods = .{ .shift = true },
-            .utf8 = "J",
-            .unshifted_codepoint = 106,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .key_j,
+        .mods = .{ .shift = true },
+        .utf8 = "J",
+        .unshifted_codepoint = 106,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
             .report_alternates = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[106:74;2;74u", actual);
+    });
+    try testing.expectEqualStrings("\x1b[106:74;2;74u", writer.buffered());
 }
 
 test "kitty: report associated on release" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .action = .release,
-            .key = .key_j,
-            .mods = .{ .shift = true },
-            .utf8 = "J",
-            .unshifted_codepoint = 106,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .action = .release,
+        .key = .key_j,
+        .mods = .{ .shift = true },
+        .utf8 = "J",
+        .unshifted_codepoint = 106,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_all = true,
@@ -1692,54 +1721,53 @@ test "kitty: report associated on release" {
             .report_associated = true,
             .report_events = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
+    });
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[106:74;2:3u", actual[1..]);
 }
 
 test "kitty: alternates omit control characters" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .delete,
-            .mods = .{},
-            .utf8 = &.{0x7F},
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .delete,
+        .mods = .{},
+        .utf8 = &.{0x7F},
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_alternates = true,
             .report_all = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("\x1b[3~", actual);
+    });
+    try testing.expectEqualStrings("\x1b[3~", writer.buffered());
 }
 
 test "kitty: enter with utf8 (dead key state)" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .enter,
-            .utf8 = "A",
-            .unshifted_codepoint = 0x0D,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .enter,
+        .utf8 = "A",
+        .unshifted_codepoint = 0x0D,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_alternates = true,
             .report_all = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("A", actual);
+    });
+    try testing.expectEqualStrings("A", writer.buffered());
 }
 
 test "kitty: keypad number" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{ .key = .numpad_1, .mods = .{}, .utf8 = "1" },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .numpad_1,
+        .mods = .{},
+        .utf8 = "1",
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1747,19 +1775,19 @@ test "kitty: keypad number" {
             .report_all = true,
             .report_associated = true,
         },
-    };
-    const actual = try enc.kitty(&buf);
+    });
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[57400;;49u", actual[1..]);
 }
 
 test "kitty: backspace with utf8 (dead key state)" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .backspace,
-            .utf8 = "A",
-            .unshifted_codepoint = 0x0D,
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .backspace,
+        .utf8 = "A",
+        .unshifted_codepoint = 0x0D,
+    }, .{
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1767,261 +1795,237 @@ test "kitty: backspace with utf8 (dead key state)" {
             .report_all = true,
             .report_associated = true,
         },
-    };
-
-    const actual = try enc.kitty(&buf);
-    try testing.expectEqualStrings("", actual);
+    });
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "legacy: backspace with utf8 (dead key state)" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .backspace,
-            .utf8 = "A",
-            .unshifted_codepoint = 0x0D,
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .backspace,
+        .utf8 = "A",
+        .unshifted_codepoint = 0x0D,
+    }, .{});
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "legacy: enter with utf8 (dead key state)" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .enter,
-            .utf8 = "A",
-            .unshifted_codepoint = 0x0D,
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("A", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .enter,
+        .utf8 = "A",
+        .unshifted_codepoint = 0x0D,
+    }, .{});
+    try testing.expectEqualStrings("A", writer.buffered());
 }
 
 test "legacy: esc with utf8 (dead key state)" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .escape,
-            .utf8 = "A",
-            .unshifted_codepoint = 0x0D,
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("A", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .escape,
+        .utf8 = "A",
+        .unshifted_codepoint = 0x0D,
+    }, .{});
+    try testing.expectEqualStrings("A", writer.buffered());
 }
 
 test "legacy: ctrl+shift+minus (underscore on US)" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .minus,
-            .mods = .{ .ctrl = true, .shift = true },
-            .utf8 = "_",
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1F", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .minus,
+        .mods = .{ .ctrl = true, .shift = true },
+        .utf8 = "_",
+    }, .{});
+    try testing.expectEqualStrings("\x1F", writer.buffered());
 }
 
 test "legacy: ctrl+alt+c" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_c,
-            .mods = .{ .ctrl = true, .alt = true },
-            .utf8 = "c",
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1b\x03", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_c,
+        .mods = .{ .ctrl = true, .alt = true },
+        .utf8 = "c",
+    }, .{});
+    try testing.expectEqualStrings("\x1b\x03", writer.buffered());
 }
 
 test "legacy: alt+c" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_c,
-            .utf8 = "c",
-            .mods = .{ .alt = true },
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_c,
+        .utf8 = "c",
+        .mods = .{ .alt = true },
+    }, .{
         .alt_esc_prefix = true,
         .macos_option_as_alt = .true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1Bc", actual);
+    });
+    try testing.expectEqualStrings("\x1Bc", writer.buffered());
 }
 
 test "legacy: alt+e only unshifted" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_e,
-            .unshifted_codepoint = 'e',
-            .mods = .{ .alt = true },
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_e,
+        .unshifted_codepoint = 'e',
+        .mods = .{ .alt = true },
+    }, .{
         .alt_esc_prefix = true,
         .macos_option_as_alt = .true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1Be", actual);
+    });
+    try testing.expectEqualStrings("\x1Be", writer.buffered());
 }
 
 test "legacy: alt+x macos" {
     if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
 
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_c,
-            .utf8 = "≈",
-            .unshifted_codepoint = 'c',
-            .mods = .{ .alt = true },
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_c,
+        .utf8 = "≈",
+        .unshifted_codepoint = 'c',
+        .mods = .{ .alt = true },
+    }, .{
         .alt_esc_prefix = true,
         .macos_option_as_alt = .true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1Bc", actual);
+    });
+    try testing.expectEqualStrings("\x1Bc", writer.buffered());
 }
 
 test "legacy: shift+alt+. macos" {
     if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
 
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .period,
-            .utf8 = ">",
-            .unshifted_codepoint = '.',
-            .mods = .{ .alt = true, .shift = true },
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .period,
+        .utf8 = ">",
+        .unshifted_codepoint = '.',
+        .mods = .{ .alt = true, .shift = true },
+    }, .{
         .alt_esc_prefix = true,
         .macos_option_as_alt = .true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1B>", actual);
+    });
+    try testing.expectEqualStrings("\x1B>", writer.buffered());
 }
 
 test "legacy: alt+ф" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_f,
-            .utf8 = "ф",
-            .mods = .{ .alt = true },
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_f,
+        .utf8 = "ф",
+        .mods = .{ .alt = true },
+    }, .{
         .alt_esc_prefix = true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("ф", actual);
+    });
+    try testing.expectEqualStrings("ф", writer.buffered());
 }
 
 test "legacy: ctrl+c" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_c,
-            .mods = .{ .ctrl = true },
-            .utf8 = "c",
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x03", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_c,
+        .mods = .{ .ctrl = true },
+        .utf8 = "c",
+    }, .{});
+    try testing.expectEqualStrings("\x03", writer.buffered());
 }
 
 test "legacy: ctrl+space" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .space,
-            .mods = .{ .ctrl = true },
-            .utf8 = " ",
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x00", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .space,
+        .mods = .{ .ctrl = true },
+        .utf8 = " ",
+    }, .{});
+    try testing.expectEqualStrings("\x00", writer.buffered());
 }
 
 test "legacy: ctrl+shift+backspace" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .backspace,
-            .mods = .{ .ctrl = true, .shift = true },
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x08", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .backspace,
+        .mods = .{ .ctrl = true, .shift = true },
+    }, .{});
+    try testing.expectEqualStrings("\x08", writer.buffered());
 }
 
 test "legacy: ctrl+shift+char with modify other state 2" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_h,
-            .mods = .{ .ctrl = true, .shift = true },
-            .utf8 = "H",
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_h,
+        .mods = .{ .ctrl = true, .shift = true },
+        .utf8 = "H",
+    }, .{
         .modify_other_keys_state_2 = true,
-    };
+    });
+    try testing.expectEqualStrings("\x1b[27;6;72~", writer.buffered());
+}
 
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1b[27;6;72~", actual);
+test "legacy: ctrl+shift+char with modify other state 2 and consumed mods" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_h,
+        .mods = .{ .ctrl = true, .shift = true },
+        .consumed_mods = .{ .shift = true },
+        .utf8 = "H",
+    }, .{
+        .modify_other_keys_state_2 = true,
+    });
+    try testing.expectEqualStrings("\x1b[27;6;72~", writer.buffered());
 }
 
 test "legacy: fixterm awkward letters" {
     var buf: [128]u8 = undefined;
     {
-        var enc: KeyEncoder = .{ .event = .{
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
             .key = .key_i,
             .mods = .{ .ctrl = true },
             .utf8 = "i",
-        } };
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[105;5u", actual);
+        }, .{});
+        try testing.expectEqualStrings("\x1b[105;5u", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{ .event = .{
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
             .key = .key_m,
             .mods = .{ .ctrl = true },
             .utf8 = "m",
-        } };
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[109;5u", actual);
+        }, .{});
+        try testing.expectEqualStrings("\x1b[109;5u", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{ .event = .{
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
             .key = .bracket_left,
             .mods = .{ .ctrl = true },
             .utf8 = "[",
-        } };
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[91;5u", actual);
+        }, .{});
+        try testing.expectEqualStrings("\x1b[91;5u", writer.buffered());
     }
     {
-        var enc: KeyEncoder = .{ .event = .{
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
             .key = .digit_2,
             .mods = .{ .ctrl = true, .shift = true },
             .utf8 = "@",
             .unshifted_codepoint = '2',
-        } };
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[64;5u", actual);
+        }, .{});
+        try testing.expectEqualStrings("\x1b[64;5u", writer.buffered());
     }
 }
 
@@ -2030,199 +2034,189 @@ test "legacy: fixterm awkward letters" {
 test "legacy: ctrl+shift+letter ascii" {
     var buf: [128]u8 = undefined;
     {
-        var enc: KeyEncoder = .{ .event = .{
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
             .key = .key_m,
             .mods = .{ .ctrl = true, .shift = true },
             .utf8 = "M",
             .unshifted_codepoint = 'm',
-        } };
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[109;6u", actual);
+        }, .{});
+        try testing.expectEqualStrings("\x1b[109;6u", writer.buffered());
     }
 }
 
 test "legacy: shift+function key should use all mods" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .arrow_up,
-            .mods = .{ .shift = true },
-            .consumed_mods = .{ .shift = true },
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1b[1;2A", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .arrow_up,
+        .mods = .{ .shift = true },
+        .consumed_mods = .{ .shift = true },
+    }, .{});
+    try testing.expectEqualStrings("\x1b[1;2A", writer.buffered());
 }
 
 test "legacy: keypad enter" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .numpad_enter,
-            .mods = .{},
-            .consumed_mods = .{},
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\r", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .numpad_enter,
+        .mods = .{},
+        .consumed_mods = .{},
+    }, .{});
+    try testing.expectEqualStrings("\r", writer.buffered());
 }
 
 test "legacy: keypad 1" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .numpad_1,
-            .mods = .{},
-            .consumed_mods = .{},
-            .utf8 = "1",
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("1", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .numpad_1,
+        .mods = .{},
+        .consumed_mods = .{},
+        .utf8 = "1",
+    }, .{});
+    try testing.expectEqualStrings("1", writer.buffered());
 }
 
 test "legacy: keypad 1 with application keypad" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .numpad_1,
-            .mods = .{},
-            .consumed_mods = .{},
-            .utf8 = "1",
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .numpad_1,
+        .mods = .{},
+        .consumed_mods = .{},
+        .utf8 = "1",
+    }, .{
         .keypad_key_application = true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1bOq", actual);
+    });
+    try testing.expectEqualStrings("\x1bOq", writer.buffered());
 }
 
 test "legacy: keypad 1 with application keypad and numlock" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .numpad_1,
-            .mods = .{ .num_lock = true },
-            .consumed_mods = .{},
-            .utf8 = "1",
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .numpad_1,
+        .mods = .{ .num_lock = true },
+        .consumed_mods = .{},
+        .utf8 = "1",
+    }, .{
         .keypad_key_application = true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1bOq", actual);
+    });
+    try testing.expectEqualStrings("\x1bOq", writer.buffered());
 }
 
 test "legacy: keypad 1 with application keypad and numlock ignore" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .numpad_1,
-            .mods = .{ .num_lock = false },
-            .consumed_mods = .{},
-            .utf8 = "1",
-        },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .numpad_1,
+        .mods = .{ .num_lock = false },
+        .consumed_mods = .{},
+        .utf8 = "1",
+    }, .{
         .keypad_key_application = true,
         .ignore_keypad_with_numlock = true,
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("1", actual);
+    });
+    try testing.expectEqualStrings("1", writer.buffered());
 }
 
 test "legacy: f1" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .f1,
-            .mods = .{ .ctrl = true },
-            .consumed_mods = .{},
-        },
-    };
 
     // F1
     {
-        enc.event.key = .f1;
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[1;5P", actual);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
+            .key = .f1,
+            .mods = .{ .ctrl = true },
+            .consumed_mods = .{},
+        }, .{});
+        try testing.expectEqualStrings("\x1b[1;5P", writer.buffered());
     }
 
     // F2
     {
-        enc.event.key = .f2;
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[1;5Q", actual);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
+            .key = .f2,
+            .mods = .{ .ctrl = true },
+            .consumed_mods = .{},
+        }, .{});
+        try testing.expectEqualStrings("\x1b[1;5Q", writer.buffered());
     }
 
     // F3
     {
-        enc.event.key = .f3;
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[13;5~", actual);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
+            .key = .f3,
+            .mods = .{ .ctrl = true },
+            .consumed_mods = .{},
+        }, .{});
+        try testing.expectEqualStrings("\x1b[13;5~", writer.buffered());
     }
 
     // F4
     {
-        enc.event.key = .f4;
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[1;5S", actual);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
+            .key = .f4,
+            .mods = .{ .ctrl = true },
+            .consumed_mods = .{},
+        }, .{});
+        try testing.expectEqualStrings("\x1b[1;5S", writer.buffered());
     }
 
     // F5 uses new encoding
     {
-        enc.event.key = .f5;
-        const actual = try enc.legacy(&buf);
-        try testing.expectEqualStrings("\x1b[15;5~", actual);
+        var writer: std.Io.Writer = .fixed(&buf);
+        try legacy(&writer, .{
+            .key = .f5,
+            .mods = .{ .ctrl = true },
+            .consumed_mods = .{},
+        }, .{});
+        try testing.expectEqualStrings("\x1b[15;5~", writer.buffered());
     }
 }
 
 test "legacy: left_shift+tab" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .tab,
-            .mods = .{
-                .shift = true,
-                .sides = .{ .shift = .left },
-            },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .tab,
+        .mods = .{
+            .shift = true,
+            .sides = .{ .shift = .left },
         },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1b[Z", actual);
+    }, .{});
+    try testing.expectEqualStrings("\x1b[Z", writer.buffered());
 }
 
 test "legacy: right_shift+tab" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .tab,
-            .mods = .{
-                .shift = true,
-                .sides = .{ .shift = .right },
-            },
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .tab,
+        .mods = .{
+            .shift = true,
+            .sides = .{ .shift = .right },
         },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x1b[Z", actual);
+    }, .{});
+    try testing.expectEqualStrings("\x1b[Z", writer.buffered());
 }
 
 test "legacy: hu layout ctrl+ő sends proper codepoint" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .bracket_left,
-            .mods = .{ .ctrl = true },
-            .utf8 = "ő",
-            .unshifted_codepoint = 337,
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .bracket_left,
+        .mods = .{ .ctrl = true },
+        .utf8 = "ő",
+        .unshifted_codepoint = 337,
+    }, .{});
+    const actual = writer.buffered();
     try testing.expectEqualStrings("[337;5u", actual[1..]);
 }
 
@@ -2230,46 +2224,37 @@ test "legacy: super-only on macOS with text" {
     if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
 
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_b,
-            .utf8 = "b",
-            .mods = .{ .super = true },
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_b,
+        .utf8 = "b",
+        .mods = .{ .super = true },
+    }, .{});
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "legacy: super and other mods on macOS with text" {
     if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
 
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .key_b,
-            .utf8 = "B",
-            .mods = .{ .super = true, .shift = true },
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_b,
+        .utf8 = "B",
+        .mods = .{ .super = true, .shift = true },
+    }, .{});
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "legacy: backspace with DEL utf8" {
     var buf: [128]u8 = undefined;
-    var enc: KeyEncoder = .{
-        .event = .{
-            .key = .backspace,
-            .utf8 = &.{0x7F},
-            .unshifted_codepoint = 0x08,
-        },
-    };
-
-    const actual = try enc.legacy(&buf);
-    try testing.expectEqualStrings("\x7F", actual);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .backspace,
+        .utf8 = &.{0x7F},
+        .unshifted_codepoint = 0x08,
+    }, .{});
+    try testing.expectEqualStrings("\x7F", writer.buffered());
 }
 
 test "ctrlseq: normal ctrl c" {

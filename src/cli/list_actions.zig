@@ -37,8 +37,15 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    const stdout = std.io.getStdOut().writer();
-    try helpgen_actions.generate(stdout, .plaintext, opts.docs, std.heap.page_allocator);
+    var stdout: std.fs.File = .stdout();
+    var buffer: [4096]u8 = undefined;
+    var stdout_writer = stdout.writer(&buffer);
+    try helpgen_actions.generate(
+        &stdout_writer.interface,
+        .plaintext,
+        opts.docs,
+        std.heap.page_allocator,
+    );
 
     return 0;
 }

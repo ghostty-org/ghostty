@@ -117,10 +117,10 @@ pub const Config = extern struct {
         errdefer text_buf.unref();
 
         var buf: [4095:0]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
+        var writer: std.Io.Writer = .fixed(&buf);
         for (config._diagnostics.items()) |diag| {
-            fbs.reset();
-            diag.write(fbs.writer()) catch |err| {
+            writer.end = 0;
+            diag.format(&writer) catch |err| {
                 log.warn(
                     "error writing diagnostic to buffer err={}",
                     .{err},
@@ -128,7 +128,7 @@ pub const Config = extern struct {
                 continue;
             };
 
-            text_buf.insertAtCursor(&buf, @intCast(fbs.pos));
+            text_buf.insertAtCursor(&buf, @intCast(writer.end));
             text_buf.insertAtCursor("\n", 1);
         }
 

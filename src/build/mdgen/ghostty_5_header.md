@@ -8,11 +8,11 @@
 
 To configure Ghostty, you must use a configuration file. GUI-based configuration
 is on the roadmap but not yet supported. The configuration file must be placed
-at `$XDG_CONFIG_HOME/ghostty/config`, which defaults to `~/.config/ghostty/config`
+at `$XDG_CONFIG_HOME/ghostty/config.ghostty`, which defaults to `~/.config/ghostty/config.ghostty`
 if the [XDG environment is not set](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html).
 
 **If you are using macOS, the configuration file can also be placed at
-`$HOME/Library/Application Support/com.mitchellh.ghostty/config`.** This is the
+`$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty`.** This is the
 default configuration location for macOS. It will be searched before any of the
 XDG environment locations listed above.
 

@@ -386,10 +386,6 @@ extension Ghostty {
     /// A surface is terminology in Ghostty for a terminal surface, or a place where a terminal is actually drawn
     /// and interacted with. The word "surface" is used because a surface may represent a window, a tab,
     /// a split, a small preview pane, etc. It is ANYTHING that has a terminal drawn to it.
-    ///
-    /// We just wrap an AppKit NSView here at the moment so that we can behave as low level as possible
-    /// since that is what the Metal renderer in Ghostty expects. In the future, it may make more sense to
-    /// wrap an MTKView and use that, but for legacy reasons we didn't do that to begin with.
     struct SurfaceRepresentable: OSViewRepresentable {
         /// The view to render for the terminal surface.
         let view: SurfaceView
@@ -404,16 +400,26 @@ extension Ghostty {
         /// The best approach is to wrap this view in a GeometryReader and pass in the geo.size.
         let size: CGSize
 
+        #if canImport(AppKit)
+        func makeOSView(context: Context) -> SurfaceScrollView {
+            // On macOS, wrap the surface view in a scroll view
+            return SurfaceScrollView(contentSize: size, surfaceView: view)
+        }
+
+        func updateOSView(_ scrollView: SurfaceScrollView, context: Context) {
+            // Our scrollview always takes up the full size.
+            scrollView.frame.size = size
+        }
+        #else
         func makeOSView(context: Context) -> SurfaceView {
-            // We need the view as part of the state to be created previously because
-            // the view is sent to the Ghostty API so that it can manipulate it
-            // directly since we draw on a render thread.
-            return view;
+            // On iOS, return the surface view directly
+            return view
         }
 
         func updateOSView(_ view: SurfaceView, context: Context) {
             view.sizeDidChange(size)
         }
+        #endif
     }
 
     /// The configuration for a surface. For any configuration not set, defaults will be chosen from
