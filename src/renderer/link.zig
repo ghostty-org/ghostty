@@ -23,8 +23,9 @@ pub const Link = struct {
     }
 };
 
-/// A link match that stores the selection, link type, and expanded URL.
-/// Expansion happens during matching so the UI layer receives ready-to-open URLs.
+/// A link match that stores the selection, link type, and prepared URL.
+/// URLs are trimmed (for regex matches) and expanded (tilde paths) during matching
+/// so the UI layer receives ready-to-open URLs.
 pub const LinkMatch = struct {
     /// The selection coordinates of the match in the terminal
     selection: terminal.Selection,
@@ -32,7 +33,7 @@ pub const LinkMatch = struct {
     /// Whether this is an OSC8 hyperlink (true) or regex-detected URL (false)
     is_osc8: bool,
 
-    /// The expanded URL ready to open (tilde paths already expanded)
+    /// The prepared URL ready to open (trimmed and tilde-expanded as needed)
     url: []const u8,
 };
 
@@ -105,11 +106,23 @@ fn trimTrailingPunctuation(url: []const u8) []const u8 {
     return result;
 }
 
-/// Expand tilde paths and allocate the result.
-/// Returns the expanded path or the original if expansion fails.
-fn expandAndDupeUrl(alloc: Allocator, url: []const u8) ![]const u8 {
+/// Prepare a URL for use by trimming (if needed) and expanding tilde paths.
+/// For OSC8 links (is_osc8=true), the URL is kept intact except for tilde expansion.
+/// For regex-detected links (is_osc8=false), trailing punctuation and line numbers are trimmed first.
+/// Returns an allocated copy of the prepared URL.
+fn prepareUrl(alloc: Allocator, url: []const u8, is_osc8: bool) ![]const u8 {
+    // OSC8 links are authoritative - never trim them
+    // Regex-detected links need trimming to handle punctuation and line numbers
+    const to_expand = if (!is_osc8)
+        trimTrailingPunctuation(url)
+    else
+        url;
+
+    // Expand tilde paths
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const expanded = internal_os.expandHome(url, &path_buf) catch url;
+    const expanded = internal_os.expandHome(to_expand, &path_buf) catch to_expand;
+
+    // Return owned copy
     return try alloc.dupe(u8, expanded);
 }
 
@@ -248,21 +261,21 @@ pub const Set = struct {
         };
         const link = page.hyperlink_set.get(page.memory, link_id);
 
-        // Extract and expand the URI once for all matches
+        // Extract and prepare the URI once for all matches
         const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
-        const expanded_url = try expandAndDupeUrl(alloc, uri);
-        errdefer alloc.free(expanded_url);
+        const prepared_url = try prepareUrl(alloc, uri, true); // true = OSC8 link
+        errdefer alloc.free(prepared_url);
 
         // If our link has an implicit ID (no ID set explicitly via OSC8)
         // then we use an alternate matching technique that iterates forward
         // and backward until it finds boundaries. The Implicit function takes
-        // ownership of expanded_url.
+        // ownership of prepared_url.
         if (link.id == .implicit) {
             return try self.matchSetFromOSC8Implicit(
                 alloc,
                 matches,
                 mouse_pin,
-                expanded_url,
+                prepared_url,
             );
         }
         // errdefer no longer needed here since we duplicate for each match below
@@ -281,7 +294,7 @@ pub const Set = struct {
             // building our matching selection.
             if (!row.hyperlink) {
                 if (current) |sel| {
-                    const url_copy = try alloc.dupe(u8, expanded_url);
+                    const url_copy = try alloc.dupe(u8, prepared_url);
                     errdefer alloc.free(url_copy);
                     try matches.append(alloc, .{
                         .selection = sel,
@@ -324,7 +337,7 @@ pub const Set = struct {
 
                 // No match, if we have a current selection then complete it.
                 if (current) |sel| {
-                    const url_copy = try alloc.dupe(u8, expanded_url);
+                    const url_copy = try alloc.dupe(u8, prepared_url);
                     errdefer alloc.free(url_copy);
                     try matches.append(alloc, .{
                         .selection = sel,
@@ -338,7 +351,7 @@ pub const Set = struct {
 
         // Complete any remaining selection
         if (current) |sel| {
-            const url_copy = try alloc.dupe(u8, expanded_url);
+            const url_copy = try alloc.dupe(u8, prepared_url);
             errdefer alloc.free(url_copy);
             try matches.append(alloc, .{
                 .selection = sel,
@@ -347,8 +360,8 @@ pub const Set = struct {
             });
         }
 
-        // Free the original expanded_url since we duplicated it for each match
-        alloc.free(expanded_url);
+        // Free the original prepared_url since we duplicated it for each match
+        alloc.free(prepared_url);
     }
 
     /// Match OSC8 links around the mouse pin for an OSC8 link with an
@@ -359,7 +372,7 @@ pub const Set = struct {
         alloc: Allocator,
         matches: *std.ArrayList(LinkMatch),
         mouse_pin: terminal.Pin,
-        expanded_url: []const u8,
+        prepared_url: []const u8,
     ) !void {
         _ = self;
 
@@ -428,7 +441,7 @@ pub const Set = struct {
         try matches.append(alloc, .{
             .selection = sel,
             .is_osc8 = true,
-            .url = expanded_url,
+            .url = prepared_url,
         });
     }
 
@@ -454,9 +467,9 @@ pub const Set = struct {
         const link_id = page.lookupHyperlink(cell) orelse return null;
         const link = page.hyperlink_set.get(page.memory, link_id);
 
-        // Extract and expand the URI
+        // Extract and prepare the URI
         const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
-        const expanded_url = try expandAndDupeUrl(alloc, uri);
+        const prepared_url = try prepareUrl(alloc, uri, true); // true = OSC8 link
 
         // For implicit IDs, we need to find the selection boundaries
         if (link.id == .implicit) {
@@ -501,7 +514,7 @@ pub const Set = struct {
             return .{
                 .selection = sel,
                 .is_osc8 = true,
-                .url = expanded_url,
+                .url = prepared_url,
             };
         }
 
@@ -510,7 +523,7 @@ pub const Set = struct {
         return .{
             .selection = sel,
             .is_osc8 = true,
-            .url = expanded_url,
+            .url = prepared_url,
         };
     }
 
@@ -568,20 +581,19 @@ pub const Set = struct {
                 // Check if this match contains our pin
                 if (!sel.contains(screen, mouse_pin)) continue;
 
-                // Found a match! Extract, trim, and expand
+                // Found a match! Extract and prepare
                 const url_text = try screen.selectionString(alloc, .{
                     .sel = sel,
                     .trim = false,
                 });
                 defer alloc.free(url_text);
 
-                const trimmed = trimTrailingPunctuation(url_text);
-                const expanded_url = try expandAndDupeUrl(alloc, trimmed);
+                const prepared_url = try prepareUrl(alloc, url_text, false); // false = regex link
 
                 return .{
                     .selection = sel,
                     .is_osc8 = false,
-                    .url = expanded_url,
+                    .url = prepared_url,
                 };
             }
         }
@@ -656,22 +668,21 @@ pub const Set = struct {
                         => if (!sel.contains(screen, mouse_pin)) continue,
                     }
 
-                    // Extract selection text, trim punctuation, and expand tilde
+                    // Extract selection text and prepare it
                     const url_text = try screen.selectionString(alloc, .{
                         .sel = sel,
                         .trim = false,
                     });
                     defer alloc.free(url_text);
 
-                    const trimmed = trimTrailingPunctuation(url_text);
-                    const expanded_url = try expandAndDupeUrl(alloc, trimmed);
-                    errdefer alloc.free(expanded_url);
+                    const prepared_url = try prepareUrl(alloc, url_text, false); // false = regex link
+                    errdefer alloc.free(prepared_url);
 
                     // Store the selection, URL, and mark as regex (not OSC8)
                     try matches.append(alloc, .{
                         .selection = sel,
                         .is_osc8 = false,
-                        .url = expanded_url,
+                        .url = prepared_url,
                     });
                 }
             }
