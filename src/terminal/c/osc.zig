@@ -6,6 +6,8 @@ const CAllocator = lib_alloc.Allocator;
 const osc = @import("../osc.zig");
 const Result = @import("result.zig").Result;
 
+const log = std.log.scoped(.osc);
+
 /// C: GhosttyOscParser
 pub const Parser = ?*osc.Parser;
 
@@ -68,6 +70,13 @@ pub fn commandData(
     data: CommandData,
     out: ?*anyopaque,
 ) callconv(.c) bool {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.meta.intToEnum(CommandData, @intFromEnum(data)) catch {
+            log.warn("commandData invalid data value={d}", .{@intFromEnum(data)});
+            return false;
+        };
+    }
+
     return switch (data) {
         inline else => |comptime_data| commandDataTyped(
             command_,

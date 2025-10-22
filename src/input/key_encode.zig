@@ -77,7 +77,7 @@ pub fn encode(
     event: key.KeyEvent,
     opts: Options,
 ) std.Io.Writer.Error!void {
-    //std.log.warn("KEYENCODER event={} opts={}", .{ event, opts });
+    std.log.warn("KEYENCODER event={} opts={}", .{ event, opts });
     return if (opts.kitty_flags.int() != 0) try kitty(
         writer,
         event,

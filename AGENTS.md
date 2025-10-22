@@ -20,6 +20,7 @@ A file for [guiding coding agents](https://agents.md/).
 ## libghostty-vt
 
 - Build: `zig build lib-vt`
+- Build Wasm Module: `zig build lib-vt -Dtarget=wasm32-freestanding`
 - Test: `zig build test-lib-vt`
 - Test filter: `zig build test-lib-vt -Dtest-filter=<test name>`
 - When working on libghostty-vt, do not build the full app.

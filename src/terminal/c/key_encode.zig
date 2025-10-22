@@ -10,6 +10,8 @@ const OptionAsAlt = @import("../../input/config.zig").OptionAsAlt;
 const Result = @import("result.zig").Result;
 const KeyEvent = @import("key_event.zig").Event;
 
+const log = std.log.scoped(.key_encode);
+
 /// Wrapper around key encoding options that tracks the allocator for C API usage.
 const KeyEncoderWrapper = struct {
     opts: key_encode.Options,
@@ -70,6 +72,13 @@ pub fn setopt(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(.c) void {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
+            log.warn("setopt invalid option value={d}", .{@intFromEnum(option)});
+            return;
+        };
+    }
+
     return switch (option) {
         inline else => |comptime_option| setoptTyped(
             encoder_,
@@ -95,7 +104,15 @@ fn setoptTyped(
             const bits: u5 = @truncate(value.*);
             break :flags @bitCast(bits);
         },
-        .macos_option_as_alt => opts.macos_option_as_alt = value.*,
+        .macos_option_as_alt => {
+            if (comptime std.debug.runtime_safety) {
+                _ = std.meta.intToEnum(OptionAsAlt, @intFromEnum(value.*)) catch {
+                    log.warn("setopt invalid OptionAsAlt value={d}", .{@intFromEnum(value.*)});
+                    return;
+                };
+            }
+            opts.macos_option_as_alt = value.*;
+        },
     }
 }
 

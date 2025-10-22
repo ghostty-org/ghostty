@@ -2,6 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 
+/// Convenience functions
+pub const convenience = @import("allocator/convenience.zig");
+
 /// Useful alias since they're required to create Zig allocators
 pub const ZigVTable = std.mem.Allocator.VTable;
 

@@ -32,6 +32,7 @@
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref paste "Paste Utilities" - Validate paste data safety
  * - @ref allocator "Memory Management" - Memory management and custom allocators
+ * - @ref wasm "WebAssembly Utilities" - WebAssembly convenience functions
  *
  * @section examples_sec Examples
  *
@@ -69,6 +70,7 @@ extern "C" {
 #include <ghostty/vt/osc.h>
 #include <ghostty/vt/key.h>
 #include <ghostty/vt/paste.h>
+#include <ghostty/vt/wasm.h>
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,8 @@ const CAllocator = lib_alloc.Allocator;
 const key = @import("../../input/key.zig");
 const Result = @import("result.zig").Result;
 
+const log = std.log.scoped(.key_event);
+
 /// Wrapper around KeyEvent that tracks the allocator for C API usage.
 /// The UTF-8 text is not owned by this wrapper - the caller is responsible
 /// for ensuring the lifetime of any UTF-8 text set via set_utf8.
@@ -36,6 +38,13 @@ pub fn free(event_: Event) callconv(.c) void {
 }
 
 pub fn set_action(event_: Event, action: key.Action) callconv(.c) void {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.meta.intToEnum(key.Action, @intFromEnum(action)) catch {
+            log.warn("set_action invalid action value={d}", .{@intFromEnum(action)});
+            return;
+        };
+    }
+
     const event: *key.KeyEvent = &event_.?.event;
     event.action = action;
 }
@@ -46,6 +55,13 @@ pub fn get_action(event_: Event) callconv(.c) key.Action {
 }
 
 pub fn set_key(event_: Event, k: key.Key) callconv(.c) void {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.meta.intToEnum(key.Key, @intFromEnum(k)) catch {
+            log.warn("set_key invalid key value={d}", .{@intFromEnum(k)});
+            return;
+        };
+    }
+
     const event: *key.KeyEvent = &event_.?.event;
     event.key = k;
 }

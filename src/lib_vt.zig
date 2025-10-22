@@ -126,6 +126,19 @@ comptime {
         @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
         @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+
+        // On Wasm we need to export our allocator convenience functions.
+        if (builtin.target.cpu.arch.isWasm()) {
+            const alloc = @import("lib/allocator/convenience.zig");
+            @export(&alloc.allocOpaque, .{ .name = "ghostty_wasm_alloc_opaque" });
+            @export(&alloc.freeOpaque, .{ .name = "ghostty_wasm_free_opaque" });
+            @export(&alloc.allocBuffer, .{ .name = "ghostty_wasm_alloc_buffer" });
+            @export(&alloc.freeBuffer, .{ .name = "ghostty_wasm_free_buffer" });
+            @export(&alloc.allocU8, .{ .name = "ghostty_wasm_alloc_u8" });
+            @export(&alloc.freeU8, .{ .name = "ghostty_wasm_free_u8" });
+            @export(&alloc.allocUsize, .{ .name = "ghostty_wasm_alloc_usize" });
+            @export(&alloc.freeUsize, .{ .name = "ghostty_wasm_free_usize" });
+        }
     }
 }
 

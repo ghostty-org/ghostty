@@ -18,6 +18,16 @@ REFERENCES_RELATION    = YES
 REFERENCED_BY_RELATION = YES
 
 #---------------------------------------------------------------------------
+# Preprocessor
+#---------------------------------------------------------------------------
+
+# Enable preprocessing to handle #ifdef guards
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = __wasm__
+
+#---------------------------------------------------------------------------
 # C API Optimization
 #---------------------------------------------------------------------------
 
