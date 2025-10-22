@@ -5082,6 +5082,30 @@ pub const RepeatableItem = extern struct {
     value: [*:0]const u8,
 };
 
+fn deepCloneRepeatableItems(
+    self: std.ArrayListUnmanaged(RepeatableItem),
+    alloc: Allocator,
+) Allocator.Error!std.ArrayListUnmanaged(RepeatableItem) {
+    var cloned = try std.ArrayListUnmanaged(RepeatableItem).initCapacity(
+        alloc,
+        self.items.len,
+    );
+    errdefer {
+        for (cloned.items) |item| {
+            alloc.free(std.mem.span(item.key));
+            alloc.free(std.mem.span(item.value));
+        }
+        cloned.deinit(alloc);
+    }
+    for (self.items) |item| {
+        cloned.appendAssumeCapacity(.{
+            .key = try alloc.dupeZ(u8, std.mem.span(item.key)),
+            .value = try alloc.dupeZ(u8, std.mem.span(item.value)),
+        });
+    }
+    return cloned;
+}
+
 // ghostty_config_repeatable_item_list_s
 pub const RepeatableItemList = extern struct {
     items: [*]RepeatableItem,
@@ -5692,9 +5716,21 @@ pub const RepeatableString = struct {
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
+            alloc,
+            self.list.items.len,
+        );
+        errdefer {
+            for (list.items) |item| alloc.free(item);
+            list.deinit(alloc);
+        }
+        for (self.list.items) |item| {
+            const copy = try alloc.dupeZ(u8, item);
+            list.appendAssumeCapacity(copy);
+        }
         return .{
-            .list = try self.list.clone(alloc),
-            .list_c = try self.list_c.clone(alloc),
+            .list = list,
+            .list_c = try deepCloneRepeatableItems(self.list_c, alloc),
         };
     }
 
@@ -5873,7 +5909,7 @@ pub const RepeatableFontVariation = struct {
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         return .{
             .list = try self.list.clone(alloc),
-            .list_c = try self.list_c.clone(alloc),
+            .list_c = try deepCloneRepeatableItems(self.list_c, alloc),
         };
     }
 
@@ -7459,7 +7495,7 @@ pub const RepeatableCodepointMap = struct {
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         return .{
             .map = try self.map.clone(alloc),
-            .list_c = try self.list_c.clone(alloc),
+            .list_c = try deepCloneRepeatableItems(self.list_c, alloc),
         };
     }
 
