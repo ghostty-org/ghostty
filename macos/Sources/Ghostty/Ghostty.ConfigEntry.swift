@@ -5,23 +5,10 @@ import SwiftUI
 /// An object that has reference to a `ghostty_config_t`
 protocol GhosttyConfigObject: AnyObject {
     var config: ghostty_config_t? { get }
+    func reload(for preferredApp: ghostty_app_t?)
 }
 
 extension GhosttyConfigObject {
-    @MainActor
-    func reload(for preferredApp: ghostty_app_t? = nil) {
-        guard let cfg = config else {
-            return
-        }
-
-        // we only finalise config temporarily = hard reload
-        let newCfg = ghostty_config_clone(cfg)
-        if let app = preferredApp ?? (NSApp.delegate as? AppDelegate)?.ghostty.app {
-            ghostty_config_finalize(newCfg)
-            ghostty_app_update_config(app, newCfg)
-        }
-    }
-
     func setValue(_ key: String, value: String) -> Bool {
         guard let config = config else { return false }
         let result = ghostty_config_set(config, key, UInt(key.count), value, UInt(value.count))
@@ -41,11 +28,28 @@ extension GhosttyConfigObject {
 protocol GhosttyConfigValueConvertible {
     associatedtype GhosttyValue
     init(ghosttyValue: GhosttyValue?)
-    var representedValue: [String] { get }
+    func representedValues(for key: String) -> [String]
+}
+
+protocol GhosttyConfigValueBridgeable {
+    associatedtype UnderlyingValue: GhosttyConfigValueConvertible
+    init(underlyingValue: UnderlyingValue)
+
+    var underlyingValue: UnderlyingValue { get }
+}
+
+extension GhosttyConfigValueBridgeable where UnderlyingValue: GhosttyConfigValueConvertible, UnderlyingValue == Self {
+    init(underlyingValue: UnderlyingValue) {
+        self = underlyingValue
+    }
+
+    var underlyingValue: UnderlyingValue {
+        self
+    }
 }
 
 protocol GhosttyConfigValueConvertibleBridge {
-    associatedtype Value: GhosttyConfigValueConvertible
+    associatedtype Value
     associatedtype UnderlyingValue: GhosttyConfigValueConvertible
 
     static func convert(underlying: UnderlyingValue) -> Value
@@ -64,20 +68,20 @@ struct TollFreeBridge<Value: GhosttyConfigValueConvertible>: GhosttyConfigValueC
     }
 }
 
-struct BinaryFloatingPointBridge<Value: BinaryFloatingPoint & GhosttyConfigValueConvertible, UnderlyingValue: BinaryFloatingPoint & GhosttyConfigValueConvertible>: GhosttyConfigValueConvertibleBridge {
+struct GeneralGhosttyValueBridge<Value: GhosttyConfigValueBridgeable, UnderlyingValue: GhosttyConfigValueConvertible>: GhosttyConfigValueConvertibleBridge where Value.UnderlyingValue == UnderlyingValue {
     static func convert(value: Value) -> UnderlyingValue {
-        UnderlyingValue(value)
+        value.underlyingValue
     }
 
     static func convert(underlying: UnderlyingValue) -> Value {
-        Value(underlying)
+        Value(underlyingValue: underlying)
     }
 }
 
 extension Ghostty {
     // This could be turned into a macro
     @propertyWrapper
-    struct ConfigEntry<Value: GhosttyConfigValueConvertible, UnderlyingValue: GhosttyConfigValueConvertible, Bridge: GhosttyConfigValueConvertibleBridge>: DynamicProperty where Bridge.Value == Value, Bridge.UnderlyingValue == UnderlyingValue {
+    struct ConfigEntry<Value: GhosttyConfigValueBridgeable, Bridge: GhosttyConfigValueConvertibleBridge>: DynamicProperty where Bridge.Value == Value, Bridge.UnderlyingValue == Value.UnderlyingValue {
         static func getValue(from cfg: ghostty_config_t, key: String) -> Value? {
             var v: Bridge.UnderlyingValue.GhosttyValue?
             // finalise a temporary config to get default values
@@ -103,7 +107,7 @@ extension Ghostty {
             storage storageKeyPath: ReferenceWritableKeyPath<T, Self>
         ) -> Value {
             get {
-                let storedValue = instance[keyPath: storageKeyPath].storage.value ?? Value(ghosttyValue: nil)
+                let storedValue = instance[keyPath: storageKeyPath].storage.value ?? Value(underlyingValue: Value.UnderlyingValue(ghosttyValue: nil))
 
                 if let value = instance[keyPath: storageKeyPath].storage.value {
                     return value
@@ -135,12 +139,12 @@ extension Ghostty {
                 // convert back to underlying value using bridge
                 // before writing to ghostty_config_t
                 let underlyingValue = Bridge.convert(value: newValue)
-                for value in underlyingValue.representedValue {
+                for value in underlyingValue.representedValues(for: key) {
                     ghostty_config_set(cfg, key, UInt(key.count), value, UInt(value.count))
                 }
                 if info.reloadOnSet {
                     DispatchQueue.main.async {
-                        instance.reload()
+                        instance.reload(for: nil)
                     }
                 }
             }
@@ -149,12 +153,10 @@ extension Ghostty {
         struct Info: Identifiable {
             var id: String { key }
             let key: String
-            let tip: String?
             let reloadOnSet: Bool
 
-            init(key: String, tip: String?, reloadOnSet: Bool) {
+            init(key: String, reloadOnSet: Bool) {
                 self.key = key
-                self.tip = tip
                 self.reloadOnSet = reloadOnSet
             }
         }
@@ -166,28 +168,33 @@ extension Ghostty {
             set { fatalError() }
         }
 
+        private var reloadSignal: PassthroughSubject<Void, Never> = .init()
         private var storage = CurrentValueSubject<Value?, Never>(nil)
         @State private var info: Info
 
-        var projectedValue: AnyPublisher<Value, Never> {
-            storage.map({ $0 ?? Value(ghosttyValue: nil) }).eraseToAnyPublisher()
+        var key: String {
+            info.key
         }
 
-        init(_ key: String, tip: String? = nil, reload: Bool = true, bridge _: Bridge.Type) {
-            info = .init(key: key, tip: tip, reloadOnSet: reload)
+        var projectedValue: AnyPublisher<Value, Never> {
+            storage.map({ $0 ?? Value(underlyingValue: Value.UnderlyingValue(ghosttyValue: nil)) }).eraseToAnyPublisher()
+        }
+
+        init(_ key: String, reload: Bool, bridge _: Bridge.Type) {
+            info = .init(key: key, reloadOnSet: reload)
         }
     }
 }
 
 extension Ghostty.ConfigEntry where Bridge == TollFreeBridge<Value> {
-    init(_ key: String, tip: String? = nil, reload: Bool = true) {
-        self.init(key, tip: tip, reload: reload, bridge: Bridge.self)
+    init(_ key: String, reload: Bool = true) {
+        self.init(key, reload: reload, bridge: Bridge.self)
     }
 }
 
-extension Ghostty.ConfigEntry where Bridge == BinaryFloatingPointBridge<Value, UnderlyingValue> {
-    init(_ key: String, tip: String? = nil, reload: Bool = true, from: UnderlyingValue.Type) {
-        self.init(key, tip: tip, reload: reload, bridge: Bridge.self)
+extension Ghostty.ConfigEntry where Bridge == GeneralGhosttyValueBridge<Value, Value.UnderlyingValue> {
+    init(parsing key: String, reload: Bool = true) {
+        self.init(key, reload: reload, bridge: Bridge.self)
     }
 }
 
@@ -204,7 +211,7 @@ extension Optional: @retroactive CustomStringConvertible where Wrapped: CustomSt
     }
 }
 
-extension Optional: GhosttyConfigValueConvertible where Wrapped: GhosttyConfigValueConvertible {
+extension Optional: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable where Wrapped: GhosttyConfigValueConvertible & GhosttyConfigValueBridgeable {
     typealias GhosttyValue = Wrapped.GhosttyValue
     init(ghosttyValue: GhosttyValue?) {
         guard let pointer = ghosttyValue else {
@@ -214,12 +221,12 @@ extension Optional: GhosttyConfigValueConvertible where Wrapped: GhosttyConfigVa
         self = .some(Wrapped(ghosttyValue: pointer))
     }
 
-    var representedValue: [String] {
-        self?.representedValue ?? []
+    func representedValues(for key: String) -> [String] {
+        self?.representedValues(for: key) ?? []
     }
 }
 
-extension String: GhosttyConfigValueConvertible {
+extension String: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = UnsafePointer<UInt8>
     init(ghosttyValue: GhosttyValue?) {
         guard let p = ghosttyValue else {
@@ -230,7 +237,7 @@ extension String: GhosttyConfigValueConvertible {
         self = String(cString: p)
     }
 
-    var representedValue: [String] {
+    func representedValues(for key: String) -> [String] {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return []
@@ -240,56 +247,65 @@ extension String: GhosttyConfigValueConvertible {
     }
 }
 
-extension Bool: GhosttyConfigValueConvertible {
+extension Bool: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = Self
 
     init(ghosttyValue: Bool?) {
         self = ghosttyValue ?? false
     }
 
-    var representedValue: [String] {
+    func representedValues(for key: String) -> [String] {
         ["\(self)"]
     }
 }
 
-extension UInt: GhosttyConfigValueConvertible {
+extension UInt: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = Self
     init(ghosttyValue: UInt?) {
         self = ghosttyValue ?? .zero
     }
 
-    var representedValue: [String] {
+    func representedValues(for key: String) -> [String] {
         ["\(self)"]
     }
 }
 
 /// `f32`
-extension Float: GhosttyConfigValueConvertible {
+extension Float: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = Self
 
     init(ghosttyValue: GhosttyValue?) {
         self = ghosttyValue ?? 0
     }
 
-    var representedValue: [String] {
-        [formatted(.number.precision(.fractionLength(3)))]
+    func representedValues(for key: String) -> [String] {
+        [formatted(.number.precision(.fractionLength(3)).grouping(.never))]
     }
 }
 
 /// `f64`
-extension Double: GhosttyConfigValueConvertible {
+extension Double: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = Self
+    typealias UnderlyingValue = Float
 
     init(ghosttyValue: GhosttyValue?) {
         self = ghosttyValue ?? 0
     }
 
-    var representedValue: [String] {
-        [formatted(.number.precision(.fractionLength(3)))]
+    func representedValues(for key: String) -> [String] {
+        [formatted(.number.precision(.fractionLength(3)).grouping(.never))]
+    }
+
+    init(underlyingValue: Float) {
+        self = Double(underlyingValue)
+    }
+
+    var underlyingValue: Float {
+        Float(self)
     }
 }
 
-extension Color: GhosttyConfigValueConvertible {
+extension Color: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = ghostty_config_color_s
     init(ghosttyValue: GhosttyValue?) {
         guard let color = ghosttyValue else {
@@ -303,7 +319,7 @@ extension Color: GhosttyConfigValueConvertible {
         )
     }
 
-    var representedValue: [String] {
+    func representedValues(for key: String) -> [String] {
         let osColor = OSColor(self)
         guard let components = osColor.cgColor.components, components.count >= 3 else {
             return []
@@ -323,7 +339,7 @@ extension Color: GhosttyConfigValueConvertible {
 
 // MARK: - Ghostty Bridge Types
 
-extension Array: GhosttyConfigValueConvertible where Element == Ghostty.RepeatableItem {
+extension Array: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable where Element == Ghostty.RepeatableItem {
     typealias GhosttyValue = ghostty_config_repeatable_item_list_s
 
     init(ghosttyValue: ghostty_config_repeatable_item_list_s?) {
@@ -334,12 +350,20 @@ extension Array: GhosttyConfigValueConvertible where Element == Ghostty.Repeatab
         self = .init(list)
     }
 
-    var representedValue: [String] {
-        map(\.value)
+    func representedValues(for key: String) -> [String] {
+        map {
+            if !$0.key.isEmpty, key != $0.key {
+                // like font-codepoint-map, font-variation
+                return "\($0.key)=\($0.value)"
+            } else {
+                // like font-family
+                return $0.value
+            }
+        }
     }
 }
 
-extension Ghostty.AutoUpdateChannel: GhosttyConfigValueConvertible {
+extension Ghostty.AutoUpdateChannel: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
     typealias GhosttyValue = String.GhosttyValue
 
     init(ghosttyValue: String.GhosttyValue?) {
@@ -347,7 +371,7 @@ extension Ghostty.AutoUpdateChannel: GhosttyConfigValueConvertible {
         self = Self(rawValue: rawValue) ?? .stable
     }
 
-    var representedValue: [String] {
+    func representedValues(for key: String) -> [String] {
         [rawValue]
     }
 }

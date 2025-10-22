@@ -24,7 +24,7 @@ struct SettingsView: View {
                     case .themes:
                         ThemeContentView()
                     case .fonts:
-                        FontsContentView(config: config)
+                        FontsContentView()
                     }
                 }
                 .navigationTitle(currentCategory.rawValue)
