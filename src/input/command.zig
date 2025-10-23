@@ -50,7 +50,7 @@ pub const Command = struct {
 
         return .{
             .action_key = @tagName(self.action),
-            .action = std.fmt.comptimePrint("{t}", .{self.action}),
+            .action = std.fmt.comptimePrint("{f}", .{self.action}),
             .title = self.title,
             .description = self.description,
         };
