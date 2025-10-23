@@ -4819,6 +4819,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
+        .goto_window => |direction| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_window,
+            switch (direction) {
+                inline else => |tag| @field(
+                    apprt.action.GotoWindow,
+                    @tagName(tag),
+                ),
+            },
+        ),
+
         .resize_split => |value| return try self.rt_app.performAction(
             .{ .surface = self },
             .resize_split,

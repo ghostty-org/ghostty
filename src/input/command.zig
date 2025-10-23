@@ -339,6 +339,19 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .goto_window => comptime &.{
+            .{
+                .action = .{ .goto_window = .previous },
+                .title = "Focus Window: Previous",
+                .description = "Focus the previous window, if any.",
+            },
+            .{
+                .action = .{ .goto_window = .previous },
+                .title = "Focus Window: Next",
+                .description = "Focus the next window, if any.",
+            },
+        },
+
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
