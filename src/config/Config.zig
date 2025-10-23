@@ -4386,10 +4386,10 @@ pub fn cloneEmpty(
 pub fn clone(
     self: *const Config,
     alloc_gpa: Allocator,
-) Allocator.Error!Config {
+    result: *Config,
+) Allocator.Error!void {
     // Start with an empty config
-    var result = try self.cloneEmpty(alloc_gpa);
-    errdefer result.deinit();
+    result.* = try self.cloneEmpty(alloc_gpa);
     const alloc_arena = result._arena.?.allocator();
 
     // Copy our values
@@ -4420,8 +4420,6 @@ pub fn clone(
 
     // Copy the conditional set
     result._conditional_set = self._conditional_set;
-
-    return result;
 }
 
 fn cloneValue(

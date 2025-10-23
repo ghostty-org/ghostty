@@ -132,15 +132,16 @@ pub const App = struct {
     ) !void {
         // We have to clone the config.
         const alloc = core_app.alloc;
-        var config_clone = try config.clone(alloc);
-        errdefer config_clone.deinit();
+        const config_clone = try alloc.create(Config);
+        try config.clone(alloc, config_clone);
+        errdefer alloc.destroy(config_clone);
 
         var keymap = try input.Keymap.init();
         errdefer keymap.deinit();
 
         self.* = .{
             .core_app = core_app,
-            .config = config_clone,
+            .config = config_clone.*,
             .opts = opts,
             .keymap = keymap,
         };
@@ -310,11 +311,18 @@ pub const App = struct {
 
                 // For app updates, we update our core config. We need to
                 // clone it because the caller owns the param.
-                .app => if (value.config.clone(self.core_app.alloc)) |config| {
+                .app => {
+                    const config_clone = self.core_app.alloc.create(Config) catch |err| {
+                        log.err("error updating app config err={}", .{err});
+                        return;
+                    };
+                    self.config.clone(self.core_app.alloc, config_clone) catch |err| {
+                        log.err("error updating app config err={}", .{err});
+                        self.core_app.alloc.destroy(config_clone);
+                        return;
+                    };
                     self.config.deinit();
-                    self.config = config;
-                } else |err| {
-                    log.err("error updating app config err={}", .{err});
+                    self.config = config_clone.*;
                 },
             },
 

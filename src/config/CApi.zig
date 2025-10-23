@@ -42,7 +42,7 @@ export fn ghostty_config_clone(self: *Config) ?*Config {
         return null;
     };
 
-    result.* = self.clone(state.alloc) catch |err| {
+    self.clone(state.alloc, result) catch |err| {
         log.err("error cloning config err={}", .{err});
         state.alloc.destroy(result);
         return null;
