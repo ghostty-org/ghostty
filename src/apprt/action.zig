@@ -129,7 +129,7 @@ pub const Action = union(Key) {
     /// Jump to a specific split.
     goto_split: GotoSplit,
 
-    /// Jump to next/previous window. 
+    /// Jump to next/previous window.
     goto_window: GotoWindow,
 
     /// Resize the split in the given direction.
