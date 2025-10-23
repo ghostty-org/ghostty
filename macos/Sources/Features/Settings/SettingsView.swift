@@ -51,7 +51,7 @@ struct SettingsView: View {
                 }
 
                 Button("Open Settings Config") {
-                    NSWorkspace.shared.open(Ghostty.ConfigFile.configFile)
+                    NSWorkspace.shared.open(config.configFile)
                 }
             }
             #endif
