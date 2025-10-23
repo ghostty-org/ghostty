@@ -1868,37 +1868,40 @@ const Action = struct {
         }
     }
 
-    pub fn gotoWindow(
-        direction: apprt.action.GotoWindow,
-    ) bool {
-        const glist = gtk.Window.listToplevels();
-        defer glist.free();
-
-        const node = glist.findCustom(null, findActiveWindow);
-
-        // Check based on direction if we are at beginning or end of window list to loop around
-        // else just go to next/previous window
-        switch(direction) {
-            .next => {
-                const next_node = node.f_next orelse glist;
-
-                const window: *gtk.Window = @ptrCast(@alignCast(next_node.f_data orelse return false));
-                gtk.Window.present(window);
-                return true;
-            },
-            .previous => {
-                const prev_node = node.f_prev orelse last: {
-                    var current = glist;
-                    while (current.f_next) |next| {
-                        current = next;
-                    } 
-                    break :last current;
-                };
-                const window: *gtk.Window = @ptrCast(@alignCast(prev_node.f_data orelse return false));
-                gtk.Window.present(window);
-                return true;
-            },
-        }
+    pub fn gotoWindow(  
+        direction: apprt.action.GotoWindow,  
+    ) bool {  
+        const glist = gtk.Window.listToplevels();  
+        defer glist.free();  
+      
+        const node = glist.findCustom(null, findActiveWindow);  
+      
+        const target_node = switch (direction) {  
+            .next => node.f_next orelse glist,  
+            .previous => node.f_prev orelse last: {  
+                var current = glist;  
+                while (current.f_next) |next| {  
+                    current = next;  
+                }  
+                break :last current;  
+            },  
+        };  
+        const gtk_window: *gtk.Window = @ptrCast(@alignCast(target_node.f_data orelse return false));  
+        gtk.Window.present(gtk_window);  
+      
+        const ghostty_window: *Window = @ptrCast(@alignCast(gtk_window));  
+        var value = std.mem.zeroes(gobject.Value);  
+        defer value.unset();  
+        _ = value.init(gobject.ext.typeFor(?*Surface));  
+        ghostty_window.as(gobject.Object).getProperty("active-surface", &value);  
+        
+        const surface: ?*Surface = @ptrCast(@alignCast(value.getObject()));  
+        if (surface) |s| {  
+            s.grabFocus();  
+            return true;  
+        }  
+      
+        log.warn("window has no active surface, cannot grab focus", .{});  
         return false;
     }
 
