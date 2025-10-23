@@ -154,7 +154,7 @@ class AppDelegate: NSObject,
 
     override init() {
 #if DEBUG
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? Ghostty.ConfigFile.configFile.path)
+        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? Ghostty.ConfigFile.defaultConfigFile().path)
 #else
         ghostty = Ghostty.App(configPath: Ghostty.ConfigFile.configFile.path)
 #endif

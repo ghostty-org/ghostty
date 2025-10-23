@@ -5,7 +5,6 @@ import SwiftUI
 extension Ghostty {
     /// Maps to a ghostty config file and the various operations on that. This is mainly used in Settings.
     class ConfigFile: ObservableObject, GhosttyConfigObject {
-        static let empty = Ghostty.ConfigFile(config: nil)
         // The underlying C pointer to the Ghostty config structure. This
         // should never be accessed directly. Any operations on this should
         // be called from the functions on this or another class.
@@ -17,8 +16,11 @@ extension Ghostty {
             }
         }
 
-        static var configFile: URL = try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("ghostty-settings")
+        let configFile: URL
+        nonisolated static func defaultConfigFile() -> URL {
+            try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("ghostty-settings")
+        }
 
         private let reloadSignal = PassthroughSubject<ghostty_app_t?, Never>()
         private var observers = Set<AnyCancellable>()
@@ -100,23 +102,25 @@ extension Ghostty {
             self.config = nil
         }
 
-        fileprivate init(config: ghostty_config_t?) {
+        fileprivate init(config: ghostty_config_t?, configFile: URL) {
             self.config = config
+            self.configFile = configFile
         }
 
-        convenience init() {
+        convenience init(configFile: URL? = nil, loadUsersConfig: Bool = false) {
+            let configFile = configFile ?? Self.defaultConfigFile()
             guard
                 let cfg = ghostty_config_new()
             else {
-                self.init(config: nil)
+                self.init(config: nil, configFile: configFile)
                 return
             }
 
             let initialFile: URL
-            if !FileManager.default.fileExists(atPath: Self.configFile.path(percentEncoded: false)) {
+            if !FileManager.default.fileExists(atPath: configFile.path), loadUsersConfig {
                 initialFile = URL(filePath: Ghostty.AllocatedString(ghostty_config_open_path()).string)
             } else {
-                initialFile = Self.configFile
+                initialFile = configFile
             }
             let path = initialFile.path(percentEncoded: false)
             if FileManager.default.fileExists(atPath: path) {
@@ -126,7 +130,7 @@ extension Ghostty {
                 ghostty_config_load_cli_args(cfg)
             }
             ghostty_config_load_recursive_files(cfg)
-            self.init(config: cfg)
+            self.init(config: cfg, configFile: configFile)
             setupObservers()
             updateFontFamilySettings()
         }
@@ -134,7 +138,7 @@ extension Ghostty {
         @concurrent func save() async {
             do {
                 let content = await MainActor.run { export() }
-                try content.write(to: Self.configFile, atomically: true, encoding: .utf8)
+                try content.write(to: configFile, atomically: true, encoding: .utf8)
             } catch {
                 await MainActor.run {
                     saveError = error

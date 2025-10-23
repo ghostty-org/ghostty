@@ -79,7 +79,10 @@ struct GeneralGhosttyValueBridge<Value: GhosttyConfigValueBridgeable, Underlying
 }
 
 extension Ghostty {
-    // This could be turned into a macro
+    // `ghostty_config_clone` can only be done in main thread for now
+    // so we just make it isolated to main actor,
+    // and View/body updates should happen in main thread too
+    @MainActor
     @propertyWrapper
     struct ConfigEntry<Value: GhosttyConfigValueBridgeable, Bridge: GhosttyConfigValueConvertibleBridge>: DynamicProperty where Bridge.Value == Value, Bridge.UnderlyingValue == Value.UnderlyingValue {
         static func getValue(from cfg: ghostty_config_t, key: String, readDefaultValue: Bool) -> Value? {
@@ -145,9 +148,7 @@ extension Ghostty {
                     ghostty_config_set(cfg, key, UInt(key.count), value, UInt(value.count))
                 }
                 if info.reloadOnSet {
-                    DispatchQueue.main.async {
-                        instance.reload(for: nil)
-                    }
+                    instance.reload(for: nil)
                 }
             }
         }
