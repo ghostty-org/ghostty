@@ -133,6 +133,20 @@ class SurfaceScrollView: NSView {
     
     override func layout() {
         super.layout()
+
+        // The SwiftUI ScrollView host likes to add its own styling overlays to
+        // the titlebar area, which are incompatible with the hidden titlebar
+        // style. They won't be present when the app is first opened, but will
+        // appear when creating splits or cycling fullscreen. There's no public
+        // way to disable them in AppKit, so we just have to play whack-a-mole.
+        // See https://developer.apple.com/forums/thread/798392.
+        if window is HiddenTitlebarTerminalWindow {
+            for view in scrollView.subviews {
+                if view.className.contains("NSScrollPocket") {
+                    view.removeFromSuperview()
+                }
+            }
+        }
         
         // Fill entire bounds with scroll view
         scrollView.frame = bounds
