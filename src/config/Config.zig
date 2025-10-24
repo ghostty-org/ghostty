@@ -712,6 +712,31 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// on the same selection.
 @"selection-clear-on-copy": bool = false,
 
+/// Characters that mark word boundaries during text selection operations such
+/// as double-clicking. When selecting a word, the selection will stop at any
+/// of these characters.
+///
+/// This is similar to the `WORDCHARS` environment variable in zsh, except this
+/// specifies the boundary characters rather than the word characters. The
+/// default includes common delimiters and punctuation that typically separate
+/// words in code and prose.
+///
+/// Each character in this string becomes a word boundary. Multi-byte UTF-8
+/// characters are supported.
+///
+/// The null character (U+0000) is always treated as a boundary and does not
+/// need to be included in this configuration.
+///
+/// Default: ` \t'"│`|:;,()[]{}<>$`
+///
+/// To add or remove specific characters, you can set this to a custom value.
+/// For example, to treat semicolons as part of words:
+///
+///     selection-word-chars = " \t'\"│`|:,()[]{}<>$"
+///
+/// Available since: 1.2.0
+@"selection-word-chars": []const u8 = " \t'\"│`|:;,()[]{}<>$",
+
 /// The minimum contrast ratio between the foreground and background colors.
 /// The contrast ratio is a value between 1 and 21. A value of 1 allows for no
 /// contrast (e.g. black on black). This value is the contrast ratio as defined
