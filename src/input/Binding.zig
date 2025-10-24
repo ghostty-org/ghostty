@@ -493,7 +493,7 @@ pub const Action = union(enum) {
     goto_split: SplitFocusDirection,
 
     /// Focus on either the previous window or the next one ('previous', 'next')
-    goto_window: WindowDirection,
+    goto_window: GotoWindow,
 
     /// Zoom in or out of the current split.
     ///
@@ -847,7 +847,7 @@ pub const Action = union(enum) {
         right,
     };
 
-    pub const WindowDirection = enum {
+    pub const GotoWindow = enum {
         previous,
         next,
     };
