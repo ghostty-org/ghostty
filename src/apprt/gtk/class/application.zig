@@ -2010,18 +2010,18 @@ const Action = struct {
                 break :last current;
             },
         };
-        const gtk_window: *gtk.Window = @ptrCast(@alignCast(target_node.f_data orelse return false));
+        const data = target_node.f_data  orelse return false;
+        const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
         gtk.Window.present(gtk_window);
 
-        const ghostty_window: *Window = @ptrCast(@alignCast(gtk_window));
-        var value = std.mem.zeroes(gobject.Value);
-        defer value.unset();
-        _ = value.init(gobject.ext.typeFor(?*Surface));
-        ghostty_window.as(gobject.Object).getProperty("active-surface", &value);
+        const ghostty_window = gobject.ext.cast(Window, gtk_window) orelse return false;
 
-        const surface: ?*Surface = @ptrCast(@alignCast(value.getObject()));
+        var surface: ?*gobject.Object = null;
+        ghostty_window.as(gobject.Object).get("active-surface", &surface, @as(?*anyopaque, null));
+
         if (surface) |s| {
-            s.grabFocus();
+            const surface_obj = gobject.ext.cast(Surface, s) orelse return false;
+            surface_obj.grabFocus();
             return true;
         }
 
