@@ -4823,10 +4823,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .surface = self },
             .goto_window,
             switch (direction) {
-                inline else => |tag| @field(
-                    apprt.action.GotoWindow,
-                    @tagName(tag),
-                ),
+                .next => apprt.action.GotoWindow.next,
+                .previous => apprt.action.GotoWindow.previous,
             },
         ),
 
