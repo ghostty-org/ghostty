@@ -335,6 +335,7 @@ pub const Window = extern struct {
             .init("close", actionClose, null),
             .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
+            .init("duplicate-tab", actionDuplicateTab, null),
             .init("new-window", actionNewWindow, null),
             .init("ring-bell", actionRingBell, null),
             .init("split-right", actionSplitRight, null),
@@ -362,10 +363,17 @@ pub const Window = extern struct {
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_);
+        _ = self.newTabPage(parent_, false);
     }
 
-    fn newTabPage(self: *Self, parent_: ?*CoreSurface) *adw.TabPage {
+    /// Duplicate the current tab with the given parent. The tab will be inserted
+    /// at the position dictated by the `window-new-tab-position` config.
+    /// The new tab will be selected.
+    pub fn duplicateTab(self: *Self, parent_: ?*CoreSurface) void {
+        _ = self.newTabPage(parent_, true);
+    }
+
+    fn newTabPage(self: *Self, parent_: ?*CoreSurface, force_inherit_pwd: bool) *adw.TabPage {
         const priv = self.private();
         const tab_view = priv.tab_view;
 
@@ -373,7 +381,7 @@ pub const Window = extern struct {
         const tab = gobject.ext.newInstance(Tab, .{
             .config = priv.config,
         });
-        if (parent_) |p| tab.setParent(p);
+        if (parent_) |p| tab.setParent(p, force_inherit_pwd);
 
         // Get the position that we should insert the new tab at.
         const config = if (priv.config) |v| v.get() else {
@@ -1762,6 +1770,14 @@ pub const Window = extern struct {
         self: *Window,
     ) callconv(.c) void {
         self.performBindingAction(.new_tab);
+    }
+
+    fn actionDuplicateTab(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.duplicate_tab);
     }
 
     fn actionSplitRight(
