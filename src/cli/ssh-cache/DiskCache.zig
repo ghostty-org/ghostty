@@ -328,11 +328,10 @@ fn readEntries(
 
 // Supports both standalone hostnames and user@hostname format
 fn isValidCacheKey(key: []const u8) bool {
-    // 253 + 1 + 64 for user@hostname
-    if (key.len == 0 or key.len > 320) return false;
+    if (key.len == 0) return false;
 
     // Check for user@hostname format
-    if (std.mem.indexOf(u8, key, "@")) |at_pos| {
+    if (std.mem.indexOfScalar(u8, key, '@')) |at_pos| {
         const user = key[0..at_pos];
         const hostname = key[at_pos + 1 ..];
         return isValidUser(user) and isValidHost(hostname);
@@ -455,8 +454,6 @@ test "disk cache operations" {
     );
 }
 
-// Tests
-
 test isValidHost {
     const testing = std.testing;
 
@@ -488,59 +485,42 @@ test isValidHost {
     try testing.expect(!isValidHost("host:port"));
 }
 
-test "user validation - valid cases" {
+test isValidUser {
     const testing = std.testing;
+
+    // Valid
     try testing.expect(isValidUser("user"));
-    try testing.expect(isValidUser("deploy"));
-    try testing.expect(isValidUser("test-user"));
+    try testing.expect(isValidUser("user-user"));
     try testing.expect(isValidUser("user_name"));
     try testing.expect(isValidUser("user.name"));
     try testing.expect(isValidUser("user123"));
-    try testing.expect(isValidUser("a"));
-}
 
-test "user validation - complex realistic cases" {
-    const testing = std.testing;
-    try testing.expect(isValidUser("git"));
-    try testing.expect(isValidUser("ubuntu"));
-    try testing.expect(isValidUser("root"));
-    try testing.expect(isValidUser("service.account"));
-    try testing.expect(isValidUser("user-with-dashes"));
-}
-
-test "user validation - invalid cases" {
-    const testing = std.testing;
+    // Invalid
     try testing.expect(!isValidUser(""));
     try testing.expect(!isValidUser("user name"));
-    try testing.expect(!isValidUser("user@domain"));
+    try testing.expect(!isValidUser("user@example"));
     try testing.expect(!isValidUser("user:group"));
     try testing.expect(!isValidUser("user\nname"));
-
-    // Too long
-    const long_user = "a" ** 65;
-    try testing.expect(!isValidUser(long_user));
+    try testing.expect(!isValidUser("a" ** 65)); // too long
 }
 
-test "cache key validation - hostname format" {
+test isValidCacheKey {
     const testing = std.testing;
+
+    // Valid
     try testing.expect(isValidCacheKey("example.com"));
     try testing.expect(isValidCacheKey("sub.example.com"));
     try testing.expect(isValidCacheKey("192.168.1.1"));
     try testing.expect(isValidCacheKey("::1"));
-    try testing.expect(!isValidCacheKey(""));
-    try testing.expect(!isValidCacheKey(".invalid.com"));
-}
-
-test "cache key validation - user@hostname format" {
-    const testing = std.testing;
     try testing.expect(isValidCacheKey("user@example.com"));
-    try testing.expect(isValidCacheKey("deploy@prod.server.com"));
-    try testing.expect(isValidCacheKey("test-user@192.168.1.1"));
-    try testing.expect(isValidCacheKey("user_name@host.domain.org"));
-    try testing.expect(isValidCacheKey("git@github.com"));
-    try testing.expect(isValidCacheKey("ubuntu@::1"));
+    try testing.expect(isValidCacheKey("user@192.168.1.1"));
+    try testing.expect(isValidCacheKey("user@::1"));
+
+    // Invalid
+    try testing.expect(!isValidCacheKey(""));
+    try testing.expect(!isValidCacheKey(".example.com"));
     try testing.expect(!isValidCacheKey("@example.com"));
     try testing.expect(!isValidCacheKey("user@"));
-    try testing.expect(!isValidCacheKey("user@@host"));
-    try testing.expect(!isValidCacheKey("user@.invalid.com"));
+    try testing.expect(!isValidCacheKey("user@@example"));
+    try testing.expect(!isValidCacheKey("user@.example.com"));
 }
