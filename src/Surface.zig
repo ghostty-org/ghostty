@@ -4979,8 +4979,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .surface = self },
             .goto_window,
             switch (direction) {
-                .next => apprt.action.GotoWindow.next,
-                .previous => apprt.action.GotoWindow.previous,
+                .previous => .previous,
+                .next => .next,
             },
         ),
 
