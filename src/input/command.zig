@@ -346,7 +346,7 @@ fn actionCommands(action: Action.Key) []const Command {
                 .description = "Focus the previous window, if any.",
             },
             .{
-                .action = .{ .goto_window = .previous },
+                .action = .{ .goto_window = .next },
                 .title = "Focus Window: Next",
                 .description = "Focus the next window, if any.",
             },
