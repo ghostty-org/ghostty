@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const terminal = @import("main.zig");
@@ -51,6 +52,11 @@ pub const Handler = struct {
             0 => switch (dcs.final) {
                 // Tmux control mode
                 'p' => tmux: {
+                    if (comptime !build_options.tmux_control_mode) {
+                        log.debug("tmux control mode not enabled in build, ignoring", .{});
+                        break :tmux null;
+                    }
+
                     // Tmux control mode must start with ESC P 1000 p
                     if (dcs.params.len != 1 or dcs.params[0] != 1000) break :tmux null;
 
@@ -58,7 +64,7 @@ pub const Handler = struct {
                         .state = .{
                             .tmux = .{
                                 .max_bytes = self.max_bytes,
-                                .buffer = try std.ArrayList(u8).initCapacity(
+                                .buffer = try .initCapacity(
                                     alloc,
                                     128, // Arbitrary choice to limit initial reallocs
                                 ),
@@ -77,7 +83,7 @@ pub const Handler = struct {
                     // https://github.com/mitchellh/ghostty/issues/517
                     'q' => .{
                         .state = .{
-                            .xtgettcap = try std.ArrayList(u8).initCapacity(
+                            .xtgettcap = try .initCapacity(
                                 alloc,
                                 128, // Arbitrary choice
                             ),
@@ -121,16 +127,18 @@ pub const Handler = struct {
             .ignore,
             => {},
 
-            .tmux => |*tmux| return .{
-                .tmux = (try tmux.put(byte)) orelse return null,
-            },
+            .tmux => |*tmux| if (comptime build_options.tmux_control_mode) {
+                return .{
+                    .tmux = (try tmux.put(byte)) orelse return null,
+                };
+            } else unreachable,
 
             .xtgettcap => |*list| {
-                if (list.items.len >= self.max_bytes) {
+                if (list.written().len >= self.max_bytes) {
                     return error.OutOfMemory;
                 }
 
-                try list.append(byte);
+                try list.writer.writeByte(byte);
             },
 
             .decrqss => |*buffer| {
@@ -157,16 +165,17 @@ pub const Handler = struct {
             .ignore,
             => null,
 
-            .tmux => tmux: {
+            .tmux => if (comptime build_options.tmux_control_mode) tmux: {
                 self.state.deinit();
                 break :tmux .{ .tmux = .{ .exit = {} } };
-            },
+            } else unreachable,
 
-            .xtgettcap => |list| xtgettcap: {
-                for (list.items, 0..) |b, i| {
-                    list.items[i] = std.ascii.toUpper(b);
-                }
-                break :xtgettcap .{ .xtgettcap = .{ .data = list } };
+            .xtgettcap => |*list| xtgettcap: {
+                // Note: purposely do not deinit our state here because
+                // we copy it into the resulting command.
+                const items = list.written();
+                for (items, 0..) |b, i| items[i] = std.ascii.toUpper(b);
+                break :xtgettcap .{ .xtgettcap = .{ .data = list.* } };
             },
 
             .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
@@ -203,10 +212,13 @@ pub const Command = union(enum) {
     decrqss: DECRQSS,
 
     /// Tmux control mode
-    tmux: terminal.tmux.Notification,
+    tmux: if (build_options.tmux_control_mode)
+        terminal.tmux.Notification
+    else
+        void,
 
-    pub fn deinit(self: Command) void {
-        switch (self) {
+    pub fn deinit(self: *Command) void {
+        switch (self.*) {
             .xtgettcap => |*v| v.data.deinit(),
             .decrqss => {},
             .tmux => {},
@@ -214,16 +226,16 @@ pub const Command = union(enum) {
     }
 
     pub const XTGETTCAP = struct {
-        data: std.ArrayList(u8),
+        data: std.Io.Writer.Allocating,
         i: usize = 0,
 
         /// Returns the next terminfo key being requested and null
         /// when there are no more keys. The returned value is NOT hex-decoded
         /// because we expect to use a comptime lookup table.
         pub fn next(self: *XTGETTCAP) ?[]const u8 {
-            if (self.i >= self.data.items.len) return null;
-
-            var rem = self.data.items[self.i..];
+            const items = self.data.written();
+            if (self.i >= items.len) return null;
+            var rem = items[self.i..];
             const idx = std.mem.indexOf(u8, rem, ";") orelse rem.len;
 
             // Note that if we're at the end, idx + 1 is len + 1 so we're over
@@ -260,7 +272,7 @@ const State = union(enum) {
     ignore: void,
 
     /// XTGETTCAP
-    xtgettcap: std.ArrayList(u8),
+    xtgettcap: std.Io.Writer.Allocating,
 
     /// DECRQSS
     decrqss: struct {
@@ -269,7 +281,10 @@ const State = union(enum) {
     },
 
     /// Tmux control mode: https://github.com/tmux/tmux/wiki/Control-Mode
-    tmux: terminal.tmux.Client,
+    tmux: if (build_options.tmux_control_mode)
+        terminal.tmux.Client
+    else
+        void,
 
     pub fn deinit(self: *State) void {
         switch (self.*) {
@@ -279,7 +294,9 @@ const State = union(enum) {
 
             .xtgettcap => |*v| v.deinit(),
             .decrqss => {},
-            .tmux => |*v| v.deinit(),
+            .tmux => |*v| if (comptime build_options.tmux_control_mode) {
+                v.deinit();
+            } else unreachable,
         }
     }
 };
@@ -395,6 +412,8 @@ test "DECRQSS invalid command" {
 }
 
 test "tmux enter and implicit exit" {
+    if (comptime !build_options.tmux_control_mode) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

@@ -28,7 +28,7 @@ jobs:
 
           echo "Version is valid: ${{ github.event.inputs.version }}"
 
-      - name: Exract the Version
+      - name: Extract the Version
         id: extract_version
         run: |
           VERSION=${{ github.event.inputs.version }}

@@ -13,12 +13,12 @@ modules:
       - chmod a+x /app/zig/zig
     sources:
       - type: archive
-        sha256: 24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c
-        url: https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+        sha256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
+        url: https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
         only-arches: [x86_64]
       - type: archive
-        sha256: f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b
-        url: https://ziglang.org/download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz
+        sha256: 958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f
+        url: https://ziglang.org/download/0.15.2/zig-aarch64-linux-0.15.2.tar.xz
         only-arches: [aarch64]
 
   - name: bzip2-redirect
@@ -29,19 +29,6 @@ modules:
       - type: inline
         contents: INPUT(libbz2.so)
         dest-filename: libbzip2.so
-
-  - name: blueprint-compiler
-    buildsystem: meson
-    cleanup:
-      - "*"
-    sources:
-      - type: git
-        url: https://gitlab.gnome.org/jwestman/blueprint-compiler.git
-        tag: v0.16.0
-        commit: 04ef0944db56ab01307a29aaa7303df6067cb3c0
-        x-checker-data:
-          type: git
-          tag-pattern: ^v([\d.]+)$
 
   - name: gtk4-layer-shell
     buildsystem: meson

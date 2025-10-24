@@ -85,6 +85,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         const Target = GraphicsAPI.Target;
         const Buffer = GraphicsAPI.Buffer;
+        const Sampler = GraphicsAPI.Sampler;
         const Texture = GraphicsAPI.Texture;
         const RenderPass = GraphicsAPI.RenderPass;
 
@@ -112,6 +113,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// True if the window is focused
         focused: bool,
+
+        /// The most recent scrollbar state. We use this as a cache to
+        /// determine if we need to notify the apprt that there was a
+        /// scrollbar change.
+        scrollbar: terminal.Scrollbar,
+        scrollbar_dirty: bool,
 
         /// The foreground color set by an OSC 10 sequence. If unset then
         /// default_foreground_color is used.
@@ -183,7 +190,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
-        /// Set whenever the background image changes, singalling
+        /// Set whenever the background image changes, signalling
         /// that the new background image needs to be uploaded to
         /// the GPU.
         ///
@@ -428,6 +435,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             front_texture: Texture,
             back_texture: Texture,
 
+            /// Shadertoy uses a sampler for accessing the various channel
+            /// textures. In Metal, we need to explicitly create these since
+            /// the glslang-to-msl compiler doesn't do it for us (as we
+            /// normally would in hand-written MSL). To keep it clean and
+            /// consistent, we just force all rendering APIs to provide an
+            /// explicit sampler.
+            ///
+            /// Samplers are immutable and describe sampling properties so
+            /// we can share the sampler across front/back textures (although
+            /// we only need it for the source texture at a time, we don't
+            /// need to "swap" it).
+            sampler: Sampler,
+
             uniforms: UniformBuffer,
 
             const UniformBuffer = Buffer(shadertoy.Uniforms);
@@ -459,9 +479,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 );
                 errdefer back_texture.deinit();
 
+                const sampler = try Sampler.init(api.samplerOptions());
+                errdefer sampler.deinit();
+
                 return .{
                     .front_texture = front_texture,
                     .back_texture = back_texture,
+                    .sampler = sampler,
                     .uniforms = uniforms,
                 };
             }
@@ -469,6 +493,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             pub fn deinit(self: *CustomShaderState) void {
                 self.front_texture.deinit();
                 self.back_texture.deinit();
+                self.sampler.deinit();
                 self.uniforms.deinit();
             }
 
@@ -664,6 +689,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .grid_metrics = font_critical.metrics,
                 .size = options.size,
                 .focused = true,
+                .scrollbar = .zero,
+                .scrollbar_dirty = false,
                 .foreground_color = null,
                 .default_foreground_color = options.config.foreground,
                 .background_color = null,
@@ -1041,6 +1068,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Update relevant uniforms
             self.updateFontGridUniforms();
+
+            // Force a full rebuild, because cached rows may still reference
+            // an outdated atlas from the old grid and this can cause garbage
+            // to be rendered.
+            self.cells_viewport = null;
         }
 
         /// Update uniforms that are based on the font grid.
@@ -1068,6 +1100,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 preedit: ?renderer.State.Preedit,
                 cursor_style: ?renderer.CursorStyle,
                 color_palette: terminal.color.Palette,
+                scrollbar: terminal.Scrollbar,
 
                 /// If true, rebuild the full screen.
                 full_rebuild: bool,
@@ -1091,6 +1124,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     log.debug("synchronized output started, skipping render", .{});
                     return;
                 }
+
+                // Get our scrollbar out of the terminal. We synchronize
+                // the scrollbar read with frame data updates because this
+                // naturally limits the number of calls to this method (it
+                // can be expensive) and also makes it so we don't need another
+                // cross-thread mailbox message within the IO path.
+                const scrollbar = state.terminal.screen.pages.scrollbar();
 
                 // Swap bg/fg if the terminal is reversed
                 const bg = self.background_color orelse self.default_background_color;
@@ -1219,6 +1259,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .preedit = preedit,
                     .cursor_style = cursor_style,
                     .color_palette = state.terminal.color_palette.colors,
+                    .scrollbar = scrollbar,
                     .full_rebuild = full_rebuild,
                 };
             };
@@ -1247,6 +1288,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
 
+                // The scrollbar is only emitted during draws so we also
+                // check the scrollbar cache here and update if needed.
+                // This is pretty fast.
+                if (!self.scrollbar.eql(critical.scrollbar)) {
+                    self.scrollbar = critical.scrollbar;
+                    self.scrollbar_dirty = true;
+                }
+
                 // Update our background color
                 self.uniforms.bg_color = .{
                     critical.bg.r,
@@ -1269,6 +1318,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // data we access while we're in the middle of drawing.
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
+
+            // After the graphics API is complete (so we defer) we want to
+            // update our scrollbar state.
+            defer if (self.scrollbar_dirty) {
+                // Fail instantly if the surface mailbox if full, we'll just
+                // get it on the next frame.
+                if (self.surface_mailbox.push(.{
+                    .scrollbar = self.scrollbar,
+                }, .instant) > 0) self.scrollbar_dirty = false;
+            };
 
             // Let our graphics API do any bookkeeping, etc.
             // that it needs to do before / after `drawFrame`.
@@ -1509,6 +1568,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .pipeline = pipeline,
                         .uniforms = state.uniforms.buffer,
                         .textures = &.{state.back_texture},
+                        .samplers = &.{state.sampler},
                         .draw = .{
                             .type = .triangle,
                             .vertex_count = 3,
@@ -2528,9 +2588,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 break :cache cells;
                             };
 
+                        const cells = shaper_cells.?;
+
                         // Advance our index until we reach or pass
                         // our current x position in the shaper cells.
-                        while (shaper_cells.?[shaper_cells_i].x < x) {
+                        while (run.offset + cells[shaper_cells_i].x < x) {
                             shaper_cells_i += 1;
                         }
                     }
@@ -2769,13 +2831,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // If we encounter a shaper cell to the left of the current
                         // cell then we have some problems. This logic relies on x
                         // position monotonically increasing.
-                        assert(cells[shaper_cells_i].x >= x);
+                        assert(run.offset + cells[shaper_cells_i].x >= x);
 
                         // NOTE: An assumption is made here that a single cell will never
                         // be present in more than one shaper run. If that assumption is
                         // violated, this logic breaks.
 
-                        while (shaper_cells_i < cells.len and cells[shaper_cells_i].x == x) : ({
+                        while (shaper_cells_i < cells.len and run.offset + cells[shaper_cells_i].x == x) : ({
                             shaper_cells_i += 1;
                         }) {
                             self.addGlyph(
@@ -3066,7 +3128,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .thicken = self.config.font_thicken,
                     .thicken_strength = self.config.font_thicken_strength,
                     .cell_width = cell.gridWidth(),
-                    .constraint = getConstraint(cp),
+                    // If there's no Nerd Font constraint for this codepoint
+                    // then, if it's a symbol, we constrain it to fit inside
+                    // its cell(s), we don't modify the alignment at all.
+                    .constraint = getConstraint(cp) orelse
+                        if (cellpkg.isSymbol(cp)) .{
+                            .size = .fit,
+                        } else .none,
                     .constraint_width = constraintWidth(cell_pin),
                 },
             );

@@ -80,16 +80,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // window background but with opacity. The window background is set using the
         // "preferred background color" property.
         //
-        // As an inverse, if we don't have transparency, we don't bother with this because
-        // the window background will be set to the correct color so we can just hide the
-        // titlebar completely and we're good to go.
-        if !isOpaque {
-            if let titlebarView = titlebarContainer?.firstDescendant(withClassName: "NSTitlebarView") {
-                titlebarView.wantsLayer = true
-                titlebarView.layer?.backgroundColor = preferredBackgroundColor?.cgColor
-            }
+        // Even if we aren't transparent, we still set this because this becomes the
+        // color of the titlebar in native fullscreen view.
+        if let titlebarView = titlebarContainer?.firstDescendant(withClassName: "NSTitlebarView") {
+            titlebarView.wantsLayer = true
+            titlebarView.layer?.backgroundColor = preferredBackgroundColor?.cgColor
         }
-
+    
         // In all cases, we have to hide the background view since this has multiple subviews
         // that force a background color.
         titlebarBackgroundView?.isHidden = true

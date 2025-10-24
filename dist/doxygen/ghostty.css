@@ -1,0 +1,390 @@
+/**
+ * Ghostty Doxygen Custom Stylesheet
+ * Minimal branding customizations for Ghostty colors
+ */
+
+/* Ghostty brand color for links and accents - high contrast for dark bg */
+a,
+a:link {
+  color: #99b3ff;
+}
+
+a:visited {
+  color: #99b3ff;
+}
+
+a:hover {
+  color: #c2d4ff;
+}
+
+/* High contrast text colors */
+body,
+div.contents,
+div.header,
+.title,
+.summary,
+td,
+th,
+p,
+li {
+  color: #e8e8e8 !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.groupheader {
+  color: #ffffff !important;
+}
+
+.memtitle,
+.memname {
+  color: #ffffff !important;
+}
+
+.memdoc {
+  color: #e8e8e8 !important;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(53, 81, 243, 0.6);
+}
+
+/* Modern scrollbar styling for WebKit browsers (Safari, Chrome) */
+::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  -webkit-appearance: none;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1f2e;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a5260;
+  border-radius: 8px;
+  border: 3px solid #1a1f2e;
+  min-height: 40px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a6270;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #6a7280;
+}
+
+::-webkit-scrollbar-corner {
+  background: #1a1f2e;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #404754 #1a1f2e;
+}
+
+/* Tree view selected item */
+#nav-tree .selected {
+  background-color: #3551f3 !important;
+}
+
+/* Custom syntax highlighting optimized for dark backgrounds with high contrast */
+.fragment,
+div.line {
+  color: #f0f0f0 !important;
+}
+
+/* Keywords (int, void, const, static, etc.) */
+.keyword,
+.keywordtype {
+  color: #ff8be6 !important;
+  font-weight: 500;
+}
+
+/* Control flow (if, else, return, for, while, etc.) */
+.keywordflow {
+  color: #ff8be6 !important;
+  font-weight: 500;
+}
+
+/* Comments */
+.comment {
+  color: #8bc34a !important;
+  font-style: italic;
+}
+
+/* Preprocessor directives (#include, #define, etc.) */
+.preprocessor {
+  color: #ffcc66 !important;
+}
+
+/* String and character literals */
+.stringliteral,
+.charliteral {
+  color: #b8e986 !important;
+}
+
+/* Numbers */
+span.charliteral {
+  color: #d4a5ff !important;
+}
+
+/* Function names */
+.functionname {
+  color: #6fe87c !important;
+  font-weight: 500;
+}
+
+/* Line numbers */
+span.lineno {
+  color: #8a8a8a !important;
+  background-color: transparent !important;
+}
+
+span.lineno a {
+  color: #8a8a8a !important;
+  background-color: transparent !important;
+}
+
+/* Desktop: ensure page-nav maintains default width */
+@media screen and (min-width: 768px) {
+  #page-nav-toggle {
+    display: none !important;
+  }
+
+  #page-nav {
+    position: relative !important;
+    width: 250px !important;
+    height: auto !important;
+    right: auto !important;
+    top: auto !important;
+    box-shadow: none !important;
+  }
+}
+
+/* Mobile-friendly responsive styles */
+@media screen and (max-width: 767px) {
+  body {
+    font-size: 14px !important;
+  }
+
+  /* Make navigation tree collapsible on mobile */
+  #side-nav {
+    display: none;
+  }
+
+  #doc-content {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  /* Make right sidebar (page-nav) overlay on mobile */
+  #page-nav {
+    position: fixed !important;
+    top: 0 !important;
+    right: -280px !important;
+    width: 280px !important;
+    height: 100vh !important;
+    z-index: 10000 !important;
+    background: #101826 !important;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5) !important;
+    transition: right 0.3s ease !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  #page-nav.mobile-open {
+    right: 0 !important;
+  }
+
+  /* Hamburger menu button for page nav */
+  #page-nav-toggle {
+    display: block !important;
+    position: fixed !important;
+    top: 10px !important;
+    right: 15px !important;
+    z-index: 10001 !important;
+    width: 40px !important;
+    height: 40px !important;
+    background: rgba(53, 81, 243, 0.9) !important;
+    border: none !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+    padding: 8px !important;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  #page-nav-toggle span {
+    display: block !important;
+    width: 24px !important;
+    height: 3px !important;
+    background: #fff !important;
+    margin: 4px 0 !important;
+    border-radius: 2px !important;
+    transition: 0.3s !important;
+  }
+
+  /* Mobile overlay backdrop */
+  #page-nav-backdrop {
+    display: none !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: rgba(0, 0, 0, 0.5) !important;
+    z-index: 9999 !important;
+  }
+
+  #page-nav-backdrop.active {
+    display: block !important;
+  }
+
+  /* Improve header and navigation */
+  #top {
+    height: auto !important;
+  }
+
+  #titlearea {
+    padding: 10px !important;
+  }
+
+  #projectname {
+    font-size: 18px !important;
+  }
+
+  #projectbrief,
+  #projectnumber {
+    font-size: 12px !important;
+  }
+
+  /* Make tabs stack better on mobile */
+  #navrow1,
+  #navrow2,
+  #navrow3,
+  #navrow4 {
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .tablist li {
+    display: inline-block !important;
+  }
+
+  /* Content adjustments */
+  .contents {
+    padding: 10px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .header {
+    padding: 5px !important;
+  }
+
+  /* Code blocks */
+  .fragment {
+    font-size: 12px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  div.line {
+    font-size: 12px !important;
+  }
+
+  /* Tables */
+  table {
+    display: block !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+  }
+
+  .memberdecls table,
+  .fieldtable {
+    font-size: 12px !important;
+  }
+
+  .memtitle {
+    font-size: 14px !important;
+    padding: 8px !important;
+  }
+
+  .memname {
+    font-size: 13px !important;
+    word-break: break-word !important;
+  }
+
+  .memitem {
+    margin: 5px 0 !important;
+  }
+
+  /* Search box */
+  #MSearchBox {
+    width: 100% !important;
+    right: 0 !important;
+  }
+
+  /* Reduce padding and margins */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin-top: 10px !important;
+    margin-bottom: 8px !important;
+  }
+
+  h1 {
+    font-size: 22px !important;
+  }
+  h2 {
+    font-size: 18px !important;
+  }
+  h3 {
+    font-size: 16px !important;
+  }
+  h4 {
+    font-size: 14px !important;
+  }
+
+  /* Directory/file listings */
+  .directory .levels span {
+    display: none !important;
+  }
+
+  .directory .arrow {
+    margin-right: 5px !important;
+  }
+
+  /* Treeview adjustments */
+  #nav-tree {
+    width: 100% !important;
+  }
+}
+
+/* Tablet adjustments */
+@media screen and (min-width: 768px) and (max-width: 1024px) {
+  .contents {
+    padding: 15px !important;
+  }
+
+  #side-nav {
+    width: 200px !important;
+  }
+
+  #doc-content {
+    margin-left: 200px !important;
+  }
+}

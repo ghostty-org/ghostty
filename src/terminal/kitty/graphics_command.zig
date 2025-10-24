@@ -59,7 +59,7 @@ pub const Parser = struct {
         errdefer arena.deinit();
         var result: Parser = .{
             .arena = arena,
-            .data = std.ArrayList(u8).init(alloc),
+            .data = .empty,
             .kv = .{},
             .kv_temp_len = 0,
             .kv_current = 0,
@@ -77,8 +77,8 @@ pub const Parser = struct {
 
     pub fn deinit(self: *Parser) void {
         // We don't free the hash map because its in the arena
+        self.data.deinit(self.arena.child_allocator);
         self.arena.deinit();
-        self.data.deinit();
     }
 
     /// Parse a complete command string.
@@ -86,7 +86,7 @@ pub const Parser = struct {
         var parser = init(alloc);
         defer parser.deinit();
         for (data) |c| try parser.feed(c);
-        return try parser.complete();
+        return try parser.complete(alloc);
     }
 
     /// Feed a single byte to the parser.
@@ -136,7 +136,7 @@ pub const Parser = struct {
                 else => {},
             },
 
-            .data => try self.data.append(c),
+            .data => try self.data.append(self.arena.child_allocator, c),
         }
     }
 
@@ -145,7 +145,7 @@ pub const Parser = struct {
     ///
     /// The allocator given will be used for the long-lived data
     /// of the final command.
-    pub fn complete(self: *Parser) !Command {
+    pub fn complete(self: *Parser, alloc: Allocator) !Command {
         switch (self.state) {
             // We can't ever end in the control key state and be valid.
             // This means the command looked something like "a=1,b"
@@ -194,14 +194,14 @@ pub const Parser = struct {
         return .{
             .control = control,
             .quiet = quiet,
-            .data = try self.decodeData(),
+            .data = try self.decodeData(alloc),
         };
     }
 
     /// Decodes the payload data from base64 and returns it as a slice.
     /// This function will destroy the contents of self.data, it should
     /// only be used once we are done collecting payload bytes.
-    fn decodeData(self: *Parser) ![]const u8 {
+    fn decodeData(self: *Parser, alloc: Allocator) ![]const u8 {
         if (self.data.items.len == 0) {
             return "";
         }
@@ -225,7 +225,7 @@ pub const Parser = struct {
         // Remove the extra bytes.
         self.data.items.len = decoded.len;
 
-        return try self.data.toOwnedSlice();
+        return try self.data.toOwnedSlice(alloc);
     }
 
     fn accumulateValue(self: *Parser, c: u8, overflow_state: State) !void {
@@ -276,7 +276,7 @@ pub const Response = struct {
     placement_id: u32 = 0,
     message: []const u8 = "OK",
 
-    pub fn encode(self: Response, writer: anytype) !void {
+    pub fn encode(self: Response, writer: *std.Io.Writer) !void {
         // We only encode a result if we have either an id or an image number.
         if (self.id == 0 and self.image_number == 0) return;
 
@@ -969,7 +969,7 @@ test "transmission command" {
 
     const input = "f=24,s=10,v=20";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .transmit);
@@ -987,7 +987,7 @@ test "transmission ignores 'm' if medium is not direct" {
 
     const input = "a=t,t=t,m=1";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .transmit);
@@ -1004,7 +1004,7 @@ test "transmission respects 'm' if medium is direct" {
 
     const input = "a=t,t=d,m=1";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .transmit);
@@ -1021,7 +1021,7 @@ test "query command" {
 
     const input = "i=31,s=1,v=1,a=q,t=d,f=24;QUFBQQ";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .query);
@@ -1041,7 +1041,7 @@ test "display command" {
 
     const input = "a=p,U=1,i=31,c=80,r=120";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .display);
@@ -1059,7 +1059,7 @@ test "delete command" {
 
     const input = "a=d,d=p,x=3,y=4";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .delete);
@@ -1079,7 +1079,7 @@ test "no control data" {
 
     const input = ";QUFBQQ";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .transmit);
@@ -1094,7 +1094,7 @@ test "ignore unknown keys (long)" {
 
     const input = "f=24,s=10,v=20,hello=world";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .transmit);
@@ -1112,7 +1112,7 @@ test "ignore very long values" {
 
     const input = "f=24,s=10,v=2000000000000000000000000000000000000000";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .transmit);
@@ -1130,7 +1130,7 @@ test "ensure very large negative values don't get skipped" {
 
     const input = "a=p,i=1,z=-2000000000";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .display);
@@ -1147,7 +1147,7 @@ test "ensure proper overflow error for u32" {
 
     const input = "a=p,i=10000000000";
     for (input) |c| try p.feed(c);
-    try testing.expectError(error.Overflow, p.complete());
+    try testing.expectError(error.Overflow, p.complete(alloc));
 }
 
 test "ensure proper overflow error for i32" {
@@ -1158,7 +1158,7 @@ test "ensure proper overflow error for i32" {
 
     const input = "a=p,i=1,z=-9999999999";
     for (input) |c| try p.feed(c);
-    try testing.expectError(error.Overflow, p.complete());
+    try testing.expectError(error.Overflow, p.complete(alloc));
 }
 
 test "all i32 values" {
@@ -1171,7 +1171,7 @@ test "all i32 values" {
         defer p.deinit();
         const input = "a=p,i=1,z=-1";
         for (input) |c| try p.feed(c);
-        const command = try p.complete();
+        const command = try p.complete(alloc);
         defer command.deinit(alloc);
 
         try testing.expect(command.control == .display);
@@ -1186,7 +1186,7 @@ test "all i32 values" {
         defer p.deinit();
         const input = "a=p,i=1,H=-1";
         for (input) |c| try p.feed(c);
-        const command = try p.complete();
+        const command = try p.complete(alloc);
         defer command.deinit(alloc);
 
         try testing.expect(command.control == .display);
@@ -1201,7 +1201,7 @@ test "all i32 values" {
         defer p.deinit();
         const input = "a=p,i=1,V=-1";
         for (input) |c| try p.feed(c);
-        const command = try p.complete();
+        const command = try p.complete(alloc);
         defer command.deinit(alloc);
 
         try testing.expect(command.control == .display);
@@ -1214,41 +1214,41 @@ test "all i32 values" {
 test "response: encode nothing without ID or image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{};
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "response: encode with only image id" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .id = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_Gi=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_Gi=4;OK\x1b\\", writer.buffered());
 }
 
 test "response: encode with only image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .image_number = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_GI=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_GI=4;OK\x1b\\", writer.buffered());
 }
 
 test "response: encode with image ID and number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .id = 12, .image_number = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_Gi=12,I=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_Gi=12,I=4;OK\x1b\\", writer.buffered());
 }
 
 test "delete range command 1" {
@@ -1259,7 +1259,7 @@ test "delete range command 1" {
 
     const input = "a=d,d=r,x=3,y=4";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .delete);
@@ -1279,7 +1279,7 @@ test "delete range command 2" {
 
     const input = "a=d,d=R,x=5,y=11";
     for (input) |c| try p.feed(c);
-    const command = try p.complete();
+    const command = try p.complete(alloc);
     defer command.deinit(alloc);
 
     try testing.expect(command.control == .delete);
@@ -1299,7 +1299,7 @@ test "delete range command 3" {
 
     const input = "a=d,d=R,x=5,y=4";
     for (input) |c| try p.feed(c);
-    try testing.expectError(error.InvalidFormat, p.complete());
+    try testing.expectError(error.InvalidFormat, p.complete(alloc));
 }
 
 test "delete range command 4" {
@@ -1310,7 +1310,7 @@ test "delete range command 4" {
 
     const input = "a=d,d=R,x=5";
     for (input) |c| try p.feed(c);
-    try testing.expectError(error.InvalidFormat, p.complete());
+    try testing.expectError(error.InvalidFormat, p.complete(alloc));
 }
 
 test "delete range command 5" {
@@ -1321,5 +1321,5 @@ test "delete range command 5" {
 
     const input = "a=d,d=R,y=5";
     for (input) |c| try p.feed(c);
-    try testing.expectError(error.InvalidFormat, p.complete());
+    try testing.expectError(error.InvalidFormat, p.complete(alloc));
 }

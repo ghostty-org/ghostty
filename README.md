@@ -193,4 +193,4 @@ SENTRY_DSN=https://e914ee84fd895c4fe324afa3e53dac76@o4507352570920960.ingest.us.
 > purposely contain sensitive information, but it does contain the full
 > stack memory of each thread at the time of the crash. This information
 > is used to rebuild the stack trace but can also contain sensitive data
-> depending when the crash occurred.
+> depending on when the crash occurred.

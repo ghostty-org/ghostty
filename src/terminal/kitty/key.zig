@@ -8,7 +8,7 @@ const std = @import("std");
 pub const FlagStack = struct {
     const len = 8;
 
-    flags: [len]Flags = @splat(.{}),
+    flags: [len]Flags = @splat(.disabled),
     idx: u3 = 0,
 
     /// Return the current stack value
@@ -51,12 +51,12 @@ pub const FlagStack = struct {
         // could send a huge number of pop commands to waste cpu.
         if (n >= self.flags.len) {
             self.idx = 0;
-            self.flags = @splat(.{});
+            self.flags = @splat(.disabled);
             return;
         }
 
         for (0..n) |_| {
-            self.flags[self.idx] = .{};
+            self.flags[self.idx] = .disabled;
             self.idx -%= 1;
         }
     }
@@ -82,6 +82,15 @@ pub const Flags = packed struct(u5) {
     report_alternates: bool = false,
     report_all: bool = false,
     report_associated: bool = false,
+
+    /// Kitty keyboard protocol disabled (all flags off).
+    pub const disabled: Flags = .{
+        .disambiguate = false,
+        .report_events = false,
+        .report_alternates = false,
+        .report_all = false,
+        .report_associated = false,
+    };
 
     /// Sets all modes on.
     pub const @"true": Flags = .{

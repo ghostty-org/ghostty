@@ -77,7 +77,9 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
 
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
-        const stderr = std.io.getStdErr().writer();
+        var buffer: [1024]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&buffer);
+        const stderr = &stderr_writer.interface;
         try stderr.print(
             \\Ghostty was built without a font discovery mechanism. This is a compile-time
             \\option. Please review how Ghostty was built from source, contact the
@@ -85,15 +87,18 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
         ,
             .{},
         );
+        try stderr.flush();
         return 1;
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [2048]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
 
     // We'll be putting our fonts into a list categorized by family
     // so it is easier to read the output.
-    var families = std.ArrayList([]const u8).init(alloc);
-    var map = std.StringHashMap(std.ArrayListUnmanaged([]const u8)).init(alloc);
+    var families: std.ArrayList([]const u8) = .empty;
+    var map: std.StringHashMap(std.ArrayListUnmanaged([]const u8)) = .init(alloc);
 
     // Look up all available fonts
     var disco = font.Discover.init();
@@ -123,7 +128,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
 
         const gop = try map.getOrPut(family);
         if (!gop.found_existing) {
-            try families.append(family);
+            try families.append(alloc, family);
             gop.value_ptr.* = .{};
         }
         try gop.value_ptr.append(alloc, full_name);
@@ -155,5 +160,6 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
         try stdout.print("\n", .{});
     }
 
+    try stdout.flush();
     return 0;
 }

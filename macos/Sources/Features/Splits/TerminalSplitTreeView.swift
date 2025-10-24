@@ -12,7 +12,7 @@ struct TerminalSplitTreeView: View {
                 onResize: onResize)
             // This is necessary because we can't rely on SwiftUI's implicit
             // structural identity to detect changes to this view. Due to
-            // the tree structure of splits it could result in bad beaviors.
+            // the tree structure of splits it could result in bad behaviors.
             // See: https://github.com/ghostty-org/ghostty/issues/7546
             .id(node.structuralIdentity)
         }

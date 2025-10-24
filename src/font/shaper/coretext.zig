@@ -52,10 +52,10 @@ pub const Shaper = struct {
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
 
-    /// The cached writing direction value for shaping. This isn't
-    /// configurable we just use this as a cache to avoid creating
-    /// and releasing many objects when shaping.
-    writing_direction: *macos.foundation.Array,
+    /// Cached attributes dict for creating CTTypesetter objects.
+    /// The values in this never change so we can avoid overhead
+    /// by just creating it once and saving it for re-use.
+    typesetter_attr_dict: *macos.foundation.Dictionary,
 
     /// List where we cache fonts, so we don't have to remake them for
     /// every single shaping operation.
@@ -174,21 +174,28 @@ pub const Shaper = struct {
         //
         // See: https://github.com/mitchellh/ghostty/issues/1737
         // See: https://github.com/mitchellh/ghostty/issues/1442
-        const writing_direction = array: {
-            const dir: macos.text.WritingDirection = .lro;
-            const num = try macos.foundation.Number.create(
-                .int,
-                &@intFromEnum(dir),
-            );
+        //
+        // We used to do this by setting the writing direction attribute
+        // on the attributed string we used, but it seems like that will
+        // still allow some weird results, for example a single space at
+        // the end of a line composed of RTL characters will be cause it
+        // to output a run containing just that space, BEFORE it outputs
+        // the rest of the line as a separate run, very weirdly with the
+        // "right to left" flag set in the single space run's run status...
+        //
+        // So instead what we do is use a CTTypesetter to create our line,
+        // using the kCTTypesetterOptionForcedEmbeddingLevel attribute to
+        // force CoreText not to try doing any sort of BiDi, instead just
+        // treat all text as embedding level 0 (left to right).
+        const typesetter_attr_dict = dict: {
+            const num = try macos.foundation.Number.create(.int, &0);
             defer num.release();
-
-            var arr_init = [_]*const macos.foundation.Number{num};
-            break :array try macos.foundation.Array.create(
-                macos.foundation.Number,
-                &arr_init,
+            break :dict try macos.foundation.Dictionary.create(
+                &.{macos.c.kCTTypesetterOptionForcedEmbeddingLevel},
+                &.{num},
             );
         };
-        errdefer writing_direction.release();
+        errdefer typesetter_attr_dict.release();
 
         // Create the CF release thread.
         var cf_release_thread = try alloc.create(CFReleaseThread);
@@ -210,7 +217,7 @@ pub const Shaper = struct {
             .run_state = run_state,
             .features = features,
             .features_no_default = features_no_default,
-            .writing_direction = writing_direction,
+            .typesetter_attr_dict = typesetter_attr_dict,
             .cached_fonts = .{},
             .cached_font_grid = 0,
             .cf_release_pool = .{},
@@ -224,7 +231,7 @@ pub const Shaper = struct {
         self.run_state.deinit(self.alloc);
         self.features.release();
         self.features_no_default.release();
-        self.writing_direction.release();
+        self.typesetter_attr_dict.release();
 
         {
             for (self.cached_fonts.items) |ft| {
@@ -346,8 +353,8 @@ pub const Shaper = struct {
             run.font_index,
         );
 
-        // Make room for the attributed string and the CTLine.
-        try self.cf_release_pool.ensureUnusedCapacity(self.alloc, 3);
+        // Make room for the attributed string, CTTypesetter, and CTLine.
+        try self.cf_release_pool.ensureUnusedCapacity(self.alloc, 4);
 
         const str = macos.foundation.String.createWithCharactersNoCopy(state.unichars.items);
         self.cf_release_pool.appendAssumeCapacity(str);
@@ -359,8 +366,17 @@ pub const Shaper = struct {
         );
         self.cf_release_pool.appendAssumeCapacity(attr_str);
 
-        // We should always have one run because we do our own run splitting.
-        const line = try macos.text.Line.createWithAttributedString(attr_str);
+        // Create a typesetter from the attributed string and the cached
+        // attr dict. (See comment in init for more info on the attr dict.)
+        const typesetter =
+            try macos.text.Typesetter.createWithAttributedStringAndOptions(
+                attr_str,
+                self.typesetter_attr_dict,
+            );
+        self.cf_release_pool.appendAssumeCapacity(typesetter);
+
+        // Create a line from the typesetter
+        const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
         // This keeps track of the current offsets within a single cell.
@@ -369,7 +385,12 @@ pub const Shaper = struct {
             x: f64 = 0,
             y: f64 = 0,
         } = .{};
+
+        // Clear our cell buf and make sure we have enough room for the whole
+        // line of glyphs, so that we can just assume capacity when appending
+        // instead of maybe allocating.
         self.cell_buf.clearRetainingCapacity();
+        try self.cell_buf.ensureTotalCapacity(self.alloc, line.getGlyphCount());
 
         // CoreText may generate multiple runs even though our input to
         // CoreText is already split into runs by our own run iterator.
@@ -381,9 +402,9 @@ pub const Shaper = struct {
             const ctrun = runs.getValueAtIndex(macos.text.Run, i);
 
             // Get our glyphs and positions
-            const glyphs = try ctrun.getGlyphs(alloc);
-            const advances = try ctrun.getAdvances(alloc);
-            const indices = try ctrun.getStringIndices(alloc);
+            const glyphs = ctrun.getGlyphsPtr() orelse try ctrun.getGlyphs(alloc);
+            const advances = ctrun.getAdvancesPtr() orelse try ctrun.getAdvances(alloc);
+            const indices = ctrun.getStringIndicesPtr() orelse try ctrun.getStringIndices(alloc);
             assert(glyphs.len == advances.len);
             assert(glyphs.len == indices.len);
 
@@ -406,7 +427,7 @@ pub const Shaper = struct {
                     cell_offset = .{ .cluster = cluster };
                 }
 
-                try self.cell_buf.append(self.alloc, .{
+                self.cell_buf.appendAssumeCapacity(.{
                     .x = @intCast(cluster),
                     .x_offset = @intFromFloat(@round(cell_offset.x)),
                     .y_offset = @intFromFloat(@round(cell_offset.y)),
@@ -511,15 +532,10 @@ pub const Shaper = struct {
         // Get our font and use that get the attributes to set for the
         // attributed string so the whole string uses the same font.
         const attr_dict = dict: {
-            var keys = [_]?*const anyopaque{
-                macos.text.StringAttribute.font.key(),
-                macos.text.StringAttribute.writing_direction.key(),
-            };
-            var values = [_]?*const anyopaque{
-                run_font,
-                self.writing_direction,
-            };
-            break :dict try macos.foundation.Dictionary.create(&keys, &values);
+            break :dict try macos.foundation.Dictionary.create(
+                &.{macos.text.StringAttribute.font.key()},
+                &.{run_font},
+            );
         };
 
         self.cached_fonts.items[index_int] = attr_dict;

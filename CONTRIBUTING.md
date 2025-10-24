@@ -45,11 +45,16 @@ work than any human. That isn't the world we live in today, and in most cases
 it's generating slop. I say this despite being a fan of and using them
 successfully myself (with heavy supervision)!
 
+When using AI assistance, we expect contributors to understand the code
+that is produced and be able to answer critical questions about it. It
+isn't a maintainers job to review a PR so broken that it requires
+significant rework to be acceptable.
+
 Please be respectful to maintainers and disclose AI assistance.
 
 ## Quick Guide
 
-### I'd like to contribute!
+### I'd like to contribute
 
 [All issues are actionable](#issues-are-actionable). Pick one and start
 working on it. Thank you. If you need help or guidance, comment on the issue.
@@ -58,7 +63,7 @@ Issues that are extra friendly to new contributors are tagged with
 
 ["contributor friendly"]: https://github.com/ghostty-org/ghostty/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22contributor%20friendly%22
 
-### I'd like to translate Ghostty to my language!
+### I'd like to translate Ghostty to my language
 
 We have written a [Translator's Guide](po/README_TRANSLATORS.md) for
 everyone interested in contributing translations to Ghostty.
@@ -67,7 +72,7 @@ and you can submit pull requests directly, although please make sure that
 our [Style Guide](po/README_TRANSLATORS.md#style-guide) is followed before
 submission.
 
-### I have a bug! / Something isn't working!
+### I have a bug! / Something isn't working
 
 1. Search the issue tracker and discussions for similar issues. Tip: also
    search for [closed issues] and [discussions] — your issue might have already
@@ -82,18 +87,18 @@ submission.
 [discussions]: https://github.com/ghostty-org/ghostty/discussions?discussions_q=is%3Aclosed
 ["Issue Triage" discussion]: https://github.com/ghostty-org/ghostty/discussions/new?category=issue-triage
 
-### I have an idea for a feature!
+### I have an idea for a feature
 
 Open a discussion in the ["Feature Requests, Ideas" category](https://github.com/ghostty-org/ghostty/discussions/new?category=feature-requests-ideas).
 
-### I've implemented a feature!
+### I've implemented a feature
 
 1. If there is an issue for the feature, open a pull request straight away.
 2. If there is no issue, open a discussion and link to your branch.
 3. If you want to live dangerously, open a pull request and
    [hope for the best](#pull-requests-implement-an-issue).
 
-### I have a question!
+### I have a question
 
 Open an [Q&A discussion], or join our [Discord Server] and ask away in the
 `#help` channel.

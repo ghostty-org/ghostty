@@ -119,7 +119,6 @@
 
 # GTK
 /src/apprt/gtk/ @ghostty-org/gtk
-/src/apprt/gtk-ng/ @ghostty-org/gtk
 /src/os/cgroup.zig @ghostty-org/gtk
 /src/os/flatpak.zig @ghostty-org/gtk
 /dist/linux/ @ghostty-org/gtk
@@ -184,6 +183,10 @@
 /po/ga_IE.UTF-8.po @ghostty-org/ga_IE
 /po/ko_KR.UTF-8.po @ghostty-org/ko_KR
 /po/he_IL.UTF-8.po @ghostty-org/he_IL
+/po/it_IT.UTF-8.po @ghostty-org/it_IT
+/po/lt_LT.UTF-8.po @ghostty-org/lt_LT
+/po/zh_TW.UTF-8.po @ghostty-org/zh_TW
+/po/hr_HR.UTF-8.po @ghostty-org/hr_HR
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap

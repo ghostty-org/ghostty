@@ -1,3 +1,6 @@
+//! SIMD-optimized routines. If `build_options.simd` is false, then the API
+//! still works but we fall back to pure Zig scalar implementations.
+
 const std = @import("std");
 
 const codepoint_width = @import("codepoint_width.zig");

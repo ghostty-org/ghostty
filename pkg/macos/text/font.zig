@@ -68,7 +68,7 @@ pub const Font = opaque {
     }
 
     pub fn copyTable(self: *Font, tag: FontTableTag) ?*foundation.Data {
-        return @constCast(@ptrCast(c.CTFontCopyTable(
+        return @ptrCast(@constCast(c.CTFontCopyTable(
             @ptrCast(self),
             @intFromEnum(tag),
             c.kCTFontTableOptionNoOptions,
@@ -90,7 +90,7 @@ pub const Font = opaque {
     }
 
     pub fn createPathForGlyph(self: *Font, glyph: graphics.Glyph) ?*graphics.Path {
-        return @constCast(@ptrCast(c.CTFontCreatePathForGlyph(
+        return @ptrCast(@constCast(c.CTFontCreatePathForGlyph(
             @ptrCast(self),
             glyph,
             null,

@@ -20,7 +20,7 @@ pub const c = @cImport({
 
 const input = @import("../../../input.zig");
 const Config = @import("../../../config.zig").Config;
-const ApprtWindow = @import("../Window.zig");
+const ApprtWindow = @import("../class/window.zig").Window;
 
 const log = std.log.scoped(.gtk_x11);
 
@@ -170,8 +170,7 @@ pub const App = struct {
 
 pub const Window = struct {
     app: *App,
-    config: *const ApprtWindow.DerivedConfig,
-    gtk_window: *adw.ApplicationWindow,
+    apprt_window: *ApprtWindow,
     x11_surface: *gdk_x11.X11Surface,
 
     blur_region: Region = .{},
@@ -183,9 +182,8 @@ pub const Window = struct {
     ) !Window {
         _ = alloc;
 
-        const surface = apprt_window.window.as(
-            gtk.Native,
-        ).getSurface() orelse return error.NotX11Surface;
+        const surface = apprt_window.as(gtk.Native).getSurface() orelse
+            return error.NotX11Surface;
 
         const x11_surface = gobject.ext.cast(
             gdk_x11.X11Surface,
@@ -194,8 +192,7 @@ pub const Window = struct {
 
         return .{
             .app = app,
-            .config = &apprt_window.config,
-            .gtk_window = apprt_window.window,
+            .apprt_window = apprt_window,
             .x11_surface = x11_surface,
         };
     }
@@ -221,10 +218,10 @@ pub const Window = struct {
             var x: f64 = 0;
             var y: f64 = 0;
 
-            self.gtk_window.as(gtk.Native).getSurfaceTransform(&x, &y);
+            self.apprt_window.as(gtk.Native).getSurfaceTransform(&x, &y);
 
             // Transform surface coordinates to device coordinates.
-            const scale: f64 = @floatFromInt(self.gtk_window.as(gtk.Widget).getScaleFactor());
+            const scale: f64 = @floatFromInt(self.apprt_window.as(gtk.Widget).getScaleFactor());
             x *= scale;
             y *= scale;
 
@@ -242,7 +239,7 @@ pub const Window = struct {
     }
 
     pub fn clientSideDecorationEnabled(self: Window) bool {
-        return switch (self.config.window_decoration) {
+        return switch (self.apprt_window.getWindowDecoration()) {
             .auto, .client => true,
             .server, .none => false,
         };
@@ -257,14 +254,15 @@ pub const Window = struct {
         // and I think it's not really noticeable enough to justify the effort.
         // (Wayland also has this visual artifact anyway...)
 
-        const gtk_widget = self.gtk_window.as(gtk.Widget);
+        const gtk_widget = self.apprt_window.as(gtk.Widget);
+        const config = if (self.apprt_window.getConfig()) |v| v.get() else return;
 
         // Transform surface coordinates to device coordinates.
-        const scale = self.gtk_window.as(gtk.Widget).getScaleFactor();
+        const scale = gtk_widget.getScaleFactor();
         self.blur_region.width = gtk_widget.getWidth() * scale;
         self.blur_region.height = gtk_widget.getHeight() * scale;
 
-        const blur = self.config.background_blur;
+        const blur = config.@"background-blur";
         log.debug("set blur={}, window xid={}, region={}", .{
             blur,
             self.x11_surface.getXid(),
@@ -306,7 +304,7 @@ pub const Window = struct {
         };
 
         hints.flags.decorations = true;
-        hints.decorations.all = switch (self.config.window_decoration) {
+        hints.decorations.all = switch (self.apprt_window.getWindowDecoration()) {
             .server => true,
             .auto, .client, .none => false,
         };

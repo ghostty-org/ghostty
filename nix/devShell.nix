@@ -3,6 +3,8 @@
   lib,
   stdenv,
   bashInteractive,
+  doxygen,
+  nushell,
   appstream,
   flatpak-builder,
   gdb,
@@ -60,6 +62,7 @@
   pandoc,
   pinact,
   hyperfine,
+  poop,
   typos,
   shellcheck,
   uv,
@@ -87,6 +90,7 @@ in
     packages =
       [
         # For builds
+        doxygen
         jq
         llvmPackages_latest.llvm
         minisign
@@ -123,6 +127,9 @@ in
 
         # CI
         uv
+
+        # Scripting
+        nushell
 
         # We need these GTK-related deps on all platform so we can build
         # dist tarballs.
@@ -183,6 +190,9 @@ in
         # developer shell
         glycin-loaders
         librsvg
+
+        # for benchmarking
+        poop
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

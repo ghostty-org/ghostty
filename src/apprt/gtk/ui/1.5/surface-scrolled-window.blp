@@ -1,0 +1,11 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhostttySurfaceScrolledWindow: Adw.Bin {
+  notify::surface => $notify_surface();
+
+  Gtk.ScrolledWindow {
+    hscrollbar-policy: never;
+    vscrollbar-policy: bind $scrollbar_policy(template.config) as <Gtk.PolicyType>;
+  }
+}

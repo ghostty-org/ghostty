@@ -6,7 +6,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const build_config = @import("../build_config.zig");
-const ziglyph = @import("ziglyph");
+const uucode = @import("uucode");
+const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
 const key = @import("key.zig");
 const KeyEvent = key.KeyEvent;
 
@@ -64,11 +65,35 @@ pub const Parser = struct {
         const flags, const start_idx = try parseFlags(raw_input);
         const input = raw_input[start_idx..];
 
-        // Find the last = which splits are mapping into the trigger
-        // and action, respectively.
-        // We use the last = because the keybind itself could contain
-        // raw equal signs (for the = codepoint)
-        const eql_idx = std.mem.lastIndexOf(u8, input, "=") orelse return Error.InvalidFormat;
+        // Find the equal sign. This is more complicated than it seems on
+        // the surface because we need to ignore equal signs that are
+        // part of the trigger.
+        const eql_idx: usize = eql: {
+            // TODO: We should change this parser into a real state machine
+            // based parser that parses the trigger fully, then yields the
+            // action after. The loop below is a total mess.
+            var offset: usize = 0;
+            while (std.mem.indexOfScalar(
+                u8,
+                input[offset..],
+                '=',
+            )) |offset_idx| {
+                // Find: '=+ctrl' or '==action'
+                const idx = offset + offset_idx;
+                if (idx < input.len - 1 and
+                    (input[idx + 1] == '+' or
+                        input[idx + 1] == '='))
+                {
+                    offset += offset_idx + 1;
+                    continue;
+                }
+
+                // Looks like the real equal sign.
+                break :eql idx;
+            }
+
+            return Error.InvalidFormat;
+        };
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -321,6 +346,10 @@ pub const Action = union(enum) {
 
     /// Scroll to the selected text.
     scroll_to_selection,
+
+    /// Scroll to the given absolute row in the screen with 0 being
+    /// the first row.
+    scroll_to_row: usize,
 
     /// Scroll the screen up by one page.
     scroll_page_up,
@@ -611,6 +640,17 @@ pub const Action = union(enum) {
     /// Only implemented on macOS, as this uses a built-in system API.
     toggle_secure_input,
 
+    /// Toggle mouse reporting on or off.
+    ///
+    /// When mouse reporting is disabled, mouse events will not be reported to
+    /// terminal applications even if they request it. This allows you to always
+    /// use the mouse for selection and other terminal UI interactions without
+    /// applications capturing mouse input.
+    ///
+    /// This can also be controlled via the `mouse-reporting` configuration
+    /// option.
+    toggle_mouse_reporting,
+
     /// Toggle the command palette.
     ///
     /// The command palette is a popup that lets you see what actions
@@ -701,7 +741,7 @@ pub const Action = union(enum) {
     /// All actions are only undoable/redoable for a limited time.
     /// For example, restoring a closed split can only be done for
     /// some number of seconds since the split was closed. The exact
-    /// amount is configured with `TODO`.
+    /// amount is configured with the `undo-timeout` configuration settings.
     ///
     /// The undo/redo actions being limited ensures that there is
     /// bounded memory usage over time, closed surfaces don't continue running
@@ -747,7 +787,7 @@ pub const Action = union(enum) {
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk, .@"gtk-ng" => @import("gobject").ext.defineBoxed(
+        .gtk => @import("gobject").ext.defineBoxed(
             Action,
             .{ .name = "GhosttyBindingAction" },
         ),
@@ -1060,6 +1100,7 @@ pub const Action = union(enum) {
             .scroll_to_top,
             .scroll_to_bottom,
             .scroll_to_selection,
+            .scroll_to_row,
             .scroll_page_up,
             .scroll_page_down,
             .scroll_page_fractional,
@@ -1077,6 +1118,7 @@ pub const Action = union(enum) {
             .toggle_window_decorations,
             .toggle_window_float_on_top,
             .toggle_secure_input,
+            .toggle_mouse_reporting,
             .toggle_command_palette,
             .show_on_screen_keyboard,
             .reset_window_size,
@@ -1169,13 +1211,8 @@ pub const Action = union(enum) {
     /// action back into the format used by parse.
     pub fn format(
         self: Action,
-        comptime layout: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
-        _ = layout;
-        _ = opts;
-
         switch (self) {
             inline else => |value| {
                 // All actions start with the tag.
@@ -1191,16 +1228,16 @@ pub const Action = union(enum) {
     }
 
     fn formatValue(
-        writer: anytype,
+        writer: *std.Io.Writer,
         value: anytype,
     ) !void {
         const Value = @TypeOf(value);
         const value_info = @typeInfo(Value);
         switch (Value) {
             void => {},
-            []const u8 => try writer.print("{s}", .{value}),
+            []const u8 => try std.zig.stringEscape(value, writer),
             else => switch (value_info) {
-                .@"enum" => try writer.print("{s}", .{@tagName(value)}),
+                .@"enum" => try writer.print("{t}", .{value}),
                 .float => try writer.print("{d}", .{value}),
                 .int => try writer.print("{d}", .{value}),
                 .@"struct" => |info| if (!info.is_tuple) {
@@ -1603,15 +1640,19 @@ pub const Trigger = struct {
     /// in more codepoints so we need to use a 3 element array.
     fn foldedCodepoint(cp: u21) [3]u21 {
         // ASCII fast path
-        if (ziglyph.letter.isAsciiLetter(cp)) {
-            return .{ ziglyph.letter.toLower(cp), 0, 0 };
+        if (uucode.ascii.isAlphabetic(cp)) {
+            return .{ uucode.ascii.toLower(cp), 0, 0 };
         }
 
-        // Unicode slow path. Case folding can resultin more codepoints.
+        // Unicode slow path. Case folding can result in more codepoints.
         // If more codepoints are produced then we return the codepoint
         // as-is which isn't correct but until we have a failing test
         // then I don't want to handle this.
-        return ziglyph.letter.toCaseFold(cp);
+        var buffer: [1]u21 = undefined;
+        const slice = uucode.get(.case_folding_full, cp).with(&buffer, cp);
+        var array: [3]u21 = [_]u21{0} ** 3;
+        @memcpy(array[0..slice.len], slice);
+        return array;
     }
 
     /// Convert the trigger to a C API compatible trigger.
@@ -1629,13 +1670,8 @@ pub const Trigger = struct {
     /// Format implementation for fmt package.
     pub fn format(
         self: Trigger,
-        comptime layout: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
-        _ = layout;
-        _ = opts;
-
         // Modifiers first
         if (self.mods.super) try writer.writeAll("super+");
         if (self.mods.ctrl) try writer.writeAll("ctrl+");
@@ -1644,7 +1680,7 @@ pub const Trigger = struct {
 
         // Key
         switch (self.key) {
-            .physical => |k| try writer.print("{s}", .{@tagName(k)}),
+            .physical => |k| try writer.print("{t}", .{k}),
             .unicode => |c| try writer.print("{u}", .{c}),
         }
     }
@@ -1702,13 +1738,8 @@ pub const Set = struct {
         /// action back into the format used by parse.
         pub fn format(
             self: Value,
-            comptime layout: []const u8,
-            opts: std.fmt.FormatOptions,
-            writer: anytype,
+            writer: *std.Io.Writer,
         ) !void {
-            _ = layout;
-            _ = opts;
-
             switch (self) {
                 .leader => |set| {
                     // the leader key was already printed.
@@ -1739,26 +1770,34 @@ pub const Set = struct {
         /// that is shared between calls to nested levels of the set.
         /// For example, 'a>b>c=x' and 'a>b>d=y' will re-use the 'a>b' written
         /// to the buffer before flushing it to the formatter with 'c=x' and 'd=y'.
-        pub fn formatEntries(self: Value, buffer_stream: anytype, formatter: anytype) !void {
+        pub fn formatEntries(
+            self: Value,
+            buffer: *std.Io.Writer,
+            formatter: EntryFormatter,
+        ) !void {
             switch (self) {
                 .leader => |set| {
                     // We'll rewind to this position after each sub-entry,
                     // sharing the prefix between siblings.
-                    const pos = try buffer_stream.getPos();
+                    const pos = buffer.end;
 
                     var iter = set.bindings.iterator();
                     while (iter.next()) |binding| {
-                        buffer_stream.seekTo(pos) catch unreachable; // can't fail
-                        std.fmt.format(buffer_stream.writer(), ">{s}", .{binding.key_ptr.*}) catch return error.OutOfMemory;
-                        try binding.value_ptr.*.formatEntries(buffer_stream, formatter);
+                        // I'm not exactly if this is safe for any arbitrary
+                        // writer since the Writer interface does not have any
+                        // rewind functions, but for our use case of a
+                        // fixed-size buffer writer this should work just fine.
+                        buffer.end = pos;
+                        buffer.print(">{f}", .{binding.key_ptr.*}) catch return error.OutOfMemory;
+                        try binding.value_ptr.*.formatEntries(buffer, formatter);
                     }
                 },
 
                 .leaf => |leaf| {
                     // When we get to the leaf, the buffer_stream contains
                     // the full sequence of keys needed to reach this action.
-                    std.fmt.format(buffer_stream.writer(), "={s}", .{leaf.action}) catch return error.OutOfMemory;
-                    try formatter.formatEntry([]const u8, buffer_stream.getWritten());
+                    buffer.print("={f}", .{leaf.action}) catch return error.OutOfMemory;
+                    try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
                 },
             }
         }
@@ -2305,6 +2344,39 @@ test "parse: equals sign" {
     );
 
     try testing.expectError(Error.InvalidFormat, parseSingle("=ignore"));
+}
+
+test "parse: text action equals sign" {
+    const testing = std.testing;
+    {
+        const binding = try parseSingle("==text:=");
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = '=' } }, binding.trigger);
+        try testing.expectEqualStrings("=", binding.action.text);
+    }
+
+    {
+        const binding = try parseSingle("==text:=hello");
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = '=' } }, binding.trigger);
+        try testing.expectEqualStrings("=hello", binding.action.text);
+    }
+
+    {
+        const binding = try parseSingle("ctrl+==text:=hello");
+        try testing.expectEqual(Trigger{
+            .key = .{ .unicode = '=' },
+            .mods = .{ .ctrl = true },
+        }, binding.trigger);
+        try testing.expectEqualStrings("=hello", binding.action.text);
+    }
+
+    {
+        const binding = try parseSingle("=+ctrl=text:=hello");
+        try testing.expectEqual(Trigger{
+            .key = .{ .unicode = '=' },
+            .mods = .{ .ctrl = true },
+        }, binding.trigger);
+        try testing.expectEqualStrings("=hello", binding.action.text);
+    }
 }
 
 // For Ghostty 1.2+ we changed our key names to match the W3C and removed
@@ -3174,4 +3246,16 @@ test "parse: set_font_size" {
         try testing.expect(binding.action == .set_font_size);
         try testing.expectEqual(13.5, binding.action.set_font_size);
     }
+}
+
+test "action: format" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const a: Action = .{ .text = "👻" };
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try a.format(&buf.writer);
+    try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.written());
 }

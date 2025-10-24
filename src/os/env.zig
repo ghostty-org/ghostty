@@ -95,6 +95,21 @@ pub fn getenv(alloc: Allocator, key: []const u8) Error!?GetEnvResult {
     };
 }
 
+/// Gets the value of an environment variable. Returns null if not found or the
+/// value is empty. This will allocate on Windows but not on other platforms.
+/// The returned value should have deinit called to do the proper cleanup no
+/// matter what platform you are on.
+pub fn getenvNotEmpty(alloc: Allocator, key: []const u8) !?GetEnvResult {
+    const result_ = try getenv(alloc, key);
+    if (result_) |result| {
+        if (result.value.len == 0) {
+            result.deinit(alloc);
+            return null;
+        }
+    }
+    return result_;
+}
+
 pub fn setenv(key: [:0]const u8, value: [:0]const u8) c_int {
     return switch (builtin.os.tag) {
         .windows => c._putenv_s(key.ptr, value.ptr),

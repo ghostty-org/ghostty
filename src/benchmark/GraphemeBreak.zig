@@ -90,12 +90,15 @@ fn stepNoop(ptr: *anyopaque) Benchmark.Error!void {
     const self: *GraphemeBreak = @ptrCast(@alignCast(ptr));
 
     const f = self.data_f orelse return;
-    var r = std.io.bufferedReader(f.reader());
+    var read_buf: [4096]u8 = undefined;
+    var f_reader = f.reader(&read_buf);
+    var r = &f_reader.interface;
+
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
-        const n = r.read(&buf) catch |err| {
-            log.warn("error reading data file err={}", .{err});
+        const n = r.readSliceShort(&buf) catch {
+            log.warn("error reading data file err={?}", .{f_reader.err});
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
@@ -110,14 +113,17 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
     const self: *GraphemeBreak = @ptrCast(@alignCast(ptr));
 
     const f = self.data_f orelse return;
-    var r = std.io.bufferedReader(f.reader());
+    var read_buf: [4096]u8 = undefined;
+    var f_reader = f.reader(&read_buf);
+    var r = &f_reader.interface;
+
     var d: UTF8Decoder = .{};
     var state: unicode.GraphemeBreakState = .{};
     var cp1: u21 = 0;
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
-        const n = r.read(&buf) catch |err| {
-            log.warn("error reading data file err={}", .{err});
+        const n = r.readSliceShort(&buf) catch {
+            log.warn("error reading data file err={?}", .{f_reader.err});
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
@@ -126,8 +132,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp2| {
-                const v = unicode.graphemeBreak(cp1, @intCast(cp2), &state);
-                buf[0] = @intCast(@intFromBool(v));
+                std.mem.doNotOptimizeAway(unicode.graphemeBreak(cp1, @intCast(cp2), &state));
                 cp1 = cp2;
             }
         }

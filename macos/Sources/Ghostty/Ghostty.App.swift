@@ -571,6 +571,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_REDO:
                 return redo(app, target: target)
 
+            case GHOSTTY_ACTION_SCROLLBAR:
+                scrollbar(app, target: target, v: action.action.scrollbar)
+
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
@@ -624,16 +627,22 @@ extension Ghostty {
         ) -> Bool {
             let action = Ghostty.Action.OpenURL(c: v)
             
-            // Convert the URL string to a URL object
-            guard let url = URL(string: action.url) else {
-                Ghostty.logger.warning("invalid URL for open URL action: \(action.url)")
-                return false
+            // If the URL doesn't have a valid scheme we assume its a file path. The URL
+            // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
+            // them into schema-less URLs, but these won't open properly in text editors.
+            // See: https://github.com/ghostty-org/ghostty/issues/8763
+            let url: URL
+            if let candidate = URL(string: action.url), candidate.scheme != nil {
+                url = candidate
+            } else {
+                url = URL(filePath: action.url)
             }
             
             switch action.kind {
             case .text:
-                // Open with the default text editor
-                if let textEditor = NSWorkspace.shared.defaultTextEditor {
+                // Open with the default editor for `*.ghostty` file or just system text editor
+                let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension) ?? NSWorkspace.shared.defaultTextEditor
+                if let textEditor = editor {
                     NSWorkspace.shared.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
                     return true
                 }
@@ -1020,26 +1029,38 @@ extension Ghostty {
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
                     guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
 
-                    // For now, we return false if the window has no splits and we return
-                    // true if the window has ANY splits. This isn't strictly correct because
-                    // we should only be returning true if we actually performed the action,
-                    // but this handles the most common case of caring about goto_split performability
-                    // which is the no-split case.
+                    // If the window has no splits, the action is not performable
                     guard controller.surfaceTree.isSplit else { return false }
 
+                    // Convert the C API direction to our Swift type
+                    guard let splitDirection = SplitFocusDirection.from(direction: direction) else { return false }
+
+                    // Find the current node in the tree
+                    guard let targetNode = controller.surfaceTree.root?.node(view: surfaceView) else { return false }
+
+                    // Check if a split actually exists in the target direction before
+                    // returning true. This ensures performable keybinds only consume
+                    // the key event when we actually perform navigation.
+                    let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
+                    guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
+                        return false
+                    }
+
+                    // We have a valid target, post the notification to perform the navigation
                     NotificationCenter.default.post(
                         name: Notification.ghosttyFocusSplit,
                         object: surfaceView,
                         userInfo: [
-                            Notification.SplitDirectionKey: SplitFocusDirection.from(direction: direction) as Any,
+                            Notification.SplitDirectionKey: splitDirection as Any,
                         ]
                     )
 
+                    return true
+
                 default:
                     assertionFailure()
+                    return false
                 }
-
-                return true
         }
 
         private static func resizeSplit(
@@ -1548,6 +1569,33 @@ extension Ghostty {
                         surfaceView.progressReport = progressReport
                     }
                 }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func scrollbar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_scrollbar_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("scrollbar does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                
+                let scrollbar = Ghostty.Action.Scrollbar(c: v)
+                NotificationCenter.default.post(
+                    name: .ghosttyDidUpdateScrollbar,
+                    object: surfaceView,
+                    userInfo: [
+                        SwiftUI.Notification.Name.ScrollbarKey: scrollbar
+                    ]
+                )
 
             default:
                 assertionFailure()

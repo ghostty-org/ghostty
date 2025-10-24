@@ -94,10 +94,9 @@ pub const ReadableIO = union(enum) {
         };
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         switch (self) {
             inline else => |v, tag| {
                 writer.writeAll(@tagName(tag)) catch return error.OutOfMemory;
@@ -106,10 +105,9 @@ pub const ReadableIO = union(enum) {
             },
         }
 
-        const written = fbs.getWritten();
         try formatter.formatEntry(
             []const u8,
-            written,
+            writer.buffered(),
         );
     }
 
@@ -144,13 +142,13 @@ pub const ReadableIO = union(enum) {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "raw:foo");
-        try v.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = raw:foo\n", buf.items);
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = raw:foo\n", buf.written());
     }
 };
 
@@ -222,7 +220,7 @@ pub const RepeatableReadableIO = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});

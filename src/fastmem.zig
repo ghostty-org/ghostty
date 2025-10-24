@@ -2,13 +2,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-/// Same as std.mem.copyForwards but prefers libc memmove if it is available
-/// because it is generally much faster.
+/// Same as @memmove but prefers libc memmove if it is
+/// available because it is generally much faster?.
 pub inline fn move(comptime T: type, dest: []T, source: []const T) void {
     if (builtin.link_libc) {
         _ = memmove(dest.ptr, source.ptr, source.len * @sizeOf(T));
     } else {
-        std.mem.copyForwards(T, dest, source);
+        @memmove(dest, source);
     }
 }
 

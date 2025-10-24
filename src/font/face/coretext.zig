@@ -319,17 +319,6 @@ pub const Face = struct {
             rect.origin.y -= line_width / 2;
         };
 
-        // We make an assumption that font smoothing ("thicken")
-        // adds no more than 1 extra pixel to any edge. We don't
-        // add extra size if it's a sbix color font though, since
-        // bitmaps aren't affected by smoothing.
-        if (opts.thicken and !sbix) {
-            rect.size.width += 2.0;
-            rect.size.height += 2.0;
-            rect.origin.x -= 1.0;
-            rect.origin.y -= 1.0;
-        }
-
         // If our rect is smaller than a quarter pixel in either axis
         // then it has no outlines or they're too small to render.
         //
@@ -349,14 +338,7 @@ pub const Face = struct {
         const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
         // Next we apply any constraints to get the final size of the glyph.
-        var constraint = opts.constraint;
-
-        // We eliminate any negative vertical padding since these overlap
-        // values aren't needed  with how precisely we apply constraints,
-        // and they can lead to extra height that looks bad for things like
-        // powerline glyphs.
-        constraint.pad_top = @max(0.0, constraint.pad_top);
-        constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+        const constraint = opts.constraint;
 
         // We need to add the baseline position before passing to the constrain
         // function since it operates on cell-relative positions, not baseline.
@@ -378,6 +360,18 @@ pub const Face = struct {
         var width = glyph_size.width;
         var height = glyph_size.height;
 
+        // We center all glyphs within the pixel-rounded and adjusted
+        // cell width if it's larger than the face width, so that they
+        // aren't weirdly off to the left.
+        //
+        // We don't do this if the glyph has a stretch constraint,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
+            // We add half the difference to re-center.
+            x += (cell_width - metrics.face_width) / 2;
+        }
+
         // If this is a bitmap glyph, it will always render as full pixels,
         // not fractional pixels, so we need to quantize its position and
         // size accordingly to align to full pixels so we get good results.
@@ -388,25 +382,16 @@ pub const Face = struct {
             y = @round(y);
         }
 
-        // If the cell width was adjusted wider, we re-center all glyphs
-        // in the new width, so that they aren't weirdly off to the left.
-        if (metrics.original_cell_width) |original| recenter: {
-            // We don't do this if the constraint has a horizontal alignment,
-            // since in that case the position was already calculated with the
-            // new cell width in mind.
-            if (opts.constraint.align_horizontal != .none) break :recenter;
-
-            // If the original width was wider then we don't do anything.
-            if (original >= metrics.cell_width) break :recenter;
-
-            // We add half the difference to re-center.
-            x += (cell_width - @as(f64, @floatFromInt(original))) / 2;
-        }
+        // We make an assumption that font smoothing ("thicken")
+        // adds no more than 1 extra pixel to any edge. We don't
+        // add extra size if it's a sbix color font though, since
+        // bitmaps aren't affected by smoothing.
+        const canvas_padding: u32 = if (opts.thicken and !sbix) 1 else 0;
 
         // Our whole-pixel bearings for the final glyph.
         // The fractional portion will be included in the rasterized position.
-        const px_x: i32 = @intFromFloat(@floor(x));
-        const px_y: i32 = @intFromFloat(@floor(y));
+        const px_x = @as(i32, @intFromFloat(@floor(x))) - @as(i32, @intCast(canvas_padding));
+        const px_y = @as(i32, @intFromFloat(@floor(y))) - @as(i32, @intCast(canvas_padding));
 
         // We keep track of the fractional part of the pixel bearings, which
         // we will add as an offset when rasterizing to make sure we get the
@@ -416,9 +401,9 @@ pub const Face = struct {
 
         // Add the fractional pixel to the width and height and take
         // the ceiling to get a canvas size that will definitely fit
-        // our drawn glyph, including the fractional offset.
-        const px_width: u32 = @intFromFloat(@ceil(width + frac_x));
-        const px_height: u32 = @intFromFloat(@ceil(height + frac_y));
+        // our drawn glyph, including the fractional offset and font smoothing.
+        const px_width = @as(u32, @intFromFloat(@ceil(width + frac_x))) + (2 * canvas_padding);
+        const px_height = @as(u32, @intFromFloat(@ceil(height + frac_y))) + (2 * canvas_padding);
 
         // Settings that are specific to if we are rendering text or emoji.
         const color: struct {
@@ -529,8 +514,8 @@ pub const Face = struct {
         // `drawGlyphs`, we pass the negated bearings.
         context.translateCTM(
             ctx,
-            frac_x,
-            frac_y,
+            frac_x + @as(f64, @floatFromInt(canvas_padding)),
+            frac_y + @as(f64, @floatFromInt(canvas_padding)),
         );
 
         // Scale the drawing context so that when we draw
@@ -574,19 +559,12 @@ pub const Face = struct {
         };
     }
 
-    pub const GetMetricsError = error{
-        CopyTableError,
-        InvalidHeadTable,
-        InvalidPostTable,
-        InvalidHheaTable,
-    };
-
     /// Get the `FaceMetrics` for this face.
-    pub fn getMetrics(self: *Face) GetMetricsError!font.Metrics.FaceMetrics {
+    pub fn getMetrics(self: *Face) font.Metrics.FaceMetrics {
         const ct_font = self.font;
 
         // Read the 'head' table out of the font data.
-        const head: opentype.Head = head: {
+        const head_: ?opentype.Head = head: {
             // macOS bitmap-only fonts use a 'bhed' tag rather than 'head', but
             // the table format is byte-identical to the 'head' table, so if we
             // can't find 'head' we try 'bhed' instead before failing.
@@ -597,29 +575,26 @@ pub const Face = struct {
             const data =
                 ct_font.copyTable(head_tag) orelse
                 ct_font.copyTable(bhed_tag) orelse
-                return error.CopyTableError;
+                break :head null;
             defer data.release();
             const ptr = data.getPointer();
             const len = data.getLength();
             break :head opentype.Head.init(ptr[0..len]) catch |err| {
-                return switch (err) {
-                    error.EndOfStream,
-                    => error.InvalidHeadTable,
-                };
+                log.warn("error parsing head table: {}", .{err});
+                break :head null;
             };
         };
 
         // Read the 'post' table out of the font data.
-        const post: opentype.Post = post: {
+        const post_: ?opentype.Post = post: {
             const tag = macos.text.FontTableTag.init("post");
-            const data = ct_font.copyTable(tag) orelse return error.CopyTableError;
+            const data = ct_font.copyTable(tag) orelse break :post null;
             defer data.release();
             const ptr = data.getPointer();
             const len = data.getLength();
             break :post opentype.Post.init(ptr[0..len]) catch |err| {
-                return switch (err) {
-                    error.EndOfStream => error.InvalidPostTable,
-                };
+                log.warn("error parsing post table: {}", .{err});
+                break :post null;
             };
         };
 
@@ -637,96 +612,110 @@ pub const Face = struct {
         };
 
         // Read the 'hhea' table out of the font data.
-        const hhea: opentype.Hhea = hhea: {
+        const hhea_: ?opentype.Hhea = hhea: {
             const tag = macos.text.FontTableTag.init("hhea");
-            const data = ct_font.copyTable(tag) orelse return error.CopyTableError;
+            const data = ct_font.copyTable(tag) orelse break :hhea null;
             defer data.release();
             const ptr = data.getPointer();
             const len = data.getLength();
             break :hhea opentype.Hhea.init(ptr[0..len]) catch |err| {
-                return switch (err) {
-                    error.EndOfStream => error.InvalidHheaTable,
-                };
+                log.warn("error parsing hhea table: {}", .{err});
+                break :hhea null;
             };
         };
 
-        const units_per_em: f64 = @floatFromInt(head.unitsPerEm);
+        const units_per_em: f64 =
+            if (head_) |head|
+                @floatFromInt(head.unitsPerEm)
+            else
+                @floatFromInt(self.font.getUnitsPerEm());
         const px_per_em: f64 = ct_font.getSize();
         const px_per_unit: f64 = px_per_em / units_per_em;
 
         const ascent: f64, const descent: f64, const line_gap: f64 = vertical_metrics: {
+            // If we couldn't get the hhea table, rely on metrics from CoreText.
+            const hhea = hhea_ orelse break :vertical_metrics .{
+                self.font.getAscent(),
+                -self.font.getDescent(),
+                self.font.getLeading(),
+            };
+
             const hhea_ascent: f64 = @floatFromInt(hhea.ascender);
             const hhea_descent: f64 = @floatFromInt(hhea.descender);
             const hhea_line_gap: f64 = @floatFromInt(hhea.lineGap);
 
-            if (os2_) |os2| {
-                const os2_ascent: f64 = @floatFromInt(os2.sTypoAscender);
-                const os2_descent: f64 = @floatFromInt(os2.sTypoDescender);
-                const os2_line_gap: f64 = @floatFromInt(os2.sTypoLineGap);
-
-                // If the font says to use typo metrics, trust it.
-                if (os2.fsSelection.use_typo_metrics) break :vertical_metrics .{
-                    os2_ascent * px_per_unit,
-                    os2_descent * px_per_unit,
-                    os2_line_gap * px_per_unit,
-                };
-
-                // Otherwise we prefer the height metrics from 'hhea' if they
-                // are available, or else OS/2 sTypo* metrics, and if all else
-                // fails then we use OS/2 usWin* metrics.
-                //
-                // This is not "standard" behavior, but it's our best bet to
-                // account for fonts being... just weird. It's pretty much what
-                // FreeType does to get its generic ascent and descent metrics.
-
-                if (hhea.ascender != 0 or hhea.descender != 0) break :vertical_metrics .{
-                    hhea_ascent * px_per_unit,
-                    hhea_descent * px_per_unit,
-                    hhea_line_gap * px_per_unit,
-                };
-
-                if (os2_ascent != 0 or os2_descent != 0) break :vertical_metrics .{
-                    os2_ascent * px_per_unit,
-                    os2_descent * px_per_unit,
-                    os2_line_gap * px_per_unit,
-                };
-
-                const win_ascent: f64 = @floatFromInt(os2.usWinAscent);
-                const win_descent: f64 = @floatFromInt(os2.usWinDescent);
-                break :vertical_metrics .{
-                    win_ascent * px_per_unit,
-                    // usWinDescent is *positive* -> down unlike sTypoDescender
-                    // and hhea.Descender, so we flip its sign to fix this.
-                    -win_descent * px_per_unit,
-                    0.0,
-                };
-            }
-
             // If our font has no OS/2 table, then we just
             // blindly use the metrics from the hhea table.
-            break :vertical_metrics .{
+            const os2 = os2_ orelse break :vertical_metrics .{
                 hhea_ascent * px_per_unit,
                 hhea_descent * px_per_unit,
                 hhea_line_gap * px_per_unit,
             };
+
+            const os2_ascent: f64 = @floatFromInt(os2.sTypoAscender);
+            const os2_descent: f64 = @floatFromInt(os2.sTypoDescender);
+            const os2_line_gap: f64 = @floatFromInt(os2.sTypoLineGap);
+
+            // If the font says to use typo metrics, trust it.
+            if (os2.fsSelection.use_typo_metrics) break :vertical_metrics .{
+                os2_ascent * px_per_unit,
+                os2_descent * px_per_unit,
+                os2_line_gap * px_per_unit,
+            };
+
+            // Otherwise we prefer the height metrics from 'hhea' if they
+            // are available, or else OS/2 sTypo* metrics, and if all else
+            // fails then we use OS/2 usWin* metrics.
+            //
+            // This is not "standard" behavior, but it's our best bet to
+            // account for fonts being... just weird. It's pretty much what
+            // FreeType does to get its generic ascent and descent metrics.
+
+            if (hhea.ascender != 0 or hhea.descender != 0) break :vertical_metrics .{
+                hhea_ascent * px_per_unit,
+                hhea_descent * px_per_unit,
+                hhea_line_gap * px_per_unit,
+            };
+
+            if (os2_ascent != 0 or os2_descent != 0) break :vertical_metrics .{
+                os2_ascent * px_per_unit,
+                os2_descent * px_per_unit,
+                os2_line_gap * px_per_unit,
+            };
+
+            const win_ascent: f64 = @floatFromInt(os2.usWinAscent);
+            const win_descent: f64 = @floatFromInt(os2.usWinDescent);
+            break :vertical_metrics .{
+                win_ascent * px_per_unit,
+                // usWinDescent is *positive* -> down unlike sTypoDescender
+                // and hhea.Descender, so we flip its sign to fix this.
+                -win_descent * px_per_unit,
+                0.0,
+            };
         };
 
-        // Some fonts have degenerate 'post' tables where the underline
-        // thickness (and often position) are 0. We consider them null
-        // if this is the case and use our own fallbacks when we calculate.
-        const has_broken_underline = post.underlineThickness == 0;
+        const underline_position, const underline_thickness = ul: {
+            const post = post_ orelse break :ul .{ null, null };
 
-        // If the underline position isn't 0 then we do use it,
-        // even if the thickness is't properly specified.
-        const underline_position: ?f64 = if (has_broken_underline and post.underlinePosition == 0)
-            null
-        else
-            @as(f64, @floatFromInt(post.underlinePosition)) * px_per_unit;
+            // Some fonts have degenerate 'post' tables where the underline
+            // thickness (and often position) are 0. We consider them null
+            // if this is the case and use our own fallbacks when we calculate.
+            const has_broken_underline = post.underlineThickness == 0;
 
-        const underline_thickness = if (has_broken_underline)
-            null
-        else
-            @as(f64, @floatFromInt(post.underlineThickness)) * px_per_unit;
+            // If the underline position isn't 0 then we do use it,
+            // even if the thickness is't properly specified.
+            const pos: ?f64 = if (has_broken_underline and post.underlinePosition == 0)
+                null
+            else
+                @as(f64, @floatFromInt(post.underlinePosition)) * px_per_unit;
+
+            const thick: ?f64 = if (has_broken_underline)
+                null
+            else
+                @as(f64, @floatFromInt(post.underlineThickness)) * px_per_unit;
+
+            break :ul .{ pos, thick };
+        };
 
         // Similar logic to the underline above.
         const strikethrough_position, const strikethrough_thickness = st: {
@@ -771,7 +760,10 @@ pub const Face = struct {
         // Cell width is calculated by calculating the widest width of the
         // visible ASCII characters. Usually 'M' is widest but we just take
         // whatever is widest.
-        const cell_width: f64 = cell_width: {
+        //
+        // ASCII height is calculated as the height of the overall bounding
+        // box of the same characters.
+        const cell_width: f64, const ascii_height: f64 = measurements: {
             // Build a comptime array of all the ASCII chars
             const unichars = comptime unichars: {
                 const len = 127 - 32;
@@ -799,7 +791,10 @@ pub const Face = struct {
                 max = @max(advances[i].width, max);
             }
 
-            break :cell_width max;
+            // Get the overall bounding rect for the glyphs
+            const rect = ct_font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
+
+            break :measurements .{ max, rect.size.height };
         };
 
         // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
@@ -860,6 +855,7 @@ pub const Face = struct {
 
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ascii_height = ascii_height,
             .ic_width = ic_width,
         };
     }
@@ -989,7 +985,7 @@ test {
             alloc,
             &atlas,
             face.glyphIndex(i).?,
-            .{ .grid_metrics = font.Metrics.calc(try face.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(face.getMetrics()) },
         );
     }
 }
@@ -1054,7 +1050,7 @@ test "in-memory" {
             alloc,
             &atlas,
             face.glyphIndex(i).?,
-            .{ .grid_metrics = font.Metrics.calc(try face.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(face.getMetrics()) },
         );
     }
 }
@@ -1081,7 +1077,7 @@ test "variable" {
             alloc,
             &atlas,
             face.glyphIndex(i).?,
-            .{ .grid_metrics = font.Metrics.calc(try face.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(face.getMetrics()) },
         );
     }
 }
@@ -1112,7 +1108,7 @@ test "variable set variation" {
             alloc,
             &atlas,
             face.glyphIndex(i).?,
-            .{ .grid_metrics = font.Metrics.calc(try face.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(face.getMetrics()) },
         );
     }
 }

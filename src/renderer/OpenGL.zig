@@ -20,6 +20,7 @@ pub const RenderPass = @import("opengl/RenderPass.zig");
 pub const Pipeline = @import("opengl/Pipeline.zig");
 const bufferpkg = @import("opengl/buffer.zig");
 pub const Buffer = bufferpkg.Buffer;
+pub const Sampler = @import("opengl/Sampler.zig");
 pub const Texture = @import("opengl/Texture.zig");
 pub const shaders = @import("opengl/shaders.zig");
 
@@ -166,7 +167,6 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 
         // GTK uses global OpenGL context so we load from null.
         apprt.gtk,
-        apprt.gtk_ng,
         => try prepareContext(null),
 
         apprt.embedded => {
@@ -201,7 +201,7 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk, apprt.gtk_ng => {
+        apprt.gtk => {
             // GTK doesn't support threaded OpenGL operations as far as I can
             // tell, so we use the renderer thread to setup all the state
             // but then do the actual draws and texture syncs and all that
@@ -223,7 +223,7 @@ pub fn threadExit(self: *const OpenGL) void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk, apprt.gtk_ng => {
+        apprt.gtk => {
             // We don't need to do any unloading for GTK because we may
             // be sharing the global bindings with other windows.
         },
@@ -238,7 +238,7 @@ pub fn displayRealized(self: *const OpenGL) void {
     _ = self;
 
     switch (apprt.runtime) {
-        apprt.gtk, apprt.gtk_ng => prepareContext(null) catch |err| {
+        apprt.gtk => prepareContext(null) catch |err| {
             log.warn(
                 "Error preparing GL context in displayRealized, err={}",
                 .{err},
@@ -358,6 +358,17 @@ pub inline fn textureOptions(self: OpenGL) Texture.Options {
         .format = .rgba,
         .internal_format = .srgba,
         .target = .@"2D",
+        .min_filter = .linear,
+        .mag_filter = .linear,
+        .wrap_s = .clamp_to_edge,
+        .wrap_t = .clamp_to_edge,
+    };
+}
+
+/// Returns the options to use when constructing samplers.
+pub inline fn samplerOptions(self: OpenGL) Sampler.Options {
+    _ = self;
+    return .{
         .min_filter = .linear,
         .mag_filter = .linear,
         .wrap_s = .clamp_to_edge,

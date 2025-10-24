@@ -15,9 +15,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  setup:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.repository_owner == 'ghostty-org' &&
+        github.ref_name == 'main'
+      )
+    runs-on: namespace-profile-ghostty-sm
+    outputs:
+      should_skip: ${{ steps.check.outputs.should_skip }}
+      build: ${{ steps.extract_build_info.outputs.build }}
+      commit: ${{ steps.extract_build_info.outputs.commit }}
+      commit_long: ${{ steps.extract_build_info.outputs.commit_long }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          # Important so that build number generation works
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31.8.1
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - name: Extract build info
+        id: extract_build_info
+        run: |
+          GHOSTTY_BUILD=$(git rev-list --count HEAD)
+          GHOSTTY_COMMIT=$(git rev-parse --short HEAD)
+          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
+          echo "build=$GHOSTTY_BUILD" >> $GITHUB_OUTPUT
+          echo "commit=$GHOSTTY_COMMIT" >> $GITHUB_OUTPUT
+          echo "commit_long=$GHOSTTY_COMMIT_LONG" >> $GITHUB_OUTPUT
+      - name: Check if tip already exists
+        id: check
+        run: |
+          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
+          if nix develop -c nu .github/scripts/ghostty-tip $GHOSTTY_COMMIT_LONG; then
+            echo "Tip release already exists for commit $GHOSTTY_COMMIT_LONG"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "No tip release found for commit $GHOSTTY_COMMIT_LONG"
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+          fi
+
   tag:
     runs-on: namespace-profile-ghostty-sm
-    needs: [build-macos]
+    needs: [setup, build-macos]
+    if: needs.setup.outputs.should_skip != 'true'
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Tip Tag
@@ -29,7 +76,10 @@ jobs:
 
   sentry-dsym-debug-slow:
     runs-on: namespace-profile-ghostty-sm
-    needs: [build-macos-debug-slow]
+    needs: [setup, build-macos-debug-slow]
+    if: needs.setup.outputs.should_skip != 'true'
+    env:
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -39,7 +89,6 @@ jobs:
 
       - name: Download dSYM
         run: |
-          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
           curl -L https://tip.files.ghostty.dev/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow-dsym.zip > dsym.zip
 
       - name: Upload dSYM to Sentry
@@ -50,7 +99,10 @@ jobs:
 
   sentry-dsym-debug-fast:
     runs-on: namespace-profile-ghostty-sm
-    needs: [build-macos-debug-fast]
+    needs: [setup, build-macos-debug-fast]
+    if: needs.setup.outputs.should_skip != 'true'
+    env:
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -60,7 +112,6 @@ jobs:
 
       - name: Download dSYM
         run: |
-          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
           curl -L https://tip.files.ghostty.dev/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast-dsym.zip > dsym.zip
 
       - name: Upload dSYM to Sentry
@@ -71,7 +122,10 @@ jobs:
 
   sentry-dsym:
     runs-on: namespace-profile-ghostty-sm
-    needs: [build-macos]
+    needs: [setup, build-macos]
+    if: needs.setup.outputs.should_skip != 'true'
+    env:
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -81,7 +135,6 @@ jobs:
 
       - name: Download dSYM
         run: |
-          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
           curl -L https://tip.files.ghostty.dev/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip > dsym.zip
 
       - name: Upload dSYM to Sentry
@@ -91,15 +144,16 @@ jobs:
           sentry-cli dif upload --project ghostty --wait dsym.zip
 
   source-tarball:
+    needs: [setup]
     if: |
-      ${{
+      needs.setup.outputs.should_skip != 'true' &&
+      (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
-      }}
+      )
     runs-on: namespace-profile-ghostty-md
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -107,12 +161,12 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a289cf5d2fcd6874376aa92f0ef7f99dc923592a # v1.2.17
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@56a7bb7b56d9a92d4fd1bc05758de7eea4a370a8 # v31.6.0
+      - uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31.8.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
@@ -132,7 +186,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -144,18 +198,23 @@ jobs:
           token: ${{ secrets.GH_RELEASE_TOKEN }}
 
   build-macos:
+    needs: [setup]
     if: |
-      ${{
+      needs.setup.outputs.should_skip != 'true' &&
+      (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
-      }}
+      )
 
     runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
+    env:
+      GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
+      GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -181,20 +240,13 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.1
+          SPARKLE_VERSION: 2.7.3
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
           curl -L https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip > sparkle.zip
           unzip sparkle.zip
           echo "$(pwd)/bin" >> $GITHUB_PATH
-
-      # Load Build Number
-      - name: Build Number
-        run: |
-          echo "GHOSTTY_BUILD=$(git rev-list --count head)" >> $GITHUB_ENV
-          echo "GHOSTTY_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
@@ -304,7 +356,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -317,6 +369,9 @@ jobs:
 
       # Create our appcast for Sparkle
       - name: Generate Appcast
+        if: |
+          github.repository_owner == 'ghostty-org' &&
+          github.ref_name == 'main'
         env:
           SPARKLE_KEY: ${{ secrets.PROD_MACOS_SPARKLE_KEY }}
         run: |
@@ -348,12 +403,18 @@ jobs:
       # Now upload our appcast. This ensures that the appcast never
       # gets out of sync with the binaries.
       - name: Prep R2 Storage for Appcast
+        if: |
+          github.repository_owner == 'ghostty-org' &&
+          github.ref_name == 'main'
         run: |
           rm -r blob
           mkdir blob
           cp appcast_new.xml blob/appcast.xml
 
       - name: Upload Appcast to R2
+        if: |
+          github.repository_owner == 'ghostty-org' &&
+          github.ref_name == 'main'
         uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
@@ -363,19 +424,31 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip"
+          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip"
+          echo "  DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg"
+
   build-macos-debug-slow:
+    needs: [setup]
     if: |
-      ${{
+      needs.setup.outputs.should_skip != 'true' &&
+      (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
-      }}
+      )
 
     runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
+    env:
+      GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
+      GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -401,20 +474,13 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.1
+          SPARKLE_VERSION: 2.7.3
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
           curl -L https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip > sparkle.zip
           unzip sparkle.zip
           echo "$(pwd)/bin" >> $GITHUB_PATH
-
-      # Load Build Number
-      - name: Build Number
-        run: |
-          echo "GHOSTTY_BUILD=$(git rev-list --count head)" >> $GITHUB_ENV
-          echo "GHOSTTY_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
@@ -517,7 +583,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -543,19 +609,30 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow.zip"
+          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow-dsym.zip"
+
   build-macos-debug-fast:
+    needs: [setup]
     if: |
-      ${{
+      needs.setup.outputs.should_skip != 'true' &&
+      (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
-      }}
+      )
 
     runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
+    env:
+      GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
+      GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
+      GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -581,20 +658,13 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.1
+          SPARKLE_VERSION: 2.7.3
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
           curl -L https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip > sparkle.zip
           unzip sparkle.zip
           echo "$(pwd)/bin" >> $GITHUB_PATH
-
-      # Load Build Number
-      - name: Build Number
-        run: |
-          echo "GHOSTTY_BUILD=$(git rev-list --count head)" >> $GITHUB_ENV
-          echo "GHOSTTY_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
@@ -697,7 +767,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -722,3 +792,9 @@ jobs:
           r2-bucket: ghostty-tip
           source-dir: blob
           destination-dir: ./
+
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast.zip"
+          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast-dsym.zip"

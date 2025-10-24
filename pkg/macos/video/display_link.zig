@@ -74,7 +74,7 @@ pub const DisplayLink = opaque {
 
                     callbackFn(
                         displayLink,
-                        @alignCast(@ptrCast(inner_userinfo)),
+                        @ptrCast(@alignCast(inner_userinfo)),
                     );
                     return c.kCVReturnSuccess;
                 }

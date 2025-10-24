@@ -43,7 +43,7 @@ pub const ModeState = struct {
     }
 
     /// Get the value of a mode.
-    pub fn get(self: *ModeState, mode: Mode) bool {
+    pub fn get(self: *const ModeState, mode: Mode) bool {
         switch (mode) {
             inline else => |mode_comptime| {
                 const entry = comptime entryForMode(mode_comptime);

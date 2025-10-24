@@ -143,8 +143,8 @@
    fun:g_main_context_dispatch_unlocked
    fun:g_main_context_iterate_unlocked.isra.0
    fun:g_main_context_iteration
-   fun:apprt.gtk-ng.class.application.Application.run
-   fun:apprt.gtk-ng.App.run
+   fun:apprt.gtk.class.application.Application.run
+   fun:apprt.gtk.App.run
    fun:main_ghostty.main
    fun:callMain
    fun:callMainWithArgs
@@ -177,8 +177,8 @@
    fun:g_main_context_dispatch_unlocked
    fun:g_main_context_iterate_unlocked.isra.0
    fun:g_main_context_iteration
-   fun:apprt.gtk-ng.class.application.Application.run
-   fun:apprt.gtk-ng.App.run
+   fun:apprt.gtk.class.application.Application.run
+   fun:apprt.gtk.App.run
    fun:main_ghostty.main
    fun:callMain
    fun:callMainWithArgs

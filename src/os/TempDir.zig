@@ -6,7 +6,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const Dir = std.fs.Dir;
-const internal_os = @import("main.zig");
+const allocTmpDir = @import("file.zig").allocTmpDir;
+const freeTmpDir = @import("file.zig").freeTmpDir;
 
 const log = std.log.scoped(.tempdir);
 
@@ -31,8 +32,8 @@ pub fn init() !TempDir {
 
     const dir = dir: {
         const cwd = std.fs.cwd();
-        const tmp_dir = internal_os.allocTmpDir(std.heap.page_allocator) orelse break :dir cwd;
-        defer internal_os.freeTmpDir(std.heap.page_allocator, tmp_dir);
+        const tmp_dir = allocTmpDir(std.heap.page_allocator) orelse break :dir cwd;
+        defer freeTmpDir(std.heap.page_allocator, tmp_dir);
         break :dir try cwd.openDir(tmp_dir, .{});
     };
 

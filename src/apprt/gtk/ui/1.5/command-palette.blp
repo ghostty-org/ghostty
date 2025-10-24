@@ -2,8 +2,9 @@ using Gtk 4.0;
 using Gio 2.0;
 using Adw 1;
 
-Adw.Dialog command-palette {
+Adw.Dialog dialog {
   content-width: 700;
+  closed => $closed();
 
   Adw.ToolbarView {
     top-bar-style: flat;
@@ -11,9 +12,11 @@ Adw.Dialog command-palette {
     [top]
     Adw.HeaderBar {
       [title]
-      SearchEntry search {
+      Gtk.SearchEntry search {
         hexpand: true;
         placeholder-text: _("Execute a command…");
+        stop-search => $search_stopped();
+        activate => $search_activated();
 
         styles [
           "command-palette-search",
@@ -21,24 +24,25 @@ Adw.Dialog command-palette {
       }
     }
 
-    ScrolledWindow {
+    Gtk.ScrolledWindow {
       min-content-height: 300;
 
-      ListView view {
+      Gtk.ListView view {
         show-separators: true;
         single-click-activate: true;
+        activate => $row_activated();
 
-        model: SingleSelection model {
-          model: FilterListModel {
+        model: Gtk.SingleSelection model {
+          model: Gtk.FilterListModel {
             incremental: true;
 
-            filter: AnyFilter {
-              StringFilter {
+            filter: Gtk.AnyFilter {
+              Gtk.StringFilter {
                 expression: expr item as <$GhosttyCommand>.title;
                 search: bind search.text;
               }
 
-              StringFilter {
+              Gtk.StringFilter {
                 expression: expr item as <$GhosttyCommand>.action-key;
                 search: bind search.text;
               }
@@ -54,18 +58,18 @@ Adw.Dialog command-palette {
           "rich-list",
         ]
 
-        factory: BuilderListItemFactory {
-          template ListItem {
-            child: Box {
+        factory: Gtk.BuilderListItemFactory {
+          template Gtk.ListItem {
+            child: Gtk.Box {
               orientation: horizontal;
               spacing: 10;
               tooltip-text: bind template.item as <$GhosttyCommand>.description;
 
-              Box {
+              Gtk.Box {
                 orientation: vertical;
                 hexpand: true;
 
-                Label {
+                Gtk.Label {
                   ellipsize: end;
                   halign: start;
                   wrap: false;
@@ -78,7 +82,7 @@ Adw.Dialog command-palette {
                   label: bind template.item as <$GhosttyCommand>.title;
                 }
 
-                Label {
+                Gtk.Label {
                   ellipsize: end;
                   halign: start;
                   wrap: false;
@@ -93,7 +97,7 @@ Adw.Dialog command-palette {
                 }
               }
 
-              ShortcutLabel {
+              Gtk.ShortcutLabel {
                 accelerator: bind template.item as <$GhosttyCommand>.action;
                 valign: center;
               }

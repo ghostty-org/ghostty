@@ -23,11 +23,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case "hidden": "TerminalHiddenTitlebar"
         case "transparent": "TerminalTransparentTitlebar"
         case "tabs":
+#if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 "TerminalTabsTitlebarTahoe"
             } else {
                 "TerminalTabsTitlebarVentura"
             }
+#else
+            "TerminalTabsTitlebarVentura"
+#endif
         default: defaultValue
         }
 
@@ -184,8 +188,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
-        } ?? all.last
+        } ?? lastMain ?? all.last
     }
+    
+    // The last controller to be main. We use this when paired with "preferredParent"
+    // to find the preferred window to attach new tabs, perform actions, etc. We
+    // always prefer the main window but if there isn't any (because we're triggered
+    // by something like an App Intent) then we prefer the most previous main.
+    static private(set) weak var lastMain: TerminalController? = nil
 
     /// The "new window" action.
     static func newWindow(
@@ -521,7 +531,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             frame.origin.x = max(screen.frame.origin.x, min(frame.origin.x, screen.frame.maxX - newWidth))
             frame.origin.y = max(screen.frame.origin.y, min(frame.origin.y, screen.frame.maxY - newHeight))
 
-            return frame
+            return adjustForWindowPosition(frame: frame, on: screen)
         }
 
         guard let initialFrame else { return nil }
@@ -539,7 +549,30 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         frame.origin.x = max(screen.frame.origin.x, min(frame.origin.x, screen.frame.maxX - newWidth))
         frame.origin.y = max(screen.frame.origin.y, min(frame.origin.y, screen.frame.maxY - newHeight))
 
-        return frame
+        return adjustForWindowPosition(frame: frame, on: screen)
+    }
+    
+    /// Adjusts the given frame for the configured window position.
+    func adjustForWindowPosition(frame: NSRect, on screen: NSScreen) -> NSRect {
+        guard let x = derivedConfig.windowPositionX else { return frame }
+        guard let y = derivedConfig.windowPositionY else { return frame }
+
+        // Convert top-left coordinates to bottom-left origin using our utility extension
+        let origin = screen.origin(
+            fromTopLeftOffsetX: CGFloat(x),
+            offsetY: CGFloat(y),
+            windowSize: frame.size)
+        
+        // Clamp the origin to ensure the window stays fully visible on screen
+        var safeOrigin = origin
+        let vf = screen.visibleFrame
+        safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
+        safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
+        
+        // Return our new origin
+        var result = frame
+        result.origin = safeOrigin
+        return result
     }
 
     /// This is called anytime a node in the surface tree is being removed.
@@ -1036,6 +1069,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let window {
             LastWindowPosition.shared.save(window)
         }
+        
+        // Remember our last main
+        Self.lastMain = self
     }
 
     // Called when the window will be encoded. We handle the data encoding here in the
@@ -1219,6 +1255,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
+        
+        // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
+        // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
+        // find a better workaround. For now, this improves things dramatically.
+        //
+        // Reproduction: titlebar tabs, create two tabs, "move tab left"
+        if #available(macOS 26, *) {
+            if window is TitlebarTabsTahoeTerminalWindow {
+                tabGroup.removeWindow(selectedWindow)
+                targetWindow.addTabbedWindow(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+                DispatchQueue.main.async {
+                    selectedWindow.makeKey()
+                }
+                
+                return
+            }
+        }
 
         // Begin a group of window operations to minimize visual updates
         NSAnimationContext.beginGrouping()
@@ -1332,12 +1385,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let macosWindowButtons: Ghostty.MacOSWindowButtons
         let macosTitlebarStyle: String
         let maximize: Bool
+        let windowPositionX: Int16?
+        let windowPositionY: Int16?
 
         init() {
             self.backgroundColor = Color(NSColor.windowBackgroundColor)
             self.macosWindowButtons = .visible
             self.macosTitlebarStyle = "system"
             self.maximize = false
+            self.windowPositionX = nil
+            self.windowPositionY = nil
         }
 
         init(_ config: Ghostty.Config) {
@@ -1345,6 +1402,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self.macosWindowButtons = config.macosWindowButtons
             self.macosTitlebarStyle = config.macosTitlebarStyle
             self.maximize = config.maximize
+            self.windowPositionX = config.windowPositionX
+            self.windowPositionY = config.windowPositionY
         }
     }
 }

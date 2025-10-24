@@ -8,7 +8,7 @@ Requires=dbus.socket
 Type=notify-reload
 ReloadSignal=SIGUSR2
 BusName=@APPID@
-ExecStart=@GHOSTTY@ --launched-from=systemd
+ExecStart=@GHOSTTY@ --gtk-single-instance=true --initial-window=false
 
 [Install]
 WantedBy=graphical-session.target

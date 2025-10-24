@@ -33,6 +33,7 @@ const font = @import("font/main.zig");
 const Command = @import("Command.zig");
 const terminal = @import("terminal/main.zig");
 const configpkg = @import("config.zig");
+const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
 const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
@@ -65,6 +66,12 @@ rt_surface: *apprt.runtime.Surface,
 font_grid_key: font.SharedGridSet.Key,
 font_size: font.face.DesiredSize,
 font_metrics: font.Metrics,
+
+/// This keeps track of if the font size was ever modified. If it wasn't,
+/// then config reloading will change the font. If it was manually adjusted,
+/// we don't change it on config reload since we assume the user wants
+/// a specific size.
+font_size_adjusted: bool,
 
 /// The renderer for this surface.
 renderer: Renderer,
@@ -140,6 +147,13 @@ focused: bool = true,
 
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
+
+/// Used to send notifications that long running commands have finished.
+/// Requires that shell integration be active. Should represent a nanosecond
+/// precision timestamp. It does not necessarily need to correspond to the
+/// actual time, but we must be able to compare two subsequent timestamps to get
+/// the wall clock time that has elapsed between timestamps.
+command_timer: ?std.time.Instant = null,
 
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
@@ -254,10 +268,11 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
-    mouse_scroll_multiplier: f64,
+    mouse_reporting: bool,
+    mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
-    macos_option_as_alt: ?configpkg.OptionAsAlt,
+    macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
@@ -274,6 +289,9 @@ const DerivedConfig = struct {
     links: []Link,
     link_previews: configpkg.LinkPreviews,
     scroll_to_bottom: configpkg.Config.ScrollToBottom,
+    notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
+    notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
+    notify_on_command_finish_after: Duration,
 
     const Link = struct {
         regex: oni.Regex,
@@ -288,19 +306,19 @@ const DerivedConfig = struct {
 
         // Build all of our links
         const links = links: {
-            var links = std.ArrayList(Link).init(alloc);
-            defer links.deinit();
+            var links: std.ArrayList(Link) = .empty;
+            defer links.deinit(alloc);
             for (config.link.links.items) |link| {
                 var regex = try link.oniRegex();
                 errdefer regex.deinit();
-                try links.append(.{
+                try links.append(alloc, .{
                     .regex = regex,
                     .action = link.action,
                     .highlight = link.highlight,
                 });
             }
 
-            break :links try links.toOwnedSlice();
+            break :links try links.toOwnedSlice(alloc);
         };
         errdefer {
             for (links) |*link| link.regex.deinit();
@@ -324,6 +342,7 @@ const DerivedConfig = struct {
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
+            .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
@@ -344,6 +363,9 @@ const DerivedConfig = struct {
             .links = links,
             .link_previews = config.@"link-previews",
             .scroll_to_bottom = config.@"scroll-to-bottom",
+            .notify_on_command_finish = config.@"notify-on-command-finish",
+            .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
+            .notify_on_command_finish_after = config.@"notify-on-command-finish-after",
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -514,6 +536,7 @@ pub fn init(
         .rt_surface = rt_surface,
         .font_grid_key = font_grid_key,
         .font_size = font_size,
+        .font_size_adjusted = false,
         .font_metrics = font_grid.metrics,
         .renderer = renderer_impl,
         .renderer_thread = render_thread,
@@ -681,7 +704,22 @@ pub fn init(
             .set_title,
             .{ .title = title },
         );
-    }
+    } else if (command) |cmd| switch (cmd) {
+        // If a user specifies a command it is appropriate to set the title as argv[0]
+        // we know in the case of a direct command it has been supplied by the user
+        .direct => |cmd_str| if (cmd_str.len != 0) {
+            _ = try rt_app.performAction(
+                .{ .surface = self },
+                .set_title,
+                .{ .title = cmd_str[0] },
+            );
+        },
+
+        // We won't set the title in the case the shell expands the command
+        // as that should typically be used to launch a shell which should
+        // set its own titles
+        .shell => {},
+    };
 
     // We are no longer the first surface
     app.first = false;
@@ -863,18 +901,24 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             }, .unlocked);
         },
 
-        .color_change => |change| {
+        .color_change => |change| color_change: {
             // Notify our apprt, but don't send a mode 2031 DSR report
             // because VT sequences were used to change the color.
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .color_change,
                 .{
-                    .kind = switch (change.kind) {
-                        .background => .background,
-                        .foreground => .foreground,
-                        .cursor => .cursor,
+                    .kind = switch (change.target) {
                         .palette => |v| @enumFromInt(v),
+                        .dynamic => |dyn| switch (dyn) {
+                            .foreground => .foreground,
+                            .background => .background,
+                            .cursor => .cursor,
+                            // Unsupported dynamic color change notification type
+                            else => break :color_change,
+                        },
+                        // Special colors aren't supported for change notification
+                        .special => break :color_change,
                     },
                     .r = change.color.r,
                     .g = change.color.g,
@@ -941,6 +985,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .renderer_health => |health| self.updateRendererHealth(health),
 
+        .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
+
         .report_color_scheme => |force| self.reportColorScheme(force),
 
         .present_surface => try self.presentSurface(),
@@ -971,6 +1017,30 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();
         },
+
+        .start_command => {
+            self.command_timer = try .now();
+        },
+
+        .stop_command => |v| timer: {
+            const end: std.time.Instant = try .now();
+            const start = self.command_timer orelse break :timer;
+            self.command_timer = null;
+
+            const duration: Duration = .{ .duration = end.since(start) };
+            log.debug("command took {f}", .{duration});
+
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .command_finished,
+                .{
+                    .exit_code = v,
+                    .duration = duration,
+                },
+            ) catch |err| {
+                log.warn("apprt failed to notify command finish={}", .{err});
+            };
+        },
     }
 }
 
@@ -990,6 +1060,16 @@ fn selectionScrollTick(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     const t: *terminal.Terminal = self.renderer_state.terminal;
+
+    // If our screen changed while this is happening, we stop our
+    // selection scroll.
+    if (self.mouse.left_click_screen != t.active_screen) {
+        self.io.queueMessage(
+            .{ .selection_scroll = false },
+            .locked,
+        );
+        return;
+    }
 
     // Scroll the viewport as required
     try t.scrollViewport(.{ .delta = delta });
@@ -1079,7 +1159,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         // so that we can close the terminal. We close the terminal on
         // any key press that encodes a character.
         t.modes.set(.disable_keyboard, false);
-        t.screen.kitty_keyboard.set(.set, .{});
+        t.screen.kitty_keyboard.set(.set, .disabled);
     }
 
     // Waiting after command we stop here. The terminal is updated, our
@@ -1383,6 +1463,17 @@ fn updateRendererHealth(self: *Surface, health: rendererpkg.Health) void {
     };
 }
 
+/// Called when the scrollbar state changes.
+fn updateScrollbar(self: *Surface, scrollbar: terminal.Scrollbar) void {
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .scrollbar,
+        scrollbar,
+    ) catch |err| {
+        log.warn("failed to notify app of scrollbar change err={}", .{err});
+    };
+}
+
 /// This should be called anytime `config_conditional_state` changes
 /// so that the apprt can reload the configuration.
 fn notifyConfigConditionalState(self: *Surface) void {
@@ -1440,7 +1531,21 @@ pub fn updateConfig(
     // but this is easier and pretty rare so it's not a performance concern.
     //
     // (Calling setFontSize builds and sends a new font grid to the renderer.)
-    try self.setFontSize(self.font_size);
+    try self.setFontSize(font_size: {
+        // If we have manually adjusted the font size, keep it that way.
+        if (self.font_size_adjusted) {
+            log.info("font size manually adjusted, preserving previous size on config reload", .{});
+            break :font_size self.font_size;
+        }
+
+        // If we haven't, then we update to the configured font size.
+        // This allows config changes to update the font size. We used to
+        // never do this but it was a common source of confusion and people
+        // assumed that Ghostty was broken! This logic makes more sense.
+        var size = self.font_size;
+        size.points = std.math.clamp(config.@"font-size", 1.0, 255.0);
+        break :font_size size;
+    });
 
     // We need to store our configs in a heap-allocated pointer so that
     // our messages aren't huge.
@@ -2428,7 +2533,7 @@ fn maybeHandleBinding(
     self.keyboard.bindings = null;
 
     // Attempt to perform the action
-    log.debug("key event binding flags={} action={}", .{
+    log.debug("key event binding flags={} action={f}", .{
         leaf.flags,
         action,
     });
@@ -2546,56 +2651,32 @@ fn encodeKey(
     event: input.KeyEvent,
     insp_ev: ?*inspectorpkg.key.Event,
 ) !?termio.Message.WriteReq {
-    // Build up our encoder. Under different modes and
-    // inputs there are many keybindings that result in no encoding
-    // whatsoever.
-    const enc: input.KeyEncoder = enc: {
-        const option_as_alt: configpkg.OptionAsAlt = self.config.macos_option_as_alt orelse detect: {
-            // Non-macOS doesn't use this value so ignore.
-            if (comptime builtin.os.tag != .macos) break :detect .false;
-
-            // If we don't have alt pressed, it doesn't matter what this
-            // config is so we can just say "false" and break out and avoid
-            // more expensive checks below.
-            if (!event.mods.alt) break :detect .false;
-
-            // Alt is pressed, we're on macOS. We break some encapsulation
-            // here and assume libghostty for ease...
-            break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
-        };
-
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-        const t = &self.io.terminal;
-        break :enc .{
-            .event = event,
-            .macos_option_as_alt = option_as_alt,
-            .alt_esc_prefix = t.modes.get(.alt_esc_prefix),
-            .cursor_key_application = t.modes.get(.cursor_keys),
-            .keypad_key_application = t.modes.get(.keypad_keys),
-            .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
-            .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
-            .kitty_flags = t.screen.kitty_keyboard.current(),
-        };
-    };
-
     const write_req: termio.Message.WriteReq = req: {
+        // Build our encoding options, which requires the lock.
+        const encoding_opts = self.encodeKeyOpts();
+
         // Try to write the input into a small array. This fits almost
         // every scenario. Larger situations can happen due to long
         // pre-edits.
         var data: termio.Message.WriteReq.Small.Array = undefined;
-        if (enc.encode(&data)) |seq| {
+        var writer: std.Io.Writer = .fixed(&data);
+        if (input.key_encode.encode(
+            &writer,
+            event,
+            encoding_opts,
+        )) {
+            const written = writer.buffered();
+
             // Special-case: we did nothing.
-            if (seq.len == 0) return null;
+            if (written.len == 0) return null;
 
             break :req .{ .small = .{
                 .data = data,
-                .len = @intCast(seq.len),
+                .len = @intCast(written.len),
             } };
         } else |err| switch (err) {
             // Means we need to allocate
-            error.OutOfMemory => {},
-            else => return err,
+            error.WriteFailed => {},
         }
 
         // We need to allocate. We allocate double the UTF-8 length
@@ -2604,16 +2685,23 @@ fn encodeKey(
         // typing this where we don't have enough space is a long preedit,
         // and in that case the size we need is exactly the UTF-8 length,
         // so the double is being safe.
-        const buf = try self.alloc.alloc(u8, @max(
-            event.utf8.len * 2,
-            data.len * 2,
-        ));
-        defer self.alloc.free(buf);
+        var alloc_writer: std.Io.Writer.Allocating = try .initCapacity(
+            self.alloc,
+            @max(event.utf8.len * 2, data.len * 2),
+        );
+        defer alloc_writer.deinit();
 
         // This results in a double allocation but this is such an unlikely
         // path the performance impact is unimportant.
-        const seq = try enc.encode(buf);
-        break :req try termio.Message.WriteReq.init(self.alloc, seq);
+        try input.key_encode.encode(
+            &alloc_writer.writer,
+            event,
+            encoding_opts,
+        );
+        break :req try termio.Message.WriteReq.init(
+            self.alloc,
+            alloc_writer.writer.buffered(),
+        );
     };
 
     // Copy the encoded data into the inspector event if we have one.
@@ -2631,6 +2719,28 @@ fn encodeKey(
     }
 
     return write_req;
+}
+
+fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    const t = &self.io.terminal;
+
+    var opts: input.key_encode.Options = .fromTerminal(t);
+    if (comptime builtin.os.tag != .macos) return opts;
+
+    opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
+        // If we don't have alt pressed, it doesn't matter what this
+        // config is so we can just say "false" and break out and avoid
+        // more expensive checks below.
+        if (!self.mouse.mods.alt) break :detect .false;
+
+        // Alt is pressed, we're on macOS. We break some encapsulation
+        // here and assume libghostty for ease...
+        break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
+    };
+
+    return opts;
 }
 
 /// Sends text as-is to the terminal without triggering any keyboard
@@ -2802,7 +2912,7 @@ pub fn scrollCallback(
         // scroll events to pixels by multiplying the wheel tick value and the cell size. This means
         // that a wheel tick of 1 results in single scroll event.
         const yoff_adjusted: f64 = if (scroll_mods.precision)
-            yoff
+            yoff * self.config.mouse_scroll_multiplier.precision
         else yoff_adjusted: {
             // Round out the yoff to an absolute minimum of 1. macos tries to
             // simulate precision scrolling with non precision events by
@@ -2816,7 +2926,7 @@ pub fn scrollCallback(
             else
                 @min(yoff, -1);
 
-            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier;
+            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
         };
 
         // Add our previously saved pending amount to the offset to get the
@@ -2876,7 +2986,7 @@ pub fn scrollCallback(
         // If we have an active mouse reporting mode, clear the selection.
         // The selection can occur if the user uses the shift mod key to
         // override mouse grabbing from the window.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             try self.setSelection(null);
         }
 
@@ -2919,7 +3029,7 @@ pub fn scrollCallback(
         // the normal logic.
 
         // If we're scrolling up or down, then send a mouse event.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             for (0..@abs(y.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (y.direction()) {
@@ -2992,6 +3102,13 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 /// The type of action to report for a mouse event.
 const MouseReportAction = enum { press, release, motion };
 
+/// Returns true if mouse reporting is enabled both in the config and
+/// the terminal state.
+fn isMouseReporting(self: *const Surface) bool {
+    return self.config.mouse_reporting and
+        self.io.terminal.flags.mouse_event != .none;
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
@@ -2999,9 +3116,13 @@ fn mouseReport(
     mods: input.Mods,
     pos: apprt.CursorPos,
 ) !void {
+    // Mouse reporting must be enabled by both config and terminal state
+    assert(self.config.mouse_reporting);
+    assert(self.io.terminal.flags.mouse_event != .none);
+
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
-        .none => return,
+        .none => unreachable, // checked by assert above
 
         // X10 only reports clicks with mouse button 1, 2, 3. We verify
         // the button later.
@@ -3396,7 +3517,7 @@ pub fn mouseButtonCallback(
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        if (self.io.terminal.flags.mouse_event != .none) report: {
+        if (self.isMouseReporting()) report: {
             // If we have shift-pressed and we aren't allowed to capture it,
             // then we do not do a mouse report.
             if (mods.shift and !shift_capture) break :report;
@@ -3933,6 +4054,8 @@ pub fn cursorPosCallback(
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
 
+    // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
+
     // If the position is negative, it is outside our viewport and
     // we need to clear any hover states.
     if (pos.x < 0 or pos.y < 0) {
@@ -3985,7 +4108,7 @@ pub fn cursorPosCallback(
 
     // Stop selection scrolling when inside the viewport within a 1px buffer
     // for fullscreen windows, but only when selection scrolling is active.
-    if (pos.x >= 1 and pos.y >= 1 and self.selection_scroll_active) {
+    if (pos.y >= 1 and self.selection_scroll_active) {
         self.io.queueMessage(
             .{ .selection_scroll = false },
             .locked,
@@ -4032,7 +4155,7 @@ pub fn cursorPosCallback(
     }
 
     // Do a mouse report
-    if (self.io.terminal.flags.mouse_event != .none) report: {
+    if (self.isMouseReporting()) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
         // This only applies if there is a mouse button pressed so that
         // movement reports are not affected.
@@ -4064,6 +4187,12 @@ pub fn cursorPosCallback(
         // count because we don't want to handle selection.
         if (self.mouse.left_click_count == 0) break :select;
 
+        // If our terminal screen changed then we don't process this. We don't
+        // invalidate our pin or mouse state because if the screen switches
+        // back then we can continue our selection.
+        const t: *terminal.Terminal = self.renderer_state.terminal;
+        if (self.mouse.left_click_screen != t.active_screen) break :select;
+
         // All roads lead to requiring a re-render at this point.
         try self.queueRender();
 
@@ -4087,7 +4216,7 @@ pub fn cursorPosCallback(
         }
 
         // Convert to points
-        const screen = &self.renderer_state.terminal.screen;
+        const screen = &t.screen;
         const pin = screen.pages.pin(.{
             .viewport = .{
                 .x = pos_vp.x,
@@ -4631,10 +4760,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             log.debug("increase font size={}", .{clamped_delta});
 
-            var size = self.font_size;
             // Max point size is somewhat arbitrary.
+            var size = self.font_size;
             size.points = @min(size.points + clamped_delta, 255);
             try self.setFontSize(size);
+
+            // Mark that we manually adjusted the font size
+            self.font_size_adjusted = true;
         },
 
         .decrease_font_size => |delta| {
@@ -4646,6 +4778,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var size = self.font_size;
             size.points = @max(1, size.points - clamped_delta);
             try self.setFontSize(size);
+
+            // Mark that we manually adjusted the font size
+            self.font_size_adjusted = true;
         },
 
         .reset_font_size => {
@@ -4654,6 +4789,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var size = self.font_size;
             size.points = self.config.original_font_size;
             try self.setFontSize(size);
+
+            // Reset font size also resets the manual adjustment state
+            self.font_size_adjusted = false;
         },
 
         .set_font_size => |points| {
@@ -4662,6 +4800,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var size = self.font_size;
             size.points = std.math.clamp(points, 1.0, 255.0);
             try self.setFontSize(size);
+
+            // Mark that we manually adjusted the font size
+            self.font_size_adjusted = true;
         },
 
         .prompt_surface_title => return try self.rt_app.performAction(
@@ -4699,12 +4840,27 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }, .unlocked);
         },
 
+        .scroll_to_row => |n| {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                t.screen.scroll(.{ .row = n });
+            }
+
+            try self.queueRender();
+        },
+
         .scroll_to_selection => {
-            self.renderer_state.mutex.lock();
-            defer self.renderer_state.mutex.unlock();
-            const sel = self.io.terminal.screen.selection orelse return false;
-            const tl = sel.topLeft(&self.io.terminal.screen);
-            self.io.terminal.screen.scroll(.{ .pin = tl });
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const sel = self.io.terminal.screen.selection orelse return false;
+                const tl = sel.topLeft(&self.io.terminal.screen);
+                self.io.terminal.screen.scroll(.{ .pin = tl });
+            }
+
+            try self.queueRender();
         },
 
         .scroll_page_up => {
@@ -4901,6 +5057,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle,
         ),
 
+        .toggle_mouse_reporting => {
+            self.config.mouse_reporting = !self.config.mouse_reporting;
+            log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
+
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_command_palette,
@@ -5051,7 +5212,9 @@ fn writeScreenFile(
     defer file.close();
 
     // Screen.dumpString writes byte-by-byte, so buffer it
-    var buf_writer = std.io.bufferedWriter(file.writer());
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    var buf_writer = &file_writer.interface;
 
     // Write the scrollback contents. This requires a lock.
     {
@@ -5101,7 +5264,7 @@ fn writeScreenFile(
         const br = sel.bottomRight(&self.io.terminal.screen);
 
         try self.io.terminal.screen.dumpString(
-            buf_writer.writer(),
+            buf_writer,
             .{
                 .tl = tl,
                 .br = br,
@@ -5198,13 +5361,10 @@ fn completeClipboardPaste(
 ) !void {
     if (data.len == 0) return;
 
-    const critical: struct {
-        bracketed: bool,
-    } = critical: {
+    const encode_opts: input.paste.Options = encode_opts: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-
-        const bracketed = self.io.terminal.modes.get(.bracketed_paste);
+        const opts: input.paste.Options = .fromTerminal(&self.io.terminal);
 
         // If we have paste protection enabled, we detect unsafe pastes and return
         // an error. The error approach allows apprt to attempt to complete the paste
@@ -5220,7 +5380,7 @@ fn completeClipboardPaste(
             // This is set during confirmation usually.
             if (allow_unsafe) break :unsafe false;
 
-            if (bracketed) {
+            if (opts.bracketed) {
                 // If we're bracketed and the paste contains and ending
                 // bracket then something naughty might be going on and we
                 // never trust it.
@@ -5231,7 +5391,7 @@ fn completeClipboardPaste(
                 if (self.config.clipboard_paste_bracketed_safe) break :unsafe false;
             }
 
-            break :unsafe !terminal.isSafePaste(data);
+            break :unsafe !input.paste.isSafe(data);
         };
 
         if (unsafe) {
@@ -5245,55 +5405,32 @@ fn completeClipboardPaste(
             log.warn("error scrolling to bottom err={}", .{err});
         };
 
-        break :critical .{
-            .bracketed = bracketed,
-        };
+        break :encode_opts opts;
     };
 
-    if (critical.bracketed) {
-        // If we're bracketd we write the data as-is to the terminal with
-        // the bracketed paste escape codes around it.
-        self.io.queueMessage(.{
-            .write_stable = "\x1B[200~",
-        }, .unlocked);
+    // Encode the data. In most cases this doesn't require any
+    // copies, so we optimize for that case.
+    var data_duped: ?[]u8 = null;
+    const vecs = input.paste.encode(data, encode_opts) catch |err| switch (err) {
+        error.MutableRequired => vecs: {
+            const buf: []u8 = try self.alloc.dupe(u8, data);
+            errdefer self.alloc.free(buf);
+            data_duped = buf;
+            break :vecs input.paste.encode(buf, encode_opts);
+        },
+    };
+    defer if (data_duped) |v| {
+        // This code path means the data did require a copy and mutation.
+        // We must free it.
+        self.alloc.free(v);
+    };
+
+    for (vecs) |vec| if (vec.len > 0) {
         self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
-            data,
+            vec,
         ), .unlocked);
-        self.io.queueMessage(.{
-            .write_stable = "\x1B[201~",
-        }, .unlocked);
-    } else {
-        // If its not bracketed the input bytes are indistinguishable from
-        // keystrokes, so we must be careful. For example, we must replace
-        // any newlines with '\r'.
-
-        // We just do a heap allocation here because its easy and I don't think
-        // worth the optimization of using small messages.
-        var buf = try self.alloc.alloc(u8, data.len);
-        defer self.alloc.free(buf);
-
-        // This is super, super suboptimal. We can easily make use of SIMD
-        // here, but maybe LLVM in release mode is smart enough to figure
-        // out something clever. Either way, large non-bracketed pastes are
-        // increasingly rare for modern applications.
-        var len: usize = 0;
-        for (data, 0..) |ch, i| {
-            const dch = switch (ch) {
-                '\n' => '\r',
-                '\r' => if (i + 1 < data.len and data[i + 1] == '\n') continue else ch,
-                else => ch,
-            };
-
-            buf[len] = dch;
-            len += 1;
-        }
-
-        self.io.queueMessage(try termio.Message.writeReq(
-            self.alloc,
-            buf[0..len],
-        ), .unlocked);
-    }
+    };
 }
 
 fn completeClipboardReadOSC52(

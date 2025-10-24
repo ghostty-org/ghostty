@@ -11,15 +11,54 @@ struct TerminalCommandPaletteView: View {
 
     /// The configuration so we can lookup keyboard shortcuts.
     @ObservedObject var ghosttyConfig: Ghostty.Config
+    
+    /// The update view model for showing update commands.
+    var updateViewModel: UpdateViewModel?
 
     /// The callback when an action is submitted.
     var onAction: ((String) -> Void)
 
     // The commands available to the command palette.
     private var commandOptions: [CommandOption] {
-        guard let surface = surfaceView.surfaceModel else { return [] }
+        var options: [CommandOption] = []
+        
+        // Add update command if an update is installable. This must always be the first so
+        // it is at the top.
+        if let updateViewModel, updateViewModel.state.isInstallable {
+            // We override the update available one only because we want to properly
+            // convey it'll go all the way through.
+            let title: String
+            if case .updateAvailable = updateViewModel.state {
+                title = "Update Ghostty and Restart"
+            } else {
+                title = updateViewModel.text
+            }
+            
+            options.append(CommandOption(
+                title: title,
+                description: updateViewModel.description,
+                leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
+                badge: updateViewModel.badge,
+                emphasis: true
+            ) {
+                (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
+            })
+        }
+        
+        // Add cancel/skip update command if the update is installable
+        if let updateViewModel, updateViewModel.state.isInstallable {
+            options.append(CommandOption(
+                title: "Cancel or Skip Update",
+                description: "Dismiss the current update process"
+            ) {
+                updateViewModel.state.cancel()
+            })
+        }
+        
+        // Add terminal commands
+        guard let surface = surfaceView.surfaceModel else { return options }
         do {
-            return try surface.commands().map { c in
+            let terminalCommands = try surface.commands().map { c in
                 return CommandOption(
                     title: c.title,
                     description: c.description,
@@ -28,9 +67,12 @@ struct TerminalCommandPaletteView: View {
                     onAction(c.action)
                 }
             }
+            options.append(contentsOf: terminalCommands)
         } catch {
-            return []
+            return options
         }
+        
+        return options
     }
 
     var body: some View {

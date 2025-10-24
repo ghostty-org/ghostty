@@ -1,0 +1,19 @@
+#!/usr/bin/env nu
+
+# Check if a given commit SHA has a corresponding tip release.
+#
+# This does not validate that the commit SHA is valid for the
+# Ghostty repository, only that a tip release exists for it.
+def main [
+  commit: string, # The full length commit SHA 
+] {
+  let url = $"https://tip.files.ghostty.org/($commit)/ghostty-macos-universal.zip"
+
+  try {
+    http head $url
+    exit 0
+  } catch {
+    print -e $"The SHA ($commit) does not have a corresponding tip release."
+    exit 1
+  }
+}

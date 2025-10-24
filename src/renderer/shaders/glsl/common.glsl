@@ -102,7 +102,7 @@ vec4 contrasted_color(float min_ratio, vec4 fg, vec4 bg) {
         if (white_ratio > black_ratio) {
             return vec4(1.0);
         } else {
-            return vec4(0.0);
+            return vec4(0.0, 0.0, 0.0, 1.0);
         }
     }
 

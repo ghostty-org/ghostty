@@ -48,6 +48,9 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
+    
+    /// Set if the terminal view should show the update overlay.
+    @Published var updateOverlayIsVisible: Bool = false
 
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
@@ -231,6 +234,21 @@ class BaseTerminalController: NSWindowController,
             undoAction: "New Split")
 
         return newView
+    }
+
+    /// Move focus to a surface view.
+    func focusSurface(_ view: Ghostty.SurfaceView) {
+        // Check if target surface is in our tree
+        guard surfaceTree.contains(view) else { return }
+
+        // Move focus to the target surface and activate the window/app
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view)
+            view.window?.makeKeyAndOrderFront(nil)
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 
     /// Called when the surfaceTree variable changed.
@@ -551,23 +569,12 @@ class BaseTerminalController: NSWindowController,
         // Get the direction from the notification
         guard let directionAny = notification.userInfo?[Ghostty.Notification.SplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
-        
-        // Convert Ghostty.SplitFocusDirection to our SplitTree.FocusDirection
-        let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection
-        switch direction {
-        case .previous: focusDirection = .previous
-        case .next: focusDirection = .next
-        case .up: focusDirection = .spatial(.up)
-        case .down: focusDirection = .spatial(.down)
-        case .left: focusDirection = .spatial(.left)
-        case .right: focusDirection = .spatial(.right)
-        }
 
         // Find the node for the target surface
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
         
         // Find the next surface to focus
-        guard let nextSurface = surfaceTree.focusTarget(for: focusDirection, from: targetNode) else {
+        guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
             return
         }
 
@@ -688,6 +695,8 @@ class BaseTerminalController: NSWindowController,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
+                .combineLatest(titleSurface.$bell)
+                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -695,8 +704,17 @@ class BaseTerminalController: NSWindowController,
             titleDidChange(to: "👻")
         }
     }
+    
+    private func computeTitle(title: String, bell: Bool) -> String {
+        var result = title
+        if (bell && ghostty.config.bellFeatures.contains(.title)) {
+            result = "🔔 \(result)"
+        }
 
-    func titleDidChange(to: String) {
+        return result
+    }
+
+    private func titleDidChange(to: String) {
         guard let window else { return }
         
         // Set the main window title
@@ -717,6 +735,10 @@ class BaseTerminalController: NSWindowController,
 
     func cellSizeDidChange(to: NSSize) {
         guard derivedConfig.windowStepResize else { return }
+        // Stage manager can sometimes present windows in such a way that the
+        // cell size is temporarily zero due to the window being tiny. We can't
+        // set content resize increments to this value, so avoid an assertion failure.
+        guard to.width > 0 && to.height > 0 else { return }
         self.window?.contentResizeIncrements = to
     }
 
@@ -788,7 +810,18 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    func fullscreenDidChange() {}
+    func fullscreenDidChange() {
+        guard let fullscreenStyle else { return }
+        
+        // When we enter fullscreen, we want to show the update overlay so that it
+        // is easily visible. For native fullscreen this is visible by showing the
+        // menubar but we don't want to rely on that.
+        if fullscreenStyle.isFullscreen {
+            updateOverlayIsVisible = true
+        } else {
+            updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+        }
+    }
 
     // MARK: Clipboard Confirmation
 
@@ -863,14 +896,6 @@ class BaseTerminalController: NSWindowController,
         // Everything beyond here is setting up the window
         guard let window else { return }
 
-        // If there is a hardcoded title in the configuration, we set that
-        // immediately. Future `set_title` apprt actions will override this
-        // if necessary but this ensures our window loads with the proper
-        // title immediately rather than on another event loop tick (see #5934)
-        if let title = derivedConfig.title {
-            window.title = title
-        }
-
         // We always initialize our fullscreen style to native if we can because
         // initialization sets up some state (i.e. observers). If its set already
         // somehow we don't do this.
@@ -878,6 +903,28 @@ class BaseTerminalController: NSWindowController,
             fullscreenStyle = NativeFullscreen(window)
             fullscreenStyle?.delegate = self
         }
+        
+        // Set our update overlay state
+        updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+    }
+    
+    func defaultUpdateOverlayVisibility() -> Bool {
+        guard let window else { return true }
+        
+        // No titlebar we always show the update overlay because it can't support
+        // updates in the titlebar
+        guard window.styleMask.contains(.titled) else {
+            return true
+        }
+        
+        // If it's a non terminal window we can't trust it has an update accessory,
+        // so we always want to show the overlay.
+        guard let window = window as? TerminalWindow else {
+            return true
+        }
+        
+        // Show the overlay if the window isn't.
+        return !window.supportsUpdateAccessory
     }
 
     // MARK: NSWindowDelegate
@@ -1072,20 +1119,17 @@ class BaseTerminalController: NSWindowController,
     }
 
     private struct DerivedConfig {
-        let title: String?
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
 
         init() {
-            self.title = nil
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
         }
 
         init(_ config: Ghostty.Config) {
-            self.title = config.title
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse

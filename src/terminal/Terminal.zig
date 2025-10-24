@@ -4,6 +4,7 @@
 const Terminal = @This();
 
 const std = @import("std");
+const build_options = @import("terminal_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -222,7 +223,7 @@ pub fn init(
             .left = 0,
             .right = cols - 1,
         },
-        .pwd = std.ArrayList(u8).init(alloc),
+        .pwd = .empty,
         .modes = .{
             .values = opts.default_modes,
             .default = opts.default_modes,
@@ -234,8 +235,13 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screen.deinit();
     self.secondary_screen.deinit();
-    self.pwd.deinit();
+    self.pwd.deinit(alloc);
     self.* = undefined;
+}
+
+/// The general allocator we should use for this terminal.
+fn gpa(self: *Terminal) Allocator {
+    return self.screen.alloc;
 }
 
 /// Print UTF-8 encoded string to the terminal.
@@ -344,7 +350,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
                 // This only applies to emoji
-                const prev_props = unicode.getProperties(prev.cell.content.codepoint);
+                const prev_props = unicode.table.get(prev.cell.content.codepoint);
                 const emoji = prev_props.grapheme_boundary_class.isExtendedPictographic();
                 if (!emoji) return;
 
@@ -391,6 +397,24 @@ pub fn print(self: *Terminal, c: u21) !void {
                         const cell = self.screen.cursorCellLeft(prev.left - 1);
                         cell.wide = .narrow;
 
+                        // Back track the cursor so that we don't end up with
+                        // an extra space after the character. Since xterm is
+                        // not VS aware, it cannot be used as a reference for
+                        // this behavior; but it does follow the principle of
+                        // least surprise, and also matches the behavior that
+                        // can be observed in Kitty, which is one of the only
+                        // other VS aware terminals.
+                        if (self.screen.cursor.x == right_limit - 1) {
+                            // If we're already at the right edge, we stay
+                            // here and set the pending wrap to false since
+                            // when we pend a wrap, we only move our cursor once
+                            // even for wide chars (tests verify).
+                            self.screen.cursor.pending_wrap = false;
+                        } else {
+                            // Otherwise, move back.
+                            self.screen.cursorLeft(1);
+                        }
+
                         break :narrow;
                     },
 
@@ -415,8 +439,8 @@ pub fn print(self: *Terminal, c: u21) !void {
     // control characters because they're always filtered prior.
     const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
 
-    // Note: it is possible to have a width of "3" and a width of "-1"
-    // from ziglyph. We should look into those cases and handle them
+    // Note: it is possible to have a width of "3" and a width of "-1" from
+    // uucode.x's wcwidth. We should look into those cases and handle them
     // appropriately.
     assert(width <= 2);
     // log.debug("c={x} width={}", .{ c, width });
@@ -452,7 +476,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
-            const prev_props = unicode.getProperties(prev.content.codepoint);
+            const prev_props = unicode.table.get(prev.content.codepoint);
             const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
             if (!emoji) return;
         }
@@ -661,8 +685,10 @@ fn printCell(
 
     // If this is a Kitty unicode placeholder then we need to mark the
     // row so that the renderer can lookup rows with these much faster.
-    if (c == kitty.graphics.unicode.placeholder) {
-        self.screen.cursor.page_row.kitty_virtual_placeholder = true;
+    if (comptime build_options.kitty_graphics) {
+        if (c == kitty.graphics.unicode.placeholder) {
+            self.screen.cursor.page_row.kitty_virtual_placeholder = true;
+        }
     }
 
     // We check for an active hyperlink first because setHyperlink
@@ -1125,8 +1151,10 @@ pub fn index(self: *Terminal) !void {
         self.screen.cursor.x >= self.scrolling_region.left and
         self.screen.cursor.x <= self.scrolling_region.right)
     {
-        // Scrolling dirties the images because it updates their placements pins.
-        self.screen.kitty_images.dirty = true;
+        if (comptime build_options.kitty_graphics) {
+            // Scrolling dirties the images because it updates their placements pins.
+            self.screen.kitty_images.dirty = true;
+        }
 
         // If our scrolling region is at the top, we create scrollback.
         if (self.scrolling_region.top == 0 and
@@ -1454,8 +1482,10 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.screen.kitty_images.dirty = true;
+    }
 
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
@@ -1658,8 +1688,10 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.screen.kitty_images.dirty = true;
+    }
 
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
@@ -2118,12 +2150,14 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             self.screen.cursor.pending_wrap = false;
 
-            // Clear all Kitty graphics state for this screen
-            self.screen.kitty_images.delete(
-                self.screen.alloc,
-                self,
-                .{ .all = true },
-            );
+            if (comptime build_options.kitty_graphics) {
+                // Clear all Kitty graphics state for this screen
+                self.screen.kitty_images.delete(
+                    self.screen.alloc,
+                    self,
+                    .{ .all = true },
+                );
+            }
         },
 
         .complete => {
@@ -2177,12 +2211,14 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             self.screen.cursor.pending_wrap = false;
 
-            // Clear all Kitty graphics state for this screen
-            self.screen.kitty_images.delete(
-                self.screen.alloc,
-                self,
-                .{ .all = true },
-            );
+            if (comptime build_options.kitty_graphics) {
+                // Clear all Kitty graphics state for this screen
+                self.screen.kitty_images.delete(
+                    self.screen.alloc,
+                    self,
+                    .{ .all = true },
+                );
+            }
 
             // Cleared screen dirty bit
             self.flags.dirty.clear = true;
@@ -2500,7 +2536,7 @@ pub fn resize(
 /// Set the pwd for the terminal.
 pub fn setPwd(self: *Terminal, pwd: []const u8) !void {
     self.pwd.clearRetainingCapacity();
-    try self.pwd.appendSlice(pwd);
+    try self.pwd.appendSlice(self.gpa(), pwd);
 }
 
 /// Returns the pwd for the terminal, if any. The memory is owned by the
@@ -2556,10 +2592,12 @@ pub fn switchScreen(self: *Terminal, t: ScreenType) ?*Screen {
     // Clear our selection
     self.screen.clearSelection();
 
-    // Mark kitty images as dirty so they redraw. Without this set
-    // the images will remain where they were (the dirty bit on
-    // the screen only tracks the terminal grid, not the images).
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Mark kitty images as dirty so they redraw. Without this set
+        // the images will remain where they were (the dirty bit on
+        // the screen only tracks the terminal grid, not the images).
+        self.screen.kitty_images.dirty = true;
+    }
 
     // Mark our terminal as dirty to redraw the grid.
     self.flags.dirty.clear = true;
@@ -3348,12 +3386,56 @@ test "Terminal: VS15 to make narrow character" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    try t.print(0x26C8); // Thunder cloud and rain
+    try t.print(0x2614); // Umbrella with rain drops, width=2
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    try t.print(0xFE0E); // VS15 to make narrow
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // VS15 should send us back a cell since our char is no longer wide.
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("☔︎", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2614), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: VS15 on already narrow emoji" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x26C8); // Thunder cloud and rain, width=1
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     t.clearDirty();
     try t.print(0xFE0E); // VS15 to make narrow
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     t.clearDirty();
+
+    // Character takes up one cell
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -3365,6 +3447,48 @@ test "Terminal: VS15 to make narrow character" {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 0x26C8), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: VS15 to make narrow character with pending wrap" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 2 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x2614); // Umbrella with rain drops, width=2
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // We only move one because we're in a pending wrap state.
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    try t.print(0xFE0E); // VS15 to make narrow
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // VS15 should clear the pending wrap state
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("☔︎", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2614), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
         const cps = list_cell.node.data.lookupGrapheme(cell).?;
@@ -3758,6 +3882,8 @@ test "Terminal: print invoke charset single" {
 }
 
 test "Terminal: print kitty unicode placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     var t = try init(testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 

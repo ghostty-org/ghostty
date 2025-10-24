@@ -1,6 +1,6 @@
 app-id: com.mitchellh.ghostty-debug
 runtime: org.gnome.Platform
-runtime-version: "48"
+runtime-version: "49"
 sdk: org.gnome.Sdk
 default-branch: tip
 command: ghostty

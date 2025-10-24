@@ -353,6 +353,7 @@ typedef struct {
 typedef struct {
   const char* ptr;
   uintptr_t len;
+  bool sentinel;
 } ghostty_string_s;
 
 typedef struct {
@@ -738,6 +739,21 @@ typedef struct {
   int8_t progress;
 } ghostty_action_progress_report_s;
 
+// apprt.action.CommandFinished.C
+typedef struct {
+  // -1 if no exit code was reported, otherwise 0-255
+  int16_t exit_code;
+  // number of nanoseconds that command was running for
+  uint64_t duration;
+} ghostty_action_command_finished_s;
+
+// terminal.Scrollbar
+typedef struct {
+  uint64_t total;
+  uint64_t offset;
+  uint64_t len;
+} ghostty_action_scrollbar_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -765,6 +781,7 @@ typedef enum {
   GHOSTTY_ACTION_RESET_WINDOW_SIZE,
   GHOSTTY_ACTION_INITIAL_SIZE,
   GHOSTTY_ACTION_CELL_SIZE,
+  GHOSTTY_ACTION_SCROLLBAR,
   GHOSTTY_ACTION_RENDER,
   GHOSTTY_ACTION_INSPECTOR,
   GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
@@ -794,6 +811,7 @@ typedef enum {
   GHOSTTY_ACTION_SHOW_CHILD_EXITED,
   GHOSTTY_ACTION_PROGRESS_REPORT,
   GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
+  GHOSTTY_ACTION_COMMAND_FINISHED,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -806,6 +824,7 @@ typedef union {
   ghostty_action_size_limit_s size_limit;
   ghostty_action_initial_size_s initial_size;
   ghostty_action_cell_size_s cell_size;
+  ghostty_action_scrollbar_s scrollbar;
   ghostty_action_inspector_e inspector;
   ghostty_action_desktop_notification_s desktop_notification;
   ghostty_action_set_title_s set_title;
@@ -825,6 +844,7 @@ typedef union {
   ghostty_action_close_tab_mode_e close_tab_mode;
   ghostty_surface_message_childexited_s child_exited;
   ghostty_action_progress_report_s progress_report;
+  ghostty_action_command_finished_s command_finished;
 } ghostty_action_u;
 
 typedef struct {

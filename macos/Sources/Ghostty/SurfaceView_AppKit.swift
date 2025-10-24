@@ -509,13 +509,14 @@ extension Ghostty {
             // Make the text field the first responder so it gets focus
             alert.window.initialFirstResponder = textField
             
-            let response = alert.runModal()
-
-            // Check if the user clicked "OK"
-            if response == .alertFirstButtonReturn {
+            let completionHandler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                guard let self else { return }
+                
+                // Check if the user clicked "OK"
+                guard response == .alertFirstButtonReturn  else { return }
+                
                 // Get the input text
                 let newTitle = textField.stringValue
-
                 if newTitle.isEmpty {
                     // Empty means that user wants the title to be set automatically
                     // We also need to reload the config for the "title" property to be
@@ -528,6 +529,16 @@ extension Ghostty {
                     titleFromTerminal = title
                     title = newTitle
                 }
+            }
+
+            // We prefer to run our alert in a sheet modal if we have a window.
+            if let window {
+                alert.beginSheetModal(for: window, completionHandler: completionHandler)
+            } else {
+                // On macOS 26 RC, this codepath results in the "OK" button not being
+                // visible. The above codepath should be taken most times but I'm just
+                // noting this as something I noticed consistently.
+                completionHandler(alert.runModal())
             }
         }
 
@@ -1016,7 +1027,7 @@ extension Ghostty {
 
             // If we are in a keyDown then we don't need to redispatch a command-modded
             // key event (see docs for this field) so reset this to nil because
-            // `interpretKeyEvents` may dispach it.
+            // `interpretKeyEvents` may dispatch it.
             self.lastPerformKeyEvent = nil
 
             self.interpretKeyEvents([translationEvent])
@@ -1521,6 +1532,7 @@ extension Ghostty {
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
+            let scrollbar: Ghostty.Config.Scrollbar
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1528,6 +1540,7 @@ extension Ghostty {
                 self.macosWindowShadow = true
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
+                self.scrollbar = .system
             }
 
             init(_ config: Ghostty.Config) {
@@ -1536,6 +1549,7 @@ extension Ghostty {
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
+                self.scrollbar = config.scrollbar
             }
         }
 
@@ -1804,18 +1818,39 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
         forSendType sendType: NSPasteboard.PasteboardType?,
         returnType: NSPasteboard.PasteboardType?
     ) -> Any? {
-        // Types that we accept sent to us
-        let accepted: [NSPasteboard.PasteboardType] = [.string, .init("public.utf8-plain-text")]
+        // This function confused me a bit so I'm going to add my own commentary on
+        // how this works. macOS sends this callback with the given send/return types and
+        // we must return the responder capable of handling the COMBINATION of those send
+        // and return types (or super up if we can't handle it).
+        //
+        // The "COMBINATION" bit is key: we might get sent a string (we can handle that)
+        // but get requested an image (we can't handle that at the time of writing this),
+        // so we must bubble up.
+        
+        // Types we can receive
+        let receivable: [NSPasteboard.PasteboardType] = [.string, .init("public.utf8-plain-text")]
+        
+        // Types that we can send. Currently the same as receivable but I'm separating
+        // this out so we can modify this in the future.
+        let sendable: [NSPasteboard.PasteboardType] = receivable
+        
+        // The sendable types that require a selection (currently all)
+        let sendableRequiresSelection = sendable
 
-        // We can always receive the accepted types
-        if (returnType == nil || accepted.contains(returnType!)) {
-            return self
-        }
-
-        // If we have a selection we can send the accepted types too
-        if ((self.surface != nil && ghostty_surface_has_selection(self.surface)) &&
-            (sendType == nil || accepted.contains(sendType!))
-        ) {
+        // If we expect no data to be sent/received we can obviously handle it (that's
+        // the nil check), otherwise it must conform to the types we support on both sides.
+        if (returnType == nil || receivable.contains(returnType!)) &&
+            (sendType == nil || sendable.contains(sendType!)) {
+            // If we're expected to send back a type that requires selection, then
+            // verify that we have a selection. We do this within this block because
+            // validateRequestor is called a LOT and we want to prevent unnecessary
+            // performance hits because `ghostty_surface_has_selection` isn't free.
+            if let sendType, sendableRequiresSelection.contains(sendType) {
+                if surface == nil || !ghostty_surface_has_selection(surface) {
+                    return super.validRequestor(forSendType: sendType, returnType: returnType)
+                }
+            }
+            
             return self
         }
 

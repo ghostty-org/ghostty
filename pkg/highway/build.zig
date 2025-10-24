@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const upstream = b.dependency("highway", .{});
+    const upstream_ = b.lazyDependency("highway", .{});
 
     const module = b.addModule("highway", .{
         .root_source_file = b.path("main.zig"),
@@ -21,17 +21,19 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
     lib.linkLibCpp();
-    lib.addIncludePath(upstream.path(""));
-    module.addIncludePath(upstream.path(""));
+    if (upstream_) |upstream| {
+        lib.addIncludePath(upstream.path(""));
+        module.addIncludePath(upstream.path(""));
+    }
 
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         // Avoid changing binaries based on the current time and date.
         "-Wno-builtin-macro-redefined",
         "-D__DATE__=\"redacted\"",
@@ -67,31 +69,33 @@ pub fn build(b: *std.Build) !void {
         "-fno-vectorize",
     });
     if (target.result.os.tag != .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-fmath-errno",
             "-fno-exceptions",
         });
     }
 
     lib.addCSourceFiles(.{ .flags = flags.items, .files = &.{"bridge.cpp"} });
-    lib.addCSourceFiles(.{
-        .root = upstream.path(""),
-        .flags = flags.items,
-        .files = &.{
-            "hwy/abort.cc",
-            "hwy/aligned_allocator.cc",
-            "hwy/nanobenchmark.cc",
-            "hwy/per_target.cc",
-            "hwy/print.cc",
-            "hwy/targets.cc",
-            "hwy/timer.cc",
-        },
-    });
-    lib.installHeadersDirectory(
-        upstream.path("hwy"),
-        "hwy",
-        .{ .include_extensions = &.{".h"} },
-    );
+    if (upstream_) |upstream| {
+        lib.addCSourceFiles(.{
+            .root = upstream.path(""),
+            .flags = flags.items,
+            .files = &.{
+                "hwy/abort.cc",
+                "hwy/aligned_allocator.cc",
+                "hwy/nanobenchmark.cc",
+                "hwy/per_target.cc",
+                "hwy/print.cc",
+                "hwy/targets.cc",
+                "hwy/timer.cc",
+            },
+        });
+        lib.installHeadersDirectory(
+            upstream.path("hwy"),
+            "hwy",
+            .{ .include_extensions = &.{".h"} },
+        );
+    }
 
     b.installArtifact(lib);
 

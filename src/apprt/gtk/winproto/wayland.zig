@@ -12,7 +12,7 @@ const wayland = @import("wayland");
 
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
-const ApprtWindow = @import("../Window.zig");
+const ApprtWindow = @import("../class/window.zig").Window;
 
 const wl = wayland.client.wl;
 const org = wayland.client.org;
@@ -114,11 +114,13 @@ pub const App = struct {
             return false;
         }
 
-        if (self.context.xdg_wm_dialog_present and layer_shell.getLibraryVersion().order(.{
-            .major = 1,
-            .minor = 0,
-            .patch = 4,
-        }) == .lt) {
+        if (self.context.xdg_wm_dialog_present and
+            layer_shell.getLibraryVersion().order(.{
+                .major = 1,
+                .minor = 0,
+                .patch = 4,
+            }) == .lt)
+        {
             log.warn("the version of gtk4-layer-shell installed on your system is too old (must be 1.0.4 or newer); disabling quick terminal", .{});
             return false;
         }
@@ -127,11 +129,8 @@ pub const App = struct {
     }
 
     pub fn initQuickTerminal(_: *App, apprt_window: *ApprtWindow) !void {
-        const window = apprt_window.window.as(gtk.Window);
-
+        const window = apprt_window.as(gtk.Window);
         layer_shell.initForWindow(window);
-        layer_shell.setLayer(window, .top);
-        layer_shell.setNamespace(window, "ghostty-quick-terminal");
     }
 
     fn getInterfaceType(comptime field: std.builtin.Type.StructField) ?type {
@@ -257,7 +256,7 @@ pub const Window = struct {
     ) !Window {
         _ = alloc;
 
-        const gtk_native = apprt_window.window.as(gtk.Native);
+        const gtk_native = apprt_window.as(gtk.Native);
         const gdk_surface = gtk_native.getSurface() orelse return error.NotWaylandSurface;
 
         // This should never fail, because if we're being called at this point
@@ -364,7 +363,11 @@ pub const Window = struct {
     /// Update the blur state of the window.
     fn syncBlur(self: *Window) !void {
         const manager = self.app_context.kde_blur_manager orelse return;
-        const blur = self.apprt_window.config.background_blur;
+        const config = if (self.apprt_window.getConfig()) |v|
+            v.get()
+        else
+            return;
+        const blur = config.@"background-blur";
 
         if (self.blur_token) |tok| {
             // Only release token when transitioning from blurred -> not blurred
@@ -392,7 +395,7 @@ pub const Window = struct {
     }
 
     fn getDecorationMode(self: Window) org.KdeKwinServerDecorationManager.Mode {
-        return switch (self.apprt_window.config.window_decoration) {
+        return switch (self.apprt_window.getWindowDecoration()) {
             .auto => self.app_context.default_deco_mode orelse .Client,
             .client => .Client,
             .server => .Server,
@@ -401,12 +404,23 @@ pub const Window = struct {
     }
 
     fn syncQuickTerminal(self: *Window) !void {
-        const window = self.apprt_window.window.as(gtk.Window);
-        const config = &self.apprt_window.config;
+        const window = self.apprt_window.as(gtk.Window);
+        const config = if (self.apprt_window.getConfig()) |v|
+            v.get()
+        else
+            return;
+
+        layer_shell.setLayer(window, switch (config.@"gtk-quick-terminal-layer") {
+            .overlay => .overlay,
+            .top => .top,
+            .bottom => .bottom,
+            .background => .background,
+        });
+        layer_shell.setNamespace(window, config.@"gtk-quick-terminal-namespace");
 
         layer_shell.setKeyboardMode(
             window,
-            switch (config.quick_terminal_keyboard_interactivity) {
+            switch (config.@"quick-terminal-keyboard-interactivity") {
                 .none => .none,
                 .@"on-demand" => on_demand: {
                     if (layer_shell.getProtocolVersion() < 4) {
@@ -419,7 +433,7 @@ pub const Window = struct {
             },
         );
 
-        const anchored_edge: ?layer_shell.ShellEdge = switch (config.quick_terminal_position) {
+        const anchored_edge: ?layer_shell.ShellEdge = switch (config.@"quick-terminal-position") {
             .left => .left,
             .right => .right,
             .top => .top,
@@ -470,14 +484,14 @@ pub const Window = struct {
         monitor: *gdk.Monitor,
         apprt_window: *ApprtWindow,
     ) callconv(.c) void {
-        const window = apprt_window.window.as(gtk.Window);
-        const config = &apprt_window.config;
+        const window = apprt_window.as(gtk.Window);
+        const config = if (apprt_window.getConfig()) |v| v.get() else return;
 
         var monitor_size: gdk.Rectangle = undefined;
         monitor.getGeometry(&monitor_size);
 
-        const dims = config.quick_terminal_size.calculate(
-            config.quick_terminal_position,
+        const dims = config.@"quick-terminal-size".calculate(
+            config.@"quick-terminal-position",
             .{
                 .width = @intCast(monitor_size.f_width),
                 .height = @intCast(monitor_size.f_height),

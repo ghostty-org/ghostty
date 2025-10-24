@@ -10,6 +10,7 @@ pub const Action = enum {
     @"grapheme-break",
     @"terminal-parser",
     @"terminal-stream",
+    @"is-symbol",
 
     /// Returns the struct associated with the action. The struct
     /// should have a few decls:
@@ -25,6 +26,7 @@ pub const Action = enum {
             .@"codepoint-width" => @import("CodepointWidth.zig"),
             .@"grapheme-break" => @import("GraphemeBreak.zig"),
             .@"terminal-parser" => @import("TerminalParser.zig"),
+            .@"is-symbol" => @import("IsSymbol.zig"),
         };
     }
 };

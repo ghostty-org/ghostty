@@ -23,7 +23,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertAfter(list: *Self, node: *Node, new_node: *Node) void {
+        pub inline fn insertAfter(list: *Self, node: *Node, new_node: *Node) void {
             new_node.prev = node;
             if (node.next) |next_node| {
                 // Intermediate node.
@@ -42,7 +42,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertBefore(list: *Self, node: *Node, new_node: *Node) void {
+        pub inline fn insertBefore(list: *Self, node: *Node, new_node: *Node) void {
             new_node.next = node;
             if (node.prev) |prev_node| {
                 // Intermediate node.
@@ -60,7 +60,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn append(list: *Self, new_node: *Node) void {
+        pub inline fn append(list: *Self, new_node: *Node) void {
             if (list.last) |last| {
                 // Insert after last.
                 list.insertAfter(last, new_node);
@@ -74,7 +74,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn prepend(list: *Self, new_node: *Node) void {
+        pub inline fn prepend(list: *Self, new_node: *Node) void {
             if (list.first) |first| {
                 // Insert before first.
                 list.insertBefore(first, new_node);
@@ -91,7 +91,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: *Self, node: *Node) void {
+        pub inline fn remove(list: *Self, node: *Node) void {
             if (node.prev) |prev_node| {
                 // Intermediate node.
                 prev_node.next = node.next;
@@ -113,7 +113,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         ///
         /// Returns:
         ///     A pointer to the last node in the list.
-        pub fn pop(list: *Self) ?*Node {
+        pub inline fn pop(list: *Self) ?*Node {
             const last = list.last orelse return null;
             list.remove(last);
             return last;
@@ -123,7 +123,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
         ///
         /// Returns:
         ///     A pointer to the first node in the list.
-        pub fn popFirst(list: *Self) ?*Node {
+        pub inline fn popFirst(list: *Self) ?*Node {
             const first = list.first orelse return null;
             list.remove(first);
             return first;

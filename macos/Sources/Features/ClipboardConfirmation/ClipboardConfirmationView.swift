@@ -45,19 +45,15 @@ struct ClipboardConfirmationView: View {
                     .font(.system(size: 42))
                     .padding()
                     .frame(alignment: .center)
-
+                
                 Text(request.text())
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
-
-            ScrollView {
-                Text(contents)
-                    .textSelection(.enabled)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(.all, 4)
-            }
-
+            
+            TextEditor(text: .constant(contents))
+                .font(.system(.body, design: .monospaced))
+            
             HStack {
                 Spacer()
                 Button(Action.text(.cancel, request)) { onCancel() }

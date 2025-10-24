@@ -5,38 +5,33 @@ const Config = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 
-const apprt = @import("../apprt.zig");
-const font = @import("../font/main.zig");
-const rendererpkg = @import("../renderer.zig");
-const Command = @import("../Command.zig");
-const XCFramework = @import("GhosttyXCFramework.zig");
+const ApprtRuntime = @import("../apprt/runtime.zig").Runtime;
+const FontBackend = @import("../font/backend.zig").Backend;
+const RendererBackend = @import("../renderer/backend.zig").Backend;
+const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
+const XCFrameworkTarget = @import("xcframework.zig").Target;
 const WasmTarget = @import("../os/wasm/target.zig").Target;
+const expandPath = @import("../os/path.zig").expand;
 
 const gtk = @import("gtk.zig");
 const GitVersion = @import("GitVersion.zig");
 
-/// The version of the next release.
-///
-/// TODO: When Zig 0.14 is released, derive this from build.zig.zon directly.
-/// Until then this MUST match build.zig.zon and should always be the
-/// _next_ version to release.
-const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 4 };
-
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
-xcframework_target: XCFramework.Target = .universal,
+xcframework_target: XCFrameworkTarget = .universal,
 wasm_target: WasmTarget,
 
 /// Comptime interfaces
-app_runtime: apprt.Runtime = .none,
-renderer: rendererpkg.Impl = .opengl,
-font_backend: font.Backend = .freetype,
+app_runtime: ApprtRuntime = .none,
+renderer: RendererBackend = .opengl,
+font_backend: FontBackend = .freetype,
 
 /// Feature flags
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
+simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
 
@@ -51,6 +46,7 @@ patch_rpath: ?[]const u8 = null,
 
 /// Artifacts
 flatpak: bool = false,
+snap: bool = false,
 emit_bench: bool = false,
 emit_docs: bool = false,
 emit_exe: bool = false,
@@ -59,13 +55,15 @@ emit_macos_app: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
 emit_test_exe: bool = false,
+emit_themes: bool = false,
 emit_xcframework: bool = false,
 emit_webdata: bool = false,
+emit_unicode_table_gen: bool = false,
 
 /// Environmental properties
 env: std.process.EnvMap,
 
-pub fn init(b: *std.Build) !Config {
+pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
     const optimize = b.standardOptimizeOption(.{});
@@ -117,7 +115,7 @@ pub fn init(b: *std.Build) !Config {
     //---------------------------------------------------------------
     // Target-specific properties
     config.xcframework_target = b.option(
-        XCFramework.Target,
+        XCFrameworkTarget,
         "xcframework-target",
         "The target for the xcframework.",
     ) orelse .universal;
@@ -125,22 +123,22 @@ pub fn init(b: *std.Build) !Config {
     //---------------------------------------------------------------
     // Comptime Interfaces
     config.font_backend = b.option(
-        font.Backend,
+        FontBackend,
         "font-backend",
         "The font backend to use for discovery and rasterization.",
-    ) orelse font.Backend.default(target.result, wasm_target);
+    ) orelse FontBackend.default(target.result, wasm_target);
 
     config.app_runtime = b.option(
-        apprt.Runtime,
+        ApprtRuntime,
         "app-runtime",
         "The app runtime to use. Not all values supported on all platforms.",
-    ) orelse apprt.Runtime.default(target.result);
+    ) orelse ApprtRuntime.default(target.result);
 
     config.renderer = b.option(
-        rendererpkg.Impl,
+        RendererBackend,
         "renderer",
         "The app runtime to use. Not all values supported on all platforms.",
-    ) orelse rendererpkg.Impl.default(target.result, wasm_target);
+    ) orelse RendererBackend.default(target.result, wasm_target);
 
     //---------------------------------------------------------------
     // Feature Flags
@@ -149,6 +147,12 @@ pub fn init(b: *std.Build) !Config {
         bool,
         "flatpak",
         "Build for Flatpak (integrates with Flatpak APIs). Only has an effect targeting Linux.",
+    ) orelse false;
+
+    config.snap = b.option(
+        bool,
+        "snap",
+        "Build for Snap (do specific Snap operations). Only has an effect targeting Linux.",
     ) orelse false;
 
     config.sentry = b.option(
@@ -163,6 +167,18 @@ pub fn init(b: *std.Build) !Config {
             // don't have much useful information.
             else => break :sentry false,
         }
+    };
+
+    config.simd = b.option(
+        bool,
+        "simd",
+        "Build with SIMD-accelerated code paths. Results in significant performance improvements.",
+    ) orelse simd: {
+        // We can't build our SIMD dependencies for Wasm. Note that we may
+        // still use SIMD features in the Wasm-builds.
+        if (target.result.cpu.arch.isWasm()) break :simd false;
+
+        break :simd true;
     };
 
     config.wayland = b.option(
@@ -201,6 +217,7 @@ pub fn init(b: *std.Build) !Config {
         // If an explicit version is given, we always use it.
         try std.SemanticVersion.parse(v)
     else version: {
+        const app_version = try std.SemanticVersion.parse(appVersion);
         // If no explicit version is given, we try to detect it from git.
         const vsn = GitVersion.detect(b) catch |err| switch (err) {
             // If Git isn't available we just make an unknown dev version.
@@ -299,6 +316,12 @@ pub fn init(b: *std.Build) !Config {
         "Build and install test executables with 'build'",
     ) orelse false;
 
+    config.emit_unicode_table_gen = b.option(
+        bool,
+        "emit-unicode-table-gen",
+        "Build and install executables that generate unicode tables with 'build'",
+    ) orelse false;
+
     config.emit_bench = b.option(
         bool,
         "emit-bench",
@@ -325,7 +348,7 @@ pub fn init(b: *std.Build) !Config {
         if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
-        const path = Command.expandPath(b.allocator, "pandoc") catch
+        const path = expandPath(b.allocator, "pandoc") catch
             break :emit_docs false;
         defer if (path) |p| b.allocator.free(p);
         break :emit_docs path != null;
@@ -351,6 +374,12 @@ pub fn init(b: *std.Build) !Config {
         .Debug => true,
         .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
     };
+
+    config.emit_themes = b.option(
+        bool,
+        "emit-themes",
+        "Install bundled iTerm2-Color-Schemes Ghostty themes",
+    ) orelse true;
 
     config.emit_webdata = b.option(
         bool,
@@ -435,13 +464,15 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
     // support all types.
     step.addOption(bool, "flatpak", self.flatpak);
+    step.addOption(bool, "snap", self.snap);
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
+    step.addOption(bool, "simd", self.simd);
     step.addOption(bool, "i18n", self.i18n);
-    step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
-    step.addOption(font.Backend, "font_backend", self.font_backend);
-    step.addOption(rendererpkg.Impl, "renderer", self.renderer);
+    step.addOption(ApprtRuntime, "app_runtime", self.app_runtime);
+    step.addOption(FontBackend, "font_backend", self.font_backend);
+    step.addOption(RendererBackend, "renderer", self.renderer);
     step.addOption(ExeEntrypoint, "exe_entrypoint", self.exe_entrypoint);
     step.addOption(WasmTarget, "wasm_target", self.wasm_target);
     step.addOption(bool, "wasm_shared", self.wasm_shared);
@@ -453,7 +484,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(std.SemanticVersion, "app_version", self.version);
     step.addOption([:0]const u8, "app_version_string", try std.fmt.bufPrintZ(
         &buf,
-        "{}",
+        "{f}",
         .{self.version},
     ));
     step.addOption(
@@ -465,6 +496,24 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
             break :channel .tip;
         },
     );
+}
+
+/// Returns the build options for the terminal module. This assumes a
+/// Ghostty executable being built. Callers should modify this as needed.
+pub fn terminalOptions(self: *const Config) TerminalBuildOptions {
+    return .{
+        .artifact = .ghostty,
+        .simd = self.simd,
+        .oniguruma = true,
+        .c_abi = false,
+        .slow_runtime_safety = switch (self.optimize) {
+            .Debug => true,
+            .ReleaseSafe,
+            .ReleaseSmall,
+            .ReleaseFast,
+            => false,
+        },
+    };
 }
 
 /// Returns a baseline CPU target retaining all the other CPU configs.
@@ -496,9 +545,10 @@ pub fn fromOptions() Config {
 
         .version = options.app_version,
         .flatpak = options.flatpak,
-        .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
-        .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
-        .renderer = std.meta.stringToEnum(rendererpkg.Impl, @tagName(options.renderer)).?,
+        .app_runtime = std.meta.stringToEnum(ApprtRuntime, @tagName(options.app_runtime)).?,
+        .font_backend = std.meta.stringToEnum(FontBackend, @tagName(options.font_backend)).?,
+        .renderer = std.meta.stringToEnum(RendererBackend, @tagName(options.renderer)).?,
+        .snap = options.snap,
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,

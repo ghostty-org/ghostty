@@ -17,8 +17,8 @@ pub const Dictionary = opaque {
 
         return @as(?*Dictionary, @ptrFromInt(@intFromPtr(c.CFDictionaryCreate(
             null,
-            @constCast(@ptrCast(if (keys) |slice| slice.ptr else null)),
-            @constCast(@ptrCast(if (values) |slice| slice.ptr else null)),
+            @ptrCast(@constCast(if (keys) |slice| slice.ptr else null)),
+            @ptrCast(@constCast(if (values) |slice| slice.ptr else null)),
             @intCast(if (keys) |slice| slice.len else 0),
             &c.kCFTypeDictionaryKeyCallBacks,
             &c.kCFTypeDictionaryValueCallBacks,

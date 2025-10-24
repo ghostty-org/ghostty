@@ -38,9 +38,11 @@ pub const Shaper = switch (options.backend) {
 /// for a shaping call. Note all terminal cells may be present; only
 /// cells that have a glyph that needs to be rendered.
 pub const Cell = struct {
-    /// The column that this cell occupies. Since a set of shaper cells is
-    /// always on the same line, only the X is stored. It is expected the
-    /// caller has access to the original screen cell.
+    /// The X position of this shaper cell relative to the offset of the
+    /// run. Because runs are always within a single row, it is expected
+    /// that the caller can reconstruct the full position of the cell by
+    /// using the known Y position of the cell and adding the X position
+    /// to the run offset.
     x: u16,
 
     /// An additional offset to apply to the rendering.

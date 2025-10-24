@@ -21,13 +21,8 @@ class QuickTerminalController: BaseTerminalController {
     // The active space when the quick terminal was last shown.
     private var previousActiveSpace: CGSSpace? = nil
 
-    /// The window frame saved when the quick terminal's surface tree becomes empty.
-    ///
-    /// This preserves the user's window size and position when all terminal surfaces
-    /// are closed (e.g., via the `exit` command). When a new surface is created,
-    /// the window will be restored to this frame, preventing SwiftUI from resetting
-    /// the window to its default minimum size.
-    private var lastClosedFrame: NSRect? = nil
+    /// Cache for per-screen window state.
+    private let screenStateCache = QuickTerminalScreenStateCache()
 
     /// Non-nil if we have hidden dock state.
     private var hiddenDock: HiddenDock? = nil
@@ -37,7 +32,7 @@ class QuickTerminalController: BaseTerminalController {
     
     /// Tracks if we're currently handling a manual resize to prevent recursion
     private var isHandlingResize: Bool = false
-
+    
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -243,6 +238,22 @@ class QuickTerminalController: BaseTerminalController {
 
     // MARK: Base Controller Overrides
 
+    override func focusSurface(_ view: Ghostty.SurfaceView) {
+        if visible {
+            // If we're visible, we just focus the surface as normal.
+            super.focusSurface(view)
+            return
+        }
+        // Check if target surface belongs to this quick terminal
+        guard surfaceTree.contains(view) else { return }
+        // Set the target surface as focused
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view)
+        }
+        // Animation completion handler will handle window/app activation
+        animateIn()
+    }
+
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
@@ -359,16 +370,15 @@ class QuickTerminalController: BaseTerminalController {
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
         
-        // Grab our last closed frame to use, and clear our state since we're animating in.
-        let lastClosedFrame = self.lastClosedFrame
-        self.lastClosedFrame = nil
+        // Grab our last closed frame to use from the cache.
+        let closedFrame = screenStateCache.frame(for: screen)
 
         // Move our window off screen to the initial animation position.
         position.setInitial(
             in: window,
             on: screen,
             terminalSize: derivedConfig.quickTerminalSize,
-            closedFrame: lastClosedFrame)
+            closedFrame: closedFrame)
 
         // We need to set our window level to a high value. In testing, only
         // popUpMenu and above do what we want. This gets it above the menu bar
@@ -403,7 +413,7 @@ class QuickTerminalController: BaseTerminalController {
                 in: window.animator(),
                 on: screen,
                 terminalSize: derivedConfig.quickTerminalSize,
-                closedFrame: lastClosedFrame)
+                closedFrame: closedFrame)
         }, completionHandler: {
             // There is a very minor delay here so waiting at least an event loop tick
             // keeps us safe from the view not being on the window.
@@ -491,8 +501,8 @@ class QuickTerminalController: BaseTerminalController {
         // the user's preferred window size and position for when the quick
         // terminal is reactivated with a new surface. Without this, SwiftUI
         // would reset the window to its minimum content size.
-        if window.frame.width > 0 && window.frame.height > 0 {
-            lastClosedFrame = window.frame
+        if window.frame.width > 0 && window.frame.height > 0, let screen = window.screen {
+            screenStateCache.save(frame: window.frame, for: screen)
         }
 
         // If we hid the dock then we unhide it.
@@ -577,7 +587,6 @@ class QuickTerminalController: BaseTerminalController {
         alert.alertStyle = .warning
         alert.beginSheetModal(for: window)
     }
-
     // MARK: First Responder
 
     @IBAction override func closeWindow(_ sender: Any) {

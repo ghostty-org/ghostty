@@ -88,7 +88,7 @@ pub fn OffsetHashMap(
         /// Initialize a new HashMap with the given capacity and backing
         /// memory. The backing memory must be aligned to base_align.
         pub fn init(buf: OffsetBuf, l: Layout) Self {
-            assert(@intFromPtr(buf.start()) % base_align == 0);
+            assert(base_align.check(@intFromPtr(buf.start())));
 
             const m = Unmanaged.init(buf, l);
             return .{ .metadata = getOffset(
@@ -124,7 +124,11 @@ fn HashMapUnmanaged(
         const header_align = @alignOf(Header);
         const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
         const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-        const base_align = @max(header_align, key_align, val_align);
+        const base_align: mem.Alignment = .fromByteUnits(@max(
+            header_align,
+            key_align,
+            val_align,
+        ));
 
         // This is actually a midway pointer to the single buffer containing
         // a `Header` field, the `Metadata`s and `Entry`s.
@@ -287,7 +291,7 @@ fn HashMapUnmanaged(
         /// Initialize a hash map with a given capacity and a buffer. The
         /// buffer must fit within the size defined by `layoutForCapacity`.
         pub fn init(buf: OffsetBuf, layout: Layout) Self {
-            assert(@intFromPtr(buf.start()) % base_align == 0);
+            assert(base_align.check(@intFromPtr(buf.start())));
 
             // Get all our main pointers
             const metadata_buf = buf.rebase(@sizeOf(Header));
@@ -862,7 +866,11 @@ fn HashMapUnmanaged(
 
             // Our total memory size required is the end of our values
             // aligned to the base required alignment.
-            const total_size = std.mem.alignForward(usize, vals_end, base_align);
+            const total_size = std.mem.alignForward(
+                usize,
+                vals_end,
+                base_align.toByteUnits(),
+            );
 
             // The offsets we actually store in the map are from the
             // metadata pointer so that we can use self.metadata as
@@ -1126,15 +1134,15 @@ test "HashMap put and remove loop in random order" {
     defer alloc.free(buf);
     var map = Map.init(.init(buf), layout);
 
-    var keys = std.ArrayList(u32).init(alloc);
-    defer keys.deinit();
+    var keys: std.ArrayList(u32) = .empty;
+    defer keys.deinit(alloc);
 
     const size = 32;
     const iterations = 100;
 
     var i: u32 = 0;
     while (i < size) : (i += 1) {
-        try keys.append(i);
+        try keys.append(alloc, i);
     }
     var prng = std.Random.DefaultPrng.init(0);
     const random = prng.random();

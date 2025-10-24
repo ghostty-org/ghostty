@@ -3,11 +3,13 @@ const Config = @import("../../config/Config.zig");
 const help_strings = @import("help_strings");
 
 pub fn main() !void {
-    const output = std.io.getStdOut().writer();
-    try genConfig(output);
+    var buffer: [2048]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+    try genConfig(stdout);
 }
 
-pub fn genConfig(writer: anytype) !void {
+pub fn genConfig(writer: *std.Io.Writer) !void {
     // Write the header
     try writer.writeAll(
         \\---
@@ -122,7 +124,7 @@ pub fn genConfig(writer: anytype) !void {
     }
 }
 
-fn endBlock(writer: anytype, block: anytype) !void {
+fn endBlock(writer: *std.Io.Writer, block: anytype) !void {
     if (block) |v| switch (v) {
         .text => {},
         .code => try writer.writeAll("```\n"),

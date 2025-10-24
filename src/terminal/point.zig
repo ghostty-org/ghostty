@@ -56,7 +56,7 @@ pub const Point = union(Tag) {
     screen: Coordinate,
     history: Coordinate,
 
-    pub fn coord(self: Point) Coordinate {
+    pub inline fn coord(self: Point) Coordinate {
         return switch (self) {
             .active,
             .viewport,

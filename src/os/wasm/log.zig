@@ -1,15 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const wasm = @import("../wasm.zig");
-const wasm_target = @import("target.zig");
 
 // Use the correct implementation
-pub const log = if (wasm_target.target) |target| switch (target) {
-    .browser => Browser.log,
-} else @compileError("wasm target required");
+pub const log = Freestanding.log;
 
-/// Browser implementation calls an extern "log" function.
-pub const Browser = struct {
+/// Freestanding implementation calls an extern "log" function.
+pub const Freestanding = struct {
     // The function std.log will call.
     pub fn log(
         comptime level: std.log.Level,

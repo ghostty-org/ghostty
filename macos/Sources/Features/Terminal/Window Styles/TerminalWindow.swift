@@ -5,6 +5,12 @@ import GhosttyKit
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
 /// style and configuration of the window based on the app configuration.
 class TerminalWindow: NSWindow {
+    /// Posted when a terminal window awakes from nib.
+    static let terminalDidAwake = Notification.Name("TerminalWindowDidAwake")
+    
+    /// Posted when a terminal window will close
+    static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
+    
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -14,15 +20,25 @@ class TerminalWindow: NSWindow {
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
+    
+    /// Update notification UI in titlebar
+    private let updateAccessory = NSTitlebarAccessoryViewController()
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
+    
+    /// Whether this window supports the update accessory. If this is false, then views within this
+    /// window should determine how to show update notifications.
+    var supportsUpdateAccessory: Bool {
+        // Native window supports it.
+        true
+    }
 
     /// Gets the terminal controller from the window controller.
     var terminalController: TerminalController? {
         windowController as? TerminalController
     }
-
+    
     // MARK: NSWindow Overrides
 
     override var toolbar: NSToolbar? {
@@ -35,6 +51,9 @@ class TerminalWindow: NSWindow {
     }
 
     override func awakeFromNib() {
+        // Notify that this terminal window has loaded
+        NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
+        
         // This is required so that window restoration properly creates our tabs
         // again. I'm not sure why this is required. If you don't do this, then
         // tabs restore as separate windows.
@@ -49,6 +68,14 @@ class TerminalWindow: NSWindow {
 
         // Setup our initial config
         derivedConfig = .init(config)
+        
+        // If there is a hardcoded title in the configuration, we set that
+        // immediately. Future `set_title` apprt actions will override this
+        // if necessary but this ensures our window loads with the proper
+        // title immediately rather than on another event loop tick (see #5934)
+        if let title = derivedConfig.title {
+            self.title = title
+        }
 
         // If window decorations are disabled, remove our title
         if (!config.windowDecorations) { styleMask.remove(.titled) }
@@ -57,8 +84,7 @@ class TerminalWindow: NSWindow {
         // fallback to original centering behavior
         setInitialWindowPosition(
             x: config.windowPositionX,
-            y: config.windowPositionY,
-            windowDecorations: config.windowDecorations)
+            y: config.windowPositionY)
 
         // If our traffic buttons should be hidden, then hide them
         if config.macosWindowButtons == .hidden {
@@ -77,6 +103,17 @@ class TerminalWindow: NSWindow {
                 }))
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            
+            // Create update notification accessory
+            if supportsUpdateAccessory {
+                updateAccessory.layoutAttribute = .right
+                updateAccessory.view = NonDraggableHostingView(rootView: UpdateAccessoryView(
+                    viewModel: viewModel,
+                    model: appDelegate.updateViewModel
+                ))
+                addTitlebarAccessoryViewController(updateAccessory)
+                updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            }
         }
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
@@ -95,6 +132,11 @@ class TerminalWindow: NSWindow {
     // still become key/main and receive events.
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
+    
+    override func close() {
+        NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
+        super.close()
+    }
 
     override func becomeKey() {
         super.becomeKey()
@@ -116,6 +158,12 @@ class TerminalWindow: NSWindow {
         } else {
             tabBarDidDisappear()
         }
+        viewModel.isMainWindow = true
+    }
+
+    override func resignMain() {
+        super.resignMain()
+        viewModel.isMainWindow = false
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -156,7 +204,14 @@ class TerminalWindow: NSWindow {
 
     /// Returns true if there is a tab bar visible on this window.
     var hasTabBar: Bool {
+        // TODO: use titlebarView to find it instead
         contentView?.firstViewFromRoot(withClassName: "NSTabBar") != nil
+    }
+
+    var hasMoreThanOneTabs: Bool {
+        /// accessing ``tabGroup?.windows`` here
+        /// will cause other edge cases, be careful
+        (tabbedWindows?.count ?? 0) > 1
     }
 
     func isTabBar(_ childViewController: NSTitlebarAccessoryViewController) -> Bool {
@@ -190,6 +245,9 @@ class TerminalWindow: NSWindow {
         if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
             removeTitlebarAccessoryViewController(at: idx)
         }
+        
+        // We don't need to do this with the update accessory. I don't know why but
+        // everything works fine.
     }
 
     private func tabBarDidDisappear() {
@@ -252,7 +310,7 @@ class TerminalWindow: NSWindow {
         button.isBordered = false
         button.allowsExpansionToolTips = true
         button.toolTip = "Reset Zoom"
-        button.contentTintColor = .controlAccentColor
+        button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
         button.image = NSImage(named:"ResetZoom")
         button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
@@ -269,6 +327,12 @@ class TerminalWindow: NSWindow {
             // Whenever we change the window title we must also update our
             // tab title if we're using custom fonts.
             tab.attributedTitle = attributedTitle
+            /// We also needs to update this here, just in case
+            /// the value is not what we want
+            ///
+            /// Check ``titlebarFont`` down below
+            /// to see why we need to check `hasMoreThanOneTabs` here
+            titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
         }
     }
 
@@ -278,6 +342,12 @@ class TerminalWindow: NSWindow {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
             titlebarTextField?.font = font
+            /// We check `hasMoreThanOneTabs` here because the system
+            /// may copy this setting to the tab’s text field at some point(e.g. entering/exiting fullscreen),
+            /// which can cause the title to be vertically misaligned (shifted downward).
+            ///
+            /// This behaviour is the opposite of what happens in the title bar’s text field, which is quite odd...
+            titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
             tab.attributedTitle = attributedTitle
         }
     }
@@ -392,7 +462,7 @@ class TerminalWindow: NSWindow {
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
     }
 
-    private func setInitialWindowPosition(x: Int16?, y: Int16?, windowDecorations: Bool) {
+    private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
         guard let x, let y else {
             if (!LastWindowPosition.shared.restore(self)) {
@@ -408,11 +478,14 @@ class TerminalWindow: NSWindow {
             return
         }
 
-        // Orient based on the top left of the primary monitor
-        let frame = screen.visibleFrame
-        setFrameOrigin(.init(
-            x: frame.minX + CGFloat(x),
-            y: frame.maxY - (CGFloat(y) + frame.height)))
+        // We have an X/Y, use our controller function to set it up.
+        guard let terminalController else {
+            center()
+            return
+        }
+        
+        let frame = terminalController.adjustForWindowPosition(frame: frame, on: screen)
+        setFrameOrigin(frame.origin)
     }
 
     private func hideWindowButtons() {
@@ -420,21 +493,24 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
     }
-
+    
     // MARK: Config
 
     struct DerivedConfig {
+        let title: String?
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
 
         init() {
+            self.title = nil
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
         }
 
         init(_ config: Ghostty.Config) {
+            self.title = config.title
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
@@ -448,28 +524,28 @@ extension TerminalWindow {
     class ViewModel: ObservableObject {
         @Published var isSurfaceZoomed: Bool = false
         @Published var hasToolbar: Bool = false
+        @Published var isMainWindow: Bool = true
+
+        /// Calculates the top padding based on toolbar visibility and macOS version
+        fileprivate var accessoryTopPadding: CGFloat {
+            if #available(macOS 26.0, *) {
+                return hasToolbar ? 10 : 5
+            } else {
+                return hasToolbar ? 9 : 4
+            }
+        }
     }
 
     struct ResetZoomAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         let action: () -> Void
-        
-        // The padding from the top that the view appears. This was all just manually
-        // measured based on the OS.
-        var topPadding: CGFloat {
-            if #available(macOS 26.0, *) {
-                return viewModel.hasToolbar ? 10 : 5
-            } else {
-                return viewModel.hasToolbar ? 9 : 4
-            }
-        }
 
         var body: some View {
             if viewModel.isSurfaceZoomed {
                 VStack {
                     Button(action: action) {
                         Image("ResetZoom")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(viewModel.isMainWindow ? .accentColor : .secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Reset Split Zoom")
@@ -478,10 +554,24 @@ extension TerminalWindow {
                 }
                 // With a toolbar, the window title is taller, so we need more padding
                 // to properly align.
-                .padding(.top, topPadding)
+                .padding(.top, viewModel.accessoryTopPadding)
                 // We always need space at the end of the titlebar
                 .padding(.trailing, 10)
             }
         }
     }
+    
+    /// A pill-shaped button that displays update status and provides access to update actions.
+    struct UpdateAccessoryView: View {
+        @ObservedObject var viewModel: ViewModel
+        @ObservedObject var model: UpdateViewModel
+        
+        var body: some View {
+            // We use the same top/trailing padding so that it hugs the same.
+            UpdatePill(model: model)
+                .padding(.top, viewModel.accessoryTopPadding)
+                .padding(.trailing, viewModel.accessoryTopPadding)
+        }
+    }
+
 }

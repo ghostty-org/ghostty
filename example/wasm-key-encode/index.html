@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghostty VT Key Encoder - WebAssembly Example</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+        }
+        .output {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .error {
+            background: #fee;
+            border-color: #faa;
+            color: #c00;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .key-input {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            border: 2px solid #0066cc;
+            border-radius: 4px;
+            margin: 20px 0;
+            box-sizing: border-box;
+        }
+        .key-input:focus {
+            outline: none;
+            border-color: #0052a3;
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+        }
+        .status {
+            color: #666;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .controls {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .controls h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .checkbox-group input[type="checkbox"] {
+            cursor: pointer;
+        }
+        .radio-group {
+            display: flex;
+            gap: 15px;
+        }
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .radio-group input[type="radio"] {
+            cursor: pointer;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #856404;
+        }
+        .warning strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ghostty VT Key Encoder - WebAssembly Example</h1>
+    <p>This example demonstrates encoding key events into terminal escape sequences using the Ghostty VT WebAssembly module.</p>
+    
+    <div class="warning">
+        <strong>⚠️ Warning:</strong>
+        This is an example of the libghostty-vt WebAssembly API. The JavaScript 
+        keyboard event mapping to the libghostty-vt API may not be perfect
+        and may result in encoding inaccuracies for certain keys or layouts.
+        Do not use this as a key encoding reference.
+    </div>
+    
+    <div class="status" id="status">Loading WebAssembly module...</div>
+    
+    <div class="controls">
+        <h3>Key Action</h3>
+        <div class="radio-group">
+            <label><input type="radio" name="action" value="1" checked> Press</label>
+            <label><input type="radio" name="action" value="0"> Release</label>
+            <label><input type="radio" name="action" value="2"> Repeat</label>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <h3>Kitty Keyboard Protocol Flags</h3>
+        <div class="checkbox-group">
+            <label><input type="checkbox" id="flag_disambiguate" checked> Disambiguate</label>
+            <label><input type="checkbox" id="flag_report_events" checked> Report Events</label>
+            <label><input type="checkbox" id="flag_report_alternates" checked> Report Alternates</label>
+            <label><input type="checkbox" id="flag_report_all_as_escapes" checked> Report All As Escapes</label>
+            <label><input type="checkbox" id="flag_report_text" checked> Report Text</label>
+        </div>
+    </div>
+    
+    <input type="text" class="key-input" id="keyInput" placeholder="Focus here and press any key combination (e.g., Ctrl+A, Shift+Enter)..." disabled>
+    
+    <div id="output" class="output">Waiting for key events...</div>
+
+    <p><strong>Note:</strong> This example must be served via HTTP (not opened directly as a file). See the README for instructions.</p>
+
+    <script>
+        let wasmInstance = null;
+        let wasmMemory = null;
+        let encoderPtr = null;
+        let lastKeyEvent = null;
+
+        async function loadWasm() {
+            try {
+                // Load the wasm module - adjust path as needed
+                const response = await fetch('../../zig-out/bin/ghostty-vt.wasm');
+                const wasmBytes = await response.arrayBuffer();
+                
+                // Instantiate the wasm module
+                const wasmModule = await WebAssembly.instantiate(wasmBytes, {
+                    env: {
+                        // Logging function for wasm module
+                        log: (ptr, len) => {
+                            const bytes = new Uint8Array(wasmModule.instance.exports.memory.buffer, ptr, len);
+                            const text = new TextDecoder().decode(bytes);
+                            console.log('[wasm]', text);
+                        }
+                    }
+                });
+                
+                wasmInstance = wasmModule.instance;
+                wasmMemory = wasmInstance.exports.memory;
+                
+                return true;
+            } catch (e) {
+                console.error('Failed to load WASM:', e);
+                if (window.location.protocol === 'file:') {
+                    throw new Error('Cannot load WASM from file:// protocol. Please serve via HTTP (see README)');
+                }
+                return false;
+            }
+        }
+
+        function getBuffer() {
+            return wasmMemory.buffer;
+        }
+
+        function formatHex(bytes) {
+            return Array.from(bytes)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join(' ');
+        }
+
+        function formatString(bytes) {
+            let result = '';
+            for (let i = 0; i < bytes.length; i++) {
+                if (bytes[i] === 0x1b) {
+                    result += '\\x1b';
+                } else {
+                    result += String.fromCharCode(bytes[i]);
+                }
+            }
+            return result;
+        }
+
+        // Map W3C KeyboardEvent.code values to Ghostty key codes
+        // Based on include/ghostty/vt/key/event.h
+        const keyCodeMap = {
+            // Writing System Keys
+            'Backquote': 1,          // GHOSTTY_KEY_BACKQUOTE
+            'Backslash': 2,          // GHOSTTY_KEY_BACKSLASH
+            'BracketLeft': 3,        // GHOSTTY_KEY_BRACKET_LEFT
+            'BracketRight': 4,       // GHOSTTY_KEY_BRACKET_RIGHT
+            'Comma': 5,              // GHOSTTY_KEY_COMMA
+            'Digit0': 6,             // GHOSTTY_KEY_DIGIT_0
+            'Digit1': 7,             // GHOSTTY_KEY_DIGIT_1
+            'Digit2': 8,             // GHOSTTY_KEY_DIGIT_2
+            'Digit3': 9,             // GHOSTTY_KEY_DIGIT_3
+            'Digit4': 10,            // GHOSTTY_KEY_DIGIT_4
+            'Digit5': 11,            // GHOSTTY_KEY_DIGIT_5
+            'Digit6': 12,            // GHOSTTY_KEY_DIGIT_6
+            'Digit7': 13,            // GHOSTTY_KEY_DIGIT_7
+            'Digit8': 14,            // GHOSTTY_KEY_DIGIT_8
+            'Digit9': 15,            // GHOSTTY_KEY_DIGIT_9
+            'Equal': 16,             // GHOSTTY_KEY_EQUAL
+            'IntlBackslash': 17,     // GHOSTTY_KEY_INTL_BACKSLASH
+            'IntlRo': 18,            // GHOSTTY_KEY_INTL_RO
+            'IntlYen': 19,           // GHOSTTY_KEY_INTL_YEN
+            'KeyA': 20,              // GHOSTTY_KEY_A
+            'KeyB': 21,              // GHOSTTY_KEY_B
+            'KeyC': 22,              // GHOSTTY_KEY_C
+            'KeyD': 23,              // GHOSTTY_KEY_D
+            'KeyE': 24,              // GHOSTTY_KEY_E
+            'KeyF': 25,              // GHOSTTY_KEY_F
+            'KeyG': 26,              // GHOSTTY_KEY_G
+            'KeyH': 27,              // GHOSTTY_KEY_H
+            'KeyI': 28,              // GHOSTTY_KEY_I
+            'KeyJ': 29,              // GHOSTTY_KEY_J
+            'KeyK': 30,              // GHOSTTY_KEY_K
+            'KeyL': 31,              // GHOSTTY_KEY_L
+            'KeyM': 32,              // GHOSTTY_KEY_M
+            'KeyN': 33,              // GHOSTTY_KEY_N
+            'KeyO': 34,              // GHOSTTY_KEY_O
+            'KeyP': 35,              // GHOSTTY_KEY_P
+            'KeyQ': 36,              // GHOSTTY_KEY_Q
+            'KeyR': 37,              // GHOSTTY_KEY_R
+            'KeyS': 38,              // GHOSTTY_KEY_S
+            'KeyT': 39,              // GHOSTTY_KEY_T
+            'KeyU': 40,              // GHOSTTY_KEY_U
+            'KeyV': 41,              // GHOSTTY_KEY_V
+            'KeyW': 42,              // GHOSTTY_KEY_W
+            'KeyX': 43,              // GHOSTTY_KEY_X
+            'KeyY': 44,              // GHOSTTY_KEY_Y
+            'KeyZ': 45,              // GHOSTTY_KEY_Z
+            'Minus': 46,             // GHOSTTY_KEY_MINUS
+            'Period': 47,            // GHOSTTY_KEY_PERIOD
+            'Quote': 48,             // GHOSTTY_KEY_QUOTE
+            'Semicolon': 49,         // GHOSTTY_KEY_SEMICOLON
+            'Slash': 50,             // GHOSTTY_KEY_SLASH
+            
+            // Functional Keys
+            'AltLeft': 51,           // GHOSTTY_KEY_ALT_LEFT
+            'AltRight': 52,          // GHOSTTY_KEY_ALT_RIGHT
+            'Backspace': 53,         // GHOSTTY_KEY_BACKSPACE
+            'CapsLock': 54,          // GHOSTTY_KEY_CAPS_LOCK
+            'ContextMenu': 55,       // GHOSTTY_KEY_CONTEXT_MENU
+            'ControlLeft': 56,       // GHOSTTY_KEY_CONTROL_LEFT
+            'ControlRight': 57,      // GHOSTTY_KEY_CONTROL_RIGHT
+            'Enter': 58,             // GHOSTTY_KEY_ENTER
+            'MetaLeft': 59,          // GHOSTTY_KEY_META_LEFT
+            'MetaRight': 60,         // GHOSTTY_KEY_META_RIGHT
+            'ShiftLeft': 61,         // GHOSTTY_KEY_SHIFT_LEFT
+            'ShiftRight': 62,        // GHOSTTY_KEY_SHIFT_RIGHT
+            'Space': 63,             // GHOSTTY_KEY_SPACE
+            'Tab': 64,               // GHOSTTY_KEY_TAB
+            'Convert': 65,           // GHOSTTY_KEY_CONVERT
+            'KanaMode': 66,          // GHOSTTY_KEY_KANA_MODE
+            'NonConvert': 67,        // GHOSTTY_KEY_NON_CONVERT
+            
+            // Control Pad Section
+            'Delete': 68,            // GHOSTTY_KEY_DELETE
+            'End': 69,               // GHOSTTY_KEY_END
+            'Help': 70,              // GHOSTTY_KEY_HELP
+            'Home': 71,              // GHOSTTY_KEY_HOME
+            'Insert': 72,            // GHOSTTY_KEY_INSERT
+            'PageDown': 73,          // GHOSTTY_KEY_PAGE_DOWN
+            'PageUp': 74,            // GHOSTTY_KEY_PAGE_UP
+            
+            // Arrow Pad Section
+            'ArrowDown': 75,         // GHOSTTY_KEY_ARROW_DOWN
+            'ArrowLeft': 76,         // GHOSTTY_KEY_ARROW_LEFT
+            'ArrowRight': 77,        // GHOSTTY_KEY_ARROW_RIGHT
+            'ArrowUp': 78,           // GHOSTTY_KEY_ARROW_UP
+            
+            // Numpad Section
+            'NumLock': 79,           // GHOSTTY_KEY_NUM_LOCK
+            'Numpad0': 80,           // GHOSTTY_KEY_NUMPAD_0
+            'Numpad1': 81,           // GHOSTTY_KEY_NUMPAD_1
+            'Numpad2': 82,           // GHOSTTY_KEY_NUMPAD_2
+            'Numpad3': 83,           // GHOSTTY_KEY_NUMPAD_3
+            'Numpad4': 84,           // GHOSTTY_KEY_NUMPAD_4
+            'Numpad5': 85,           // GHOSTTY_KEY_NUMPAD_5
+            'Numpad6': 86,           // GHOSTTY_KEY_NUMPAD_6
+            'Numpad7': 87,           // GHOSTTY_KEY_NUMPAD_7
+            'Numpad8': 88,           // GHOSTTY_KEY_NUMPAD_8
+            'Numpad9': 89,           // GHOSTTY_KEY_NUMPAD_9
+            'NumpadAdd': 90,         // GHOSTTY_KEY_NUMPAD_ADD
+            'NumpadBackspace': 91,   // GHOSTTY_KEY_NUMPAD_BACKSPACE
+            'NumpadClear': 92,       // GHOSTTY_KEY_NUMPAD_CLEAR
+            'NumpadClearEntry': 93,  // GHOSTTY_KEY_NUMPAD_CLEAR_ENTRY
+            'NumpadComma': 94,       // GHOSTTY_KEY_NUMPAD_COMMA
+            'NumpadDecimal': 95,     // GHOSTTY_KEY_NUMPAD_DECIMAL
+            'NumpadDivide': 96,      // GHOSTTY_KEY_NUMPAD_DIVIDE
+            'NumpadEnter': 97,       // GHOSTTY_KEY_NUMPAD_ENTER
+            'NumpadEqual': 98,       // GHOSTTY_KEY_NUMPAD_EQUAL
+            'NumpadMemoryAdd': 99,   // GHOSTTY_KEY_NUMPAD_MEMORY_ADD
+            'NumpadMemoryClear': 100,// GHOSTTY_KEY_NUMPAD_MEMORY_CLEAR
+            'NumpadMemoryRecall': 101,// GHOSTTY_KEY_NUMPAD_MEMORY_RECALL
+            'NumpadMemoryStore': 102,// GHOSTTY_KEY_NUMPAD_MEMORY_STORE
+            'NumpadMemorySubtract': 103,// GHOSTTY_KEY_NUMPAD_MEMORY_SUBTRACT
+            'NumpadMultiply': 104,   // GHOSTTY_KEY_NUMPAD_MULTIPLY
+            'NumpadParenLeft': 105,  // GHOSTTY_KEY_NUMPAD_PAREN_LEFT
+            'NumpadParenRight': 106, // GHOSTTY_KEY_NUMPAD_PAREN_RIGHT
+            'NumpadSubtract': 107,   // GHOSTTY_KEY_NUMPAD_SUBTRACT
+            'NumpadSeparator': 108,  // GHOSTTY_KEY_NUMPAD_SEPARATOR
+            'NumpadUp': 109,         // GHOSTTY_KEY_NUMPAD_UP
+            'NumpadDown': 110,       // GHOSTTY_KEY_NUMPAD_DOWN
+            'NumpadRight': 111,      // GHOSTTY_KEY_NUMPAD_RIGHT
+            'NumpadLeft': 112,       // GHOSTTY_KEY_NUMPAD_LEFT
+            'NumpadBegin': 113,      // GHOSTTY_KEY_NUMPAD_BEGIN
+            'NumpadHome': 114,       // GHOSTTY_KEY_NUMPAD_HOME
+            'NumpadEnd': 115,        // GHOSTTY_KEY_NUMPAD_END
+            'NumpadInsert': 116,     // GHOSTTY_KEY_NUMPAD_INSERT
+            'NumpadDelete': 117,     // GHOSTTY_KEY_NUMPAD_DELETE
+            'NumpadPageUp': 118,     // GHOSTTY_KEY_NUMPAD_PAGE_UP
+            'NumpadPageDown': 119,   // GHOSTTY_KEY_NUMPAD_PAGE_DOWN
+            
+            // Function Section
+            'Escape': 120,           // GHOSTTY_KEY_ESCAPE
+            'F1': 121,               // GHOSTTY_KEY_F1
+            'F2': 122,               // GHOSTTY_KEY_F2
+            'F3': 123,               // GHOSTTY_KEY_F3
+            'F4': 124,               // GHOSTTY_KEY_F4
+            'F5': 125,               // GHOSTTY_KEY_F5
+            'F6': 126,               // GHOSTTY_KEY_F6
+            'F7': 127,               // GHOSTTY_KEY_F7
+            'F8': 128,               // GHOSTTY_KEY_F8
+            'F9': 129,               // GHOSTTY_KEY_F9
+            'F10': 130,              // GHOSTTY_KEY_F10
+            'F11': 131,              // GHOSTTY_KEY_F11
+            'F12': 132,              // GHOSTTY_KEY_F12
+            'F13': 133,              // GHOSTTY_KEY_F13
+            'F14': 134,              // GHOSTTY_KEY_F14
+            'F15': 135,              // GHOSTTY_KEY_F15
+            'F16': 136,              // GHOSTTY_KEY_F16
+            'F17': 137,              // GHOSTTY_KEY_F17
+            'F18': 138,              // GHOSTTY_KEY_F18
+            'F19': 139,              // GHOSTTY_KEY_F19
+            'F20': 140,              // GHOSTTY_KEY_F20
+            'F21': 141,              // GHOSTTY_KEY_F21
+            'F22': 142,              // GHOSTTY_KEY_F22
+            'F23': 143,              // GHOSTTY_KEY_F23
+            'F24': 144,              // GHOSTTY_KEY_F24
+            'F25': 145,              // GHOSTTY_KEY_F25
+            'Fn': 146,               // GHOSTTY_KEY_FN
+            'FnLock': 147,           // GHOSTTY_KEY_FN_LOCK
+            'PrintScreen': 148,      // GHOSTTY_KEY_PRINT_SCREEN
+            'ScrollLock': 149,       // GHOSTTY_KEY_SCROLL_LOCK
+            'Pause': 150,            // GHOSTTY_KEY_PAUSE
+            
+            // Media Keys
+            'BrowserBack': 151,      // GHOSTTY_KEY_BROWSER_BACK
+            'BrowserFavorites': 152, // GHOSTTY_KEY_BROWSER_FAVORITES
+            'BrowserForward': 153,   // GHOSTTY_KEY_BROWSER_FORWARD
+            'BrowserHome': 154,      // GHOSTTY_KEY_BROWSER_HOME
+            'BrowserRefresh': 155,   // GHOSTTY_KEY_BROWSER_REFRESH
+            'BrowserSearch': 156,    // GHOSTTY_KEY_BROWSER_SEARCH
+            'BrowserStop': 157,      // GHOSTTY_KEY_BROWSER_STOP
+            'Eject': 158,            // GHOSTTY_KEY_EJECT
+            'LaunchApp1': 159,       // GHOSTTY_KEY_LAUNCH_APP_1
+            'LaunchApp2': 160,       // GHOSTTY_KEY_LAUNCH_APP_2
+            'LaunchMail': 161,       // GHOSTTY_KEY_LAUNCH_MAIL
+            'MediaPlayPause': 162,   // GHOSTTY_KEY_MEDIA_PLAY_PAUSE
+            'MediaSelect': 163,      // GHOSTTY_KEY_MEDIA_SELECT
+            'MediaStop': 164,        // GHOSTTY_KEY_MEDIA_STOP
+            'MediaTrackNext': 165,   // GHOSTTY_KEY_MEDIA_TRACK_NEXT
+            'MediaTrackPrevious': 166,// GHOSTTY_KEY_MEDIA_TRACK_PREVIOUS
+            'Power': 167,            // GHOSTTY_KEY_POWER
+            'Sleep': 168,            // GHOSTTY_KEY_SLEEP
+            'AudioVolumeDown': 169,  // GHOSTTY_KEY_AUDIO_VOLUME_DOWN
+            'AudioVolumeMute': 170,  // GHOSTTY_KEY_AUDIO_VOLUME_MUTE
+            'AudioVolumeUp': 171,    // GHOSTTY_KEY_AUDIO_VOLUME_UP
+            'WakeUp': 172,           // GHOSTTY_KEY_WAKE_UP
+            
+            // Legacy, Non-standard, and Special Keys
+            'Copy': 173,             // GHOSTTY_KEY_COPY
+            'Cut': 174,              // GHOSTTY_KEY_CUT
+            'Paste': 175,            // GHOSTTY_KEY_PASTE
+        };
+
+        function encodeKeyEvent(event) {
+            if (!encoderPtr) return null;
+
+            try {
+                // Create key event
+                const eventPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+                const result = wasmInstance.exports.ghostty_key_event_new(0, eventPtrPtr);
+                
+                if (result !== 0) {
+                    throw new Error(`ghostty_key_event_new failed with result ${result}`);
+                }
+                
+                const eventPtr = new DataView(getBuffer()).getUint32(eventPtrPtr, true);
+
+                // Get action from radio buttons
+                const actionRadio = document.querySelector('input[name="action"]:checked');
+                const action = parseInt(actionRadio.value);
+                wasmInstance.exports.ghostty_key_event_set_action(eventPtr, action);
+
+                // Map key code from event.code (preferred, layout-independent)
+                let keyCode = keyCodeMap[event.code] || 0; // GHOSTTY_KEY_UNIDENTIFIED = 0
+                wasmInstance.exports.ghostty_key_event_set_key(eventPtr, keyCode);
+
+                // Map modifiers with left/right side information
+                let mods = 0;
+                if (event.shiftKey) {
+                    mods |= 0x01; // GHOSTTY_MODS_SHIFT
+                    if (event.code === 'ShiftRight') mods |= 0x40; // GHOSTTY_MODS_SHIFT_SIDE
+                }
+                if (event.ctrlKey) {
+                    mods |= 0x02; // GHOSTTY_MODS_CTRL
+                    if (event.code === 'ControlRight') mods |= 0x80; // GHOSTTY_MODS_CTRL_SIDE
+                }
+                if (event.altKey) {
+                    mods |= 0x04; // GHOSTTY_MODS_ALT
+                    if (event.code === 'AltRight') mods |= 0x100; // GHOSTTY_MODS_ALT_SIDE
+                }
+                if (event.metaKey) {
+                    mods |= 0x08; // GHOSTTY_MODS_SUPER
+                    if (event.code === 'MetaRight') mods |= 0x200; // GHOSTTY_MODS_SUPER_SIDE
+                }
+                wasmInstance.exports.ghostty_key_event_set_mods(eventPtr, mods);
+
+                // Set UTF-8 text from the key event (the actual character produced)
+                if (event.key.length === 1) {
+                    const utf8Bytes = new TextEncoder().encode(event.key);
+                    const utf8Ptr = wasmInstance.exports.ghostty_wasm_alloc_buffer(utf8Bytes.length);
+                    new Uint8Array(getBuffer()).set(utf8Bytes, utf8Ptr);
+                    wasmInstance.exports.ghostty_key_event_set_utf8(eventPtr, utf8Ptr, utf8Bytes.length);
+                }
+
+                // Set unshifted codepoint
+                const unshiftedCodepoint = getUnshiftedCodepoint(event);
+                if (unshiftedCodepoint !== 0) {
+                    wasmInstance.exports.ghostty_key_event_set_unshifted_codepoint(eventPtr, unshiftedCodepoint);
+                }
+
+                // Encode the key event
+                const requiredPtr = wasmInstance.exports.ghostty_wasm_alloc_usize();
+                wasmInstance.exports.ghostty_key_encoder_encode(
+                    encoderPtr, eventPtr, 0, 0, requiredPtr
+                );
+                
+                const required = new DataView(getBuffer()).getUint32(requiredPtr, true);
+                
+                const bufPtr = wasmInstance.exports.ghostty_wasm_alloc_buffer(required);
+                const writtenPtr = wasmInstance.exports.ghostty_wasm_alloc_usize();
+                const encodeResult = wasmInstance.exports.ghostty_key_encoder_encode(
+                    encoderPtr, eventPtr, bufPtr, required, writtenPtr
+                );
+                
+                if (encodeResult !== 0) {
+                    return null; // No encoding for this key
+                }
+                
+                const written = new DataView(getBuffer()).getUint32(writtenPtr, true);
+                const encoded = new Uint8Array(getBuffer()).slice(bufPtr, bufPtr + written);
+                
+                return {
+                    bytes: Array.from(encoded),
+                    hex: formatHex(encoded),
+                    string: formatString(encoded)
+                };
+            } catch (e) {
+                console.error('Encoding error:', e);
+                return null;
+            }
+        }
+
+        function getUnshiftedCodepoint(event) {
+            // Derive unshifted codepoint from the physical key code
+            const code = event.code;
+            
+            // Letter keys (KeyA-KeyZ) -> lowercase letters
+            if (code.startsWith('Key')) {
+                const letter = code.substring(3).toLowerCase();
+                return letter.codePointAt(0);
+            }
+            
+            // Digit keys (Digit0-Digit9) -> the digit itself
+            if (code.startsWith('Digit')) {
+                const digit = code.substring(5);
+                return digit.codePointAt(0);
+            }
+            
+            // Space
+            if (code === 'Space') {
+                return ' '.codePointAt(0);
+            }
+            
+            // Symbol keys -> unshifted character
+            const unshiftedSymbols = {
+                'Minus': '-', 'Equal': '=', 'BracketLeft': '[', 'BracketRight': ']',
+                'Backslash': '\\', 'Semicolon': ';', 'Quote': "'",
+                'Backquote': '`', 'Comma': ',', 'Period': '.', 'Slash': '/'
+            };
+            
+            if (unshiftedSymbols[code]) {
+                return unshiftedSymbols[code].codePointAt(0);
+            }
+            
+            // Fallback: use the produced character's codepoint
+            if (event.key.length > 0) {
+                return event.key.codePointAt(0) || 0;
+            }
+            
+            return 0;
+        }
+
+        function getKittyFlags() {
+            let flags = 0;
+            if (document.getElementById('flag_disambiguate').checked) flags |= 0x01;
+            if (document.getElementById('flag_report_events').checked) flags |= 0x02;
+            if (document.getElementById('flag_report_alternates').checked) flags |= 0x04;
+            if (document.getElementById('flag_report_all_as_escapes').checked) flags |= 0x08;
+            if (document.getElementById('flag_report_text').checked) flags |= 0x10;
+            return flags;
+        }
+
+        function updateEncoderFlags() {
+            if (!encoderPtr) return;
+            
+            const flags = getKittyFlags();
+            const flagsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+            new DataView(getBuffer()).setUint8(flagsPtr, flags);
+            wasmInstance.exports.ghostty_key_encoder_setopt(
+                encoderPtr, 
+                5, // GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS
+                flagsPtr
+            );
+            
+            // Re-encode last key with new flags
+            reencodeLastKey();
+        }
+
+        function displayEncoding(event) {
+            const outputDiv = document.getElementById('output');
+            const encoded = encodeKeyEvent(event);
+            
+            const actionRadio = document.querySelector('input[name="action"]:checked');
+            const actionName = actionRadio.parentElement.textContent.trim();
+            
+            let output = `Action: ${actionName}\n`;
+            output += `Key: ${event.key} (code: ${event.code})\n`;
+            output += `Modifiers: `;
+            const mods = [];
+            if (event.shiftKey) mods.push('Shift');
+            if (event.ctrlKey) mods.push('Ctrl');
+            if (event.altKey) mods.push('Alt');
+            if (event.metaKey) mods.push('Meta');
+            output += mods.length ? mods.join('+') : 'none';
+            output += '\n';
+            
+            // Show Kitty flags state
+            const flags = [];
+            if (document.getElementById('flag_disambiguate').checked) flags.push('Disambiguate');
+            if (document.getElementById('flag_report_events').checked) flags.push('Report Events');
+            if (document.getElementById('flag_report_alternates').checked) flags.push('Report Alternates');
+            if (document.getElementById('flag_report_all_as_escapes').checked) flags.push('Report All As Escapes');
+            if (document.getElementById('flag_report_text').checked) flags.push('Report Text');
+            output += 'Kitty Flags:\n';
+            if (flags.length) {
+                flags.forEach(flag => output += `  - ${flag}\n`);
+            } else {
+                output += '  - none\n';
+            }
+            output += '\n';
+            
+            if (encoded) {
+                output += `Encoded ${encoded.bytes.length} bytes\n`;
+                output += `Hex: ${encoded.hex}\n`;
+                output += `String: ${encoded.string}`;
+            } else {
+                output += 'No encoding for this key event';
+            }
+            
+            outputDiv.textContent = output;
+        }
+
+        function handleKeyEvent(event) {
+            // Allow modifier keys to be pressed without clearing input
+            // Only prevent default for keys we want to capture
+            if (event.key !== 'Tab' && event.key !== 'F5') {
+                event.preventDefault();
+            }
+            
+            lastKeyEvent = event;
+            displayEncoding(event);
+        }
+
+        function reencodeLastKey() {
+            if (lastKeyEvent) {
+                displayEncoding(lastKeyEvent);
+            }
+        }
+
+        async function init() {
+            const statusDiv = document.getElementById('status');
+            const keyInput = document.getElementById('keyInput');
+            const outputDiv = document.getElementById('output');
+
+            try {
+                statusDiv.textContent = 'Loading WebAssembly module...';
+                
+                const loaded = await loadWasm();
+                if (!loaded) {
+                    throw new Error('Failed to load WebAssembly module');
+                }
+
+                // Create key encoder
+                const encoderPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+                const result = wasmInstance.exports.ghostty_key_encoder_new(0, encoderPtrPtr);
+                
+                if (result !== 0) {
+                    throw new Error(`ghostty_key_encoder_new failed with result ${result}`);
+                }
+                
+                encoderPtr = new DataView(getBuffer()).getUint32(encoderPtrPtr, true);
+
+                // Set kitty flags based on checkboxes
+                updateEncoderFlags();
+
+                statusDiv.textContent = '';
+                keyInput.disabled = false;
+                keyInput.focus();
+                
+                // Listen for key events (only keydown since action is selected manually)
+                keyInput.addEventListener('keydown', handleKeyEvent);
+                
+                // Listen for flag changes
+                const flagCheckboxes = document.querySelectorAll('.checkbox-group input[type="checkbox"]');
+                flagCheckboxes.forEach(checkbox => {
+                    checkbox.addEventListener('change', updateEncoderFlags);
+                });
+                
+                // Listen for action changes
+                const actionRadios = document.querySelectorAll('input[name="action"]');
+                actionRadios.forEach(radio => {
+                    radio.addEventListener('change', reencodeLastKey);
+                });
+            } catch (e) {
+                statusDiv.textContent = `Error: ${e.message}`;
+                statusDiv.style.color = '#c00';
+                outputDiv.className = 'output error';
+                outputDiv.textContent = `Error: ${e.message}\n\nStack trace:\n${e.stack}`;
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

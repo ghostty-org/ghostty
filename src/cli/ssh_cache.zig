@@ -61,9 +61,30 @@ pub fn run(alloc_gpa: Allocator) !u8 {
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }
 
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_file: std.fs.File = .stdout();
+    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_file: std.fs.File = .stderr();
+    var stderr_writer = stderr_file.writer(&stderr_buffer);
+    const stderr = &stderr_writer.interface;
+
+    const result = runInner(alloc, opts, stdout, stderr);
+
+    // Flushing *shouldn't* fail but...
+    stdout.flush() catch {};
+    stderr.flush() catch {};
+    return result;
+}
+
+pub fn runInner(
+    alloc: Allocator,
+    opts: Options,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
     // Setup our disk cache to the standard location
     const cache_path = try DiskCache.defaultPath(alloc, "ghostty");
     const cache: DiskCache = .{ .path = cache_path };
@@ -165,7 +186,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
 fn listEntries(
     alloc: Allocator,
     entries: *const std.StringHashMap(Entry),
-    writer: anytype,
+    writer: *std.Io.Writer,
 ) !void {
     if (entries.count() == 0) {
         try writer.print("No hosts in cache.\n", .{});
@@ -173,12 +194,12 @@ fn listEntries(
     }
 
     // Sort entries by hostname for consistent output
-    var items = std.ArrayList(Entry).init(alloc);
-    defer items.deinit();
+    var items: std.ArrayList(Entry) = .empty;
+    defer items.deinit(alloc);
 
     var iter = entries.iterator();
     while (iter.next()) |kv| {
-        try items.append(kv.value_ptr.*);
+        try items.append(alloc, kv.value_ptr.*);
     }
 
     std.mem.sort(Entry, items.items, {}, struct {

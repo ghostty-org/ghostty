@@ -3,6 +3,8 @@ const help_strings = @import("help_strings");
 const helpgen_actions = @import("../../input/helpgen_actions.zig");
 
 pub fn main() !void {
-    const output = std.io.getStdOut().writer();
-    try helpgen_actions.generate(output, .markdown, true, std.heap.page_allocator);
+    var buffer: [2048]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+    try helpgen_actions.generate(stdout, .markdown, true, std.heap.page_allocator);
 }

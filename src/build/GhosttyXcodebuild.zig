@@ -31,7 +31,7 @@ pub fn init(
         .ReleaseSafe,
         .ReleaseSmall,
         .ReleaseFast,
-        => "Release",
+        => "ReleaseLocal",
     };
 
     const xc_arch: ?[]const u8 = switch (deps.xcframework.target) {

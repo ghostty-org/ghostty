@@ -39,7 +39,7 @@ jobs:
 
           echo "Version is valid: ${{ github.event.inputs.version }}"
 
-      - name: Exract the Version
+      - name: Extract the Version
         id: extract_version
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
@@ -83,13 +83,13 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a289cf5d2fcd6874376aa92f0ef7f99dc923592a # v1.2.17
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
             /zig
 
-      - uses: cachix/install-nix-action@56a7bb7b56d9a92d4fd1bc05758de7eea4a370a8 # v31.6.0
+      - uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31.8.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
@@ -100,8 +100,10 @@ jobs:
 
       - name: Create Tarball
         run: |
+          rm -rf zig-out/dist
           nix develop -c zig build distcheck
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
+          cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz ghostty-source.tar.gz
 
       - name: Sign Tarball
         run: |
@@ -117,6 +119,8 @@ jobs:
           path: |-
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig
+            ghostty-source.tar.gz
+            ghostty-source.tar.gz.minisig
 
   build-macos:
     needs: [setup]
@@ -139,14 +143,14 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+        run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
       - name: Xcode Version
         run: xcodebuild -version
 
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.1
+          SPARKLE_VERSION: 2.7.3
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -311,7 +315,7 @@ jobs:
 
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.1
+          SPARKLE_VERSION: 2.7.3
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle

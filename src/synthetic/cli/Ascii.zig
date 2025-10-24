@@ -23,7 +23,7 @@ pub fn destroy(self: *Ascii, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn run(self: *Ascii, writer: anytype, rand: std.Random) !void {
+pub fn run(self: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
     _ = self;
 
     var gen: synthetic.Bytes = .{
@@ -31,14 +31,12 @@ pub fn run(self: *Ascii, writer: anytype, rand: std.Random) !void {
         .alphabet = synthetic.Bytes.Alphabet.ascii,
     };
 
-    var buf: [1024]u8 = undefined;
     while (true) {
-        const data = try gen.next(&buf);
-        writer.writeAll(data) catch |err| {
-            const Error = error{ NoSpaceLeft, BrokenPipe } || @TypeOf(err);
+        gen.next(writer, 1024) catch |err| {
+            const Error = error{ WriteFailed, BrokenPipe } || @TypeOf(err);
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed
-                error.NoSpaceLeft => return, // fixed buffer full
+                error.WriteFailed => return, // fixed buffer full
                 else => return err,
             }
         };
@@ -56,8 +54,6 @@ test Ascii {
     const rand = prng.random();
 
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
-
-    try impl.run(writer, rand);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try impl.run(&writer, rand);
 }

@@ -78,10 +78,7 @@ pub const Message = union(enum) {
     password_input: bool,
 
     /// A terminal color was changed using OSC sequences.
-    color_change: struct {
-        kind: terminal.osc.Command.ColorOperation.Kind,
-        color: terminal.color.RGB,
-    },
+    color_change: terminal.osc.color.ColoredTarget,
 
     /// Notifies the surface that a tick of the timer that is timing
     /// out selection scrolling has occurred. "selection scrolling"
@@ -99,6 +96,17 @@ pub const Message = union(enum) {
     /// Report the progress of an action using a GUI element
     progress_report: terminal.osc.Command.ProgressReport,
 
+    /// A command has started in the shell, start a timer.
+    start_command,
+
+    /// A command has finished in the shell, stop the timer and send out
+    /// notifications as appropriate. The optional u8 is the exit code
+    /// of the command.
+    stop_command: ?u8,
+
+    /// The scrollbar state changed for the surface.
+    scrollbar: terminal.Scrollbar,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 
@@ -112,7 +120,6 @@ pub const Message = union(enum) {
         /// Make this a valid gobject if we're in a GTK environment.
         pub const getGObjectType = switch (build_config.app_runtime) {
             .gtk,
-            .@"gtk-ng",
             => @import("gobject").ext.defineBoxed(
                 ChildExited,
                 .{ .name = "GhosttyApprtChildExited" },

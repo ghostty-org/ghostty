@@ -94,6 +94,85 @@ pub const Name = enum(u8) {
     }
 };
 
+/// The "special colors" as denoted by xterm. These can be set via
+/// OSC 5 or via OSC 4 by adding the palette length to it.
+///
+/// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+pub const Special = enum(u3) {
+    bold = 0,
+    underline = 1,
+    blink = 2,
+    reverse = 3,
+    italic = 4,
+
+    pub fn osc4(self: Special) u16 {
+        // "The special colors can also be set by adding the maximum
+        // number of colors (e.g., 88 or 256) to these codes in an
+        // OSC 4  control" - xterm ctlseqs
+        const max = @typeInfo(Palette).array.len;
+        return @as(u16, @intCast(@intFromEnum(self))) + max;
+    }
+
+    test "osc4" {
+        const testing = std.testing;
+        try testing.expectEqual(256, Special.bold.osc4());
+        try testing.expectEqual(257, Special.underline.osc4());
+        try testing.expectEqual(258, Special.blink.osc4());
+        try testing.expectEqual(259, Special.reverse.osc4());
+        try testing.expectEqual(260, Special.italic.osc4());
+    }
+};
+
+test Special {
+    _ = Special;
+}
+
+/// The "dynamic colors" as denoted by xterm. These can be set via
+/// OSC 10 through 19.
+pub const Dynamic = enum(u5) {
+    foreground = 10,
+    background = 11,
+    cursor = 12,
+    pointer_foreground = 13,
+    pointer_background = 14,
+    tektronix_foreground = 15,
+    tektronix_background = 16,
+    highlight_background = 17,
+    tektronix_cursor = 18,
+    highlight_foreground = 19,
+
+    /// The next dynamic color sequentially. This is required because
+    /// specifying colors sequentially without their index will automatically
+    /// use the next dynamic color.
+    ///
+    /// "Each successive parameter changes the next color in the list.  The
+    /// value of Ps tells the starting point in the list."
+    pub fn next(self: Dynamic) ?Dynamic {
+        return std.meta.intToEnum(
+            Dynamic,
+            @intFromEnum(self) + 1,
+        ) catch null;
+    }
+
+    test "next" {
+        const testing = std.testing;
+        try testing.expectEqual(.background, Dynamic.foreground.next());
+        try testing.expectEqual(.cursor, Dynamic.background.next());
+        try testing.expectEqual(.pointer_foreground, Dynamic.cursor.next());
+        try testing.expectEqual(.pointer_background, Dynamic.pointer_foreground.next());
+        try testing.expectEqual(.tektronix_foreground, Dynamic.pointer_background.next());
+        try testing.expectEqual(.tektronix_background, Dynamic.tektronix_foreground.next());
+        try testing.expectEqual(.highlight_background, Dynamic.tektronix_background.next());
+        try testing.expectEqual(.tektronix_cursor, Dynamic.highlight_background.next());
+        try testing.expectEqual(.highlight_foreground, Dynamic.tektronix_cursor.next());
+        try testing.expectEqual(null, Dynamic.highlight_foreground.next());
+    }
+};
+
+test Dynamic {
+    _ = Dynamic;
+}
+
 /// RGB
 pub const RGB = packed struct(u24) {
     r: u8 = 0,

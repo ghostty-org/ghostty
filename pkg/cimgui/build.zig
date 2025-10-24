@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const imgui = b.dependency("imgui", .{});
+    const imgui_ = b.lazyDependency("imgui", .{});
     const lib = b.addLibrary(.{
         .name = "cimgui",
         .root_module = b.createModule(.{
@@ -52,52 +52,53 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    lib.addIncludePath(imgui.path(""));
+    if (imgui_) |imgui| lib.addIncludePath(imgui.path(""));
     module.addIncludePath(b.path("vendor"));
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-DCIMGUI_FREETYPE=1",
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
     });
     if (target.result.os.tag == .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DIMGUI_IMPL_API=extern\t\"C\"\t__declspec(dllexport)",
         });
     } else {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DIMGUI_IMPL_API=extern\t\"C\"",
         });
     }
 
-    lib.addCSourceFile(.{ .file = b.path("vendor/cimgui.cpp"), .flags = flags.items });
-    lib.addCSourceFile(.{ .file = imgui.path("imgui.cpp"), .flags = flags.items });
-    lib.addCSourceFile(.{ .file = imgui.path("imgui_draw.cpp"), .flags = flags.items });
-    lib.addCSourceFile(.{ .file = imgui.path("imgui_demo.cpp"), .flags = flags.items });
-    lib.addCSourceFile(.{ .file = imgui.path("imgui_widgets.cpp"), .flags = flags.items });
-    lib.addCSourceFile(.{ .file = imgui.path("imgui_tables.cpp"), .flags = flags.items });
-    lib.addCSourceFile(.{ .file = imgui.path("misc/freetype/imgui_freetype.cpp"), .flags = flags.items });
-
-    lib.addCSourceFile(.{
-        .file = imgui.path("backends/imgui_impl_opengl3.cpp"),
-        .flags = flags.items,
-    });
-
-    if (target.result.os.tag.isDarwin()) {
-        if (!target.query.isNative()) {
-            try @import("apple_sdk").addPaths(b, lib);
-        }
+    if (imgui_) |imgui| {
+        lib.addCSourceFile(.{ .file = b.path("vendor/cimgui.cpp"), .flags = flags.items });
+        lib.addCSourceFile(.{ .file = imgui.path("imgui.cpp"), .flags = flags.items });
+        lib.addCSourceFile(.{ .file = imgui.path("imgui_draw.cpp"), .flags = flags.items });
+        lib.addCSourceFile(.{ .file = imgui.path("imgui_demo.cpp"), .flags = flags.items });
+        lib.addCSourceFile(.{ .file = imgui.path("imgui_widgets.cpp"), .flags = flags.items });
+        lib.addCSourceFile(.{ .file = imgui.path("imgui_tables.cpp"), .flags = flags.items });
+        lib.addCSourceFile(.{ .file = imgui.path("misc/freetype/imgui_freetype.cpp"), .flags = flags.items });
         lib.addCSourceFile(.{
-            .file = imgui.path("backends/imgui_impl_metal.mm"),
+            .file = imgui.path("backends/imgui_impl_opengl3.cpp"),
             .flags = flags.items,
         });
-        if (target.result.os.tag == .macos) {
+
+        if (target.result.os.tag.isDarwin()) {
+            if (!target.query.isNative()) {
+                try @import("apple_sdk").addPaths(b, lib);
+            }
             lib.addCSourceFile(.{
-                .file = imgui.path("backends/imgui_impl_osx.mm"),
+                .file = imgui.path("backends/imgui_impl_metal.mm"),
                 .flags = flags.items,
             });
+            if (target.result.os.tag == .macos) {
+                lib.addCSourceFile(.{
+                    .file = imgui.path("backends/imgui_impl_osx.mm"),
+                    .flags = flags.items,
+                });
+            }
         }
     }
 

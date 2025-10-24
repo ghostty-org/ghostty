@@ -36,7 +36,7 @@ here:
 | `zig build test`                | Runs unit tests (accepts `-Dtest-filter=<filter>` to only run tests whose name matches the filter)                     |
 | `zig build update-translations` | Updates Ghostty's translation strings (see the [Contributor's Guide on Localizing Ghostty](po/README_CONTRIBUTORS.md)) |
 | `zig build dist`                | Builds a source tarball                                                                                                |
-| `zig build distcheck`           | Installs and validates a source tarball                                                                                |
+| `zig build distcheck`           | Builds and validates a source tarball                                                                                  |
 
 ## Extra Dependencies
 
@@ -50,24 +50,48 @@ macOS users don't require any additional dependencies.
 ## Xcode Version and SDKs
 
 Building the Ghostty macOS app requires that Xcode, the macOS SDK,
-and the iOS SDK are all installed.
+the iOS SDK, and Metal Toolchain are all installed.
 
 A common issue is that the incorrect version of Xcode is either
 installed or selected. Use the `xcode-select` command to
 ensure that the correct version of Xcode is selected:
 
 ```shell-session
-sudo xcode-select --switch /Applications/Xcode-beta.app
+sudo xcode-select --switch /Applications/Xcode.app
 ```
 
 > [!IMPORTANT]
 >
-> Main branch development of Ghostty is preparing for the next major
-> macOS release, Tahoe (macOS 26). Therefore, the main branch requires
-> **Xcode 26 and the macOS 26 SDK**.
+> Main branch development of Ghostty requires **Xcode 26 and the macOS 26 SDK**.
 >
 > You do not need to be running on macOS 26 to build Ghostty, you can
-> still use Xcode 26 beta on macOS 15 stable.
+> still use Xcode 26 on macOS 15 stable.
+
+## AI and Agents
+
+If you're using AI assistance with Ghostty, Ghostty provides an
+[AGENTS.md file](https://github.com/ghostty-org/ghostty/blob/main/AGENTS.md)
+read by most of the popular AI agents to help produce higher quality
+results.
+
+We also provide commands in `.agents/commands` that have some vetted
+prompts for common tasks that have been shown to produce good results.
+We provide these to help reduce the amount of time a contributor has to
+spend prompting the AI to get good results, and hopefully to lower the slop
+produced.
+
+- `/gh-issue <number/url>` - Produces a prompt for diagnosing a GitHub
+  issue, explaining the problem, and suggesting a plan for resolving it.
+  Requires `gh` to be installed with read-only access to Ghostty.
+
+> [!WARNING]
+>
+> All AI assistance usage [must be disclosed](https://github.com/ghostty-org/ghostty/blob/main/CONTRIBUTING.md#ai-assistance-notice)
+> and we expect contributors to understand the code that is produced and
+> be able to answer questions about it. If you don't understand the
+> code produced, feel free to disclose that, but if it has problems, we
+> may ask you to fix it and close the issue. It isn't a maintainers job to
+> review a PR so broken that it requires significant rework to be acceptable.
 
 ## Linting
 
@@ -124,7 +148,7 @@ hash in CI, and builds will fail if it drifts.
 To update it, you can run the following in the repository root:
 
 ```
-./nix/build-support/check-zig-cache-hash.sh --update
+./nix/build-support/check-zig-cache.sh --update
 ```
 
 This will write out the `nix/zigCacheHash.nix` file with the updated hash

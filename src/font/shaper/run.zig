@@ -17,9 +17,15 @@ pub const TextRun = struct {
     /// lower the chance of hash collisions if they become a problem. If
     /// there are hash collisions, it would result in rendering issues but
     /// the core data would be correct.
+    ///
+    /// The hash is position-independent within the row by using relative
+    /// cluster positions. This allows identical runs in different positions
+    /// to share the same cache entry, improving cache efficiency.
     hash: u64,
 
-    /// The offset in the row where this run started
+    /// The offset in the row where this run started. This is added to the
+    /// X position of the final shaped cells to get the absolute position
+    /// in the row where they belong.
     offset: u16,
 
     /// The total number of cells produced by this run.
@@ -77,7 +83,11 @@ pub const RunIterator = struct {
         // Go through cell by cell and accumulate while we build our run.
         var j: usize = self.i;
         while (j < max) : (j += 1) {
-            const cluster = j;
+            // Use relative cluster positions (offset from run start) to make
+            // the shaping cache position-independent. This ensures that runs
+            // with identical content but different starting positions in the
+            // row produce the same hash, enabling cache reuse.
+            const cluster = j - self.i;
             const cell = &cells[j];
 
             // If we have a selection and we're at a boundary point, then
@@ -346,8 +356,8 @@ pub const RunIterator = struct {
         // If this is a grapheme, we need to find a font that supports
         // all of the codepoints in the grapheme.
         const cps = self.opts.row.grapheme(cell) orelse return primary;
-        var candidates = try std.ArrayList(font.Collection.Index).initCapacity(alloc, cps.len + 1);
-        defer candidates.deinit();
+        var candidates: std.ArrayList(font.Collection.Index) = try .initCapacity(alloc, cps.len + 1);
+        defer candidates.deinit(alloc);
         candidates.appendAssumeCapacity(primary);
 
         for (cps) |cp| {

@@ -43,11 +43,15 @@ struct NewTerminalIntent: AppIntent {
     )
     var parent: TerminalEntity?
 
+    // Performing in the background can avoid opening multiple windows at the same time
+    // using `foreground` will cause `perform` and `AppDelegate.applicationDidBecomeActive(_:)`/`AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)` running at the 'same' time
+#if compiler(>=6.2)
     @available(macOS 26.0, *)
-    static var supportedModes: IntentModes = .foreground(.immediate)
+    static var supportedModes: IntentModes = .background
+#endif
 
     @available(macOS, obsoleted: 26.0, message: "Replaced by supportedModes")
-    static var openAppWhenRun = true
+    static var openAppWhenRun = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<TerminalEntity?> {
@@ -96,6 +100,11 @@ struct NewTerminalIntent: AppIntent {
             parent = nil
         }
 
+        defer {
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         switch location {
         case .window:
             let newController = TerminalController.newWindow(
@@ -123,7 +132,8 @@ struct NewTerminalIntent: AppIntent {
 
             if let view = controller.newSplit(
                 at: parent,
-                direction: location.splitDirection!
+                direction: location.splitDirection!,
+                baseConfig: config
             ) {
                 return .result(value: TerminalEntity(view))
             }

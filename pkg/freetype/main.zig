@@ -9,6 +9,7 @@ pub const Library = @import("Library.zig");
 
 pub const Error = errors.Error;
 pub const Face = face.Face;
+pub const LoadFlags = face.LoadFlags;
 pub const Tag = tag.Tag;
 pub const mulFix = computations.mulFix;
 

@@ -21,6 +21,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .omit_frame_pointer = cfg.strip,
             .unwind_tables = if (cfg.strip) .none else .sync,
         }),
+        // Crashes on x86_64 self-hosted on 0.15.1
+        .use_llvm = true,
     });
     const install_step = b.addInstallArtifact(exe, .{});
 

@@ -34,7 +34,7 @@ help() {
   echo "To fix, please (manually) re-run the script from the repository root,"
   echo "commit, and submit a PR with the update:"
   echo ""
-  echo "    ./nix/build-support/check-zig-cache-hash.sh --update"
+  echo "    ./nix/build-support/check-zig-cache.sh --update"
   echo "    git add build.zig.zon.nix build.zig.zon.txt build.zig.zon.json flatpak/zig-packages.json"
   echo "    git commit -m \"nix: update build.zig.zon.nix build.zig.zon.txt build.zig.zon.json flatpak/zig-packages.json\""
   echo ""
@@ -79,7 +79,7 @@ elif [ "$1" != "--update" ]; then
   exit 1
 fi
 
-zon2nix "$BUILD_ZIG_ZON" --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
+zon2nix "$BUILD_ZIG_ZON" --15 --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
 alejandra --quiet "$WORK_DIR/build.zig.zon.nix"
 prettier --log-level warn --write "$WORK_DIR/build.zig.zon.json"
 prettier --log-level warn --write "$WORK_DIR/zig-packages.json"
@@ -118,4 +118,3 @@ else
   echo -e "OK: flatpak/zig-packages.json updated."
   exit 0
 fi
-

@@ -43,7 +43,7 @@ pub const Capability = struct {
 /// Encode as a terminfo source file. The encoding is always done in a
 /// human-readable format with whitespace. Fields are always written in the
 /// order of the slices on this struct; this will not do any reordering.
-pub fn encode(self: Source, writer: anytype) !void {
+pub fn encode(self: Source, writer: *std.Io.Writer) !void {
     // Encode the names in the order specified
     for (self.names, 0..) |name, i| {
         if (i != 0) try writer.writeAll("|");
@@ -115,9 +115,10 @@ pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
                 },
                 .numeric => |v| numeric: {
                     var buf: [10]u8 = undefined;
-                    const num_len = std.fmt.formatIntBuf(&buf, v, 10, .upper, .{});
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    writer.printInt(v, 10, .upper, .{}) catch unreachable;
                     const final = buf;
-                    break :numeric final[0..num_len];
+                    break :numeric final[0..writer.end];
                 },
             },
         };
@@ -229,8 +230,8 @@ test "encode" {
 
     // Encode
     var buf: [1024]u8 = undefined;
-    var buf_stream = std.io.fixedBufferStream(&buf);
-    try src.encode(buf_stream.writer());
+    var writer: std.Io.Writer = .fixed(&buf);
+    try src.encode(&writer);
 
     const expected =
         "ghostty|xterm-ghostty|Ghostty,\n" ++
@@ -238,5 +239,5 @@ test "encode" {
         "\tccc@,\n" ++
         "\tcolors#256,\n" ++
         "\tbel=^G,\n";
-    try std.testing.expectEqualStrings(@as([]const u8, expected), buf_stream.getWritten());
+    try std.testing.expectEqualStrings(@as([]const u8, expected), writer.buffered());
 }

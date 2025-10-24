@@ -22,14 +22,14 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a289cf5d2fcd6874376aa92f0ef7f99dc923592a # v1.2.17
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
             /zig
 
       - name: Setup Nix
-        uses: cachix/install-nix-action@56a7bb7b56d9a92d4fd1bc05758de7eea4a370a8 # v31.6.0
+        uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31.8.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
@@ -39,10 +39,14 @@ jobs:
 
       - name: Run zig fetch
         id: zig_fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          UPSTREAM_REV="$(curl "https://api.github.com/repos/mbadolato/iTerm2-Color-Schemes/commits/master" | jq -r '.sha')"
-          nix develop -c zig fetch --save="iterm2_themes" "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/$UPSTREAM_REV.tar.gz"
-          echo "upstream_rev=$UPSTREAM_REV" >> "$GITHUB_OUTPUT"
+          # Get the latest release from iTerm2-Color-Schemes
+          RELEASE_INFO=$(gh api repos/mbadolato/iTerm2-Color-Schemes/releases/latest)
+          TAG_NAME=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
+          nix develop -c zig fetch --save="iterm2_themes" "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/${TAG_NAME}/ghostty-themes.tgz"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: Update zig cache hash
         run: |
@@ -71,5 +75,5 @@ jobs:
             build.zig.zon.json
             flatpak/zig-packages.json
           body: |
-            Upstream revision: https://github.com/mbadolato/iTerm2-Color-Schemes/tree/${{ steps.zig_fetch.outputs.upstream_rev }}
+            Upstream release: https://github.com/mbadolato/iTerm2-Color-Schemes/releases/tag/${{ steps.zig_fetch.outputs.tag_name }}
           labels: dependencies

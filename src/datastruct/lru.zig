@@ -33,8 +33,13 @@ pub fn HashMap(
 ) type {
     return struct {
         const Self = @This();
-        const Map = std.HashMapUnmanaged(K, *Queue.Node, Context, max_load_percentage);
-        const Queue = std.DoublyLinkedList(KV);
+        const Queue = std.DoublyLinkedList;
+        const Map = std.HashMapUnmanaged(
+            K,
+            *Entry,
+            Context,
+            max_load_percentage,
+        );
 
         /// Map to maintain our entries.
         map: Map,
@@ -45,6 +50,15 @@ pub fn HashMap(
         /// The capacity of our map. If this capacity is reached, cache
         /// misses will begin evicting entries.
         capacity: Map.Size,
+
+        const Entry = struct {
+            data: KV,
+            node: Queue.Node,
+
+            fn fromNode(node: *Queue.Node) *Entry {
+                return @fieldParentPtr("node", node);
+            }
+        };
 
         pub const KV = struct {
             key: K,
@@ -82,7 +96,7 @@ pub fn HashMap(
             var it = self.queue.first;
             while (it) |node| {
                 it = node.next;
-                alloc.destroy(node);
+                alloc.destroy(Entry.fromNode(node));
             }
 
             self.map.deinit(alloc);
@@ -108,8 +122,8 @@ pub fn HashMap(
             const map_gop = try self.map.getOrPutContext(alloc, key, ctx);
             if (map_gop.found_existing) {
                 // Move to end to mark as most recently used
-                self.queue.remove(map_gop.value_ptr.*);
-                self.queue.append(map_gop.value_ptr.*);
+                self.queue.remove(&map_gop.value_ptr.*.node);
+                self.queue.append(&map_gop.value_ptr.*.node);
 
                 return GetOrPutResult{
                     .found_existing = true,
@@ -122,37 +136,34 @@ pub fn HashMap(
             // We're evicting if our map insertion increased our capacity.
             const evict = self.map.count() > self.capacity;
 
-            // Get our node. If we're not evicting then we allocate a new
-            // node. If we are evicting then we avoid allocation by just
-            // reusing the node we would've evicted.
-            var node = if (!evict) try alloc.create(Queue.Node) else node: {
+            // Get our entry. If we're not evicting then we allocate a new
+            // entry. If we are evicting then we avoid allocation by just
+            // reusing the entry we would've evicted.
+            const entry: *Entry = if (!evict) try alloc.create(Entry) else entry: {
                 // Our first node is the least recently used.
-                const least_used = self.queue.first.?;
-
-                // Move our least recently used to the end to make
-                // it the most recently used.
-                self.queue.remove(least_used);
+                const least_used_node = self.queue.popFirst().?;
+                const least_used_entry: *Entry = .fromNode(least_used_node);
 
                 // Remove the least used from the map
-                _ = self.map.remove(least_used.data.key);
+                _ = self.map.remove(least_used_entry.data.key);
 
-                break :node least_used;
+                break :entry least_used_entry;
             };
-            errdefer if (!evict) alloc.destroy(node);
+            errdefer if (!evict) alloc.destroy(entry);
 
-            // Store our node in the map.
-            map_gop.value_ptr.* = node;
+            // Store our entry in the map.
+            map_gop.value_ptr.* = entry;
 
-            // Mark the node as most recently used
-            self.queue.append(node);
+            // Mark the entry as most recently used
+            self.queue.append(&entry.node);
 
             // Set our key
-            node.data.key = key;
+            entry.data.key = key;
 
-            return GetOrPutResult{
+            return .{
                 .found_existing = map_gop.found_existing,
-                .value_ptr = &node.data.value,
-                .evicted = if (!evict) null else node.data,
+                .value_ptr = &entry.data.value,
+                .evicted = if (!evict) null else entry.data,
             };
         }
 
@@ -193,11 +204,12 @@ pub fn HashMap(
 
             var i: Map.Size = 0;
             while (i < delta) : (i += 1) {
-                const node = self.queue.first.?;
-                evicted[i] = node.data.value;
+                const node = self.queue.popFirst().?;
+                const entry: *Entry = .fromNode(node);
+                evicted[i] = entry.data.value;
                 self.queue.remove(node);
-                _ = self.map.remove(node.data.key);
-                alloc.destroy(node);
+                _ = self.map.remove(entry.data.key);
+                alloc.destroy(entry);
             }
 
             self.capacity = capacity;

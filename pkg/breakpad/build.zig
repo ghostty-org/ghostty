@@ -19,9 +19,8 @@ pub fn build(b: *std.Build) !void {
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{});
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
 
     if (b.lazyDependency("breakpad", .{})) |upstream| {
         lib.addIncludePath(upstream.path("src"));

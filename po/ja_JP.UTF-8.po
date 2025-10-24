@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2025-07-22 17:18+0000\n"
-"PO-Revision-Date: 2025-03-21 00:08+0900\n"
+"PO-Revision-Date: 2025-09-01 14:43+0900\n"
 "Last-Translator: Lon Sagisawa <lon@sagisawa.me>\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -88,7 +88,7 @@ msgstr "右に分割"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "コマンドを実行…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -161,7 +161,7 @@ msgstr "設定ファイルを開く"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "コマンドパレット"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -209,12 +209,12 @@ msgstr "許可"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "この分割ウィンドウに対して設定を記憶する"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "このプロンプトを再び表示するには設定を再読み込みしてください"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -279,15 +279,15 @@ msgstr "クリップボードにコピーしました"
 
 #: src/apprt/gtk/Surface.zig:1268
 msgid "Cleared clipboard"
-msgstr ""
+msgstr "クリップボードを空にしました"
 
 #: src/apprt/gtk/Surface.zig:2525
 msgid "Command succeeded"
-msgstr ""
+msgstr "コマンド実行成功"
 
 #: src/apprt/gtk/Surface.zig:2527
 msgid "Command failed"
-msgstr ""
+msgstr "コマンド実行失敗"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
@@ -299,7 +299,7 @@ msgstr "開いているすべてのタブを表示"
 
 #: src/apprt/gtk/Window.zig:266
 msgid "New Split"
-msgstr ""
+msgstr "新しい分割"
 
 #: src/apprt/gtk/Window.zig:329
 msgid ""

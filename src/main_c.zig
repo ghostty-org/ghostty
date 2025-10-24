@@ -63,17 +63,41 @@ const Info = extern struct {
 pub const String = extern struct {
     ptr: ?[*]const u8,
     len: usize,
+    sentinel: bool,
 
     pub const empty: String = .{
         .ptr = null,
         .len = 0,
+        .sentinel = false,
     };
 
-    pub fn fromSlice(slice: []const u8) String {
+    pub fn fromSlice(slice: anytype) String {
         return .{
             .ptr = slice.ptr,
             .len = slice.len,
+            .sentinel = sentinel: {
+                const info = @typeInfo(@TypeOf(slice));
+                switch (info) {
+                    .pointer => |p| {
+                        if (p.size != .slice) @compileError("only slices supported");
+                        if (p.child != u8) @compileError("only u8 slices supported");
+                        const sentinel_ = p.sentinel();
+                        if (sentinel_) |sentinel| if (sentinel != 0) @compileError("only 0 is supported for sentinels");
+                        break :sentinel sentinel_ != null;
+                    },
+                    else => @compileError("only []const u8 and [:0]const u8"),
+                }
+            },
         };
+    }
+
+    pub fn deinit(self: *const String) void {
+        const ptr = self.ptr orelse return;
+        if (self.sentinel) {
+            state.alloc.free(ptr[0..self.len :0]);
+        } else {
+            state.alloc.free(ptr[0..self.len]);
+        }
     }
 };
 
@@ -129,5 +153,45 @@ pub export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
 
 /// Free a string allocated by Ghostty.
 pub export fn ghostty_string_free(str: String) void {
-    state.alloc.free(str.ptr.?[0..str.len]);
+    str.deinit();
+}
+
+test "ghostty_string_s empty string" {
+    const testing = std.testing;
+    const empty_string = String.empty;
+    defer empty_string.deinit();
+
+    try testing.expect(empty_string.len == 0);
+    try testing.expect(empty_string.sentinel == false);
+}
+
+test "ghostty_string_s c string" {
+    const testing = std.testing;
+    state.alloc = testing.allocator;
+
+    const slice: [:0]const u8 = "hello";
+    const allocated_slice = try testing.allocator.dupeZ(u8, slice);
+    const c_null_string = String.fromSlice(allocated_slice);
+    defer c_null_string.deinit();
+
+    try testing.expect(allocated_slice[5] == 0);
+    try testing.expect(@TypeOf(slice) == [:0]const u8);
+    try testing.expect(@TypeOf(allocated_slice) == [:0]u8);
+    try testing.expect(c_null_string.len == 5);
+    try testing.expect(c_null_string.sentinel == true);
+}
+
+test "ghostty_string_s zig string" {
+    const testing = std.testing;
+    state.alloc = testing.allocator;
+
+    const slice: []const u8 = "hello";
+    const allocated_slice = try testing.allocator.dupe(u8, slice);
+    const zig_string = String.fromSlice(allocated_slice);
+    defer zig_string.deinit();
+
+    try testing.expect(@TypeOf(slice) == []const u8);
+    try testing.expect(@TypeOf(allocated_slice) == []u8);
+    try testing.expect(zig_string.len == 5);
+    try testing.expect(zig_string.sentinel == false);
 }

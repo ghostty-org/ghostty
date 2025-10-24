@@ -186,19 +186,19 @@ pub const StreamHandler = struct {
         _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
     }
 
-    pub fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
+    pub inline fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
         var cmd = self.dcs.hook(self.alloc, dcs) orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
     }
 
-    pub fn dcsPut(self: *StreamHandler, byte: u8) !void {
+    pub inline fn dcsPut(self: *StreamHandler, byte: u8) !void {
         var cmd = self.dcs.put(byte) orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
     }
 
-    pub fn dcsUnhook(self: *StreamHandler) !void {
+    pub inline fn dcsUnhook(self: *StreamHandler) !void {
         var cmd = self.dcs.unhook() orelse return;
         defer cmd.deinit();
         try self.dcsCommand(&cmd);
@@ -293,11 +293,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn apcStart(self: *StreamHandler) !void {
+    pub inline fn apcStart(self: *StreamHandler) !void {
         self.apc.start();
     }
 
-    pub fn apcPut(self: *StreamHandler, byte: u8) !void {
+    pub inline fn apcPut(self: *StreamHandler, byte: u8) !void {
         self.apc.feed(self.alloc, byte);
     }
 
@@ -310,11 +310,11 @@ pub const StreamHandler = struct {
             .kitty => |*kitty_cmd| {
                 if (self.terminal.kittyGraphics(self.alloc, kitty_cmd)) |resp| {
                     var buf: [1024]u8 = undefined;
-                    var buf_stream = std.io.fixedBufferStream(&buf);
-                    try resp.encode(buf_stream.writer());
-                    const final = buf_stream.getWritten();
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    try resp.encode(&writer);
+                    const final = writer.buffered();
                     if (final.len > 2) {
-                        log.debug("kitty graphics response: {s}", .{std.fmt.fmtSliceHexLower(final)});
+                        log.debug("kitty graphics response: {x}", .{final});
                         self.messageWriter(try termio.Message.writeReq(self.alloc, final));
                     }
                 }
@@ -322,23 +322,23 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn print(self: *StreamHandler, ch: u21) !void {
+    pub inline fn print(self: *StreamHandler, ch: u21) !void {
         try self.terminal.print(ch);
     }
 
-    pub fn printRepeat(self: *StreamHandler, count: usize) !void {
+    pub inline fn printRepeat(self: *StreamHandler, count: usize) !void {
         try self.terminal.printRepeat(count);
     }
 
-    pub fn bell(self: *StreamHandler) !void {
+    pub inline fn bell(self: *StreamHandler) !void {
         self.surfaceMessageWriter(.ring_bell);
     }
 
-    pub fn backspace(self: *StreamHandler) !void {
+    pub inline fn backspace(self: *StreamHandler) !void {
         self.terminal.backspace();
     }
 
-    pub fn horizontalTab(self: *StreamHandler, count: u16) !void {
+    pub inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTab();
@@ -346,7 +346,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
+    pub inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTabBack();
@@ -354,61 +354,61 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn linefeed(self: *StreamHandler) !void {
+    pub inline fn linefeed(self: *StreamHandler) !void {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
     }
 
-    pub fn carriageReturn(self: *StreamHandler) !void {
+    pub inline fn carriageReturn(self: *StreamHandler) !void {
         self.terminal.carriageReturn();
     }
 
-    pub fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
+    pub inline fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
         self.terminal.cursorLeft(amount);
     }
 
-    pub fn setCursorRight(self: *StreamHandler, amount: u16) !void {
+    pub inline fn setCursorRight(self: *StreamHandler, amount: u16) !void {
         self.terminal.cursorRight(amount);
     }
 
-    pub fn setCursorDown(self: *StreamHandler, amount: u16, carriage: bool) !void {
+    pub inline fn setCursorDown(self: *StreamHandler, amount: u16, carriage: bool) !void {
         self.terminal.cursorDown(amount);
         if (carriage) self.terminal.carriageReturn();
     }
 
-    pub fn setCursorUp(self: *StreamHandler, amount: u16, carriage: bool) !void {
+    pub inline fn setCursorUp(self: *StreamHandler, amount: u16, carriage: bool) !void {
         self.terminal.cursorUp(amount);
         if (carriage) self.terminal.carriageReturn();
     }
 
-    pub fn setCursorCol(self: *StreamHandler, col: u16) !void {
+    pub inline fn setCursorCol(self: *StreamHandler, col: u16) !void {
         self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, col);
     }
 
-    pub fn setCursorColRelative(self: *StreamHandler, offset: u16) !void {
+    pub inline fn setCursorColRelative(self: *StreamHandler, offset: u16) !void {
         self.terminal.setCursorPos(
             self.terminal.screen.cursor.y + 1,
             self.terminal.screen.cursor.x + 1 +| offset,
         );
     }
 
-    pub fn setCursorRow(self: *StreamHandler, row: u16) !void {
+    pub inline fn setCursorRow(self: *StreamHandler, row: u16) !void {
         self.terminal.setCursorPos(row, self.terminal.screen.cursor.x + 1);
     }
 
-    pub fn setCursorRowRelative(self: *StreamHandler, offset: u16) !void {
+    pub inline fn setCursorRowRelative(self: *StreamHandler, offset: u16) !void {
         self.terminal.setCursorPos(
             self.terminal.screen.cursor.y + 1 +| offset,
             self.terminal.screen.cursor.x + 1,
         );
     }
 
-    pub fn setCursorPos(self: *StreamHandler, row: u16, col: u16) !void {
+    pub inline fn setCursorPos(self: *StreamHandler, row: u16, col: u16) !void {
         self.terminal.setCursorPos(row, col);
     }
 
-    pub fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
+    pub inline fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
         if (mode == .complete) {
             // Whenever we erase the full display, scroll to bottom.
             try self.terminal.scrollViewport(.{ .bottom = {} });
@@ -418,48 +418,48 @@ pub const StreamHandler = struct {
         self.terminal.eraseDisplay(mode, protected);
     }
 
-    pub fn eraseLine(self: *StreamHandler, mode: terminal.EraseLine, protected: bool) !void {
+    pub inline fn eraseLine(self: *StreamHandler, mode: terminal.EraseLine, protected: bool) !void {
         self.terminal.eraseLine(mode, protected);
     }
 
-    pub fn deleteChars(self: *StreamHandler, count: usize) !void {
+    pub inline fn deleteChars(self: *StreamHandler, count: usize) !void {
         self.terminal.deleteChars(count);
     }
 
-    pub fn eraseChars(self: *StreamHandler, count: usize) !void {
+    pub inline fn eraseChars(self: *StreamHandler, count: usize) !void {
         self.terminal.eraseChars(count);
     }
 
-    pub fn insertLines(self: *StreamHandler, count: usize) !void {
+    pub inline fn insertLines(self: *StreamHandler, count: usize) !void {
         self.terminal.insertLines(count);
     }
 
-    pub fn insertBlanks(self: *StreamHandler, count: usize) !void {
+    pub inline fn insertBlanks(self: *StreamHandler, count: usize) !void {
         self.terminal.insertBlanks(count);
     }
 
-    pub fn deleteLines(self: *StreamHandler, count: usize) !void {
+    pub inline fn deleteLines(self: *StreamHandler, count: usize) !void {
         self.terminal.deleteLines(count);
     }
 
-    pub fn reverseIndex(self: *StreamHandler) !void {
+    pub inline fn reverseIndex(self: *StreamHandler) !void {
         self.terminal.reverseIndex();
     }
 
-    pub fn index(self: *StreamHandler) !void {
+    pub inline fn index(self: *StreamHandler) !void {
         try self.terminal.index();
     }
 
-    pub fn nextLine(self: *StreamHandler) !void {
+    pub inline fn nextLine(self: *StreamHandler) !void {
         try self.terminal.index();
         self.terminal.carriageReturn();
     }
 
-    pub fn setTopAndBottomMargin(self: *StreamHandler, top: u16, bot: u16) !void {
+    pub inline fn setTopAndBottomMargin(self: *StreamHandler, top: u16, bot: u16) !void {
         self.terminal.setTopAndBottomMargin(top, bot);
     }
 
-    pub fn setLeftAndRightMarginAmbiguous(self: *StreamHandler) !void {
+    pub inline fn setLeftAndRightMarginAmbiguous(self: *StreamHandler) !void {
         if (self.terminal.modes.get(.enable_left_and_right_margin)) {
             try self.setLeftAndRightMargin(0, 0);
         } else {
@@ -467,7 +467,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn setLeftAndRightMargin(self: *StreamHandler, left: u16, right: u16) !void {
+    pub inline fn setLeftAndRightMargin(self: *StreamHandler, left: u16, right: u16) !void {
         self.terminal.setLeftAndRightMargin(left, right);
     }
 
@@ -504,12 +504,12 @@ pub const StreamHandler = struct {
         self.messageWriter(msg);
     }
 
-    pub fn saveMode(self: *StreamHandler, mode: terminal.Mode) !void {
+    pub inline fn saveMode(self: *StreamHandler, mode: terminal.Mode) !void {
         // log.debug("save mode={}", .{mode});
         self.terminal.modes.save(mode);
     }
 
-    pub fn restoreMode(self: *StreamHandler, mode: terminal.Mode) !void {
+    pub inline fn restoreMode(self: *StreamHandler, mode: terminal.Mode) !void {
         // For restore mode we have to restore but if we set it, we
         // always have to call setMode because setting some modes have
         // side effects and we want to make sure we process those.
@@ -696,11 +696,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn setMouseShiftCapture(self: *StreamHandler, v: bool) !void {
+    pub inline fn setMouseShiftCapture(self: *StreamHandler, v: bool) !void {
         self.terminal.flags.mouse_shift_capture = if (v) .true else .false;
     }
 
-    pub fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {
+    pub inline fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {
         switch (attr) {
             .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
 
@@ -709,11 +709,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
+    pub inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
         try self.terminal.screen.startHyperlink(uri, id);
     }
 
-    pub fn endHyperlink(self: *StreamHandler) !void {
+    pub inline fn endHyperlink(self: *StreamHandler) !void {
         self.terminal.screen.endHyperlink();
     }
 
@@ -832,31 +832,31 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn setProtectedMode(self: *StreamHandler, mode: terminal.ProtectedMode) !void {
+    pub inline fn setProtectedMode(self: *StreamHandler, mode: terminal.ProtectedMode) !void {
         self.terminal.setProtectedMode(mode);
     }
 
-    pub fn decaln(self: *StreamHandler) !void {
+    pub inline fn decaln(self: *StreamHandler) !void {
         try self.terminal.decaln();
     }
 
-    pub fn tabClear(self: *StreamHandler, cmd: terminal.TabClear) !void {
+    pub inline fn tabClear(self: *StreamHandler, cmd: terminal.TabClear) !void {
         self.terminal.tabClear(cmd);
     }
 
-    pub fn tabSet(self: *StreamHandler) !void {
+    pub inline fn tabSet(self: *StreamHandler) !void {
         self.terminal.tabSet();
     }
 
-    pub fn tabReset(self: *StreamHandler) !void {
+    pub inline fn tabReset(self: *StreamHandler) !void {
         self.terminal.tabReset();
     }
 
-    pub fn saveCursor(self: *StreamHandler) !void {
+    pub inline fn saveCursor(self: *StreamHandler) !void {
         self.terminal.saveCursor();
     }
 
-    pub fn restoreCursor(self: *StreamHandler) !void {
+    pub inline fn restoreCursor(self: *StreamHandler) !void {
         try self.terminal.restoreCursor();
     }
 
@@ -865,11 +865,11 @@ pub const StreamHandler = struct {
         self.messageWriter(try termio.Message.writeReq(self.alloc, self.enquiry_response));
     }
 
-    pub fn scrollDown(self: *StreamHandler, count: usize) !void {
+    pub inline fn scrollDown(self: *StreamHandler, count: usize) !void {
         self.terminal.scrollDown(count);
     }
 
-    pub fn scrollUp(self: *StreamHandler, count: usize) !void {
+    pub inline fn scrollUp(self: *StreamHandler, count: usize) !void {
         self.terminal.scrollUp(count);
     }
 
@@ -995,7 +995,7 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .set_title = buf });
     }
 
-    pub fn setMouseShape(
+    pub inline fn setMouseShape(
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
@@ -1037,23 +1037,28 @@ pub const StreamHandler = struct {
         });
     }
 
-    pub fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) !void {
+    pub inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) !void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt);
         self.terminal.flags.shell_redraws_prompt = redraw;
     }
 
-    pub fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) !void {
+    pub inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) !void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt_continuation);
     }
 
-    pub fn promptEnd(self: *StreamHandler) !void {
+    pub inline fn promptEnd(self: *StreamHandler) !void {
         self.terminal.markSemanticPrompt(.input);
     }
 
-    pub fn endOfInput(self: *StreamHandler) !void {
+    pub inline fn endOfInput(self: *StreamHandler) !void {
         self.terminal.markSemanticPrompt(.command);
+        self.surfaceMessageWriter(.start_command);
+    }
+
+    pub inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) !void {
+        self.surfaceMessageWriter(.{ .stop_command = exit_code });
     }
 
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
@@ -1084,7 +1089,13 @@ pub const StreamHandler = struct {
             return;
         }
 
-        const uri: std.Uri = internal_os.hostname.parseUrl(url) catch |e| {
+        // Attempt to parse this file-style URI using options appropriate
+        // for this OSC 7 context (e.g. kitty-shell-cwd expects the full,
+        // unencoded path).
+        const uri: std.Uri = internal_os.uri.parse(url, .{
+            .mac_address = comptime builtin.os.tag != .macos,
+            .raw_path = std.mem.startsWith(u8, url, "kitty-shell-cwd://"),
+        }) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});
             return;
         };
@@ -1092,26 +1103,18 @@ pub const StreamHandler = struct {
         if (!std.mem.eql(u8, "file", uri.scheme) and
             !std.mem.eql(u8, "kitty-shell-cwd", uri.scheme))
         {
-            log.warn("OSC 7 scheme must be file, got: {s}", .{uri.scheme});
+            log.warn("OSC 7 scheme must be file or kitty-shell-cwd, got: {s}", .{uri.scheme});
             return;
         }
 
-        // RFC 793 defines port numbers as 16-bit numbers. 5 digits is sufficient to represent
-        // the maximum since 2^16 - 1 = 65_535.
-        // See https://www.rfc-editor.org/rfc/rfc793#section-3.1.
-        const PORT_NUMBER_MAX_DIGITS = 5;
-        // Make sure there is space for a max length hostname + the max number of digits.
-        var host_and_port_buf: [posix.HOST_NAME_MAX + PORT_NUMBER_MAX_DIGITS]u8 = undefined;
-        const hostname_from_uri = internal_os.hostname.bufPrintHostnameFromFileUri(
-            &host_and_port_buf,
-            uri,
-        ) catch |err| switch (err) {
-            error.NoHostnameInUri => {
+        var host_buffer: [std.Uri.host_name_max]u8 = undefined;
+        const host = uri.getHost(&host_buffer) catch |err| switch (err) {
+            error.UriMissingHost => {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
                 return;
             },
-            error.NoSpaceLeft => |e| {
-                log.warn("failed to get full hostname for OSC 7 validation: {}", .{e});
+            error.UriHostTooLong => {
+                log.warn("failed to get full hostname for OSC 7 validation: {}", .{err});
                 return;
             },
         };
@@ -1119,9 +1122,7 @@ pub const StreamHandler = struct {
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = internal_os.hostname.isLocalHostname(
-            hostname_from_uri,
-        ) catch |err| switch (err) {
+        const host_valid = internal_os.hostname.isLocal(host) catch |err| switch (err) {
             error.PermissionDenied,
             error.Unexpected,
             => {
@@ -1130,42 +1131,16 @@ pub const StreamHandler = struct {
             },
         };
         if (!host_valid) {
-            log.warn("OSC 7 host must be local", .{});
+            log.warn("OSC 7 host ({s}) must be local", .{host});
             return;
         }
 
-        // We need to unescape the path. We first try to unescape onto
-        // the stack and fall back to heap allocation if we have to.
-        var pathBuf: [1024]u8 = undefined;
-        const path, const heap = path: {
-            // Get the raw string of the URI. Its unclear to me if the various
-            // tags of this enum guarantee no percent-encoding so we just
-            // check all of it. This isn't a performance critical path.
-            const path = switch (uri.path) {
-                .raw => |v| v,
-                .percent_encoded => |v| v,
-            };
-
-            // If the path doesn't have any escapes, we can use it directly.
-            if (std.mem.indexOfScalar(u8, path, '%') == null)
-                break :path .{ path, false };
-
-            // First try to stack-allocate
-            var fba = std.heap.FixedBufferAllocator.init(&pathBuf);
-            if (std.fmt.allocPrint(fba.allocator(), "{raw}", .{uri.path})) |v|
-                break :path .{ v, false }
-            else |_| {}
-
-            // Fall back to heap
-            if (std.fmt.allocPrint(self.alloc, "{raw}", .{uri.path})) |v|
-                break :path .{ v, true }
-            else |_| {}
-
-            // Fall back to using it directly...
-            log.warn("failed to unescape OSC 7 path, using it directly path={s}", .{path});
-            break :path .{ path, false };
-        };
-        defer if (heap) self.alloc.free(path);
+        // We need the raw path, which might require unescaping. We try to
+        // avoid making any heap allocations by using the stack first.
+        var arena_alloc: std.heap.ArenaAllocator = .init(self.alloc);
+        var stack_alloc = std.heap.stackFallback(1024, arena_alloc.allocator());
+        defer arena_alloc.deinit();
+        const path = try uri.path.toRawMaybeAlloc(stack_alloc.get());
 
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);
@@ -1187,12 +1162,15 @@ pub const StreamHandler = struct {
 
     pub fn handleColorOperation(
         self: *StreamHandler,
-        source: terminal.osc.Command.ColorOperation.Source,
-        operations: *const terminal.osc.Command.ColorOperation.List,
+        op: terminal.osc.color.Operation,
+        requests: *const terminal.osc.color.List,
         terminator: terminal.osc.Terminator,
     ) !void {
+        // We'll need op one day if we ever implement reporting special colors.
+        _ = op;
+
         // return early if there is nothing to do
-        if (operations.count() == 0) return;
+        if (requests.count() == 0) return;
 
         var buffer: [1024]u8 = undefined;
         var fba: std.heap.FixedBufferAllocator = .init(&buffer);
@@ -1201,121 +1179,179 @@ pub const StreamHandler = struct {
         var response: std.ArrayListUnmanaged(u8) = .empty;
         const writer = response.writer(alloc);
 
-        var report: bool = false;
-
-        try writer.print("\x1b]{}", .{source});
-
-        var it = operations.constIterator(0);
-
-        while (it.next()) |op| {
-            switch (op.*) {
+        var it = requests.constIterator(0);
+        while (it.next()) |req| {
+            switch (req.*) {
                 .set => |set| {
-                    switch (set.kind) {
+                    switch (set.target) {
                         .palette => |i| {
                             self.terminal.flags.dirty.palette = true;
                             self.terminal.color_palette.colors[i] = set.color;
                             self.terminal.color_palette.mask.set(i);
                         },
-                        .foreground => {
-                            self.foreground_color = set.color;
-                            _ = self.renderer_mailbox.push(.{
-                                .foreground_color = set.color,
-                            }, .{ .forever = {} });
+                        .dynamic => |dynamic| switch (dynamic) {
+                            .foreground => {
+                                self.foreground_color = set.color;
+                                self.rendererMessageWriter(.{
+                                    .foreground_color = set.color,
+                                });
+                            },
+                            .background => {
+                                self.background_color = set.color;
+                                self.rendererMessageWriter(.{
+                                    .background_color = set.color,
+                                });
+                            },
+                            .cursor => {
+                                self.cursor_color = set.color;
+                                self.rendererMessageWriter(.{
+                                    .cursor_color = set.color,
+                                });
+                            },
+                            .pointer_foreground,
+                            .pointer_background,
+                            .tektronix_foreground,
+                            .tektronix_background,
+                            .highlight_background,
+                            .tektronix_cursor,
+                            .highlight_foreground,
+                            => log.info("setting dynamic color {s} not implemented", .{
+                                @tagName(dynamic),
+                            }),
                         },
-                        .background => {
-                            self.background_color = set.color;
-                            _ = self.renderer_mailbox.push(.{
-                                .background_color = set.color,
-                            }, .{ .forever = {} });
-                        },
-                        .cursor => {
-                            self.cursor_color = set.color;
-                            _ = self.renderer_mailbox.push(.{
-                                .cursor_color = set.color,
-                            }, .{ .forever = {} });
-                        },
+                        .special => log.info("setting special colors not implemented", .{}),
                     }
 
                     // Notify the surface of the color change
                     self.surfaceMessageWriter(.{ .color_change = .{
-                        .kind = set.kind,
+                        .target = set.target,
                         .color = set.color,
                     } });
                 },
 
-                .reset => |kind| {
-                    switch (kind) {
-                        .palette => |i| {
-                            const mask = &self.terminal.color_palette.mask;
-                            self.terminal.flags.dirty.palette = true;
-                            self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
-                            mask.unset(i);
+                .reset => |target| switch (target) {
+                    .palette => |i| {
+                        const mask = &self.terminal.color_palette.mask;
+                        self.terminal.flags.dirty.palette = true;
+                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                        mask.unset(i);
 
-                            self.surfaceMessageWriter(.{
-                                .color_change = .{
-                                    .kind = .{ .palette = @intCast(i) },
-                                    .color = self.terminal.color_palette.colors[i],
-                                },
-                            });
-                        },
+                        self.surfaceMessageWriter(.{
+                            .color_change = .{
+                                .target = target,
+                                .color = self.terminal.color_palette.colors[i],
+                            },
+                        });
+                    },
+                    .dynamic => |dynamic| switch (dynamic) {
                         .foreground => {
                             self.foreground_color = null;
-                            _ = self.renderer_mailbox.push(.{
+                            self.rendererMessageWriter(.{
                                 .foreground_color = self.foreground_color,
-                            }, .{ .forever = {} });
+                            });
 
                             self.surfaceMessageWriter(.{ .color_change = .{
-                                .kind = .foreground,
+                                .target = target,
                                 .color = self.default_foreground_color,
                             } });
                         },
                         .background => {
                             self.background_color = null;
-                            _ = self.renderer_mailbox.push(.{
+                            self.rendererMessageWriter(.{
                                 .background_color = self.background_color,
-                            }, .{ .forever = {} });
+                            });
 
                             self.surfaceMessageWriter(.{ .color_change = .{
-                                .kind = .background,
+                                .target = target,
                                 .color = self.default_background_color,
                             } });
                         },
                         .cursor => {
                             self.cursor_color = null;
 
-                            _ = self.renderer_mailbox.push(.{
+                            self.rendererMessageWriter(.{
                                 .cursor_color = self.cursor_color,
-                            }, .{ .forever = {} });
+                            });
 
                             if (self.default_cursor_color) |color| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
-                                    .kind = .cursor,
+                                    .target = target,
                                     .color = color,
                                 } });
                             }
                         },
-                    }
+                        .pointer_foreground,
+                        .pointer_background,
+                        .tektronix_foreground,
+                        .tektronix_background,
+                        .highlight_background,
+                        .tektronix_cursor,
+                        .highlight_foreground,
+                        => log.warn("resetting dynamic color {s} not implemented", .{
+                            @tagName(dynamic),
+                        }),
+                    },
+                    .special => log.info("resetting special colors not implemented", .{}),
                 },
 
-                .report => |kind| report: {
-                    if (self.osc_color_report_format == .none) break :report;
+                .reset_palette => {
+                    const mask = &self.terminal.color_palette.mask;
+                    var mask_iterator = mask.iterator(.{});
+                    while (mask_iterator.next()) |i| {
+                        self.terminal.flags.dirty.palette = true;
+                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                        self.surfaceMessageWriter(.{
+                            .color_change = .{
+                                .target = .{ .palette = @intCast(i) },
+                                .color = self.terminal.color_palette.colors[i],
+                            },
+                        });
+                    }
+                    mask.* = .initEmpty();
+                },
 
-                    report = true;
+                .reset_special => log.warn(
+                    "resetting all special colors not implemented",
+                    .{},
+                ),
+
+                .query => |kind| report: {
+                    if (self.osc_color_report_format == .none) break :report;
 
                     const color = switch (kind) {
                         .palette => |i| self.terminal.color_palette.colors[i],
-                        .foreground => self.foreground_color orelse self.default_foreground_color,
-                        .background => self.background_color orelse self.default_background_color,
-                        .cursor => self.cursor_color orelse
-                            self.default_cursor_color orelse
-                            self.foreground_color orelse
-                            self.default_foreground_color,
+                        .dynamic => |dynamic| switch (dynamic) {
+                            .foreground => self.foreground_color orelse self.default_foreground_color,
+                            .background => self.background_color orelse self.default_background_color,
+                            .cursor => self.cursor_color orelse
+                                self.default_cursor_color orelse
+                                self.foreground_color orelse
+                                self.default_foreground_color,
+                            .pointer_foreground,
+                            .pointer_background,
+                            .tektronix_foreground,
+                            .tektronix_background,
+                            .highlight_background,
+                            .tektronix_cursor,
+                            .highlight_foreground,
+                            => {
+                                log.info(
+                                    "reporting dynamic color {s} not implemented",
+                                    .{@tagName(dynamic)},
+                                );
+                                break :report;
+                            },
+                        },
+                        .special => {
+                            log.info("reporting special colors not implemented", .{});
+                            break :report;
+                        },
                     };
 
                     switch (self.osc_color_report_format) {
                         .@"16-bit" => switch (kind) {
                             .palette => |i| try writer.print(
-                                ";{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                                "\x1b]4;{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
                                     i,
                                     @as(u16, color.r) * 257,
@@ -1323,19 +1359,21 @@ pub const StreamHandler = struct {
                                     @as(u16, color.b) * 257,
                                 },
                             ),
-                            else => try writer.print(
-                                ";rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                            .dynamic => |dynamic| try writer.print(
+                                "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
+                                    @intFromEnum(dynamic),
                                     @as(u16, color.r) * 257,
                                     @as(u16, color.g) * 257,
                                     @as(u16, color.b) * 257,
                                 },
                             ),
+                            .special => unreachable,
                         },
 
                         .@"8-bit" => switch (kind) {
                             .palette => |i| try writer.print(
-                                ";{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                                "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
                                     i,
                                     @as(u16, color.r),
@@ -1343,25 +1381,29 @@ pub const StreamHandler = struct {
                                     @as(u16, color.b),
                                 },
                             ),
-                            else => try writer.print(
-                                ";rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                            .dynamic => |dynamic| try writer.print(
+                                "\x1b]{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
+                                    @intFromEnum(dynamic),
                                     @as(u16, color.r),
                                     @as(u16, color.g),
                                     @as(u16, color.b),
                                 },
                             ),
+                            .special => unreachable,
                         },
 
                         .none => unreachable,
                     }
+
+                    try writer.writeAll(terminator.string());
                 },
             }
         }
-        if (report) {
+
+        if (response.items.len > 0) {
             // If any of the operations were reports, finalize the report
             // string and send it to the terminal.
-            try writer.writeAll(terminator.string());
             const msg = try termio.Message.writeReq(self.alloc, response.items);
             self.messageWriter(msg);
         }
@@ -1399,15 +1441,15 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         request: terminal.kitty.color.OSC,
     ) !void {
-        var buf = std.ArrayList(u8).init(self.alloc);
-        defer buf.deinit();
-        const writer = buf.writer();
+        var stream: std.Io.Writer.Allocating = .init(self.alloc);
+        defer stream.deinit();
+        const writer = &stream.writer;
 
         for (request.list.items) |item| {
             switch (item) {
                 .query => |key| {
                     // If the writer buffer is empty, we need to write our prefix
-                    if (buf.items.len == 0) try writer.writeAll("\x1b]21");
+                    if (stream.written().len == 0) try writer.writeAll("\x1b]21");
 
                     const color: terminal.color.RGB = switch (key) {
                         .palette => |palette| self.terminal.color_palette.colors[palette],
@@ -1416,17 +1458,17 @@ pub const StreamHandler = struct {
                             .background => self.background_color orelse self.default_background_color,
                             .cursor => self.cursor_color orelse self.default_cursor_color,
                             else => {
-                                log.warn("ignoring unsupported kitty color protocol key: {}", .{key});
+                                log.warn("ignoring unsupported kitty color protocol key: {f}", .{key});
                                 continue;
                             },
                         },
                     } orelse {
-                        try writer.print(";{}=", .{key});
+                        try writer.print(";{f}=", .{key});
                         continue;
                     };
 
                     try writer.print(
-                        ";{}=rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                        ";{f}=rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                         .{ key, color.r, color.g, color.b },
                     );
                 },
@@ -1453,7 +1495,7 @@ pub const StreamHandler = struct {
                             },
                             else => {
                                 log.warn(
-                                    "ignoring unsupported kitty color protocol key: {}",
+                                    "ignoring unsupported kitty color protocol key: {f}",
                                     .{v.key},
                                 );
                                 continue;
@@ -1488,7 +1530,7 @@ pub const StreamHandler = struct {
                             },
                             else => {
                                 log.warn(
-                                    "ignoring unsupported kitty color protocol key: {}",
+                                    "ignoring unsupported kitty color protocol key: {f}",
                                     .{key},
                                 );
                                 continue;
@@ -1504,12 +1546,12 @@ pub const StreamHandler = struct {
         }
 
         // If we had any writes to our buffer, we queue them now
-        if (buf.items.len > 0) {
+        if (stream.written().len > 0) {
             try writer.writeAll(request.terminator.string());
             self.messageWriter(.{
                 .write_alloc = .{
                     .alloc = self.alloc,
-                    .data = try buf.toOwnedSlice(),
+                    .data = try stream.toOwnedSlice(),
                 },
             });
         }
