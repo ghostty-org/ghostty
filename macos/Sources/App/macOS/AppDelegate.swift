@@ -724,6 +724,10 @@ class AppDelegate: NSObject,
     }
 
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
+        if (ghostty.config.bellFeatures.contains(.system)) {
+            NSSound.beep()
+        }
+
         if (ghostty.config.bellFeatures.contains(.attention)) {
             // Bounce the dock icon if we're not focused.
             NSApp.requestUserAttention(.informationalRequest)

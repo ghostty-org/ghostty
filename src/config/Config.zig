@@ -2646,7 +2646,9 @@ keybind: Keybinds = .{},
 ///    This could result in an audiovisual effect, a notification, or something
 ///    else entirely. Changing these effects require altering system settings:
 ///    for instance under the "Sound > Alert Sound" setting in GNOME,
-///    or the "Accessibility > System Bell" settings in KDE Plasma. (GTK only)
+///    or the "Accessibility > System Bell" settings in KDE Plasma.
+///
+///    On macOS, this plays the system alert sound.
 ///
 ///  * `audio`
 ///
