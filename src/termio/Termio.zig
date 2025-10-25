@@ -313,13 +313,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .size = opts.size,
         .backend = backend,
         .mailbox = opts.mailbox,
-        .terminal_stream = stream: {
-            var s: terminalpkg.Stream(StreamHandler) = .init(handler);
-            // Populate the OSC parser allocator (optional) because
-            // we want to support large OSC payloads such as OSC 52.
-            s.parser.osc_parser.alloc = alloc;
-            break :stream s;
-        },
+        .terminal_stream = .initAlloc(alloc, handler),
         .thread_enter_state = thread_enter_state,
     };
 }
@@ -331,7 +325,6 @@ pub fn deinit(self: *Termio) void {
     self.mailbox.deinit(self.alloc);
 
     // Clear any StreamHandler state
-    self.terminal_stream.handler.deinit();
     self.terminal_stream.deinit();
 
     // Clear any initial state if we have it

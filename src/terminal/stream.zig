@@ -3,6 +3,7 @@ const std = @import("std");
 const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 const simd = @import("../simd/main.zig");
 const lib = @import("../lib/main.zig");
 const Parser = @import("Parser.zig");
@@ -29,6 +30,8 @@ const debug = false;
 
 const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
+/// The possible actions that can be emitted by the Stream
+/// function for handling.
 pub const Action = union(Key) {
     print: Print,
     print_repeat: usize,
@@ -456,6 +459,8 @@ pub const Action = union(Key) {
 /// about in its pursuit of implementing a terminal emulator or other
 /// functionality.
 ///
+/// The Handler type must also have a `deinit` function.
+///
 /// The "comptime" key is on purpose (vs. a standard Zig tagged union)
 /// because it allows the compiler to optimize away unimplemented actions.
 /// e.g. you don't need to pay a conditional branching cost on every single
@@ -476,6 +481,19 @@ pub fn Stream(comptime Handler: type) type {
         parser: Parser,
         utf8decoder: UTF8Decoder,
 
+        /// Initialize an allocation-free stream. This will preallocate various
+        /// sizes as necessary and anything over that will be dropped. If you
+        /// want to support more dynamic behavior use initAlloc instead.
+        ///
+        /// As a concrete example of something that requires heap allocation,
+        /// consider OSC 52 (clipboard operations) which can be arbitrarily
+        /// large.
+        ///
+        /// If you want to limit allocation size, use an allocator with
+        /// a size limit with initAlloc.
+        ///
+        /// This takes ownership of the handler and will call deinit
+        /// when the stream is deinitialized.
         pub fn init(h: Handler) Self {
             return .{
                 .handler = h,
@@ -484,8 +502,16 @@ pub fn Stream(comptime Handler: type) type {
             };
         }
 
+        /// Initialize the stream that supports heap allocation as necessary.
+        pub fn initAlloc(alloc: Allocator, h: Handler) Self {
+            var self: Self = .init(h);
+            self.parser.osc_parser.alloc = alloc;
+            return self;
+        }
+
         pub fn deinit(self: *Self) void {
             self.parser.deinit();
+            self.handler.deinit();
         }
 
         /// Process a string of characters.

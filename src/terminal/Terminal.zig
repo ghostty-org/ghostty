@@ -22,6 +22,8 @@ const sgr = @import("sgr.zig");
 const Tabstops = @import("Tabstops.zig");
 const color = @import("color.zig");
 const mouse_shape_pkg = @import("mouse_shape.zig");
+const ReadonlyHandler = @import("stream_readonly.zig").Handler;
+const ReadonlyStream = @import("stream_readonly.zig").Stream;
 
 const size = @import("size.zig");
 const pagepkg = @import("page.zig");
@@ -237,6 +239,19 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.secondary_screen.deinit();
     self.pwd.deinit(alloc);
     self.* = undefined;
+}
+
+/// Return a terminal.Stream that can process VT streams and update this
+/// terminal state. The streams will only process read-only data that
+/// modifies terminal state. Sequences that query or otherwise require
+/// output will be ignored.
+pub fn vtStream(self: *Terminal) ReadonlyStream {
+    return .initAlloc(self.gpa(), self.vtHandler());
+}
+
+/// This is the handler-side only for vtStream.
+pub fn vtHandler(self: *Terminal) ReadonlyHandler {
+    return .init(self);
 }
 
 /// The general allocator we should use for this terminal.

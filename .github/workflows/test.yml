@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [c-vt, c-vt-key-encode, c-vt-paste, zig-vt]
+        dir: [c-vt, c-vt-key-encode, c-vt-paste, zig-vt, zig-vt-stream]
     name: Example ${{ matrix.dir }}
     runs-on: namespace-profile-ghostty-sm
     needs: test
