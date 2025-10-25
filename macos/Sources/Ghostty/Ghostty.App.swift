@@ -149,10 +149,7 @@ extension Ghostty {
             }
 
             ghostty_app_update_config(app, newConfig.config!)
-
-            // We can only set our config after updating it so that we don't free
-            // memory that may still be in use
-            self.config = newConfig
+            /// applied config will be updated in ``Self.configChange(_:target:v:)``
         }
 
         func reloadConfig(surface: ghostty_surface_t, soft: Bool = false) {
