@@ -52,6 +52,10 @@ pub fn getSize(self: *const Self) !apprt.SurfaceSize {
     return self.surface.getSize();
 }
 
+pub fn getEdgeInsets(self: *const Self) !apprt.SurfaceEdgeInsets {
+    return self.surface.getEdgeInsets();
+}
+
 pub fn getCursorPos(self: *const Self) !apprt.CursorPos {
     return self.surface.getCursorPos();
 }

@@ -68,9 +68,9 @@ extension Ghostty {
         // on supported platforms.
         @Published var focusInstant: ContinuousClock.Instant? = nil
 
-        // Returns sizing information for the surface. This is the raw C
+        // Returns sizing information for the screen. This is the raw C
         // structure because I'm lazy.
-        @Published var surfaceSize: ghostty_surface_size_s? = nil
+        @Published var screenSize: ghostty_screen_size_s? = nil
 
         // Whether the pointer should be visible or not
         @Published private(set) var pointerStyle: BackportPointerStyle = .default
@@ -429,15 +429,18 @@ extension Ghostty {
             guard let surface = self.surface else { return }
 
             // Update our core surface
-            ghostty_surface_set_size(surface, width, height)
+            ghostty_surface_set_size(
+                surface,
+                ghostty_surface_size_s(width: width, height: height),
+            )
 
             // Update our cached size metrics
-            let size = ghostty_surface_size(surface)
+            let size = ghostty_screen_size(surface)
             DispatchQueue.main.async {
                 // DispatchQueue required since this may be called by SwiftUI off
                 // the main thread and Published changes need to be on the main
                 // thread. This caused a crash on macOS <= 14.
-                self.surfaceSize = size
+                self.screenSize = size
             }
         }
 

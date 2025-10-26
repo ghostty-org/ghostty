@@ -411,6 +411,7 @@ pub const Surface = struct {
     core_surface: CoreSurface,
     content_scale: apprt.ContentScale,
     size: apprt.SurfaceSize,
+    edge_insets: apprt.SurfaceEdgeInsets,
     cursor_pos: apprt.CursorPos,
     inspector: ?*Inspector = null,
 
@@ -469,6 +470,7 @@ pub const Surface = struct {
                 .y = @floatCast(opts.scale_factor),
             },
             .size = .{ .width = 800, .height = 600 },
+            .edge_insets = .{},
             .cursor_pos = .{ .x = -1, .y = -1 },
         };
 
@@ -634,6 +636,10 @@ pub const Surface = struct {
         return self.size;
     }
 
+    pub fn getEdgeInsets(self: *const Surface) !apprt.SurfaceEdgeInsets {
+        return self.edge_insets;
+    }
+
     pub fn getTitle(self: *Surface) ?[:0]const u8 {
         return self.title;
     }
@@ -766,20 +772,22 @@ pub const Surface = struct {
         };
     }
 
-    pub fn updateSize(self: *Surface, width: u32, height: u32) void {
+    pub fn updateSize(
+        self: *Surface,
+        size: apprt.SurfaceSize,
+        edge_insets: apprt.SurfaceEdgeInsets,
+    ) void {
         // Runtimes sometimes generate superfluous resize events even
         // if the size did not actually change (SwiftUI). We check
         // that the size actually changed from what we last recorded
         // since resizes are expensive.
-        if (self.size.width == width and self.size.height == height) return;
+        if (std.meta.eql(self.size, size) and std.meta.eql(self.edge_insets, edge_insets)) return;
 
-        self.size = .{
-            .width = width,
-            .height = height,
-        };
+        self.size = size;
+        self.edge_insets = edge_insets;
 
         // Call the primary callback.
-        self.core_surface.sizeCallback(self.size) catch |err| {
+        self.core_surface.sizeCallback(size, edge_insets) catch |err| {
             log.err("error in size callback err={}", .{err});
             return;
         };
@@ -1074,10 +1082,10 @@ pub const Inspector = struct {
         active_style.* = style.*;
     }
 
-    pub fn updateSize(self: *Inspector, width: u32, height: u32) void {
+    pub fn updateSize(self: *Inspector, size: apprt.SurfaceSize) void {
         cimgui.c.igSetCurrentContext(self.ig_ctx);
         const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
-        io.DisplaySize = .{ .x = @floatFromInt(width), .y = @floatFromInt(height) };
+        io.DisplaySize = .{ .x = @floatFromInt(size.width), .y = @floatFromInt(size.height) };
     }
 
     pub fn mouseButtonCallback(
@@ -1220,6 +1228,18 @@ pub const CAPI = struct {
     };
 
     const SurfaceSize = extern struct {
+        width: u32,
+        height: u32,
+    };
+
+    const SurfaceEdgeInsets = extern struct {
+        top: u32,
+        bottom: u32,
+        left: u32,
+        right: u32,
+    };
+
+    const ScreenSize = extern struct {
         columns: u16,
         rows: u16,
         width_px: u32,
@@ -1636,12 +1656,26 @@ pub const CAPI = struct {
 
     /// Update the size of a surface. This will trigger resize notifications
     /// to the pty and the renderer.
-    export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
-        surface.updateSize(w, h);
+    export fn ghostty_surface_set_size(surface: *Surface, size: SurfaceSize) void {
+        surface.updateSize(.{ .width = size.width, .height = size.height }, surface.edge_insets);
+    }
+
+    /// Update the size and edge insets of a surface. This will trigger resize
+    /// notifications to the pty and the renderer.
+    export fn ghostty_surface_set_size_and_edge_insets(surface: *Surface, size: SurfaceSize, edge_insets: SurfaceEdgeInsets) void {
+        surface.updateSize(
+            .{ .width = size.width, .height = size.height },
+            .{
+                .top = edge_insets.top,
+                .bottom = edge_insets.bottom,
+                .left = edge_insets.left,
+                .right = edge_insets.right,
+            },
+        );
     }
 
     /// Return the size information a surface has.
-    export fn ghostty_surface_size(surface: *Surface) SurfaceSize {
+    export fn ghostty_screen_size(surface: *Surface) ScreenSize {
         const grid_size = surface.core_surface.size.grid();
         return .{
             .columns = grid_size.columns,
@@ -1965,8 +1999,8 @@ pub const CAPI = struct {
         ptr.freeInspector();
     }
 
-    export fn ghostty_inspector_set_size(ptr: *Inspector, w: u32, h: u32) void {
-        ptr.updateSize(w, h);
+    export fn ghostty_inspector_set_size(ptr: *Inspector, size: SurfaceSize) void {
+        ptr.updateSize(.{ .width = size.width, .height = size.height });
     }
 
     export fn ghostty_inspector_set_content_scale(ptr: *Inspector, x: f64, y: f64) void {

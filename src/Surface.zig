@@ -122,6 +122,11 @@ io_thr: std.Thread,
 /// Terminal inspector
 inspector: ?*inspectorpkg.Inspector = null,
 
+/// Edge insets required by the apprt. We subtract this from the full surface
+/// size to obtain the rectangle that holds the terminal screen. Outside this
+/// we only draw the background.
+edge_insets: rendererpkg.Padding,
+
 /// All our sizing information.
 size: rendererpkg.Size,
 
@@ -471,6 +476,16 @@ pub fn init(
         font_size,
     );
 
+    const edge_insets: rendererpkg.Padding = insets: {
+        const surface_edge_insets = try rt_surface.getEdgeInsets();
+        break :insets .{
+            .top = surface_edge_insets.top,
+            .bottom = surface_edge_insets.bottom,
+            .left = surface_edge_insets.left,
+            .right = surface_edge_insets.right,
+        };
+    };
+
     // Build our size struct which has all the sizes we need.
     const size: rendererpkg.Size = size: {
         var size: rendererpkg.Size = .{
@@ -490,11 +505,7 @@ pub fn init(
             x_dpi,
             y_dpi,
         );
-        if (derived_config.window_padding_balance) {
-            size.balancePadding(explicit);
-        } else {
-            size.padding = explicit;
-        }
+        size.setPadding(explicit, edge_insets, derived_config.window_padding_balance);
 
         break :size size;
     };
@@ -552,6 +563,7 @@ pub fn init(
         .io = undefined,
         .io_thread = io_thread,
         .io_thr = undefined,
+        .edge_insets = edge_insets,
         .size = size,
         .config = derived_config,
 
@@ -645,7 +657,7 @@ pub fn init(
     // init stuff we should get rid of this. But this is required because
     // sizeCallback does retina-aware stuff we don't do here and don't want
     // to duplicate.
-    try self.resize(self.size.screen);
+    try self.resize(self.size.screen, self.edge_insets);
 
     // Give the renderer one more opportunity to finalize any surface
     // setup on the main thread prior to spinning up the rendering thread.
@@ -2122,7 +2134,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
 fn setCellSize(self: *Surface, size: rendererpkg.CellSize) !void {
     // Update our cell size within our size struct
     self.size.cell = size;
-    self.balancePaddingIfNeeded();
+    self.updatePaddingIfNeeded(self.edge_insets);
 
     // Notify the terminal
     self.io.queueMessage(.{ .resize = self.size }, .unlocked);
@@ -2190,7 +2202,7 @@ fn queueRender(self: *Surface) !void {
     try self.renderer_thread.wakeup.notify();
 }
 
-pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
+pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize, edge_insets: apprt.SurfaceEdgeInsets) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
@@ -2199,19 +2211,25 @@ pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
         .width = size.width,
         .height = size.height,
     };
+    const new_edge_insets: rendererpkg.Padding = .{
+        .top = edge_insets.top,
+        .bottom = edge_insets.bottom,
+        .left = edge_insets.left,
+        .right = edge_insets.right,
+    };
 
     // Update our screen size, but only if it actually changed. And if
     // the screen size didn't change, then our grid size could not have
     // changed, so we just return.
-    if (self.size.screen.equals(new_screen_size)) return;
+    if (self.size.screen.equals(new_screen_size) and self.edge_insets.eql(new_edge_insets)) return;
 
-    try self.resize(new_screen_size);
+    try self.resize(new_screen_size, new_edge_insets);
 }
 
-fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
+fn resize(self: *Surface, size: rendererpkg.ScreenSize, edge_insets: rendererpkg.Padding) !void {
     // Save our screen size
     self.size.screen = size;
-    self.balancePaddingIfNeeded();
+    self.updatePaddingIfNeeded(edge_insets);
 
     // Recalculate our grid size. Because Ghostty supports fluid resizing,
     // its possible the grid doesn't change at all even if the screen size changes.
@@ -2231,13 +2249,18 @@ fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
     self.io.queueMessage(.{ .resize = self.size }, .unlocked);
 }
 
-/// Recalculate the balanced padding if needed.
-fn balancePaddingIfNeeded(self: *Surface) void {
-    if (!self.config.window_padding_balance) return;
+/// Recalculate and balance the padding if needed.
+fn updatePaddingIfNeeded(self: *Surface, edge_insets: rendererpkg.Padding) void {
+    if (!self.edge_insets.eql(edge_insets)) {
+        self.edge_insets = edge_insets;
+    } else if (!self.config.window_padding_balance) {
+        return;
+    }
     const content_scale = try self.rt_surface.getContentScale();
     const x_dpi = content_scale.x * font.face.default_dpi;
     const y_dpi = content_scale.y * font.face.default_dpi;
-    self.size.balancePadding(self.config.scaledPadding(x_dpi, y_dpi));
+    const explicit = self.config.scaledPadding(x_dpi, y_dpi);
+    self.size.setPadding(explicit, self.edge_insets, self.config.window_padding_balance);
 }
 
 /// Called to set the preedit state for character input. Preedit is used
@@ -3195,12 +3218,13 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
     // Update our padding which is dependent on DPI. We only do this for
     // unbalanced padding since balanced padding is not dependent on DPI.
     if (!self.config.window_padding_balance) {
-        self.size.padding = self.config.scaledPadding(x_dpi, y_dpi);
+        const explicit = self.config.scaledPadding(x_dpi, y_dpi);
+        self.size.setPadding(explicit, self.edge_insets, false);
     }
 
     // Force a resize event because the change in padding will affect
     // pixel-level changes to the renderer and viewport.
-    try self.resize(self.size.screen);
+    try self.resize(self.size.screen, self.edge_insets);
 }
 
 /// The type of action to report for a mouse event.
