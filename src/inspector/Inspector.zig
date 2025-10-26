@@ -172,11 +172,7 @@ pub fn init(surface: *Surface) !Inspector {
         .surface = surface,
         .key_events = key_buf,
         .vt_events = vt_events,
-        .vt_stream = stream: {
-            var s: inspector.termio.Stream = .init(vt_handler);
-            s.parser.osc_parser.alloc = surface.alloc;
-            break :stream s;
-        },
+        .vt_stream = .initAlloc(surface.alloc, vt_handler),
     };
 }
 
@@ -194,7 +190,6 @@ pub fn deinit(self: *Inspector) void {
         while (it.next()) |v| v.deinit(self.surface.alloc);
         self.vt_events.deinit(self.surface.alloc);
 
-        self.vt_stream.handler.deinit();
         self.vt_stream.deinit();
     }
 }
