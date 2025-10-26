@@ -733,8 +733,6 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// For example, to treat semicolons as part of words:
 ///
 ///     selection-word-chars = " \t'\"│`|:,()[]{}<>$"
-///
-/// Available since: 1.2.0
 @"selection-word-chars": SelectionWordChars = .{},
 
 /// The minimum contrast ratio between the foreground and background colors.
@@ -5797,7 +5795,7 @@ pub const SelectionWordChars = struct {
 
     /// Default boundary characters: ` \t'"│`|:;,()[]{}<>$`
     const default_codepoints = [_]u32{
-        0,   // null
+        0, // null
         ' ', // space
         '\t', // tab
         '\'', // single quote
