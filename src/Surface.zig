@@ -148,6 +148,9 @@ focused: bool = true,
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
+/// Search state for the terminal scrollback buffer.
+search: SearchState,
+
 /// Used to send notifications that long running commands have finished.
 /// Requires that shell integration be active. Should represent a nanosecond
 /// precision timestamp. It does not necessarily need to correspond to the
@@ -244,6 +247,81 @@ pub const Keyboard = struct {
     /// This is naturally bounded due to the configuration maximum
     /// length of a sequence.
     queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .{},
+};
+
+/// Search state for the surface. This manages the search functionality
+/// including the active search query, found matches, and current position.
+pub const SearchState = struct {
+    /// Whether search is currently active
+    active: bool = false,
+
+    /// The active search query string (owned by this struct)
+    query: ?[]const u8 = null,
+
+    /// The allocator used for the query and match list
+    alloc: Allocator,
+
+    /// All currently found matches, stored as selections
+    matches: std.ArrayListUnmanaged(terminal.Selection) = .{},
+
+    /// The index of the currently selected match (null if no match selected)
+    current_match: ?usize = null,
+
+    /// The active search instance (null when no search is running)
+    searcher: ?*terminal.search.PageListSearch = null,
+
+    pub fn init(alloc: Allocator) SearchState {
+        return .{
+            .alloc = alloc,
+        };
+    }
+
+    pub fn deinit(self: *SearchState) void {
+        self.clear();
+    }
+
+    /// Clear all search state and free resources
+    pub fn clear(self: *SearchState) void {
+        // Free the query string
+        if (self.query) |q| {
+            self.alloc.free(q);
+            self.query = null;
+        }
+
+        // Free matches
+        self.matches.deinit(self.alloc);
+        self.matches = .{};
+
+        // Clean up searcher if it exists
+        if (self.searcher) |s| {
+            s.deinit();
+            self.alloc.destroy(s);
+            self.searcher = null;
+        }
+
+        self.current_match = null;
+        self.active = false;
+    }
+
+    /// Returns true if there are matches available
+    pub fn hasMatches(self: *const SearchState) bool {
+        return self.matches.items.len > 0;
+    }
+
+    /// Returns the number of matches found
+    pub fn matchCount(self: *const SearchState) usize {
+        return self.matches.items.len;
+    }
+
+    /// Returns the current match selection if available
+    pub fn currentSelection(self: *const SearchState) ?terminal.Selection {
+        if (self.current_match) |idx| {
+            if (idx < self.matches.items.len) {
+                return self.matches.items[idx];
+            }
+        }
+        return null;
+    }
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -545,6 +623,7 @@ pub fn init(
         .renderer_thr = undefined,
         .mouse = .{},
         .keyboard = .{},
+        .search = SearchState.init(alloc),
         .io = undefined,
         .io_thread = io_thread,
         .io_thr = undefined,
@@ -756,6 +835,9 @@ pub fn deinit(self: *Surface) void {
     // Clean up our keyboard state
     for (self.keyboard.queued.items) |req| req.deinit();
     self.keyboard.queued.deinit(self.alloc);
+
+    // Clean up search state
+    self.search.deinit();
 
     // Clean up our font grid
     self.app.font_grid_set.deref(self.font_grid_key);
@@ -4488,6 +4570,189 @@ fn showMouse(self: *Surface) void {
     };
 }
 
+/// Start a new search with the given query string.
+///
+/// This function initializes a search across the scrollback buffer. The query
+/// is copied and owned by the SearchState. All matches are found immediately
+/// and stored in the search state.
+///
+/// Only works in primary screen mode. In alternate screen (vim, less, etc.),
+/// this function does nothing and returns immediately.
+///
+/// The renderer state mutex MUST NOT be held when calling this.
+pub fn searchStart(self: *Surface, query: []const u8) !void {
+    // Clear any existing search first
+    self.searchClose();
+
+    // Don't search in alternate screen
+    self.renderer_state.mutex.lock();
+    const screen_type = self.io.terminal.active_screen;
+    self.renderer_state.mutex.unlock();
+
+    if (screen_type != .primary) {
+        log.debug("search not supported in alternate screen", .{});
+        return;
+    }
+
+    // Empty query - do nothing
+    if (query.len == 0) {
+        log.debug("empty search query, ignoring", .{});
+        return;
+    }
+
+    // Copy the query string
+    const query_copy = try self.search.alloc.dupe(u8, query);
+    errdefer self.search.alloc.free(query_copy);
+
+    // Create the searcher
+    self.renderer_state.mutex.lock();
+    const page_list = &self.io.terminal.screen.pages;
+    self.renderer_state.mutex.unlock();
+
+    var searcher = try self.search.alloc.create(terminal.search.PageListSearch);
+    errdefer self.search.alloc.destroy(searcher);
+    searcher.* = try terminal.search.PageListSearch.init(
+        self.search.alloc,
+        page_list,
+        query_copy,
+    );
+
+    // Find all matches
+    var matches = std.ArrayList(terminal.Selection).init(self.search.alloc);
+    errdefer matches.deinit();
+
+    while (try searcher.next()) |sel| {
+        try matches.append(sel);
+
+        // Safety limit: don't find more than 10000 matches
+        if (matches.items.len >= 10000) {
+            log.warn("search found >10000 matches, stopping search", .{});
+            break;
+        }
+    }
+
+    log.debug("search found {} matches for query: {s}", .{ matches.items.len, query_copy });
+
+    // Update search state
+    self.search.query = query_copy;
+    self.search.searcher = searcher;
+    self.search.matches = matches.moveToUnmanaged();
+    self.search.active = true;
+
+    // Jump to first match if available
+    if (self.search.matches.items.len > 0) {
+        self.search.current_match = 0;
+        try self.scrollToCurrentSearchMatch();
+    }
+
+    // Mark needs render to show highlights
+    try self.queueRender();
+}
+
+/// Move to the next search match.
+///
+/// If at the last match, wraps around to the first match. If no search
+/// is active or no matches exist, this does nothing.
+pub fn searchNext(self: *Surface) !void {
+    if (!self.search.active) return;
+    if (self.search.matches.items.len == 0) return;
+
+    if (self.search.current_match) |current| {
+        // Wrap around to beginning if at end
+        if (current + 1 >= self.search.matches.items.len) {
+            self.search.current_match = 0;
+        } else {
+            self.search.current_match = current + 1;
+        }
+    } else {
+        // No current match, go to first
+        self.search.current_match = 0;
+    }
+
+    try self.scrollToCurrentSearchMatch();
+    try self.queueRender();
+}
+
+/// Move to the previous search match.
+///
+/// If at the first match, wraps around to the last match. If no search
+/// is active or no matches exist, this does nothing.
+pub fn searchPrevious(self: *Surface) !void {
+    if (!self.search.active) return;
+    if (self.search.matches.items.len == 0) return;
+
+    if (self.search.current_match) |current| {
+        // Wrap around to end if at beginning
+        if (current == 0) {
+            self.search.current_match = self.search.matches.items.len - 1;
+        } else {
+            self.search.current_match = current - 1;
+        }
+    } else {
+        // No current match, go to last
+        self.search.current_match = self.search.matches.items.len - 1;
+    }
+
+    try self.scrollToCurrentSearchMatch();
+    try self.queueRender();
+}
+
+/// Close the active search and clear all state.
+///
+/// This clears the query, matches, and searcher. If no search is active,
+/// this does nothing.
+pub fn searchClose(self: *Surface) void {
+    if (!self.search.active) return;
+
+    self.search.clear();
+
+    // Mark needs render to clear highlights
+    self.queueRender() catch |err| {
+        log.warn("failed to queue render after closing search err={}", .{err});
+    };
+}
+
+/// Scroll the viewport to show the current search match.
+///
+/// This is an internal helper used by searchNext/searchPrevious.
+fn scrollToCurrentSearchMatch(self: *Surface) !void {
+    const sel = self.search.currentSelection() orelse return;
+
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    // Get the screen coordinate of the match
+    const start_pt = self.io.terminal.screen.pages.pointFromPin(
+        .screen,
+        sel.start(),
+    ) orelse return;
+
+    // Scroll to show this match if it's not visible
+    const viewport_top = self.io.terminal.screen.pages.pin(.{ .viewport = .{
+        .x = 0,
+        .y = 0,
+    } }) orelse return;
+
+    const viewport_top_pt = self.io.terminal.screen.pages.pointFromPin(
+        .active,
+        viewport_top,
+    ) orelse return;
+
+    const match_y = start_pt.screen.y;
+    const viewport_rows = self.size.grid().rows;
+
+    // If match is above viewport, scroll up to show it
+    if (match_y < viewport_top_pt.active.y) {
+        const rows_to_scroll = viewport_top_pt.active.y - match_y;
+        try self.io.terminal.scrollViewport(.{ .delta = -@as(isize, @intCast(rows_to_scroll)) });
+    }
+    // If match is below viewport, scroll down to show it
+    else if (match_y >= viewport_top_pt.active.y + viewport_rows) {
+        const rows_to_scroll = match_y - (viewport_top_pt.active.y + viewport_rows - 1);
+        try self.io.terminal.scrollViewport(.{ .delta = @as(isize, @intCast(rows_to_scroll)) });
+    }
+}
+
 /// Perform a binding action. A binding is a keybinding. This function
 /// must be called from the GUI thread.
 ///
@@ -5029,6 +5294,28 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .close_window,
             {},
         ),
+
+        .search_start => {
+            // For Phase 1, search_start is a placeholder that doesn't do anything
+            // because we don't have a UI to input the query yet.
+            // In Phase 2 (macOS UI), the UI will call searchStart() directly
+            // with the query from the search input field.
+            //
+            // For now, log that the action was triggered.
+            log.debug("search_start action triggered (no UI yet)", .{});
+        },
+
+        .search_next => {
+            try self.searchNext();
+        },
+
+        .search_previous => {
+            try self.searchPrevious();
+        },
+
+        .search_close => {
+            self.searchClose();
+        },
 
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),
@@ -5895,4 +6182,118 @@ test "Surface: rectangle selection logic" {
         9, 2, // expected end
         true, //rectangle selection
     );
+}
+
+// --- Search Tests ---
+
+test "SearchState: init and deinit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var state = SearchState.init(alloc);
+    defer state.deinit();
+
+    try testing.expect(!state.active);
+    try testing.expect(state.query == null);
+    try testing.expectEqual(@as(usize, 0), state.matchCount());
+    try testing.expect(!state.hasMatches());
+    try testing.expect(state.currentSelection() == null);
+}
+
+test "SearchState: clear" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var state = SearchState.init(alloc);
+    defer state.deinit();
+
+    // Set some state
+    state.query = try alloc.dupe(u8, "test");
+    state.active = true;
+    try state.matches.append(alloc, terminal.Selection.init(
+        terminal.Pin{ .node = undefined, .x = 0, .y = 0 },
+        terminal.Pin{ .node = undefined, .x = 4, .y = 0 },
+        false,
+    ));
+    state.current_match = 0;
+
+    // Clear should reset everything
+    state.clear();
+
+    try testing.expect(!state.active);
+    try testing.expect(state.query == null);
+    try testing.expectEqual(@as(usize, 0), state.matchCount());
+    try testing.expect(state.current_match == null);
+}
+
+test "SearchState: hasMatches and matchCount" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var state = SearchState.init(alloc);
+    defer state.deinit();
+
+    try testing.expect(!state.hasMatches());
+    try testing.expectEqual(@as(usize, 0), state.matchCount());
+
+    // Add a match
+    try state.matches.append(alloc, terminal.Selection.init(
+        terminal.Pin{ .node = undefined, .x = 0, .y = 0 },
+        terminal.Pin{ .node = undefined, .x = 4, .y = 0 },
+        false,
+    ));
+
+    try testing.expect(state.hasMatches());
+    try testing.expectEqual(@as(usize, 1), state.matchCount());
+
+    // Add another match
+    try state.matches.append(alloc, terminal.Selection.init(
+        terminal.Pin{ .node = undefined, .x = 10, .y = 0 },
+        terminal.Pin{ .node = undefined, .x = 14, .y = 0 },
+        false,
+    ));
+
+    try testing.expectEqual(@as(usize, 2), state.matchCount());
+}
+
+test "SearchState: currentSelection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var state = SearchState.init(alloc);
+    defer state.deinit();
+
+    // No current match
+    try testing.expect(state.currentSelection() == null);
+
+    // Add matches
+    const sel1 = terminal.Selection.init(
+        terminal.Pin{ .node = undefined, .x = 0, .y = 0 },
+        terminal.Pin{ .node = undefined, .x = 4, .y = 0 },
+        false,
+    );
+    const sel2 = terminal.Selection.init(
+        terminal.Pin{ .node = undefined, .x = 10, .y = 0 },
+        terminal.Pin{ .node = undefined, .x = 14, .y = 0 },
+        false,
+    );
+
+    try state.matches.append(alloc, sel1);
+    try state.matches.append(alloc, sel2);
+
+    // Set current match to first
+    state.current_match = 0;
+    const current = state.currentSelection().?;
+    try testing.expect(current.start().x == sel1.start().x);
+    try testing.expect(current.start().y == sel1.start().y);
+
+    // Set current match to second
+    state.current_match = 1;
+    const current2 = state.currentSelection().?;
+    try testing.expect(current2.start().x == sel2.start().x);
+    try testing.expect(current2.start().y == sel2.start().y);
+
+    // Out of bounds index
+    state.current_match = 999;
+    try testing.expect(state.currentSelection() == null);
 }

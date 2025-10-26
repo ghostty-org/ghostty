@@ -511,6 +511,13 @@ fn actionCommands(action: Action.Key) []const Command {
         .ignore,
         .unbind,
         => comptime &.{},
+
+        // Search actions - TODO: Add proper command descriptions when UI is implemented
+        .search_start,
+        .search_next,
+        .search_previous,
+        .search_close,
+        => comptime &.{},
     };
 
     // All generated commands should have the same action as the

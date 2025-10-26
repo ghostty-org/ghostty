@@ -741,6 +741,37 @@ pub const Action = union(enum) {
     /// Quit Ghostty.
     quit,
 
+    /// Start a search in the scrollback buffer.
+    ///
+    /// This opens a search interface that allows you to search for text
+    /// in the terminal scrollback history. Use `search_next` and `search_previous`
+    /// to navigate between matches.
+    ///
+    /// The search is case-insensitive and searches for literal strings.
+    ///
+    /// Only works in the primary screen. In alternate screen mode
+    /// (e.g., vim, less), this action has no effect.
+    search_start,
+
+    /// Find the next match when a search is active.
+    ///
+    /// If there are no more matches forward in the buffer, this wraps
+    /// around to the first match. If no search is active, this action
+    /// has no effect.
+    search_next,
+
+    /// Find the previous match when a search is active.
+    ///
+    /// If there are no more matches backward in the buffer, this wraps
+    /// around to the last match. If no search is active, this action
+    /// has no effect.
+    search_previous,
+
+    /// Close the active search and clear all highlights.
+    ///
+    /// If no search is active, this action has no effect.
+    search_close,
+
     /// Crash Ghostty in the desired thread for the focused surface.
     ///
     /// WARNING: This is a hard crash (panic) and data can be lost.
@@ -1097,6 +1128,10 @@ pub const Action = union(enum) {
             .toggle_command_palette,
             .show_on_screen_keyboard,
             .reset_window_size,
+            .search_start,
+            .search_next,
+            .search_previous,
+            .search_close,
             .crash,
             => .surface,
 
