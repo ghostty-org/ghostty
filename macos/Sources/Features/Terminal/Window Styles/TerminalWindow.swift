@@ -26,7 +26,10 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
-    
+
+    /// Cache previously applied appearance to avoid unnecessary updates
+    private var appliedColorScheme: ghostty_color_scheme_e?
+
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
     var supportsUpdateAccessory: Bool {
@@ -400,6 +403,7 @@ class TerminalWindow: NSWindow {
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
         guard isVisible else { return }
+        defer { updateColorSchemeForSurfaceTree() }
 
         // Basic properties
         appearance = surfaceConfig.windowAppearance
@@ -460,6 +464,37 @@ class TerminalWindow: NSWindow {
 
         let alpha = derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
+    }
+
+    /// Update the surface tree's color scheme only when it actually changes.
+    ///
+    /// Calling ``ghostty_surface_set_color_scheme`` triggers
+    /// ``syncAppearance(_:)`` via notification,
+    /// so we avoid redundant calls.
+    func updateColorSchemeForSurfaceTree() {
+        guard let terminalController else {
+            return
+        }
+        /// Derive the target scheme from `window-theme` or system appearance.
+        /// We set the scheme on surfaces so they pick the correct theme
+        /// and let ``syncAppearance(_:)`` update the window accordingly.
+        /// Do not use ``effectiveAppearance`` here to prevent callback loops.
+        let themeAppearance = NSApplication.shared.appearance ?? NSAppearance.currentDrawing()
+        let scheme: ghostty_color_scheme_e
+        if themeAppearance.isDark {
+            scheme = GHOSTTY_COLOR_SCHEME_DARK
+        } else {
+            scheme = GHOSTTY_COLOR_SCHEME_LIGHT
+        }
+        guard scheme != appliedColorScheme else {
+            return
+        }
+        for surfaceView in terminalController.surfaceTree {
+            if let surface = surfaceView.surface {
+                ghostty_surface_set_color_scheme(surface, scheme)
+            }
+        }
+        appliedColorScheme = scheme
     }
 
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
