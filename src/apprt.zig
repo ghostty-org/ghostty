@@ -36,6 +36,7 @@ pub const CursorPos = structs.CursorPos;
 pub const IMEPos = structs.IMEPos;
 pub const Selection = structs.Selection;
 pub const SurfaceSize = structs.SurfaceSize;
+pub const SurfaceEdgeInsets = structs.SurfaceEdgeInsets;
 
 /// The implementation to use for the app runtime. This is comptime chosen
 /// so that every build has exactly one application runtime implementation.

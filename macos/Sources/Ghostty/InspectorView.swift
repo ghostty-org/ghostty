@@ -172,7 +172,10 @@ extension Ghostty {
             ghostty_inspector_set_content_scale(inspector, xScale, yScale)
 
             // When our scale factor changes, so does our fb size so we send that too
-            ghostty_inspector_set_size(inspector, UInt32(fbFrame.size.width), UInt32(fbFrame.size.height))
+            ghostty_inspector_set_size(
+                inspector,
+                ghostty_surface_size_s(width: UInt32(fbFrame.size.width), height: UInt32(fbFrame.size.height)),
+            )
         }
 
         // MARK: NSView
