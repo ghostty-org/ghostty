@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Ghostty Terminology">
+  <suite name="Standard Suite" code="????"
+    description="Common classes and commands for all applications.">
+    <enumeration name="save options" code="savo">
+      <enumerator name="yes" code="yes " description="Save the file." />
+      <enumerator name="no" code="no  " description="Do not save the file." />
+      <enumerator name="ask" code="ask "
+        description="Ask the user whether or not to save the file." />
+    </enumeration>
+    <command name="quit" code="aevtquit" description="Quit the application.">
+      <cocoa class="NSQuitCommand" />
+      <parameter name="saving" code="savo" type="save options" optional="yes"
+        description="Should changes be saved before quitting?">
+        <cocoa key="SaveOptions" />
+      </parameter>
+    </command>
+
+    <command name="count" code="corecnte"
+      description="Return the number of elements of a particular class within an object.">
+      <cocoa class="NSCountCommand" />
+      <access-group identifier="*" />
+      <direct-parameter type="specifier" requires-access="r"
+        description="The objects to be counted." />
+      <parameter name="each" code="kocl" type="type" optional="yes"
+        description="The class of objects to be counted." hidden="yes">
+        <cocoa key="ObjectClass" />
+      </parameter>
+      <result type="integer" description="The count." />
+    </command>
+
+    <command name="delete" code="coredelo" description="Delete an object.">
+      <cocoa class="NSDeleteCommand" />
+      <access-group identifier="*" />
+      <direct-parameter type="specifier" description="The object(s) to delete." />
+    </command>
+
+    <command name="duplicate" code="coreclon" description="Copy an object.">
+      <cocoa class="NSCloneCommand" />
+      <access-group identifier="*" />
+      <direct-parameter type="specifier" requires-access="r" description="The object(s) to copy." />
+      <parameter name="to" code="insh" type="location specifier"
+        description="The location for the new copy or copies." optional="yes">
+        <cocoa key="ToLocation" />
+      </parameter>
+      <parameter name="with properties" code="prdt" type="record"
+        description="Properties to set in the new copy or copies right away." optional="yes">
+        <cocoa key="WithProperties" />
+      </parameter>
+    </command>
+
+    <command name="exists" code="coredoex" description="Verify that an object exists.">
+      <cocoa class="NSExistsCommand" />
+      <access-group identifier="*" />
+      <direct-parameter type="any" requires-access="r" description="The object(s) to check." />
+      <result type="boolean" description="Did the object(s) exist?" />
+    </command>
+
+    <command name="make" code="corecrel" description="Create a new object.">
+      <cocoa class="NSCreateCommand" />
+      <access-group identifier="*" />
+      <parameter name="new" code="kocl" type="type" description="The class of the new object.">
+        <cocoa key="ObjectClass" />
+      </parameter>
+      <parameter name="at" code="insh" type="location specifier" optional="yes"
+        description="The location at which to insert the object.">
+        <cocoa key="Location" />
+      </parameter>
+      <parameter name="with data" code="data" type="any" optional="yes"
+        description="The initial contents of the object.">
+        <cocoa key="ObjectData" />
+      </parameter>
+      <parameter name="with properties" code="prdt" type="record" optional="yes"
+        description="The initial values for properties of the object.">
+        <cocoa key="KeyDictionary" />
+      </parameter>
+      <result type="specifier" description="The new object." />
+    </command>
+
+    <command name="move" code="coremove" description="Move an object to a new location.">
+      <cocoa class="NSMoveCommand" />
+      <access-group identifier="*" />
+      <direct-parameter type="specifier" requires-access="r" description="The object(s) to move." />
+      <parameter name="to" code="insh" type="location specifier"
+        description="The new location for the object(s).">
+        <cocoa key="ToLocation" />
+      </parameter>
+    </command>
+
+    <class name="application" code="capp"
+      description="The application's top-level scripting object.">
+      <cocoa class="NSApplication" />
+      <property name="name" code="pnam" type="text" access="r"
+        description="The name of the application." />
+      <property name="frontmost" code="pisf" type="boolean" access="r"
+        description="Is this the active application?">
+        <cocoa key="isActive" />
+      </property>
+      <property name="version" code="vers" type="text" access="r"
+        description="The version number of the application." />
+      <element type="window" access="r">
+        <cocoa key="orderedWindows" />
+      </element>
+      <property name="current window" code="Crwn" type="window"
+        description="The frontmost window">
+        <cocoa key="currentScriptingWindow" />
+      </property>
+    </class>
+    <class name="window" code="cwin" description="A Ghostty window">
+      <cocoa class="GhosttyWindow" />
+      <property name="id" code="ID  " type="integer" access="r"
+        description="Unique ID of the window" />
+      <property name="name" code="pnam" type="text" access="r" description="Name of the window" />
+      <element type="tab" access="r">
+        <cocoa key="tabs" />
+      </element>
+    </class>
+  </suite>
+  <suite name="Ghostty Suite" code="Ghst" description="Commands and objects for Ghostty">
+    <command name="create window" code="GhstNwin" description="Create a new window">
+      <cocoa class="Ghostty.ScriptNewWindowCommand" />
+      <parameter name="command" code="cmd " type="text" optional="yes"
+        description="The shell command to execute in the new window" />
+      <parameter name="wait" code="wait" type="boolean" optional="yes"
+        description="Wait after the command exits" />
+    </command>
+    <command name="create tab" code="GhstNtab" description="Create a new tab">
+      <cocoa class="Ghostty.ScriptNewTabCommand" />
+      <parameter name="command" code="cmd " type="text" optional="yes"
+        description="The shell command to execute in the new tab" />
+      <parameter name="wait" code="wait" type="boolean" optional="yes"
+        description="Wait after the command exits" />
+    </command>
+    <class name="tab" code="Gtab" description="A Ghostty tab">
+    </class>
+  </suite>
+</dictionary>
