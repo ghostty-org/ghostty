@@ -36,6 +36,9 @@ class SurfaceScrollView: NSView {
         scrollView.usesPredominantAxisScrolling = true
         // hide default background to show blur effect properly
         scrollView.drawsBackground = false
+        // don't let the content view clip it's subviews, to enable the
+        // surface to draw the background behind non-overlay scrollers
+        scrollView.contentView.clipsToBounds = false
         
         // The document view is what the scrollview is actually going
         // to be directly scrolling. We set it up to a "blank" NSView
@@ -142,6 +145,11 @@ class SurfaceScrollView: NSView {
         
         // Fill entire bounds with scroll view
         scrollView.frame = bounds
+        surfaceView.frame.size = scrollView.bounds.size
+
+        // The width of the documentView itself doesn't really matter,
+        // as it doesn't clip subviews, but we might as well be honest
+        documentView.frame.size.width = scrollView.bounds.width
         
         // When our scrollview changes make sure our scroller and surface views are synchronized
         synchronizeScrollView()
@@ -154,10 +162,9 @@ class SurfaceScrollView: NSView {
         // Only update the pty if we have a valid (non-zero) content size. The content size
         // can be zero when this is added early to a view, or to an invisible hierarchy.
         // Practically, this happened in the quick terminal.
-        let width = surfaceContentWidth()
-        let height = surfaceView.frame.height
-        if width > 0 && height > 0 {
-            surfaceView.sizeDidChange(CGSize(width: width, height: height))
+        let size = surfaceView.frame.size
+        if size.width > 0 && size.height > 0 {
+            surfaceView.sizeDidChange(size, scrollerInset: scrollerWidth())
         }
     }
     
@@ -175,20 +182,13 @@ class SurfaceScrollView: NSView {
     /// so the renderer only needs to render what's currently on screen.
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
-        surfaceView.frame = visibleRect
+        surfaceView.frame.origin = visibleRect.origin
     }
 
     /// Sizes the document view and scrolls the content view according to the scrollbar state
     private func synchronizeScrollView() {
-        // We adjust the document height first, as the content width may depend on it.
+        // Update the document height to give our scroller the correct proportions
         documentView.frame.size.height = documentHeight()
-
-        // Our width should be the content width to account for visible scrollers.
-        // We don't do horizontal scrolling in terminals. The surfaceView width is
-        // yoked to the document width (this is distinct from the content width
-        // passed to surfaceView.sizeDidChange, which is only updated on layout).
-        documentView.frame.size.width = scrollView.contentSize.width
-        surfaceView.frame.size.width = scrollView.contentSize.width
         
         // Only update our actual scroll position if we're not actively scrolling.
         if !isLiveScrolling {
@@ -310,22 +310,17 @@ class SurfaceScrollView: NSView {
     /// in advance, because legacy scrollbars change our contentSize and force reflow
     /// of our terminal which is not desirable.
     /// See: https://github.com/ghostty-org/ghostty/discussions/9254
-    private func surfaceContentWidth() -> CGFloat {
-        let contentWidth = scrollView.contentSize.width
+    private func scrollerWidth() -> CGFloat {
         if scrollView.hasVerticalScroller {
             let style =
                 scrollView.verticalScroller?.scrollerStyle
                 ?? NSScroller.preferredScrollerStyle
-            // We only subtract the scrollbar width if it's hidden or not present,
-            // otherwise its width is already accounted for in contentSize.
-            if style == .legacy && (scrollView.verticalScroller?.isHidden ?? true) {
-                let scrollerWidth =
-                    scrollView.verticalScroller?.frame.width
+            if style == .legacy {
+                return scrollView.verticalScroller?.frame.width
                     ?? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-                return max(0, contentWidth - scrollerWidth)
             }
         }
-        return contentWidth
+        return 0
     }
 
     /// Calculate the appropriate document view height given a scrollbar state
