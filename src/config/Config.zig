@@ -5788,13 +5788,13 @@ pub const RepeatableString = struct {
 
 /// SelectionWordChars stores the parsed codepoints for word boundary
 /// characters used during text selection. The string is parsed once
-/// during configuration and stored as u32 codepoints for efficient
+/// during configuration and stored as u21 codepoints for efficient
 /// lookup during selection operations.
 pub const SelectionWordChars = struct {
     const Self = @This();
 
     /// Default boundary characters: ` \t'"│`|:;,()[]{}<>$`
-    const default_codepoints = [_]u32{
+    const default_codepoints = [_]u21{
         0, // null
         ' ', // space
         '\t', // tab
@@ -5818,58 +5818,60 @@ pub const SelectionWordChars = struct {
     };
 
     /// The parsed codepoints. Always includes null (U+0000) at index 0.
-    codepoints: []const u32 = &default_codepoints,
+    codepoints: []const u21 = &default_codepoints,
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
         const value = input orelse return error.ValueRequired;
 
         // Parse UTF-8 string into codepoints
-        var list = std.ArrayList(u32).init(alloc);
-        defer list.deinit();
+        var list: std.ArrayList(u21) = .empty;
+        defer list.deinit(alloc);
 
         // Always include null as first boundary
-        try list.append(0);
+        try list.append(alloc, 0);
 
         // Parse the UTF-8 string
         const utf8_view = std.unicode.Utf8View.init(value) catch {
             // Invalid UTF-8, just use null boundary
-            self.codepoints = try list.toOwnedSlice();
+            self.codepoints = try list.toOwnedSlice(alloc);
             return;
         };
 
         var utf8_it = utf8_view.iterator();
         while (utf8_it.nextCodepoint()) |codepoint| {
-            try list.append(codepoint);
+            try list.append(alloc, codepoint);
         }
 
-        self.codepoints = try list.toOwnedSlice();
+        self.codepoints = try list.toOwnedSlice(alloc);
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        const copy = try alloc.dupe(u32, self.codepoints);
+        const copy = try alloc.dupe(u21, self.codepoints);
         return .{ .codepoints = copy };
     }
 
     /// Compare if two values are equal. Required by Config.
     pub fn equal(self: Self, other: Self) bool {
-        return std.mem.eql(u32, self.codepoints, other.codepoints);
+        return std.mem.eql(u21, self.codepoints, other.codepoints);
     }
 
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // Convert codepoints back to UTF-8 string for display
-        var buf = std.ArrayList(u8).init(formatter.alloc);
-        defer buf.deinit();
+        var buf: [4096]u8 = undefined;
+        var pos: usize = 0;
 
         // Skip the null character at index 0
         for (self.codepoints[1..]) |codepoint| {
             var utf8_buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(@intCast(codepoint), &utf8_buf) catch continue;
-            try buf.appendSlice(utf8_buf[0..len]);
+            const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch continue;
+            if (pos + len > buf.len) break;
+            @memcpy(buf[pos..][0..len], utf8_buf[0..len]);
+            pos += len;
         }
 
-        try formatter.formatEntry([]const u8, buf.items);
+        try formatter.formatEntry([]const u8, buf[0..pos]);
     }
 
     test "parseCLI" {
@@ -5883,11 +5885,11 @@ pub const SelectionWordChars = struct {
 
         // Should have null + 4 characters
         try testing.expectEqual(@as(usize, 5), chars.codepoints.len);
-        try testing.expectEqual(@as(u32, 0), chars.codepoints[0]);
-        try testing.expectEqual(@as(u32, ' '), chars.codepoints[1]);
-        try testing.expectEqual(@as(u32, '\t'), chars.codepoints[2]);
-        try testing.expectEqual(@as(u32, ';'), chars.codepoints[3]);
-        try testing.expectEqual(@as(u32, ','), chars.codepoints[4]);
+        try testing.expectEqual(@as(u21, 0), chars.codepoints[0]);
+        try testing.expectEqual(@as(u21, ' '), chars.codepoints[1]);
+        try testing.expectEqual(@as(u21, '\t'), chars.codepoints[2]);
+        try testing.expectEqual(@as(u21, ';'), chars.codepoints[3]);
+        try testing.expectEqual(@as(u21, ','), chars.codepoints[4]);
     }
 };
 

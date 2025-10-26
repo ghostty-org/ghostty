@@ -316,7 +316,7 @@ const DerivedConfig = struct {
     macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
-    selection_word_chars: []const u32,
+    selection_word_chars: []const u21,
     vt_kam_allowed: bool,
     wait_after_command: bool,
     window_padding_top: u32,

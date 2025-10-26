@@ -2485,7 +2485,7 @@ pub fn selectAll(self: *Screen) ?Selection {
 /// end_pt (inclusive). Because it selects "nearest" to start point, start
 /// point can be before or after end point.
 ///
-/// The boundary_codepoints parameter should be a slice of u32 codepoints that
+/// The boundary_codepoints parameter should be a slice of u21 codepoints that
 /// mark word boundaries, passed through to selectWord.
 ///
 /// TODO: test this
@@ -2493,7 +2493,7 @@ pub fn selectWordBetween(
     self: *Screen,
     start: Pin,
     end: Pin,
-    boundary_codepoints: []const u32,
+    boundary_codepoints: []const u21,
 ) ?Selection {
     const dir: PageList.Direction = if (start.before(end)) .right_down else .left_up;
     var it = start.cellIterator(dir, end);
@@ -2518,12 +2518,12 @@ pub fn selectWordBetween(
 /// This will return null if a selection is impossible. The only scenario
 /// this happens is if the point pt is outside of the written screen space.
 ///
-/// The boundary_codepoints parameter should be a slice of u32 codepoints that
+/// The boundary_codepoints parameter should be a slice of u21 codepoints that
 /// mark word boundaries. This is expected to be pre-parsed from the config.
 pub fn selectWord(
     self: *Screen,
     pin: Pin,
-    boundary_codepoints: []const u32,
+    boundary_codepoints: []const u21,
 ) ?Selection {
     _ = self;
 
@@ -2534,9 +2534,9 @@ pub fn selectWord(
 
     // Determine if we are a boundary or not to determine what our boundary is.
     const expect_boundary = std.mem.indexOfAny(
-        u32,
+        u21,
         boundary_codepoints,
-        &[_]u32{start_cell.content.codepoint},
+        &[_]u21{start_cell.content.codepoint},
     ) != null;
 
     // Go forwards to find our end boundary
@@ -2552,9 +2552,9 @@ pub fn selectWord(
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfAny(
-                u32,
+                u21,
                 boundary_codepoints,
-                &[_]u32{cell.content.codepoint},
+                &[_]u21{cell.content.codepoint},
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
 
@@ -2589,9 +2589,9 @@ pub fn selectWord(
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfAny(
-                u32,
+                u21,
                 boundary_codepoints,
-                &[_]u32{cell.content.codepoint},
+                &[_]u21{cell.content.codepoint},
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 
@@ -7555,9 +7555,9 @@ test "Screen: selectWord" {
     try s.testWriteString("ABC  DEF\n 123\n456");
 
     // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
     };
 
     // Outside of active area
@@ -7676,9 +7676,9 @@ test "Screen: selectWord across soft-wrap" {
     try s.testWriteString(" 1234012\n 123");
 
     // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
     };
 
     {
@@ -7748,9 +7748,9 @@ test "Screen: selectWord whitespace across soft-wrap" {
     try s.testWriteString("1       1\n 123");
 
     // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
     };
 
     // Going forward
@@ -7810,9 +7810,9 @@ test "Screen: selectWord with character boundary" {
     const alloc = testing.allocator;
 
     // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
     };
 
     const cases = [_][]const u8{
@@ -7919,12 +7919,6 @@ test "Screen: selectOutput" {
     var s = try init(alloc, .{ .cols = 10, .rows = 15, .max_scrollback = 0 });
     defer s.deinit();
 
-    // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
-    };
-
     // zig fmt: off
     {
                                                                   // line number:
@@ -7950,7 +7944,7 @@ test "Screen: selectOutput" {
         var sel = s.selectOutput(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 1,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
@@ -7966,7 +7960,7 @@ test "Screen: selectOutput" {
         var sel = s.selectOutput(s.pages.pin(.{ .active = .{
             .x = 3,
             .y = 7,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
@@ -7982,7 +7976,7 @@ test "Screen: selectOutput" {
         var sel = s.selectOutput(s.pages.pin(.{ .active = .{
             .x = 2,
             .y = 10,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
@@ -8014,12 +8008,6 @@ test "Screen: selectPrompt basics" {
 
     var s = try init(alloc, .{ .cols = 10, .rows = 15, .max_scrollback = 0 });
     defer s.deinit();
-
-    // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
-    };
 
     // zig fmt: off
     {
@@ -8059,7 +8047,7 @@ test "Screen: selectPrompt basics" {
         var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 6,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -8076,7 +8064,7 @@ test "Screen: selectPrompt basics" {
         var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 3,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -8095,12 +8083,6 @@ test "Screen: selectPrompt prompt at start" {
 
     var s = try init(alloc, .{ .cols = 10, .rows = 15, .max_scrollback = 0 });
     defer s.deinit();
-
-    // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
-    };
 
     // zig fmt: off
     {
@@ -8126,7 +8108,7 @@ test "Screen: selectPrompt prompt at start" {
         var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 1,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -8145,12 +8127,6 @@ test "Screen: selectPrompt prompt at end" {
 
     var s = try init(alloc, .{ .cols = 10, .rows = 15, .max_scrollback = 0 });
     defer s.deinit();
-
-    // Default boundary codepoints for word selection
-    const boundary_codepoints = &[_]u32{
-        0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
-        ',', '(', ')', '[', ']', '{', '}', '<', '>', '$',
-    };
 
     // zig fmt: off
     {
@@ -8176,7 +8152,7 @@ test "Screen: selectPrompt prompt at end" {
         var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 2,
-        } }).?, boundary_codepoints).?;
+        } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
