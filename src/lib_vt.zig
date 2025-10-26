@@ -98,13 +98,6 @@ comptime {
     // we want to reference the C API so that it gets exported.
     if (@import("root") == lib) {
         const c = terminal.c_api;
-        @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
-        @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
-        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
-        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
-        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
-        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
-        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
         @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
         @export(&c.key_event_free, .{ .name = "ghostty_key_event_free" });
         @export(&c.key_event_set_action, .{ .name = "ghostty_key_event_set_action" });
@@ -125,7 +118,19 @@ comptime {
         @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
         @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
         @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
+        @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
+        @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
+        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
+        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
+        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
+        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
+        @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
+        @export(&c.sgr_reset, .{ .name = "ghostty_sgr_reset" });
+        @export(&c.sgr_set_params, .{ .name = "ghostty_sgr_set_params" });
+        @export(&c.sgr_next, .{ .name = "ghostty_sgr_next" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {

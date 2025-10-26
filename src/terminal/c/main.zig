@@ -2,6 +2,7 @@ pub const osc = @import("osc.zig");
 pub const key_event = @import("key_event.zig");
 pub const key_encode = @import("key_encode.zig");
 pub const paste = @import("paste.zig");
+pub const sgr = @import("sgr.zig");
 
 // The full C API, unexported.
 pub const osc_new = osc.new;
@@ -11,6 +12,12 @@ pub const osc_next = osc.next;
 pub const osc_end = osc.end;
 pub const osc_command_type = osc.commandType;
 pub const osc_command_data = osc.commandData;
+
+pub const sgr_new = sgr.new;
+pub const sgr_free = sgr.free;
+pub const sgr_reset = sgr.reset;
+pub const sgr_set_params = sgr.setParams;
+pub const sgr_next = sgr.next;
 
 pub const key_event_new = key_event.new;
 pub const key_event_free = key_event.free;
@@ -41,6 +48,7 @@ test {
     _ = key_event;
     _ = key_encode;
     _ = paste;
+    _ = sgr;
 
     // We want to make sure we run the tests for the C allocator interface.
     _ = @import("../../lib/allocator.zig");

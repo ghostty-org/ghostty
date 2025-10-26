@@ -151,7 +151,7 @@ pub const Attribute = union(Tag) {
         dotted = 4,
         dashed = 5,
 
-        pub const C = u8;
+        pub const C = c_int;
 
         pub fn cval(self: Underline) Underline.C {
             return @intFromEnum(self);
@@ -176,9 +176,12 @@ pub const Attribute = union(Tag) {
 
 /// Parser parses the attributes from a list of SGR parameters.
 pub const Parser = struct {
-    params: []const u16,
+    params: []const u16 = &.{},
     params_sep: SepList = .initEmpty(),
     idx: usize = 0,
+
+    /// Empty state parser.
+    pub const empty: Parser = .{};
 
     /// Next returns the next attribute or null if there are no more attributes.
     pub fn next(self: *Parser) ?Attribute {

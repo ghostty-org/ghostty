@@ -1,0 +1,24 @@
+.{
+    .name = .c_vt_sgr,
+    .version = "0.0.0",
+    .fingerprint = 0x6e9c6d318e59c268,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        // Ghostty dependency. In reality, you'd probably use a URL-based
+        // dependency like the one showed (and commented out) below this one.
+        // We use a path dependency here for simplicity and to ensure our
+        // examples always test against the source they're bundled with.
+        .ghostty = .{ .path = "../../" },
+
+        // Example of what a URL-based dependency looks like:
+        // .ghostty = .{
+        //     .url = "https://github.com/ghostty-org/ghostty/archive/COMMIT.tar.gz",
+        //     .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO36s",
+        // },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
