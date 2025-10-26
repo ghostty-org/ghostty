@@ -462,7 +462,7 @@ pub const Surface = struct {
                 .x = @floatCast(opts.scale_factor),
                 .y = @floatCast(opts.scale_factor),
             },
-            .size = .{ .width = 800, .height = 600 },
+            .size = .{ .width = 800, .height = 600, .scrollbar_width = 0 },
             .cursor_pos = .{ .x = -1, .y = -1 },
         };
 
@@ -749,16 +749,17 @@ pub const Surface = struct {
         };
     }
 
-    pub fn updateSize(self: *Surface, width: u32, height: u32) void {
+    pub fn updateSize(self: *Surface, width: u32, height: u32, scrollbar_width: u32) void {
         // Runtimes sometimes generate superfluous resize events even
         // if the size did not actually change (SwiftUI). We check
         // that the size actually changed from what we last recorded
         // since resizes are expensive.
-        if (self.size.width == width and self.size.height == height) return;
+        if (self.size.width == width and self.size.height == height and self.size.scrollbar_width == scrollbar_width) return;
 
         self.size = .{
             .width = width,
             .height = height,
+            .scrollbar_width = scrollbar_width,
         };
 
         // Call the primary callback.
@@ -1613,8 +1614,8 @@ pub const CAPI = struct {
 
     /// Update the size of a surface. This will trigger resize notifications
     /// to the pty and the renderer.
-    export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
-        surface.updateSize(w, h);
+    export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32, scrollbar_width: u32) void {
+        surface.updateSize(w, h, scrollbar_width);
     }
 
     /// Return the size information a surface has.

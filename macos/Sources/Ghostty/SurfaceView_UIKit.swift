@@ -101,7 +101,8 @@ extension Ghostty {
             ghostty_surface_set_size(
                 surface,
                 UInt32(size.width * scale),
-                UInt32(size.height * scale)
+                UInt32(size.height * scale),
+                UInt32(0),
             )
         }
 

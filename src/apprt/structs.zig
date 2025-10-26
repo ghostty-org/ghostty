@@ -12,6 +12,7 @@ pub const ContentScale = struct {
 pub const SurfaceSize = struct {
     width: u32,
     height: u32,
+    scrollbar_width: u32,
 };
 
 /// The position of the cursor in pixels.
