@@ -349,6 +349,7 @@ pub const Window = extern struct {
             .init("toggle-command-palette", actionToggleCommandPalette, null),
             .init("toggle-inspector", actionToggleInspector, null),
             .init("toggle-maximize", actionToggleMaximize, null),
+            .init("toggle-fullscreen", actionToggleFullscreen, null),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1836,6 +1837,14 @@ pub const Window = extern struct {
         self: *Window,
     ) callconv(.c) void {
         self.performBindingAction(.toggle_maximize);
+    }
+
+    fn actionToggleFullscreen(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.toggle_fullscreen);
     }
 
     fn actionRingBell(
