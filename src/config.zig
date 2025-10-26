@@ -21,6 +21,7 @@ pub const ClipboardAccess = Config.ClipboardAccess;
 pub const Command = Config.Command;
 pub const ConfirmCloseSurface = Config.ConfirmCloseSurface;
 pub const CopyOnSelect = Config.CopyOnSelect;
+pub const CopyMode = Config.CopyMode;
 pub const RightClickAction = Config.RightClickAction;
 pub const CustomShaderAnimation = Config.CustomShaderAnimation;
 pub const FontSyntheticStyle = Config.FontSyntheticStyle;
