@@ -174,10 +174,19 @@ class SurfaceScrollView: NSView {
             }
         }
         
-        // Keep document width synchronized with content width
+        // Keep document width synchronized with content width, and
+        // recalculate the height of the document view to account for the
+        // change in padding around the cell grid due to the resize.
+        var documentHeight = documentView.frame.height
+        let cellHeight = surfaceView.cellSize.height
+        if cellHeight > 0 {
+            let oldPadding = fmod(documentHeight, cellHeight)
+            let newPadding = fmod(contentSize.height, cellHeight)
+            documentHeight += newPadding - oldPadding
+        }
         documentView.setFrameSize(CGSize(
             width: contentSize.width,
-            height: documentView.frame.height
+            height: documentHeight
         ))
         
         // Inform the actual pty of our size change. This doesn't change the actual view
@@ -261,8 +270,7 @@ class SurfaceScrollView: NSView {
         // The full document height must include the vertical padding around the cell
         // grid, otherwise the content view ends up misaligned with the surface.
         let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-        let gridHeight = CGFloat(scrollbar.len) * cellHeight
-        let padding = scrollView.contentSize.height - gridHeight
+        let padding = fmod(scrollView.contentSize.height, cellHeight)
         let documentHeight = documentGridHeight + padding
 
         // Our width should be the content width to account for visible scrollers.
