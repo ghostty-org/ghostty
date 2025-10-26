@@ -348,6 +348,7 @@ pub const Window = extern struct {
             // TODO: accept the surface that toggled the command palette
             .init("toggle-command-palette", actionToggleCommandPalette, null),
             .init("toggle-inspector", actionToggleInspector, null),
+            .init("toggle-maximize", actionToggleMaximize, null),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1618,6 +1619,7 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         _ = surface;
+
         if (self.as(gtk.Window).isMaximized() != 0) {
             self.as(gtk.Window).unmaximize();
         } else {
@@ -1826,6 +1828,14 @@ pub const Window = extern struct {
         self: *Window,
     ) callconv(.c) void {
         self.performBindingAction(.clear_screen);
+    }
+
+    fn actionToggleMaximize(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.toggle_maximize);
     }
 
     fn actionRingBell(
