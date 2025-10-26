@@ -2057,6 +2057,12 @@ keybind: Keybinds = .{},
     else => .false,
 },
 
+/// Specifies which preset keybindings to use in copy mode
+///
+/// Valid values:
+///   * `arrow` - Use arrows with modifiers for navigation and selection
+@"copy-mode": CopyMode = .arrow,
+
 /// The action to take when the user right-clicks on the terminal surface.
 ///
 /// Valid values:
@@ -7000,6 +7006,15 @@ pub const CopyOnSelect = enum {
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
     clipboard,
+};
+
+/// Preset key layouts for copy mode. Defaults to arrow.
+pub const CopyMode = enum {
+    /// Arrow keys with modifiers for navigation and selection 
+    arrow,
+
+    // TODO: Vim-style keys for navigation and selection
+    // vim,
 };
 
 /// Options for right-click actions.
