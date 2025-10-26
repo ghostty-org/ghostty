@@ -89,6 +89,10 @@ extension Ghostty {
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
 
+        // The inset due to any non-overlay scroller, in window coordinates.
+        // Stored here because it's needed when backing properties change.
+        var scrollerInset: CGFloat = 0
+
         // Set whether the surface is currently on a password input or not. This is
         // detected with the set_password_input_cb on the Ghostty state.
         var passwordInput: Bool = false {
@@ -403,22 +407,29 @@ extension Ghostty {
             }
         }
 
-        func sizeDidChange(_ size: CGSize) {
+        func sizeDidChange(_ size: CGSize, scrollerInset: CGFloat) {
             // Ghostty wants to know the actual framebuffer size... It is very important
             // here that we use "size" and NOT the view frame. If we're in the middle of
             // an animation (i.e. a fullscreen animation), the frame will not yet be updated.
             // The size represents our final size we're going for.
+            self.scrollerInset = scrollerInset
             let scaledSize = self.convertToBacking(size)
-            setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
+            let xScale = scaledSize.width / size.width
+            setSurfaceSize(
+                width: UInt32(scaledSize.width),
+                height: UInt32(scaledSize.height),
+                scrollerInset: UInt32(xScale * scrollerInset),
+            )
         }
 
-        private func setSurfaceSize(width: UInt32, height: UInt32) {
+        private func setSurfaceSize(width: UInt32, height: UInt32, scrollerInset: UInt32) {
             guard let surface = self.surface else { return }
 
             // Update our core surface
-            ghostty_surface_set_size(
+            ghostty_surface_set_size_and_edge_insets(
                 surface,
                 ghostty_surface_size_s(width: width, height: height),
+                ghostty_surface_edge_insets_s(top: 0, bottom: 0, left: 0, right: scrollerInset),
             )
 
             // Update our cached size metrics
@@ -767,7 +778,11 @@ extension Ghostty {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
 
             // When our scale factor changes, so does our fb size so we send that too
-            setSurfaceSize(width: UInt32(fbFrame.size.width), height: UInt32(fbFrame.size.height))
+            setSurfaceSize(
+                width: UInt32(fbFrame.size.width),
+                height: UInt32(fbFrame.size.height),
+                scrollerInset: UInt32(xScale * scrollerInset),
+            )
         }
 
         override func mouseDown(with event: NSEvent) {
