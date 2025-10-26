@@ -155,6 +155,9 @@ selection_scroll_active: bool = false,
 /// the wall clock time that has elapsed between timestamps.
 command_timer: ?std.time.Instant = null,
 
+/// Copy mode state.
+copy_mode: CopyModeState = .{},
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -5059,6 +5062,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .toggle_copy_mode => {
+            try self.toggleCopyMode();
+            return true;
+        },
+
         .show_on_screen_keyboard => return try self.rt_app.performAction(
             .{ .surface = self },
             .show_on_screen_keyboard,
@@ -5530,6 +5538,47 @@ fn presentSurface(self: *Surface) !void {
         .present_terminal,
         {},
     );
+}
+
+/// Copy mode navigation state. 
+const CopyModeState = struct {
+    /// True when copy mode has been toggled on.
+    active: bool = false,
+
+    /// Optional pointer to a pin that represents a tracked cursor position
+    /// while in copy mode.
+    cursor: ?*terminal.Pin = null,
+
+    // Reset the copy mode state (when exiting copy mode)
+    fn reset(self: *CopyModeState, screen: *terminal.Screen) void {
+        if (self.cursor) |pin| screen.pages.untrackPin(pin);
+        self.* = .{};
+    }
+};
+
+fn toggleCopyMode(self: *Surface) !void {
+    if (self.copy_mode.active)
+        try self.exitCopyMode()
+    else
+        try self.enterCopyMode();
+}
+
+fn enterCopyMode(self: *Surface) !void  {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const screen = &self.io.terminal.screen;
+    const cursor_pin = try screen.pages.trackPin(screen.cursor.page_pin.*);
+    self.copy_mode.active = true;
+    self.copy_mode.cursor = cursor_pin;
+}
+
+fn exitCopyMode(self: *Surface) !void  {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const screen = &self.io.terminal.screen;
+    self.copy_mode.reset(screen);
 }
 
 /// Utility function for the unit tests for mouse selection logic.

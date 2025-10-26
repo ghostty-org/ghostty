@@ -658,6 +658,12 @@ pub const Action = union(enum) {
     /// version can be found by running `ghostty +version`.
     toggle_command_palette,
 
+    /// Toggle copy mode on or off.
+    ///
+    /// This is used to navigate and select text in the scrollback buffer in the
+    /// current surface using the keyboard.
+    toggle_copy_mode,
+
     /// Toggle the quick terminal.
     ///
     /// The quick terminal, also known as the "Quake-style" or drop-down
@@ -1112,6 +1118,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_copy_mode,
             .show_on_screen_keyboard,
             .reset_window_size,
             .crash,
