@@ -33,14 +33,16 @@ extension Ghostty {
             return diags
         }
 
-        init() {
-            if let cfg = Self.loadConfig() {
-                self.config = cfg
-            }
+        init(config: ghostty_config_t?) {
+            self.config = config
         }
 
-        init(clone config: ghostty_config_t) {
-            self.config = ghostty_config_clone(config)
+        convenience init() {
+            self.init(config: Self.loadConfig())
+        }
+
+        convenience init(clone config: ghostty_config_t) {
+            self.init(config: ghostty_config_clone(config))
         }
 
         deinit {
