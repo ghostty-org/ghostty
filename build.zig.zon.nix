@@ -163,11 +163,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAPk1AwDvSIEm8ftVzPLJr-Uuzz65Ss2R4ljTXjSq";
+      name = "N-V-__8AAPk1AwBAULkMLaJVuAoOyhTMRIh-joZs-jRJKHBJ";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251013-150525-147b9d3/ghostty-themes.tgz";
-        hash = "sha256-vFn6MiR8tVkGyjSV7pz4k4msviSCjGHKM2SU84lJp/k=";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz";
+        hash = "sha256-y2vhwlDUpgC6x5XPpDY96KNSHd/sRhyJpgiuzstP9p0=";
       };
     }
     {
