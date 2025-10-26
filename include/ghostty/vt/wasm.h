@@ -47,7 +47,7 @@
  *
  * // Allocate output buffer and size pointer
  * const bufferSize = 32;
- * const bufPtr = exports.ghostty_wasm_alloc_buffer(bufferSize);
+ * const bufPtr = exports.ghostty_wasm_alloc_u8_array(bufferSize);
  * const writtenPtr = exports.ghostty_wasm_alloc_usize();
  *
  * // Encode the key event
@@ -85,22 +85,40 @@ void** ghostty_wasm_alloc_opaque(void);
 void ghostty_wasm_free_opaque(void **ptr);
 
 /**
- * Allocate a buffer of the specified length.
+ * Allocate an array of uint8_t values.
  *
- * @param len Number of bytes to allocate
- * @return Pointer to allocated buffer, or NULL if allocation failed
+ * @param len Number of uint8_t elements to allocate
+ * @return Pointer to allocated array, or NULL if allocation failed
  * @ingroup wasm
  */
-uint8_t* ghostty_wasm_alloc_buffer(size_t len);
+uint8_t* ghostty_wasm_alloc_u8_array(size_t len);
 
 /**
- * Free a buffer allocated by ghostty_wasm_alloc_buffer().
+ * Free an array allocated by ghostty_wasm_alloc_u8_array().
  *
- * @param ptr Pointer to the buffer to free, or NULL (NULL is safely ignored)
- * @param len Length of the buffer (must match the length passed to alloc)
+ * @param ptr Pointer to the array to free, or NULL (NULL is safely ignored)
+ * @param len Length of the array (must match the length passed to alloc)
  * @ingroup wasm
  */
-void ghostty_wasm_free_buffer(uint8_t *ptr, size_t len);
+void ghostty_wasm_free_u8_array(uint8_t *ptr, size_t len);
+
+/**
+ * Allocate an array of uint16_t values.
+ *
+ * @param len Number of uint16_t elements to allocate
+ * @return Pointer to allocated array, or NULL if allocation failed
+ * @ingroup wasm
+ */
+uint16_t* ghostty_wasm_alloc_u16_array(size_t len);
+
+/**
+ * Free an array allocated by ghostty_wasm_alloc_u16_array().
+ *
+ * @param ptr Pointer to the array to free, or NULL (NULL is safely ignored)
+ * @param len Length of the array (must match the length passed to alloc)
+ * @ingroup wasm
+ */
+void ghostty_wasm_free_u16_array(uint16_t *ptr, size_t len);
 
 /**
  * Allocate a single uint8_t value.

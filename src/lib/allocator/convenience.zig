@@ -24,12 +24,21 @@ pub fn freeOpaque(ptr: ?*Opaque) callconv(.c) void {
     if (ptr) |p| alloc.destroy(p);
 }
 
-pub fn allocBuffer(len: usize) callconv(.c) ?[*]u8 {
+pub fn allocU8Array(len: usize) callconv(.c) ?[*]u8 {
     const slice = alloc.alloc(u8, len) catch return null;
     return slice.ptr;
 }
 
-pub fn freeBuffer(ptr: ?[*]u8, len: usize) callconv(.c) void {
+pub fn freeU8Array(ptr: ?[*]u8, len: usize) callconv(.c) void {
+    if (ptr) |p| alloc.free(p[0..len]);
+}
+
+pub fn allocU16Array(len: usize) callconv(.c) ?[*]u16 {
+    const slice = alloc.alloc(u16, len) catch return null;
+    return slice.ptr;
+}
+
+pub fn freeU16Array(ptr: ?[*]u16, len: usize) callconv(.c) void {
     if (ptr) |p| alloc.free(p[0..len]);
 }
 

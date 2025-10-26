@@ -100,6 +100,45 @@ pub fn next(
     return false;
 }
 
+pub fn unknown_full(
+    unknown: sgr.Attribute.Unknown.C,
+    ptr: ?*[*]const u16,
+) callconv(.c) usize {
+    if (ptr) |p| p.* = unknown.full_ptr;
+    return unknown.full_len;
+}
+
+pub fn unknown_partial(
+    unknown: sgr.Attribute.Unknown.C,
+    ptr: ?*[*]const u16,
+) callconv(.c) usize {
+    if (ptr) |p| p.* = unknown.partial_ptr;
+    return unknown.partial_len;
+}
+
+pub fn attribute_tag(
+    attr: sgr.Attribute.C,
+) callconv(.c) sgr.Attribute.Tag {
+    return attr.tag;
+}
+
+pub fn attribute_value(
+    attr: *sgr.Attribute.C,
+) callconv(.c) *sgr.Attribute.CValue {
+    return &attr.value;
+}
+
+pub fn wasm_alloc_attribute() callconv(.c) *sgr.Attribute.C {
+    const alloc = std.heap.wasm_allocator;
+    const ptr = alloc.create(sgr.Attribute.C) catch @panic("out of memory");
+    return ptr;
+}
+
+pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(.c) void {
+    const alloc = std.heap.wasm_allocator;
+    alloc.destroy(attr);
+}
+
 test "alloc" {
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(

@@ -126,23 +126,32 @@ comptime {
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
         @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
         @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
         @export(&c.sgr_reset, .{ .name = "ghostty_sgr_reset" });
         @export(&c.sgr_set_params, .{ .name = "ghostty_sgr_set_params" });
         @export(&c.sgr_next, .{ .name = "ghostty_sgr_next" });
+        @export(&c.sgr_unknown_full, .{ .name = "ghostty_sgr_unknown_full" });
+        @export(&c.sgr_unknown_partial, .{ .name = "ghostty_sgr_unknown_partial" });
+        @export(&c.sgr_attribute_tag, .{ .name = "ghostty_sgr_attribute_tag" });
+        @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {
             const alloc = @import("lib/allocator/convenience.zig");
             @export(&alloc.allocOpaque, .{ .name = "ghostty_wasm_alloc_opaque" });
             @export(&alloc.freeOpaque, .{ .name = "ghostty_wasm_free_opaque" });
-            @export(&alloc.allocBuffer, .{ .name = "ghostty_wasm_alloc_buffer" });
-            @export(&alloc.freeBuffer, .{ .name = "ghostty_wasm_free_buffer" });
+            @export(&alloc.allocU8Array, .{ .name = "ghostty_wasm_alloc_u8_array" });
+            @export(&alloc.freeU8Array, .{ .name = "ghostty_wasm_free_u8_array" });
+            @export(&alloc.allocU16Array, .{ .name = "ghostty_wasm_alloc_u16_array" });
+            @export(&alloc.freeU16Array, .{ .name = "ghostty_wasm_free_u16_array" });
             @export(&alloc.allocU8, .{ .name = "ghostty_wasm_alloc_u8" });
             @export(&alloc.freeU8, .{ .name = "ghostty_wasm_free_u8" });
             @export(&alloc.allocUsize, .{ .name = "ghostty_wasm_alloc_usize" });
             @export(&alloc.freeUsize, .{ .name = "ghostty_wasm_free_usize" });
+            @export(&c.wasm_alloc_sgr_attribute, .{ .name = "ghostty_wasm_alloc_sgr_attribute" });
+            @export(&c.wasm_free_sgr_attribute, .{ .name = "ghostty_wasm_free_sgr_attribute" });
         }
     }
 }

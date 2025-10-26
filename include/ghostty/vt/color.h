@@ -70,6 +70,25 @@ typedef uint8_t GhosttyColorPaletteIndex;
 
 /** @} */
 
+/**
+ * Get the RGB color components.
+ *
+ * This function extracts the individual red, green, and blue components
+ * from a GhosttyColorRgb value. Primarily useful in WebAssembly environments
+ * where accessing struct fields directly is difficult.
+ *
+ * @param color The RGB color value
+ * @param r Pointer to store the red component (0-255)
+ * @param g Pointer to store the green component (0-255)
+ * @param b Pointer to store the blue component (0-255)
+ *
+ * @ingroup sgr
+ */
+void ghostty_color_rgb_get(GhosttyColorRgb color,
+                           uint8_t* r,
+                           uint8_t* g,
+                           uint8_t* b);
+
 #ifdef __cplusplus
 }
 #endif

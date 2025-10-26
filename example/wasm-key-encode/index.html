@@ -458,7 +458,7 @@
                 // Set UTF-8 text from the key event (the actual character produced)
                 if (event.key.length === 1) {
                     const utf8Bytes = new TextEncoder().encode(event.key);
-                    const utf8Ptr = wasmInstance.exports.ghostty_wasm_alloc_buffer(utf8Bytes.length);
+                    const utf8Ptr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(utf8Bytes.length);
                     new Uint8Array(getBuffer()).set(utf8Bytes, utf8Ptr);
                     wasmInstance.exports.ghostty_key_event_set_utf8(eventPtr, utf8Ptr, utf8Bytes.length);
                 }
@@ -477,7 +477,7 @@
                 
                 const required = new DataView(getBuffer()).getUint32(requiredPtr, true);
                 
-                const bufPtr = wasmInstance.exports.ghostty_wasm_alloc_buffer(required);
+                const bufPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(required);
                 const writtenPtr = wasmInstance.exports.ghostty_wasm_alloc_usize();
                 const encodeResult = wasmInstance.exports.ghostty_key_encoder_encode(
                     encoderPtr, eventPtr, bufPtr, required, writtenPtr
