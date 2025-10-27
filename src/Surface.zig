@@ -5591,6 +5591,14 @@ fn exitCopyMode(self: *Surface) !void  {
 fn handleEventInCopyMode(self: *Surface, event: input.KeyEvent) !InputEffect {
     if (!self.copy_mode.active) return .ignored;
 
+    log.debug("handle key event: {}", .{event});
+
+    // Only handle press and repeat
+    switch (event.action) {
+        .release => return .consumed,
+        .press, .repeat => {},
+    }
+
     switch (self.config.copy_mode) {
         .arrow => return try self.handleEventInCopyModeArrow(event),
     }
