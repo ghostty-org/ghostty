@@ -5571,6 +5571,7 @@ fn enterCopyMode(self: *Surface) !void  {
     const cursor_pin = try screen.pages.trackPin(screen.cursor.page_pin.*);
     self.copy_mode.active = true;
     self.copy_mode.cursor = cursor_pin;
+    self.renderer_state.copy_mode_active = true;
 }
 
 fn exitCopyMode(self: *Surface) !void  {
@@ -5579,6 +5580,7 @@ fn exitCopyMode(self: *Surface) !void  {
 
     const screen = &self.io.terminal.screen;
     self.copy_mode.reset(screen);
+    self.renderer_state.copy_mode_active = false;
 }
 
 /// Utility function for the unit tests for mouse selection logic.

@@ -92,6 +92,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         const shaderpkg = GraphicsAPI.shaders;
         const Shaders = shaderpkg.Shaders;
 
+        const copy_mode_hud_label = "COPY MODE";
+
         /// Allocator that can be used
         alloc: std.mem.Allocator,
 
@@ -1104,6 +1106,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 /// If true, rebuild the full screen.
                 full_rebuild: bool,
+
+
+                /// True when copy mode is active so we can show HUD hints.
+                copy_mode_active: bool,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1261,6 +1267,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .color_palette = state.terminal.color_palette.colors,
                     .scrollbar = scrollbar,
                     .full_rebuild = full_rebuild,
+                    .copy_mode_active = state.copy_mode_active,
                 };
             };
             defer {
@@ -1277,6 +1284,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 critical.preedit,
                 critical.cursor_style,
                 &critical.color_palette,
+                critical.copy_mode_active,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -2370,6 +2378,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
             color_palette: *const terminal.color.Palette,
+            copy_mode_active: bool,
         ) !void {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
@@ -2990,6 +2999,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
+            if (copy_mode_active) addCopyModeHUD();
+
             // Update that our cells rebuilt
             self.cells_rebuilt = true;
 
@@ -3296,6 +3307,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     @intCast(render.glyph.offset_y),
                 },
             });
+        }
+
+        /// addCopyModeHUD renders a HUD that indicates that we're in copy mode
+        ///
+        /// TODO: not exactly sure how to display this yet, will come back later
+        fn addCopyModeHUD() void {
+            log.debug("TODO: add copy mode HUD", .{});
+            return;
         }
 
         /// Sync the atlas data to the given texture. This copies the bytes

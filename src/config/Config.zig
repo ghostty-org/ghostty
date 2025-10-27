@@ -5693,6 +5693,12 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = 'v' }, .mods = mods },
                 .{ .paste_from_clipboard = {} },
             );
+
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .f4 } },
+                .{ .toggle_copy_mode = {} },
+            );
         }
 
         // Increase font size mapping for keyboards with dedicated plus keys (like german)

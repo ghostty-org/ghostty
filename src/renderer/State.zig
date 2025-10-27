@@ -30,6 +30,10 @@ preedit: ?Preedit = null,
 /// need about the mouse.
 mouse: Mouse = .{},
 
+/// True when the surface is in copy mode so the renderer can show a HUD hint
+/// that copy mode is active.
+copy_mode_active: bool = false,
+
 pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use
     /// viewport points to avoid the complexity of mapping the mouse to
