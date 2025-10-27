@@ -23,24 +23,23 @@ class GhosttyCustomConfigCase: XCTestCase {
         }
     }
 
-    var customGhosttyConfig: String? {
-        nil
-    }
-
-    func ghosttyApplication() throws -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments.append(contentsOf: ["-ApplePersistenceIgnoreState", "YES"])
-        guard let customGhosttyConfig else {
-            return app
-        }
+    func updateConfig(_ newConfig: String) throws {
         if let configFile {
             try FileManager.default.removeItem(at: configFile)
         }
         let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ghostty")
-        try customGhosttyConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)
+        try newConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)
         configFile = temporaryConfig
-        app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile?.path
+    }
+
+    func ghosttyApplication() throws -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments.append(contentsOf: ["-ApplePersistenceIgnoreState", "YES"])
+        guard let configFile else {
+            return app
+        }
+        app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile.path
         return app
     }
 }

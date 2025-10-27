@@ -8,9 +8,9 @@
 import XCTest
 
 final class GhosttyTitleUITests: GhosttyCustomConfigCase {
-
-    override var customGhosttyConfig: String? {
-        #"title = "GhosttyUITestsLaunchTests""#
+    override func setUp() async throws {
+        try await super.setUp()
+        try updateConfig(#"title = "GhosttyUITestsLaunchTests""#)
     }
 
     @MainActor
