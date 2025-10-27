@@ -264,6 +264,7 @@ const DerivedConfig = struct {
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     copy_on_select: configpkg.CopyOnSelect,
+    copy_mode: configpkg.CopyMode,
     right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
@@ -338,6 +339,7 @@ const DerivedConfig = struct {
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .copy_on_select = config.@"copy-on-select",
+            .copy_mode = config.@"copy-mode",
             .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
@@ -2290,6 +2292,9 @@ pub fn keyCallback(
         event,
         if (insp_ev) |*ev| ev else null,
     )) |v| return v;
+
+    // If we're in copy mode, use another handler
+    if (self.copy_mode.active) return try self.handleEventInCopyMode(event);
 
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
@@ -5581,6 +5586,119 @@ fn exitCopyMode(self: *Surface) !void  {
     const screen = &self.io.terminal.screen;
     self.copy_mode.reset(screen);
     self.renderer_state.copy_mode_active = false;
+}
+
+fn handleEventInCopyMode(self: *Surface, event: input.KeyEvent) !InputEffect {
+    if (!self.copy_mode.active) return .ignored;
+
+    switch (self.config.copy_mode) {
+        .arrow => return try self.handleEventInCopyModeArrow(event),
+    }
+}
+
+fn moveLeftCopyMode(self: *Surface) !InputEffect {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
+    const current = cursor_ptr.*;
+    const next: terminal.Pin = current.leftWrap(1) orelse current;
+    cursor_ptr.* = next;
+
+    try self.setSelection(terminal.Selection.init(
+        cursor_ptr.*,
+        cursor_ptr.*,
+        false,
+    ));
+    try self.queueRender();
+
+    return .consumed;
+}
+
+fn moveRightCopyMode(self: *Surface) !InputEffect {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
+    const current = cursor_ptr.*;
+    const next: terminal.Pin = current.rightWrap(1) orelse current;
+    cursor_ptr.* = next;
+
+    try self.setSelection(terminal.Selection.init(
+        cursor_ptr.*,
+        cursor_ptr.*,
+        false,
+    ));
+    try self.queueRender();
+
+    return .consumed;
+}
+
+fn moveUpCopyMode(self: *Surface) !InputEffect {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
+    const current = cursor_ptr.*;
+    const next: terminal.Pin = current.up(1) orelse current;
+    cursor_ptr.* = next;
+
+    try self.setSelection(terminal.Selection.init(
+        cursor_ptr.*,
+        cursor_ptr.*,
+        false,
+    ));
+    try self.queueRender();
+
+    return .consumed;
+}
+
+fn moveDownCopyMode(self: *Surface) !InputEffect {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
+    const current = cursor_ptr.*;
+    const next: terminal.Pin = current.down(1) orelse current;
+    cursor_ptr.* = next;
+
+    try self.setSelection(terminal.Selection.init(
+        cursor_ptr.*,
+        cursor_ptr.*,
+        false,
+    ));
+    try self.queueRender();
+
+    return .consumed;
+}
+
+fn handleEventInCopyModeArrow(self: *Surface, event: input.KeyEvent) !InputEffect {
+    if (!self.copy_mode.active) return .ignored;
+    
+    switch (event.key) {
+        .escape => {
+            try self.exitCopyMode();
+            return .consumed;
+        },
+        
+        .arrow_left => {
+            return try self.moveLeftCopyMode();
+        },
+
+        .arrow_right => {
+            return try self.moveRightCopyMode();
+        },
+
+        .arrow_up => {
+            return try self.moveUpCopyMode();
+        },
+
+        .arrow_down => {
+            return try self.moveDownCopyMode();
+        },
+
+        else => return .ignored,
+    }
 }
 
 /// Utility function for the unit tests for mouse selection logic.
