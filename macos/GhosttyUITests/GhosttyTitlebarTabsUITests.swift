@@ -8,13 +8,16 @@
 import XCTest
 
 final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
-    override var customGhosttyConfig: String? {
-        """
-        macos-titlebar-style = tabs
-        title = "GhosttyTitlebarTabsUITests"
-        """
-    }
+    override func setUp() async throws {
+        try await super.setUp()
 
+        try updateConfig(
+            """
+            macos-titlebar-style = tabs
+            title = "GhosttyTitlebarTabsUITests"
+            """
+        )
+    }
     @MainActor
     func testCustomTitlebar() throws {
         let app = try ghosttyApplication()
