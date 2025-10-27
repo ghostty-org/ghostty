@@ -24,13 +24,12 @@ class GhosttyCustomConfigCase: XCTestCase {
     }
 
     func updateConfig(_ newConfig: String) throws {
-        if let configFile {
-            try FileManager.default.removeItem(at: configFile)
+        if configFile == nil {
+            let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("ghostty")
+            configFile = temporaryConfig
         }
-        let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("ghostty")
-        try newConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)
-        configFile = temporaryConfig
+        try newConfig.write(to: configFile!, atomically: true, encoding: .utf8)
     }
 
     func ghosttyApplication() throws -> XCUIApplication {
