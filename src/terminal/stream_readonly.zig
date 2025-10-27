@@ -160,6 +160,7 @@ pub const Handler = struct {
             .end_of_input => self.terminal.markSemanticPrompt(.command),
             .end_of_command => self.terminal.screen.cursor.page_row.semantic_prompt = .input,
             .mouse_shape => self.terminal.mouse_shape = value,
+            .color_operation => try self.colorOperation(value.op, &value.requests),
 
             // No supported DCS commands have any terminal-modifying effects,
             // but they may in the future. For now we just ignore it.
@@ -186,7 +187,6 @@ pub const Handler = struct {
             .device_status,
             .kitty_keyboard_query,
             .kitty_color_report,
-            .color_operation,
             .window_title,
             .report_pwd,
             .show_desktop_notification,
@@ -289,6 +289,56 @@ pub const Handler = struct {
             .mouse_format_sgr_pixels => self.terminal.flags.mouse_format = if (enabled) .sgr_pixels else .x10,
 
             else => {},
+        }
+    }
+
+    fn colorOperation(
+        self: *Handler,
+        op: @import("osc/color.zig").Operation,
+        requests: *const @import("osc/color.zig").List,
+    ) !void {
+        _ = op;
+        if (requests.count() == 0) return;
+
+        var it = requests.constIterator(0);
+        while (it.next()) |req| {
+            switch (req.*) {
+                .set => |set| {
+                    switch (set.target) {
+                        .palette => |i| {
+                            self.terminal.color_palette.colors[i] = set.color;
+                            self.terminal.color_palette.mask.set(i);
+                        },
+                        .dynamic,
+                        .special,
+                        => {},
+                    }
+                },
+
+                .reset => |target| switch (target) {
+                    .palette => |i| {
+                        const mask = &self.terminal.color_palette.mask;
+                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                        mask.unset(i);
+                    },
+                    .dynamic,
+                    .special,
+                    => {},
+                },
+
+                .reset_palette => {
+                    const mask = &self.terminal.color_palette.mask;
+                    var mask_iterator = mask.iterator(.{});
+                    while (mask_iterator.next()) |i| {
+                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                    }
+                    mask.* = .initEmpty();
+                },
+
+                .query,
+                .reset_special,
+                => {},
+            }
         }
     }
 };
@@ -539,4 +589,52 @@ test "ignores query actions" {
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("Test", str);
+}
+
+test "OSC 4 set and reset palette" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Save default color
+    const default_color_0 = t.default_palette[0];
+
+    // Set color 0 to red
+    try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
+    try testing.expectEqual(@as(u8, 0xff), t.color_palette.colors[0].r);
+    try testing.expectEqual(@as(u8, 0x00), t.color_palette.colors[0].g);
+    try testing.expectEqual(@as(u8, 0x00), t.color_palette.colors[0].b);
+    try testing.expect(t.color_palette.mask.isSet(0));
+
+    // Reset color 0
+    try s.nextSlice("\x1b]104;0\x1b\\");
+    try testing.expectEqual(default_color_0, t.color_palette.colors[0]);
+    try testing.expect(!t.color_palette.mask.isSet(0));
+}
+
+test "OSC 104 reset all palette colors" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set multiple colors
+    try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
+    try s.nextSlice("\x1b]4;1;rgb:00/ff/00\x1b\\");
+    try s.nextSlice("\x1b]4;2;rgb:00/00/ff\x1b\\");
+    try testing.expect(t.color_palette.mask.isSet(0));
+    try testing.expect(t.color_palette.mask.isSet(1));
+    try testing.expect(t.color_palette.mask.isSet(2));
+
+    // Reset all palette colors
+    try s.nextSlice("\x1b]104\x1b\\");
+    try testing.expectEqual(t.default_palette[0], t.color_palette.colors[0]);
+    try testing.expectEqual(t.default_palette[1], t.color_palette.colors[1]);
+    try testing.expectEqual(t.default_palette[2], t.color_palette.colors[2]);
+    try testing.expect(!t.color_palette.mask.isSet(0));
+    try testing.expect(!t.color_palette.mask.isSet(1));
+    try testing.expect(!t.color_palette.mask.isSet(2));
 }

@@ -293,6 +293,74 @@ pub const Style = struct {
         _ = try writer.write(" }");
     }
 
+    /// Returns a formatter that renders this style as VT sequences,
+    /// to be used with `{f}`. This always resets the style first `\x1b[0m`
+    /// since a style is meant to be fully self-contained.
+    ///
+    /// For individual styles, this always emits multiple SGR sequences
+    /// (i.e. an individual `\x1b[<stuff>m` for each attribute) rather than
+    /// trying to combine them into a single sequence. We do this because
+    /// terminals have varying levels of support for combined sequences
+    /// especially with mixed separators (e.g. `:` vs `;`).
+    pub fn formatterVt(self: *const Style) VTFormatter {
+        return .{ .style = self };
+    }
+
+    const VTFormatter = struct {
+        style: *const Style,
+
+        pub fn format(
+            self: VTFormatter,
+            writer: *std.Io.Writer,
+        ) !void {
+            // Always reset the style. Styles are fully self-contained.
+            // Even if this style is empty, then that means we want to go
+            // back to the default.
+            try writer.writeAll("\x1b[0m");
+
+            // Our flags
+            if (self.style.flags.bold) try writer.writeAll("\x1b[1m");
+            if (self.style.flags.faint) try writer.writeAll("\x1b[2m");
+            if (self.style.flags.italic) try writer.writeAll("\x1b[3m");
+            if (self.style.flags.blink) try writer.writeAll("\x1b[5m");
+            if (self.style.flags.inverse) try writer.writeAll("\x1b[7m");
+            if (self.style.flags.invisible) try writer.writeAll("\x1b[8m");
+            if (self.style.flags.strikethrough) try writer.writeAll("\x1b[9m");
+            if (self.style.flags.overline) try writer.writeAll("\x1b[53m");
+            switch (self.style.flags.underline) {
+                .none => {},
+                .single => try writer.writeAll("\x1b[4m"),
+                .double => try writer.writeAll("\x1b[4:2m"),
+                .curly => try writer.writeAll("\x1b[4:3m"),
+                .dotted => try writer.writeAll("\x1b[4:4m"),
+                .dashed => try writer.writeAll("\x1b[4:5m"),
+            }
+
+            // Various RGB colors.
+            try formatColor(writer, 38, self.style.fg_color);
+            try formatColor(writer, 48, self.style.bg_color);
+            try formatColor(writer, 58, self.style.underline_color);
+        }
+
+        fn formatColor(
+            writer: *std.Io.Writer,
+            prefix: u8,
+            value: Color,
+        ) !void {
+            switch (value) {
+                .none => {},
+                .palette => |idx| try writer.print(
+                    "\x1b[{d};5;{}m",
+                    .{ prefix, idx },
+                ),
+                .rgb => |rgb| try writer.print(
+                    "\x1b[{d};2;{};{};{}m",
+                    .{ prefix, rgb.r, rgb.g, rgb.b },
+                ),
+            }
+        }
+    };
+
     /// `PackedStyle` represents the same data as `Style` but without padding,
     /// which is necessary for hashing via re-interpretation of the underlying
     /// bytes.
@@ -393,6 +461,316 @@ pub const Set = RefCountedSet(
         }
     },
 );
+
+test "Style VT formatting empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{};
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m", builder.writer.buffered());
+}
+
+test "Style VT formatting bold" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .bold = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[1m", builder.writer.buffered());
+}
+
+test "Style VT formatting faint" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .faint = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[2m", builder.writer.buffered());
+}
+
+test "Style VT formatting italic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .italic = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[3m", builder.writer.buffered());
+}
+
+test "Style VT formatting blink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .blink = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[5m", builder.writer.buffered());
+}
+
+test "Style VT formatting inverse" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .inverse = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[7m", builder.writer.buffered());
+}
+
+test "Style VT formatting invisible" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .invisible = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[8m", builder.writer.buffered());
+}
+
+test "Style VT formatting strikethrough" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .strikethrough = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[9m", builder.writer.buffered());
+}
+
+test "Style VT formatting overline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .overline = true } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[53m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline single" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .underline = .single } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[4m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline double" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .underline = .double } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[4:2m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline curly" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .underline = .curly } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[4:3m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline dotted" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .underline = .dotted } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[4:4m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline dashed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .underline = .dashed } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[4:5m", builder.writer.buffered());
+}
+
+test "Style VT formatting fg palette" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .fg_color = .{ .palette = 42 } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[38;5;42m", builder.writer.buffered());
+}
+
+test "Style VT formatting fg rgb" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .fg_color = .{ .rgb = .{ .r = 255, .g = 128, .b = 64 } } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[38;2;255;128;64m", builder.writer.buffered());
+}
+
+test "Style VT formatting bg palette" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .bg_color = .{ .palette = 7 } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[48;5;7m", builder.writer.buffered());
+}
+
+test "Style VT formatting bg rgb" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .bg_color = .{ .rgb = .{ .r = 32, .g = 64, .b = 96 } } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[48;2;32;64;96m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline_color palette" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .underline_color = .{ .palette = 15 } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[58;5;15m", builder.writer.buffered());
+}
+
+test "Style VT formatting underline_color rgb" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .underline_color = .{ .rgb = .{ .r = 200, .g = 100, .b = 50 } } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[58;2;200;100;50m", builder.writer.buffered());
+}
+
+test "Style VT formatting multiple flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{ .bold = true, .italic = true, .underline = .single } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings("\x1b[0m\x1b[1m\x1b[3m\x1b[4m", builder.writer.buffered());
+}
+
+test "Style VT formatting all flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{ .flags = .{
+        .bold = true,
+        .faint = true,
+        .italic = true,
+        .blink = true,
+        .inverse = true,
+        .invisible = true,
+        .strikethrough = true,
+        .overline = true,
+        .underline = .curly,
+    } };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[1m\x1b[2m\x1b[3m\x1b[5m\x1b[7m\x1b[8m\x1b[9m\x1b[53m\x1b[4:3m",
+        builder.writer.buffered(),
+    );
+}
+
+test "Style VT formatting combined colors and flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{
+        .fg_color = .{ .rgb = .{ .r = 255, .g = 0, .b = 0 } },
+        .bg_color = .{ .palette = 8 },
+        .underline_color = .{ .rgb = .{ .r = 0, .g = 255, .b = 0 } },
+        .flags = .{ .bold = true, .italic = true, .underline = .double },
+    };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[1m\x1b[3m\x1b[4:2m\x1b[38;2;255;0;0m\x1b[48;5;8m\x1b[58;2;0;255;0m",
+        builder.writer.buffered(),
+    );
+}
+
+test "Style VT formatting all colors rgb" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{
+        .fg_color = .{ .rgb = .{ .r = 10, .g = 20, .b = 30 } },
+        .bg_color = .{ .rgb = .{ .r = 40, .g = 50, .b = 60 } },
+        .underline_color = .{ .rgb = .{ .r = 70, .g = 80, .b = 90 } },
+    };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[38;2;10;20;30m\x1b[48;2;40;50;60m\x1b[58;2;70;80;90m",
+        builder.writer.buffered(),
+    );
+}
+
+test "Style VT formatting all colors palette" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var style: Style = .{
+        .fg_color = .{ .palette = 1 },
+        .bg_color = .{ .palette = 2 },
+        .underline_color = .{ .palette = 3 },
+    };
+    try builder.writer.print("{f}", .{style.formatterVt()});
+    try testing.expectEqualStrings(
+        "\x1b[0m\x1b[38;5;1m\x1b[48;5;2m\x1b[58;5;3m",
+        builder.writer.buffered(),
+    );
+}
 
 test "Set basic usage" {
     const testing = std.testing;

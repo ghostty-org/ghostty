@@ -1992,8 +1992,6 @@ pub fn Stream(comptime Handler: type) type {
                     log.warn("invalid OSC, should never happen", .{});
                 },
             }
-
-            log.warn("unimplemented OSC command: {s}", .{@tagName(cmd)});
         }
 
         inline fn configureCharset(
@@ -2255,8 +2253,8 @@ test "stream: print" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             switch (action) {
                 .print => self.c = value.cp,
@@ -2276,8 +2274,8 @@ test "simd: print invalid utf-8" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             switch (action) {
                 .print => self.c = value.cp,
@@ -2297,8 +2295,8 @@ test "simd: complete incomplete utf-8" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             switch (action) {
                 .print => self.c = value.cp,
@@ -2322,8 +2320,8 @@ test "stream: cursor right (CUF)" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             switch (action) {
                 .cursor_right => self.amount = value.value,
@@ -2354,8 +2352,8 @@ test "stream: dec set mode (SM) and reset mode (RM)" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             switch (action) {
                 .set_mode => self.mode = value.mode,
@@ -2383,8 +2381,8 @@ test "stream: ansi set mode (SM) and reset mode (RM)" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             switch (action) {
                 .set_mode => self.mode = value.mode,
@@ -2417,11 +2415,10 @@ test "stream: ansi set mode (SM) and reset mode (RM) with unknown value" {
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
         ) !void {
             _ = self;
-            _ = action;
             _ = value;
         }
     };

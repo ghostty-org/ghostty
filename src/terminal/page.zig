@@ -11,7 +11,10 @@ const color = @import("color.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
 const sgr = @import("sgr.zig");
-const style = @import("style.zig");
+const stylepkg = @import("style.zig");
+const Style = stylepkg.Style;
+const StyleId = stylepkg.Id;
+const StyleSet = stylepkg.Set;
 const size = @import("size.zig");
 const getOffset = size.getOffset;
 const Offset = size.Offset;
@@ -86,7 +89,7 @@ pub const Page = struct {
         assert(std.heap.page_size_min % @max(
             @alignOf(Row),
             @alignOf(Cell),
-            style.Set.base_align.toByteUnits(),
+            StyleSet.base_align.toByteUnits(),
         ) == 0);
     }
 
@@ -124,7 +127,7 @@ pub const Page = struct {
     grapheme_map: GraphemeMap,
 
     /// The available set of styles in use on this page.
-    styles: style.Set,
+    styles: StyleSet,
 
     /// The structures used for tracking hyperlinks within the page.
     /// The map maps cell offsets to hyperlink IDs and the IDs are in
@@ -236,7 +239,7 @@ pub const Page = struct {
             .rows = rows,
             .cells = cells,
             .dirty = buf.member(usize, l.dirty_start),
-            .styles = style.Set.init(
+            .styles = StyleSet.init(
                 buf.add(l.styles_start),
                 l.styles_layout,
                 .{},
@@ -372,7 +375,7 @@ pub const Page = struct {
         const alloc = arena.allocator();
 
         var graphemes_seen: usize = 0;
-        var styles_seen = std.AutoHashMap(style.Id, usize).init(alloc);
+        var styles_seen = std.AutoHashMap(StyleId, usize).init(alloc);
         defer styles_seen.deinit();
         var hyperlinks_seen = std.AutoHashMap(hyperlink.Id, usize).init(alloc);
         defer hyperlinks_seen.deinit();
@@ -409,7 +412,7 @@ pub const Page = struct {
                     }
                 }
 
-                if (cell.style_id != style.default_id) {
+                if (cell.style_id != stylepkg.default_id) {
                     // If a cell has a style, it must be present in the styles
                     // set. Accessing it with `get` asserts that.
                     _ = self.styles.get(
@@ -767,7 +770,7 @@ pub const Page = struct {
                 for (other_cells) |cell| {
                     assert(!cell.hasGrapheme());
                     assert(!cell.hyperlink);
-                    assert(cell.style_id == style.default_id);
+                    assert(cell.style_id == stylepkg.default_id);
                 }
             }
 
@@ -782,7 +785,7 @@ pub const Page = struct {
                 // hit an integrity check if we have to return an error because
                 // the page can't fit the new memory.
                 dst_cell.hyperlink = false;
-                dst_cell.style_id = style.default_id;
+                dst_cell.style_id = stylepkg.default_id;
                 if (dst_cell.content_tag == .codepoint_grapheme) {
                     dst_cell.content_tag = .codepoint;
                 }
@@ -791,7 +794,7 @@ pub const Page = struct {
                     // To prevent integrity checks flipping. This will
                     // get fixed up when we check the style id below.
                     if (build_options.slow_runtime_safety) {
-                        dst_cell.style_id = style.default_id;
+                        dst_cell.style_id = stylepkg.default_id;
                     }
 
                     // Copy the grapheme codepoints
@@ -867,7 +870,7 @@ pub const Page = struct {
 
                     try self.setHyperlink(dst_row, dst_cell, dst_id);
                 }
-                if (src_cell.style_id != style.default_id) style: {
+                if (src_cell.style_id != stylepkg.default_id) style: {
                     dst_row.styled = true;
 
                     if (other == self) {
@@ -995,7 +998,7 @@ pub const Page = struct {
 
         // The destination row has styles if any of the cells are styled
         if (!dst_row.styled) dst_row.styled = styled: for (dst_cells) |c| {
-            if (c.style_id != style.default_id) break :styled true;
+            if (c.style_id != stylepkg.default_id) break :styled true;
         } else false;
 
         // Clear our source row now that the copy is complete. We can NOT
@@ -1101,7 +1104,7 @@ pub const Page = struct {
 
         if (row.styled) {
             for (cells) |*cell| {
-                if (cell.style_id == style.default_id) continue;
+                if (cell.style_id == stylepkg.default_id) continue;
 
                 self.styles.release(self.memory, cell.style_id);
             }
@@ -1720,7 +1723,7 @@ pub const Page = struct {
         dirty_start: usize,
         dirty_size: usize,
         styles_start: usize,
-        styles_layout: style.Set.Layout,
+        styles_layout: StyleSet.Layout,
         grapheme_alloc_start: usize,
         grapheme_alloc_layout: GraphemeAlloc.Layout,
         grapheme_map_start: usize,
@@ -1756,8 +1759,8 @@ pub const Page = struct {
         const dirty_start = alignForward(usize, cells_end, @alignOf(usize));
         const dirty_end: usize = dirty_start + (dirty_usize_length * @sizeOf(usize));
 
-        const styles_layout: style.Set.Layout = .init(cap.styles);
-        const styles_start = alignForward(usize, dirty_end, style.Set.base_align.toByteUnits());
+        const styles_layout: StyleSet.Layout = .init(cap.styles);
+        const styles_start = alignForward(usize, dirty_end, StyleSet.base_align.toByteUnits());
         const styles_end = styles_start + styles_layout.total_size;
 
         const grapheme_alloc_layout = GraphemeAlloc.layout(cap.grapheme_bytes);
@@ -1886,7 +1889,7 @@ pub const Capacity = struct {
             const string_alloc_start = alignBackward(usize, hyperlink_set_start - layout.string_alloc_layout.total_size, StringAlloc.base_align.toByteUnits());
             const grapheme_map_start = alignBackward(usize, string_alloc_start - layout.grapheme_map_layout.total_size, GraphemeMap.base_align.toByteUnits());
             const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - layout.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align.toByteUnits());
-            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, style.Set.base_align.toByteUnits());
+            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, StyleSet.base_align.toByteUnits());
 
             // The size per row is:
             //   - The row metadata itself
@@ -2014,7 +2017,7 @@ pub const Cell = packed struct(u64) {
 
     /// The style ID to use for this cell within the style map. Zero
     /// is always the default style so no lookup is required.
-    style_id: style.Id = 0,
+    style_id: StyleId = 0,
 
     /// The wide property of this cell, for wide characters. Characters in
     /// a terminal grid can only be 1 or 2 cells wide. A wide character
@@ -2123,7 +2126,7 @@ pub const Cell = packed struct(u64) {
     }
 
     pub fn hasStyling(self: Cell) bool {
-        return self.style_id != style.default_id;
+        return self.style_id != stylepkg.default_id;
     }
 
     /// Returns true if the cell has no text or styling.
