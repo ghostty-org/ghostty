@@ -1998,18 +1998,19 @@ const Action = struct {
         const glist = gtk.Window.listToplevels();
         defer glist.free();
 
-        const node = glist.findCustom(null, findActiveWindow);
+        const node = @as(?*glib.List, glist.findCustom(null, findActiveWindow));
 
-        const target_node = switch (direction) {
-            .next => node.f_next orelse glist,
-            .previous => node.f_prev orelse last: {
+        const target_node = if (node) |n| switch (direction) {
+            .next => n.f_next orelse glist,
+            .previous => n.f_prev orelse last: {
                 var current = glist;
                 while (current.f_next) |next| {
                     current = next;
                 }
                 break :last current;
             },
-        };
+        } else glist;
+
         const data = target_node.f_data  orelse return false;
         const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
         gtk.Window.present(gtk_window);
