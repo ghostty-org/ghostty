@@ -60,6 +60,15 @@ pub const Options = struct {
     pub const vt: Options = .{ .emit = .vt };
 };
 
+/// Maps byte positions in formatted output to PageList pins.
+///
+/// Used by formatters that operate on PageLists to track the source position
+/// of each byte written. The caller is responsible for freeing the map.
+pub const PinMap = struct {
+    alloc: Allocator,
+    map: *std.ArrayList(Pin),
+};
+
 /// Terminal formatter formats the active terminal screen.
 ///
 /// This will always only emit data related to the currently active screen.
@@ -274,6 +283,18 @@ pub const ScreenFormatter = struct {
     /// This information is ONLY emitted when the format is "vt".
     extra: Extra,
 
+    /// If non-null, then `map` will contain the Pin of every byte
+    /// byte written to the writer offset by the byte index. It is the
+    /// caller's responsibility to free the map.
+    ///
+    /// Note that some emitted bytes may not correspond to any Pin, such as
+    /// the extra data around screen state. For these, we'll map it to the
+    /// most previous pin so there is some continuity but its an arbitrary
+    /// choice.
+    ///
+    /// Warning: there is a significant performance hit to track this
+    pin_map: ?PinMap,
+
     pub const Content = union(enum) {
         /// Emit no content, only terminal state such as modes, palette, etc.
         /// via extra.
@@ -336,6 +357,12 @@ pub const ScreenFormatter = struct {
             .kitty_keyboard = true,
             .charsets = true,
         };
+
+        fn isSet(self: Extra) bool {
+            const Int = @typeInfo(Extra).@"struct".backing_integer.?;
+            const v: Int = @bitCast(self);
+            return v != 0;
+        }
     };
 
     pub fn init(
@@ -347,6 +374,7 @@ pub const ScreenFormatter = struct {
             .opts = opts,
             .content = .{ .selection = null },
             .extra = .none,
+            .pin_map = null,
         };
     }
 
@@ -360,6 +388,7 @@ pub const ScreenFormatter = struct {
             .selection => |selection_| {
                 // Emit our pagelist contents according to our selection.
                 var list_formatter: PageListFormatter = .init(&self.screen.pages, self.opts);
+                list_formatter.pin_map = self.pin_map;
                 if (selection_) |sel| {
                     list_formatter.top_left = sel.topLeft(self.screen);
                     list_formatter.bottom_right = sel.bottomRight(self.screen);
@@ -373,7 +402,7 @@ pub const ScreenFormatter = struct {
         // style are impacted by content rendering.
         switch (self.opts.emit) {
             .plain => return,
-            .vt => {},
+            .vt => if (!self.extra.isSet()) return,
         }
 
         // Emit current SGR style state
@@ -471,6 +500,37 @@ pub const ScreenFormatter = struct {
             // CUP is 1-indexed
             try writer.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
         }
+
+        // If we have a pin_map, we need to count how many bytes the extras
+        // will emit so we can map them all to the same pin. We do this by
+        // formatting to a discarding writer with content=none.
+        if (self.pin_map) |*m| {
+            var discarding: std.Io.Writer.Discarding = .init(&.{});
+            var extra_formatter: ScreenFormatter = self;
+            extra_formatter.content = .none;
+            extra_formatter.pin_map = null;
+            try extra_formatter.format(&discarding.writer);
+
+            // Map all those bytes to the same pin. Use the first page node
+            // to ensure the node pointer is always properly initialized.
+            m.map.appendNTimes(
+                m.alloc,
+                if (m.map.items.len > 0) pin: {
+                    // There is a weird Zig miscompilation here on 0.15.2.
+                    // If I return the m.map.items value directly then we
+                    // get undefined memory (even though we're copying a
+                    // Pin struct). If we duplicate here like this we do
+                    // not.
+                    const last = m.map.items[m.map.items.len - 1];
+                    break :pin .{
+                        .node = last.node,
+                        .x = last.x,
+                        .y = last.y,
+                    };
+                } else self.screen.pages.getTopLeft(.screen),
+                discarding.count,
+            ) catch return error.WriteFailed;
+        }
     }
 };
 
@@ -492,10 +552,7 @@ pub const PageListFormatter = struct {
     /// caller's responsibility to free the map.
     ///
     /// Warning: there is a significant performance hit to track this
-    pin_map: ?struct {
-        alloc: Allocator,
-        map: *std.ArrayList(Pin),
-    },
+    pin_map: ?PinMap,
 
     pub fn init(
         list: *const PageList,
@@ -3124,10 +3181,23 @@ test "Screen plain single line" {
 
     try s.nextSlice("hello, world");
 
-    const formatter: ScreenFormatter = .init(&t.screen, .plain);
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: ScreenFormatter = .init(&t.screen, .plain);
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("hello, world", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello, world", output);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| try testing.expectEqual(
+        Pin{ .node = node, .x = @intCast(i), .y = 0 },
+        pin_map.items[i],
+    );
 }
 
 test "Screen plain multiline" {
@@ -3148,10 +3218,35 @@ test "Screen plain multiline" {
 
     try s.nextSlice("hello\r\nworld");
 
-    const formatter: ScreenFormatter = .init(&t.screen, .plain);
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: ScreenFormatter = .init(&t.screen, .plain);
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("hello\r\nworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\nworld", output);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    // "hello" (5 chars)
+    for (0..5) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+        try testing.expectEqual(@as(size.CellCountInt, @intCast(i)), pin_map.items[i].x);
+        try testing.expectEqual(@as(size.CellCountInt, 0), pin_map.items[i].y);
+    }
+    // "\r\n" maps to end of first line
+    try testing.expectEqual(node, pin_map.items[5].node);
+    try testing.expectEqual(node, pin_map.items[6].node);
+    // "world" (5 chars)
+    for (0..5) |i| {
+        const idx = 7 + i;
+        try testing.expectEqual(node, pin_map.items[idx].node);
+        try testing.expectEqual(@as(size.CellCountInt, @intCast(i)), pin_map.items[idx].x);
+        try testing.expectEqual(@as(size.CellCountInt, 1), pin_map.items[idx].y);
+    }
 }
 
 test "Screen plain with selection" {
@@ -3172,15 +3267,30 @@ test "Screen plain with selection" {
 
     try s.nextSlice("line1\r\nline2\r\nline3");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .plain);
     formatter.content = .{ .selection = .init(
         t.screen.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
         t.screen.pages.pin(.{ .active = .{ .x = 4, .y = 1 } }).?,
         false,
     ) };
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("line2", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("line2", output);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    // "line2" (5 chars) from row 1
+    for (0..5) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+        try testing.expectEqual(@as(size.CellCountInt, @intCast(i)), pin_map.items[i].x);
+        try testing.expectEqual(@as(size.CellCountInt, 1), pin_map.items[i].y);
+    }
 }
 
 test "Screen vt with cursor position" {
@@ -3202,8 +3312,12 @@ test "Screen vt with cursor position" {
     // Position cursor at a specific location
     try s.nextSlice("hello\r\nworld");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .vt);
     formatter.extra.cursor = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -3223,6 +3337,19 @@ test "Screen vt with cursor position" {
     // Verify cursor positions match
     try testing.expectEqual(t.screen.cursor.x, t2.screen.cursor.x);
     try testing.expectEqual(t.screen.cursor.y, t2.screen.cursor.y);
+
+    // Verify pin map - the extras should be mapped to the last pin
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    const content_len = "hello\r\nworld".len;
+    // Content bytes map to their positions
+    for (0..content_len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
+    // Extra bytes (cursor position) map to last content pin
+    for (content_len..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
 }
 
 test "Screen vt with style" {
@@ -3244,8 +3371,12 @@ test "Screen vt with style" {
     // Set some style attributes
     try s.nextSlice("\x1b[1;31mhello");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .vt);
     formatter.extra.style = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -3264,6 +3395,13 @@ test "Screen vt with style" {
 
     // Verify styles match
     try testing.expect(t.screen.cursor.style.eql(t2.screen.cursor.style));
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
 }
 
 test "Screen vt with hyperlink" {
@@ -3285,8 +3423,12 @@ test "Screen vt with hyperlink" {
     // Set a hyperlink
     try s.nextSlice("\x1b]8;;http://example.com\x1b\\hello");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .vt);
     formatter.extra.hyperlink = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -3313,6 +3455,13 @@ test "Screen vt with hyperlink" {
         const link2 = t2.screen.cursor.hyperlink.?;
         try testing.expectEqualStrings(link1.uri, link2.uri);
     }
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
 }
 
 test "Screen vt with protection" {
@@ -3334,8 +3483,12 @@ test "Screen vt with protection" {
     // Enable protection mode
     try s.nextSlice("\x1b[1\"qhello");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .vt);
     formatter.extra.protection = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -3354,6 +3507,13 @@ test "Screen vt with protection" {
 
     // Verify protection state matches
     try testing.expectEqual(t.screen.cursor.protected, t2.screen.cursor.protected);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
 }
 
 test "Screen vt with kitty keyboard" {
@@ -3375,8 +3535,12 @@ test "Screen vt with kitty keyboard" {
     // Set kitty keyboard flags (disambiguate + report_events = 3)
     try s.nextSlice("\x1b[=3;1uhello");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .vt);
     formatter.extra.kitty_keyboard = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -3397,6 +3561,13 @@ test "Screen vt with kitty keyboard" {
     const flags1 = t.screen.kitty_keyboard.current().int();
     const flags2 = t2.screen.kitty_keyboard.current().int();
     try testing.expectEqual(flags1, flags2);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
 }
 
 test "Screen vt with charsets" {
@@ -3418,8 +3589,12 @@ test "Screen vt with charsets" {
     // Set G0 to DEC special and shift to G1
     try s.nextSlice("\x1b(0\x0ehello");
 
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
     var formatter: ScreenFormatter = .init(&t.screen, .vt);
     formatter.extra.charsets = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
@@ -3443,6 +3618,13 @@ test "Screen vt with charsets" {
         t.screen.charset.charsets.get(.G0),
         t2.screen.charset.charsets.get(.G0),
     );
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
 }
 
 test "Terminal vt with scrolling region" {
