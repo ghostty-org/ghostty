@@ -5652,6 +5652,23 @@ pub const Keybinds = struct {
             );
         }
 
+        // Search keybindings - Cmd-F is standard on macOS, Ctrl-F on Linux
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .unicode = 'f' }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .search_start = {} },
+        );
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .unicode = 'g' }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .search_next = {} },
+        );
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .unicode = 'g' }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+            .{ .search_previous = {} },
+        );
+
         // Increase font size mapping for keyboards with dedicated plus keys (like german)
         // Note: this order matters below because the C API will only return
         // the last keybinding for a given action. The macOS app uses this to

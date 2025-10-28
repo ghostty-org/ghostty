@@ -31,7 +31,10 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
-    
+
+    /// The search overlay state.
+    var searchIsShowing: Bool { get set }
+
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
 }
@@ -113,7 +116,17 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }
-                
+
+                // Search overlay
+                if let surfaceView = lastFocusedSurface.value,
+                   let surfaceModel = surfaceView.surfaceModel {
+                    SearchOverlay(
+                        surfaceView: surfaceView,
+                        surface: surfaceModel,
+                        isPresented: $viewModel.searchIsShowing
+                    )
+                }
+
                 // Show update information above all else.
                 if viewModel.updateOverlayIsVisible {
                     UpdateOverlay()

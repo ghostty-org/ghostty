@@ -145,5 +145,85 @@ extension Ghostty {
             let buffer = UnsafeBufferPointer(start: ptr, count: count)
             return Array(buffer).map { Command(cValue: $0) }.filter { $0.isSupported }
         }
+
+        // MARK: - Search
+
+        /// Start a search with the given query string.
+        @MainActor
+        func searchStart(_ query: String) {
+            let surfacePtr = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+            query.withCString { cString in
+                typealias SearchStartFunc = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void
+                guard let funcPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_surface_search_start") else {
+                    Ghostty.logger.error("failed to find ghostty_surface_search_start")
+                    return
+                }
+                unsafeBitCast(funcPtr, to: SearchStartFunc.self)(surfacePtr, cString)
+            }
+        }
+
+        /// Navigate to the next search match (wraps to first if at end).
+        @MainActor
+        func searchNext() {
+            let surfacePtr = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+            typealias SearchNextFunc = @convention(c) (UnsafeMutableRawPointer) -> Void
+            guard let funcPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_surface_search_next") else {
+                Ghostty.logger.error("failed to find ghostty_surface_search_next")
+                return
+            }
+            unsafeBitCast(funcPtr, to: SearchNextFunc.self)(surfacePtr)
+        }
+
+        /// Navigate to the previous search match (wraps to last if at beginning).
+        @MainActor
+        func searchPrevious() {
+            let surfacePtr = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+            typealias SearchPrevFunc = @convention(c) (UnsafeMutableRawPointer) -> Void
+            guard let funcPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_surface_search_previous") else {
+                Ghostty.logger.error("failed to find ghostty_surface_search_previous")
+                return
+            }
+            unsafeBitCast(funcPtr, to: SearchPrevFunc.self)(surfacePtr)
+        }
+
+        /// Close the active search and clear all highlights.
+        @MainActor
+        func searchClose() {
+            let surfacePtr = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+            typealias SearchCloseFunc = @convention(c) (UnsafeMutableRawPointer) -> Void
+            guard let funcPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_surface_search_close") else {
+                Ghostty.logger.error("failed to find ghostty_surface_search_close")
+                return
+            }
+            unsafeBitCast(funcPtr, to: SearchCloseFunc.self)(surfacePtr)
+        }
+
+        /// Get the current search state information.
+        @MainActor
+        func searchState() -> SearchState {
+            let surfacePtr = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+            var active: Bool = false
+            var matchCount: Int = 0
+            var currentMatch: Int = -1
+
+            typealias SearchStateFunc = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<Bool>, UnsafeMutablePointer<Int>, UnsafeMutablePointer<Int>) -> Void
+            guard let funcPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_surface_search_state") else {
+                return SearchState(active: false, matchCount: 0, currentMatch: nil)
+            }
+
+            unsafeBitCast(funcPtr, to: SearchStateFunc.self)(surfacePtr, &active, &matchCount, &currentMatch)
+            return SearchState(
+                active: active,
+                matchCount: matchCount,
+                currentMatch: currentMatch >= 0 ? currentMatch : nil
+            )
+        }
+
+        /// Information about the current search state.
+        struct SearchState {
+            let active: Bool
+            let matchCount: Int
+            let currentMatch: Int?
+        }
     }
 }

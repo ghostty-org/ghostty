@@ -112,6 +112,9 @@ pub const Action = union(Key) {
     /// Toggle the command palette. This currently only works on macOS.
     toggle_command_palette,
 
+    /// Toggle the search overlay. This currently only works on macOS.
+    toggle_search,
+
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
@@ -312,6 +315,7 @@ pub const Action = union(Key) {
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,
+        toggle_search,
         toggle_visibility,
         move_tab,
         goto_tab,

@@ -341,6 +341,7 @@ extension Notification.Name {
     /// Ring the bell
     static let ghosttyBellDidRing = Notification.Name("com.mitchellh.ghostty.ghosttyBellDidRing")
     static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
+    static let ghosttySearchDidToggle = Notification.Name("com.mitchellh.ghostty.searchDidToggle")
 
     /// Toggle maximize of current window
     static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")

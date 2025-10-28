@@ -276,19 +276,27 @@ pub const SearchState = struct {
         };
     }
 
-    pub fn deinit(self: *SearchState) void {
-        self.clear();
+    pub fn deinit(self: *SearchState, screen: ?*terminal.Screen) void {
+        self.clear(screen);
     }
 
-    /// Clear all search state and free resources
-    pub fn clear(self: *SearchState) void {
+    /// Clear all search state and free resources.
+    /// The screen parameter is needed to untrack any tracked selections.
+    pub fn clear(self: *SearchState, screen: ?*terminal.Screen) void {
         // Free the query string
         if (self.query) |q| {
             self.alloc.free(q);
             self.query = null;
         }
 
-        // Free matches
+        // Untrack tracked selections if we have a screen
+        if (screen) |scr| {
+            for (self.matches.items) |*match| {
+                if (match.tracked()) {
+                    match.deinit(scr);
+                }
+            }
+        }
         self.matches.deinit(self.alloc);
         self.matches = .{};
 
@@ -837,7 +845,7 @@ pub fn deinit(self: *Surface) void {
     self.keyboard.queued.deinit(self.alloc);
 
     // Clean up search state
-    self.search.deinit();
+    self.search.deinit(&self.io.terminal.screen);
 
     // Clean up our font grid
     self.app.font_grid_set.deref(self.font_grid_key);
@@ -4618,11 +4626,17 @@ pub fn searchStart(self: *Surface, query: []const u8) !void {
     );
 
     // Find all matches
-    var matches = std.ArrayList(terminal.Selection).init(self.search.alloc);
-    errdefer matches.deinit();
+    var matches: std.ArrayListUnmanaged(terminal.Selection) = .{};
+    errdefer {
+        // Clean up tracked selections on error
+        for (matches.items) |*match| match.deinit(&self.io.terminal.screen);
+        matches.deinit(self.search.alloc);
+    }
 
     while (try searcher.next()) |sel| {
-        try matches.append(sel);
+        // Track the selection immediately so it stays valid as pages are pruned
+        const tracked = try sel.track(&self.io.terminal.screen);
+        try matches.append(self.search.alloc, tracked);
 
         // Safety limit: don't find more than 10000 matches
         if (matches.items.len >= 10000) {
@@ -4636,16 +4650,16 @@ pub fn searchStart(self: *Surface, query: []const u8) !void {
     // Update search state
     self.search.query = query_copy;
     self.search.searcher = searcher;
-    self.search.matches = matches.moveToUnmanaged();
+    self.search.matches = matches;
     self.search.active = true;
 
     // Jump to first match if available
     if (self.search.matches.items.len > 0) {
         self.search.current_match = 0;
         try self.scrollToCurrentSearchMatch();
+        try self.highlightCurrentSearchMatch();
     }
 
-    // Mark needs render to show highlights
     try self.queueRender();
 }
 
@@ -4658,18 +4672,17 @@ pub fn searchNext(self: *Surface) !void {
     if (self.search.matches.items.len == 0) return;
 
     if (self.search.current_match) |current| {
-        // Wrap around to beginning if at end
         if (current + 1 >= self.search.matches.items.len) {
             self.search.current_match = 0;
         } else {
             self.search.current_match = current + 1;
         }
     } else {
-        // No current match, go to first
         self.search.current_match = 0;
     }
 
     try self.scrollToCurrentSearchMatch();
+    try self.highlightCurrentSearchMatch();
     try self.queueRender();
 }
 
@@ -4694,6 +4707,7 @@ pub fn searchPrevious(self: *Surface) !void {
     }
 
     try self.scrollToCurrentSearchMatch();
+    try self.highlightCurrentSearchMatch();
     try self.queueRender();
 }
 
@@ -4704,9 +4718,11 @@ pub fn searchPrevious(self: *Surface) !void {
 pub fn searchClose(self: *Surface) void {
     if (!self.search.active) return;
 
-    self.search.clear();
+    self.renderer_state.mutex.lock();
+    self.io.terminal.screen.clearSelection();
+    self.search.clear(&self.io.terminal.screen);
+    self.renderer_state.mutex.unlock();
 
-    // Mark needs render to clear highlights
     self.queueRender() catch |err| {
         log.warn("failed to queue render after closing search err={}", .{err});
     };
@@ -4721,36 +4737,28 @@ fn scrollToCurrentSearchMatch(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
-    // Get the screen coordinate of the match
-    const start_pt = self.io.terminal.screen.pages.pointFromPin(
-        .screen,
-        sel.start(),
-    ) orelse return;
+    const tl = sel.topLeft(&self.io.terminal.screen);
+    self.io.terminal.screen.scroll(.{ .pin = tl });
+}
 
-    // Scroll to show this match if it's not visible
-    const viewport_top = self.io.terminal.screen.pages.pin(.{ .viewport = .{
-        .x = 0,
-        .y = 0,
-    } }) orelse return;
+/// Highlight the current search match by setting it as the active selection.
+///
+/// This allows the renderer to automatically highlight the match using the
+/// existing selection rendering infrastructure.
+///
+/// The renderer state mutex MUST NOT be held when calling this.
+fn highlightCurrentSearchMatch(self: *Surface) !void {
+    const sel = self.search.currentSelection() orelse return;
 
-    const viewport_top_pt = self.io.terminal.screen.pages.pointFromPin(
-        .active,
-        viewport_top,
-    ) orelse return;
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
 
-    const match_y = start_pt.screen.y;
-    const viewport_rows = self.size.grid().rows;
-
-    // If match is above viewport, scroll up to show it
-    if (match_y < viewport_top_pt.active.y) {
-        const rows_to_scroll = viewport_top_pt.active.y - match_y;
-        try self.io.terminal.scrollViewport(.{ .delta = -@as(isize, @intCast(rows_to_scroll)) });
-    }
-    // If match is below viewport, scroll down to show it
-    else if (match_y >= viewport_top_pt.active.y + viewport_rows) {
-        const rows_to_scroll = match_y - (viewport_top_pt.active.y + viewport_rows - 1);
-        try self.io.terminal.scrollViewport(.{ .delta = @as(isize, @intCast(rows_to_scroll)) });
-    }
+    // Create a fresh untracked selection from the pins, then track it.
+    // This gives screen.selection its own tracked pins, separate from
+    // the ones in search.matches, so untracking one doesn't affect the other.
+    const fresh_sel = terminal.Selection.init(sel.start(), sel.end(), sel.rectangle);
+    const tracked = try fresh_sel.track(&self.io.terminal.screen);
+    try self.io.terminal.screen.select(tracked);
 }
 
 /// Perform a binding action. A binding is a keybinding. This function
@@ -5295,15 +5303,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
-        .search_start => {
-            // For Phase 1, search_start is a placeholder that doesn't do anything
-            // because we don't have a UI to input the query yet.
-            // In Phase 2 (macOS UI), the UI will call searchStart() directly
-            // with the query from the search input field.
-            //
-            // For now, log that the action was triggered.
-            log.debug("search_start action triggered (no UI yet)", .{});
-        },
+        .search_start => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_search,
+            {},
+        ),
 
         .search_next => {
             try self.searchNext();
@@ -6191,7 +6195,7 @@ test "SearchState: init and deinit" {
     const alloc = testing.allocator;
 
     var state = SearchState.init(alloc);
-    defer state.deinit();
+    defer state.deinit(null);
 
     try testing.expect(!state.active);
     try testing.expect(state.query == null);
@@ -6205,7 +6209,7 @@ test "SearchState: clear" {
     const alloc = testing.allocator;
 
     var state = SearchState.init(alloc);
-    defer state.deinit();
+    defer state.deinit(null);
 
     // Set some state
     state.query = try alloc.dupe(u8, "test");
@@ -6218,7 +6222,7 @@ test "SearchState: clear" {
     state.current_match = 0;
 
     // Clear should reset everything
-    state.clear();
+    state.clear(null);
 
     try testing.expect(!state.active);
     try testing.expect(state.query == null);
@@ -6231,7 +6235,7 @@ test "SearchState: hasMatches and matchCount" {
     const alloc = testing.allocator;
 
     var state = SearchState.init(alloc);
-    defer state.deinit();
+    defer state.deinit(null);
 
     try testing.expect(!state.hasMatches());
     try testing.expectEqual(@as(usize, 0), state.matchCount());
@@ -6261,7 +6265,7 @@ test "SearchState: currentSelection" {
     const alloc = testing.allocator;
 
     var state = SearchState.init(alloc);
-    defer state.deinit();
+    defer state.deinit(null);
 
     // No current match
     try testing.expect(state.currentSelection() == null);

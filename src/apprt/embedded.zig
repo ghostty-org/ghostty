@@ -2043,6 +2043,62 @@ pub const CAPI = struct {
     extern "c" fn CGSSetWindowBackgroundBlurRadius(*anyopaque, usize, c_int) i32;
     extern "c" fn CGSDefaultConnectionForThread() *anyopaque;
 
+    /// Start a search with the given query string.
+    ///
+    /// The query string is copied and owned by the search state.
+    /// This will find all matches and scroll to the first one if found.
+    export fn ghostty_surface_search_start(
+        ptr: *Surface,
+        query: [*:0]const u8,
+    ) void {
+        const surface = &ptr.core_surface;
+        const query_slice = std.mem.span(query);
+        surface.searchStart(query_slice) catch |err| {
+            log.warn("error starting search err={}", .{err});
+        };
+    }
+
+    /// Navigate to the next search match.
+    export fn ghostty_surface_search_next(ptr: *Surface) void {
+        const surface = &ptr.core_surface;
+        surface.searchNext() catch |err| {
+            log.warn("error navigating to next search match err={}", .{err});
+        };
+    }
+
+    /// Navigate to the previous search match.
+    export fn ghostty_surface_search_previous(ptr: *Surface) void {
+        const surface = &ptr.core_surface;
+        surface.searchPrevious() catch |err| {
+            log.warn("error navigating to previous search match err={}", .{err});
+        };
+    }
+
+    /// Close the active search.
+    export fn ghostty_surface_search_close(ptr: *Surface) void {
+        const surface = &ptr.core_surface;
+        surface.searchClose();
+    }
+
+    /// Get information about the current search state.
+    ///
+    /// Returns true if a search is active, false otherwise.
+    /// If active, the out parameters are populated with search state info.
+    export fn ghostty_surface_search_state(
+        ptr: *Surface,
+        out_active: *bool,
+        out_match_count: *usize,
+        out_current_match: *isize,
+    ) void {
+        const surface = &ptr.core_surface;
+        out_active.* = surface.search.active;
+        out_match_count.* = surface.search.matchCount();
+        out_current_match.* = if (surface.search.current_match) |idx|
+            @intCast(idx)
+        else
+            -1;
+    }
+
     // Darwin-only C APIs.
     const Darwin = struct {
         export fn ghostty_surface_set_display_id(ptr: *Surface, display_id: u32) void {
