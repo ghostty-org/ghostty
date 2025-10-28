@@ -46,6 +46,12 @@ pub const Options = struct {
     /// screen contents as it is rendered on the page in the given size.
     unwrap: bool = false,
 
+    /// Trim trailing whitespace on lines with other text. Trailing blank
+    /// lines are always trimmed. This only affects trailing whitespace
+    /// on rows that have at least one other cell with text. Whitespace
+    /// is currently only space characters (0x20).
+    trim: bool = true,
+
     pub const plain: Options = .{ .emit = .plain };
     pub const vt: Options = .{ .emit = .vt };
 };
@@ -663,7 +669,11 @@ pub const PageFormatter = struct {
                 // If we have a zero value, then we accumulate a counter. We
                 // only want to turn zero values into spaces if we have a non-zero
                 // char sometime later.
-                if (!cell.hasText() or cell.codepoint() == ' ') {
+                if (!cell.hasText()) {
+                    blank_cells += 1;
+                    continue;
+                }
+                if (cell.codepoint() == ' ' and self.opts.trim) {
                     blank_cells += 1;
                     continue;
                 }
@@ -890,6 +900,45 @@ test "Page plain trailing whitespace" {
     try testing.expectEqualStrings("hello\r\nworld", builder.writer.buffered());
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+}
+
+test "Page plain trailing whitespace no trim" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello   \r\nworld  ");
+
+    // Verify we have only a single page
+    const pages = &t.screen.pages;
+    try testing.expect(pages.pages.first != null);
+    try testing.expect(pages.pages.first == pages.pages.last);
+
+    // Create the formatter
+    const page = &pages.pages.last.?.data;
+    const formatter: PageFormatter = .init(page, .{
+        .emit = .plain,
+        .trim = false,
+    });
+
+    // Verify output. We expect there to be no trailing newlines because
+    // we can't differentiate trailing blank lines as being meaningful because
+    // the page formatter can't see the cursor position.
+    const state = try formatter.formatWithState(&builder.writer);
+    try testing.expectEqualStrings("hello   \r\nworld  ", builder.writer.buffered());
+    try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
+    try testing.expectEqual(@as(usize, page.size.cols - 7), state.cells);
 }
 
 test "Page plain with prior trailing state rows" {
