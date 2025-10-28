@@ -97,6 +97,18 @@ pub const TerminalFormatter = struct {
     /// This information is ONLY emitted when the format is "vt".
     extra: Extra,
 
+    /// If non-null, then `map` will contain the Pin of every byte
+    /// byte written to the writer offset by the byte index. It is the
+    /// caller's responsibility to free the map.
+    ///
+    /// Note that some emitted bytes may not correspond to any Pin, such as
+    /// the extra data around terminal state (palette, modes, etc.). For these,
+    /// we'll map it to the most previous pin so there is some continuity but
+    /// its an arbitrary choice.
+    ///
+    /// Warning: there is a significant performance hit to track this
+    pin_map: ?PinMap,
+
     pub const Extra = packed struct {
         /// Emit the palette using OSC 4 sequences.
         palette: bool,
@@ -172,6 +184,7 @@ pub const TerminalFormatter = struct {
             .opts = opts,
             .content = .{ .selection = null },
             .extra = .styles,
+            .pin_map = null,
         };
     }
 
@@ -188,6 +201,25 @@ pub const TerminalFormatter = struct {
                     "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
                     .{ i, rgb.r, rgb.g, rgb.b },
                 );
+            }
+
+            // If we have a pin_map, add the bytes we wrote to map.
+            if (self.pin_map) |*m| {
+                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                var extra_formatter: TerminalFormatter = self;
+                extra_formatter.content = .none;
+                extra_formatter.pin_map = null;
+                extra_formatter.extra = .none;
+                extra_formatter.extra.palette = true;
+                try extra_formatter.format(&discarding.writer);
+
+                // Map all those bytes to the same pin. Use the top left to ensure
+                // the node pointer is always properly initialized.
+                m.map.appendNTimes(
+                    m.alloc,
+                    self.terminal.screen.pages.getTopLeft(.screen),
+                    discarding.count,
+                ) catch return error.WriteFailed;
             }
         }
 
@@ -208,11 +240,31 @@ pub const TerminalFormatter = struct {
                     try writer.print("\x1b[{s}{d}{s}", .{ prefix, tag.value, suffix });
                 }
             }
+
+            // If we have a pin_map, add the bytes we wrote to map.
+            if (self.pin_map) |*m| {
+                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                var extra_formatter: TerminalFormatter = self;
+                extra_formatter.content = .none;
+                extra_formatter.pin_map = null;
+                extra_formatter.extra = .none;
+                extra_formatter.extra.modes = true;
+                try extra_formatter.format(&discarding.writer);
+
+                // Map all those bytes to the same pin. Use the top left to ensure
+                // the node pointer is always properly initialized.
+                m.map.appendNTimes(
+                    m.alloc,
+                    self.terminal.screen.pages.getTopLeft(.screen),
+                    discarding.count,
+                ) catch return error.WriteFailed;
+            }
         }
 
         var screen_formatter: ScreenFormatter = .init(&self.terminal.screen, self.opts);
         screen_formatter.content = self.content;
         screen_formatter.extra = self.extra.screen;
+        screen_formatter.pin_map = self.pin_map;
         try screen_formatter.format(writer);
 
         // Extra terminal state to emit after the screen contents so that
@@ -263,6 +315,33 @@ pub const TerminalFormatter = struct {
             if (self.extra.pwd) {
                 const pwd = self.terminal.pwd.items;
                 if (pwd.len > 0) try writer.print("\x1b]7;{s}\x1b\\", .{pwd});
+            }
+
+            // If we have a pin_map, add the bytes we wrote to map.
+            if (self.pin_map) |*m| {
+                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                var extra_formatter: TerminalFormatter = self;
+                extra_formatter.content = .none;
+                extra_formatter.pin_map = null;
+                extra_formatter.extra = .none;
+                extra_formatter.extra.scrolling_region = self.extra.scrolling_region;
+                extra_formatter.extra.tabstops = self.extra.tabstops;
+                extra_formatter.extra.keyboard = self.extra.keyboard;
+                extra_formatter.extra.pwd = self.extra.pwd;
+                try extra_formatter.format(&discarding.writer);
+
+                m.map.appendNTimes(
+                    m.alloc,
+                    if (m.map.items.len > 0) pin: {
+                        const last = m.map.items[m.map.items.len - 1];
+                        break :pin .{
+                            .node = last.node,
+                            .x = last.x,
+                            .y = last.y,
+                        };
+                    } else self.terminal.screen.pages.getTopLeft(.screen),
+                    discarding.count,
+                ) catch return error.WriteFailed;
             }
         }
     }
@@ -3161,6 +3240,173 @@ test "TerminalFormatter with selection" {
 
     try formatter.format(&builder.writer);
     try testing.expectEqualStrings("line2", builder.writer.buffered());
+}
+
+test "TerminalFormatter plain with pin_map" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello, world");
+
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&t, .plain);
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello, world", output);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| try testing.expectEqual(
+        Pin{ .node = node, .x = @intCast(i), .y = 0 },
+        pin_map.items[i],
+    );
+}
+
+test "TerminalFormatter plain multiline with pin_map" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello\r\nworld");
+
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&t, .plain);
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\nworld", output);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    // "hello" (5 chars)
+    for (0..5) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+        try testing.expectEqual(@as(size.CellCountInt, @intCast(i)), pin_map.items[i].x);
+        try testing.expectEqual(@as(size.CellCountInt, 0), pin_map.items[i].y);
+    }
+    // "\r\n" maps to end of first line
+    try testing.expectEqual(node, pin_map.items[5].node);
+    try testing.expectEqual(node, pin_map.items[6].node);
+    // "world" (5 chars)
+    for (0..5) |i| {
+        const idx = 7 + i;
+        try testing.expectEqual(node, pin_map.items[idx].node);
+        try testing.expectEqual(@as(size.CellCountInt, @intCast(i)), pin_map.items[idx].x);
+        try testing.expectEqual(@as(size.CellCountInt, 1), pin_map.items[idx].y);
+    }
+}
+
+test "TerminalFormatter vt with palette and pin_map" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Modify some palette colors using VT sequences
+    try s.nextSlice("\x1b]4;0;rgb:12/34/56\x1b\\");
+    try s.nextSlice("test");
+
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&t, .vt);
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Verify pin map - palette bytes should be mapped to top left
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    for (0..output.len) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+    }
+}
+
+test "TerminalFormatter with selection and pin_map" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("line1\r\nline2\r\nline3");
+
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&t, .plain);
+    formatter.content = .{ .selection = .init(
+        t.screen.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        t.screen.pages.pin(.{ .active = .{ .x = 4, .y = 1 } }).?,
+        false,
+    ) };
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("line2", output);
+
+    // Verify pin map
+    try testing.expectEqual(output.len, pin_map.items.len);
+    const node = t.screen.pages.pages.first.?;
+    // "line2" (5 chars) from row 1
+    for (0..5) |i| {
+        try testing.expectEqual(node, pin_map.items[i].node);
+        try testing.expectEqual(@as(size.CellCountInt, @intCast(i)), pin_map.items[i].x);
+        try testing.expectEqual(@as(size.CellCountInt, 1), pin_map.items[i].y);
+    }
 }
 
 test "Screen plain single line" {
