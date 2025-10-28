@@ -87,7 +87,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
         // check tabs in the first
         checkTabsGeometry(app.windows.firstMatch)
         // focus another window
-        app.windows.element(boundBy: 1).click()
+        app.windows.element(boundBy: 1).tabs.firstMatch.click()
         checkTabsGeometry(app.windows.firstMatch)
     }
 

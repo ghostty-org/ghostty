@@ -14,6 +14,7 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
         _ appearance: XCUIDevice.Appearance,
         for app: XCUIApplication,
         title: String? = nil,
+        colorLocation: CGPoint? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -21,7 +22,7 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
             let titleView = app.windows.element(boundBy: i).staticTexts.element(matching: NSPredicate(format: "value == '\(title ?? windowTitle)'"))
 
             let image = titleView.screenshot().image
-            guard let imageColor = image.colorAt(x: 0, y: 0) else {
+            guard let imageColor = image.colorAt(x: Int(colorLocation?.x ?? 1), y: Int(colorLocation?.y ?? 1)) else {
                 throw XCTSkip("failed to get pixel color", file: file, line: line)
             }
 
@@ -150,9 +151,9 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
         app.menuBarItems["View"].firstMatch.click()
         app.menuItems["Quick Terminal"].firstMatch.click()
         let title = "Debug builds of Ghostty are very slow and you may experience performance problems. Debug builds are only recommended during development."
-        try assertTitlebarAppearance(.light, for: app, title: title)
+        try assertTitlebarAppearance(.light, for: app, title: title, colorLocation: CGPoint(x: 5, y: 5)) // to avoid dark edge
         XCUIDevice.shared.appearance = .dark
         try await Task.sleep(for: .seconds(0.5))
-        try assertTitlebarAppearance(.dark, for: app, title: title)
+        try assertTitlebarAppearance(.dark, for: app, title: title, colorLocation: CGPoint(x: 5, y: 5))
     }
 }
