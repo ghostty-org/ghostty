@@ -147,7 +147,7 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
         app.launch()
         // close default window
         app.typeKey("w", modifierFlags: [.command])
-        // open quick termnial
+        // open quick terminal
         app.menuBarItems["View"].firstMatch.click()
         app.menuItems["Quick Terminal"].firstMatch.click()
         let title = "Debug builds of Ghostty are very slow and you may experience performance problems. Debug builds are only recommended during development."
