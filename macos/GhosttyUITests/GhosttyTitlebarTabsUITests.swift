@@ -18,6 +18,7 @@ final class GhosttyTitlebarTabsUITests: GhosttyCustomConfigCase {
             """
         )
     }
+
     @MainActor
     func testCustomTitlebar() throws {
         let app = try ghosttyApplication()

@@ -8,6 +8,21 @@
 import XCTest
 
 class GhosttyCustomConfigCase: XCTestCase {
+    /// We only want run these UI tests
+    /// when testing manually with Xcode IDE
+    ///
+    /// So that we don't have to wait for each ci check
+    /// to run these tedious tests
+    override class var defaultTestSuite: XCTestSuite {
+        // https://lldb.llvm.org/cpp_reference/PlatformDarwin_8cpp_source.html#:~:text==%20%22-,IDE_DISABLED_OS_ACTIVITY_DT_MODE
+
+        if ProcessInfo.processInfo.environment["IDE_DISABLED_OS_ACTIVITY_DT_MODE"] != nil {
+            return XCTestSuite(forTestCaseClass: Self.self)
+        } else {
+            return XCTestSuite(name: "Skipping \(className())")
+        }
+    }
+
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }
