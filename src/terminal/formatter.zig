@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 const size = @import("size.zig");
 const charsets = @import("charsets.zig");
 const kitty = @import("kitty.zig");
@@ -6,8 +8,10 @@ const modespkg = @import("modes.zig");
 const Screen = @import("Screen.zig");
 const Terminal = @import("Terminal.zig");
 const Cell = @import("page.zig").Cell;
+const Coordinate = @import("point.zig").Coordinate;
 const Page = @import("page.zig").Page;
 const PageList = @import("PageList.zig");
+const Pin = PageList.Pin;
 const Row = @import("page.zig").Row;
 const Selection = @import("Selection.zig");
 const Style = @import("style.zig").Style;
@@ -546,6 +550,16 @@ pub const PageFormatter = struct {
     end_x: ?size.CellCountInt,
     end_y: ?size.CellCountInt,
 
+    /// If non-null, then `map` will contain the x/y coordinate of every
+    /// byte written to the writer offset by the byte index. It is the
+    /// caller's responsibility to free the map.
+    ///
+    /// Warning: there is a significant performance hit to track this
+    point_map: ?struct {
+        alloc: Allocator,
+        map: *std.ArrayList(Coordinate),
+    },
+
     /// The previous trailing state from the prior page. If you're iterating
     /// over multiple pages this helps ensure that unwrapping and other
     /// accounting works properly.
@@ -571,6 +585,7 @@ pub const PageFormatter = struct {
             .start_y = 0,
             .end_x = null,
             .end_y = null,
+            .point_map = null,
             .trailing_state = null,
         };
     }
@@ -644,10 +659,40 @@ pub const PageFormatter = struct {
                 continue;
             }
 
-            for (1..blank_rows + 1) |_| {
-                try writer.writeAll("\r\n");
+            if (blank_rows > 0) {
+                for (0..blank_rows) |_| try writer.writeAll("\r\n");
+
+                // \r and \n map to the row that ends with this newline.
+                // If we're continuing (trailing state) then this will be
+                // in a prior page, so we just map to the first row of this
+                // page.
+                if (self.point_map) |*map| {
+                    const start: Coordinate = if (map.map.items.len > 0)
+                        map.map.items[map.map.items.len - 1]
+                    else
+                        .{ .x = 0, .y = 0 };
+
+                    // The first one inherits the x value.
+                    map.map.appendNTimes(
+                        map.alloc,
+                        .{ .x = start.x, .y = start.y },
+                        2, // \r and \n
+                    ) catch return error.WriteFailed;
+
+                    // All others have x = 0 since they reference their prior
+                    // blank line.
+                    for (1..blank_rows) |y_offset_usize| {
+                        const y_offset: size.CellCountInt = @intCast(y_offset_usize);
+                        map.map.appendNTimes(
+                            map.alloc,
+                            .{ .x = 0, .y = start.y + y_offset },
+                            2, // \r and \n
+                        ) catch return error.WriteFailed;
+                    }
+                }
+
+                blank_rows = 0;
             }
-            blank_rows = 0;
 
             // If we're not wrapped, we always add a newline so after
             // the row is printed we can add a newline.
@@ -658,7 +703,9 @@ pub const PageFormatter = struct {
             if (!row.wrap_continuation or !self.opts.unwrap) blank_cells = 0;
 
             // Go through each cell and print it
-            for (cells_subset) |*cell| {
+            for (cells_subset, row_start_x..) |*cell, x_usize| {
+                const x: size.CellCountInt = @intCast(x_usize);
+
                 // Skip spacers. These happen naturally when wide characters
                 // are printed again on the screen (for well-behaved terminals!)
                 switch (cell.wide) {
@@ -682,6 +729,34 @@ pub const PageFormatter = struct {
                 // then we want to emit them now.
                 if (blank_cells > 0) {
                     try writer.splatByteAll(' ', blank_cells);
+
+                    if (self.point_map) |*map| {
+                        // Map each blank cell to its coordinate. Blank cells can span
+                        // multiple rows if they carry over from wrap continuation.
+                        var remaining_blanks = blank_cells;
+                        var blank_x = x;
+                        var blank_y = y;
+                        while (remaining_blanks > 0) : (remaining_blanks -= 1) {
+                            if (blank_x > 0) {
+                                // We have space in this row
+                                blank_x -= 1;
+                            } else if (blank_y > 0) {
+                                // Wrap to previous row
+                                blank_y -= 1;
+                                blank_x = self.page.size.cols - 1;
+                            } else {
+                                // Can't go back further, just use (0, 0)
+                                blank_x = 0;
+                                blank_y = 0;
+                            }
+
+                            map.map.append(
+                                map.alloc,
+                                .{ .x = blank_x, .y = blank_y },
+                            ) catch return error.WriteFailed;
+                        }
+                    }
+
                     blank_cells = 0;
                 }
 
@@ -706,6 +781,17 @@ pub const PageFormatter = struct {
                             // New style, emit it.
                             style = cell_style.*;
                             try writer.print("{f}", .{style.formatterVt()});
+
+                            // If we have a point map, we map the style to
+                            // this cell.
+                            if (self.point_map) |*map| {
+                                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                                try discarding.writer.print("{f}", .{style.formatterVt()});
+                                for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                                    .x = x,
+                                    .y = y,
+                                }) catch return error.WriteFailed;
+                            }
                         }
 
                         try writer.print("{u}", .{cell.content.codepoint});
@@ -713,6 +799,23 @@ pub const PageFormatter = struct {
                             for (self.page.lookupGrapheme(cell).?) |cp| {
                                 try writer.print("{u}", .{cp});
                             }
+                        }
+
+                        // If we have a point map, all codepoints map to this
+                        // cell.
+                        if (self.point_map) |*map| {
+                            var discarding: std.Io.Writer.Discarding = .init(&.{});
+                            try discarding.writer.print("{u}", .{cell.content.codepoint});
+                            if (comptime tag == .codepoint_grapheme) {
+                                for (self.page.lookupGrapheme(cell).?) |cp| {
+                                    try writer.print("{u}", .{cp});
+                                }
+                            }
+
+                            for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                                .x = x,
+                                .y = y,
+                            }) catch return error.WriteFailed;
                         }
                     },
 
@@ -753,13 +856,26 @@ test "Page plain single line" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    // Test our point map.
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello, world", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello, world", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 12), state.cells);
+
+    // Verify our point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..output.len) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain multiline" {
@@ -787,13 +903,31 @@ test "Page plain multiline" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello\r\nworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\nworld", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[6]); // \n
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[7 + i],
+    );
 }
 
 test "Page plain multi blank lines" {
@@ -821,13 +955,35 @@ test "Page plain multi blank lines" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello\r\n\r\n\r\nworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\n\r\n\r\nworld", output);
     try testing.expectEqual(@as(usize, page.size.rows - 3), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[5]); // \r after row 0
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[6]); // \n after row 0
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 1 }, point_map.items[7]); // \r after blank row 1
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 1 }, point_map.items[8]); // \n after blank row 1
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 2 }, point_map.items[9]); // \r after blank row 2
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 2 }, point_map.items[10]); // \n after blank row 2
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 3 },
+        point_map.items[11 + i],
+    );
 }
 
 test "Page plain trailing blank lines" {
@@ -855,15 +1011,33 @@ test "Page plain trailing blank lines" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output. We expect there to be no trailing newlines because
     // we can't differentiate trailing blank lines as being meaningful because
     // the page formatter can't see the cursor position.
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello\r\nworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\nworld", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[6]); // \n
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[7 + i],
+    );
 }
 
 test "Page plain trailing whitespace" {
@@ -891,15 +1065,33 @@ test "Page plain trailing whitespace" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output. We expect there to be no trailing newlines because
     // we can't differentiate trailing blank lines as being meaningful because
     // the page formatter can't see the cursor position.
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello\r\nworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\nworld", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[6]); // \n
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[7 + i],
+    );
 }
 
 test "Page plain trailing whitespace no trim" {
@@ -927,18 +1119,36 @@ test "Page plain trailing whitespace no trim" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .{
+    var formatter: PageFormatter = .init(page, .{
         .emit = .plain,
         .trim = false,
     });
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output. We expect there to be no trailing newlines because
     // we can't differentiate trailing blank lines as being meaningful because
     // the page formatter can't see the cursor position.
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello   \r\nworld  ", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello   \r\nworld  ", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 7), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..8) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 7, .y = 0 }, point_map.items[8]); // \r
+    try testing.expectEqual(Coordinate{ .x = 7, .y = 0 }, point_map.items[9]); // \n
+    for (0..7) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[10 + i],
+    );
 }
 
 test "Page plain with prior trailing state rows" {
@@ -967,10 +1177,26 @@ test "Page plain with prior trailing state rows" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.trailing_state = .{ .rows = 2, .cells = 0 };
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("\r\n\r\nhello", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\r\n\r\nhello", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[0]); // \r first blank row
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[1]); // \n first blank row
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 1 }, point_map.items[2]); // \r second blank row
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 1 }, point_map.items[3]); // \n second blank row
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[4 + i],
+    );
 }
 
 test "Page plain with prior trailing state cells no wrapped line" {
@@ -999,11 +1225,23 @@ test "Page plain with prior trailing state cells no wrapped line" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.trailing_state = .{ .rows = 0, .cells = 3 };
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Blank cells are reset when row is not a wrap continuation
-    try testing.expectEqualStrings("hello", builder.writer.buffered());
+    try testing.expectEqualStrings("hello", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain with prior trailing state cells with wrap continuation" {
@@ -1037,11 +1275,27 @@ test "Page plain with prior trailing state cells with wrap continuation" {
     var formatter: PageFormatter = .init(page, .{ .emit = .plain, .unwrap = true });
     formatter.trailing_state = .{ .rows = 0, .cells = 3 };
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Blank cells are preserved when row is a wrap continuation with unwrap enabled
-    try testing.expectEqualStrings("   world", builder.writer.buffered());
+    try testing.expectEqualStrings("   world", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map - 3 spaces from prior trailing state + "world"
+    try testing.expectEqual(output.len, point_map.items.len);
+    // The 3 blank cells can't go back beyond (0,0) so they all map to (0,0)
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[0]); // space
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[1]); // space
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[2]); // space
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[3 + i],
+    );
 }
 
 test "Page plain soft-wrapped without unwrap" {
@@ -1067,13 +1321,31 @@ test "Page plain soft-wrapped without unwrap" {
     try testing.expect(pages.pages.first == pages.pages.last);
 
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Without unwrap, wrapped lines show as separate lines
-    try testing.expectEqualStrings("hello worl\r\nd test", builder.writer.buffered());
+    try testing.expectEqualStrings("hello worl\r\nd test", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 6), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..10) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[10]); // \r
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[11]); // \n
+    for (0..6) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[12 + i],
+    );
 }
 
 test "Page plain soft-wrapped with unwrap" {
@@ -1099,13 +1371,29 @@ test "Page plain soft-wrapped with unwrap" {
     try testing.expect(pages.pages.first == pages.pages.last);
 
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .{ .emit = .plain, .unwrap = true });
+    var formatter: PageFormatter = .init(page, .{ .emit = .plain, .unwrap = true });
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // With unwrap, wrapped lines are joined together
-    try testing.expectEqualStrings("hello world test", builder.writer.buffered());
+    try testing.expectEqualStrings("hello world test", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 6), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..10) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    for (0..6) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[10 + i],
+    );
 }
 
 test "Page plain soft-wrapped 3 lines without unwrap" {
@@ -1131,13 +1419,37 @@ test "Page plain soft-wrapped 3 lines without unwrap" {
     try testing.expect(pages.pages.first == pages.pages.last);
 
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Without unwrap, wrapped lines show as separate lines
-    try testing.expectEqualStrings("hello worl\r\nd this is\r\na test", builder.writer.buffered());
+    try testing.expectEqualStrings("hello worl\r\nd this is\r\na test", output);
     try testing.expectEqual(@as(usize, page.size.rows - 2), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 6), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..10) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[10]); // \r
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[11]); // \n
+    for (0..9) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[12 + i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 8, .y = 1 }, point_map.items[21]); // \r
+    try testing.expectEqual(Coordinate{ .x = 8, .y = 1 }, point_map.items[22]); // \n
+    for (0..6) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 2 },
+        point_map.items[23 + i],
+    );
 }
 
 test "Page plain soft-wrapped 3 lines with unwrap" {
@@ -1163,13 +1475,33 @@ test "Page plain soft-wrapped 3 lines with unwrap" {
     try testing.expect(pages.pages.first == pages.pages.last);
 
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .{ .emit = .plain, .unwrap = true });
+    var formatter: PageFormatter = .init(page, .{ .emit = .plain, .unwrap = true });
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // With unwrap, wrapped lines are joined together
-    try testing.expectEqualStrings("hello world this is a test", builder.writer.buffered());
+    try testing.expectEqualStrings("hello world this is a test", output);
     try testing.expectEqual(@as(usize, page.size.rows - 2), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 6), state.cells);
+
+    // Verify point map - unwrapped text spans 3 rows
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..10) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    for (0..10) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[10 + i],
+    );
+    for (0..6) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 2 },
+        point_map.items[20 + i],
+    );
 }
 
 test "Page plain start_y subset" {
@@ -1196,10 +1528,28 @@ test "Page plain start_y subset" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.start_y = 1;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("world\r\ntest", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("world\r\ntest", output);
     try testing.expectEqual(@as(usize, page.size.rows - 2), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 4), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 1 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 1 }, point_map.items[6]); // \n
+    for (0..4) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 2 },
+        point_map.items[7 + i],
+    );
 }
 
 test "Page plain end_y subset" {
@@ -1226,10 +1576,28 @@ test "Page plain end_y subset" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.end_y = 2;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello\r\nworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\r\nworld", output);
     try testing.expectEqual(@as(usize, 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[6]); // \n
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[7 + i],
+    );
 }
 
 test "Page plain start_y and end_y range" {
@@ -1257,10 +1625,28 @@ test "Page plain start_y and end_y range" {
     formatter.start_y = 1;
     formatter.end_y = 3;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("world\r\ntest", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("world\r\ntest", output);
     try testing.expectEqual(@as(usize, 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 4), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 1 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 1 }, point_map.items[6]); // \n
+    for (0..4) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 2 },
+        point_map.items[7 + i],
+    );
 }
 
 test "Page plain start_y out of bounds" {
@@ -1287,10 +1673,18 @@ test "Page plain start_y out of bounds" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.start_y = 30;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("", output);
     try testing.expectEqual(@as(usize, 0), state.rows);
     try testing.expectEqual(@as(usize, 0), state.cells);
+
+    // Verify point map is empty
+    try testing.expectEqual(@as(usize, 0), point_map.items.len);
 }
 
 test "Page plain end_y greater than rows" {
@@ -1317,11 +1711,23 @@ test "Page plain end_y greater than rows" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.end_y = 30;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Should clamp to page.size.rows and work normally
-    try testing.expectEqualStrings("hello", builder.writer.buffered());
+    try testing.expectEqualStrings("hello", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain end_y less than start_y" {
@@ -1349,10 +1755,18 @@ test "Page plain end_y less than start_y" {
     formatter.start_y = 5;
     formatter.end_y = 2;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("", output);
     try testing.expectEqual(@as(usize, 0), state.rows);
     try testing.expectEqual(@as(usize, 0), state.cells);
+
+    // Verify point map is empty
+    try testing.expectEqual(@as(usize, 0), point_map.items.len);
 }
 
 test "Page plain start_x on first row only" {
@@ -1379,10 +1793,22 @@ test "Page plain start_x on first row only" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.start_x = 6;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("world", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("world", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 11), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i + 6), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain end_x on last row only" {
@@ -1410,11 +1836,35 @@ test "Page plain end_x on last row only" {
     formatter.end_y = 3;
     formatter.end_x = 6;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // First two rows: full width, last row: up to end_x=6
-    try testing.expectEqualStrings("first line\r\nsecond line\r\nthird", builder.writer.buffered());
+    try testing.expectEqualStrings("first line\r\nsecond line\r\nthird", output);
     try testing.expectEqual(@as(usize, 1), state.rows);
     try testing.expectEqual(@as(usize, 1), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..10) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[10]); // \r
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[11]); // \n
+    for (0..11) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[12 + i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 10, .y = 1 }, point_map.items[23]); // \r
+    try testing.expectEqual(Coordinate{ .x = 10, .y = 1 }, point_map.items[24]); // \n
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 2 },
+        point_map.items[25 + i],
+    );
 }
 
 test "Page plain start_x and end_x multiline" {
@@ -1443,13 +1893,37 @@ test "Page plain start_x and end_x multiline" {
     formatter.end_y = 3;
     formatter.end_x = 4;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // First row: "world" (start_x=6 to end of row)
     // Second row: "test case" (full row)
     // Third row: "foo " (start to end_x=4)
-    try testing.expectEqualStrings("world\r\ntest case\r\nfoo", builder.writer.buffered());
+    try testing.expectEqualStrings("world\r\ntest case\r\nfoo", output);
     try testing.expectEqual(@as(usize, 1), state.rows);
     try testing.expectEqual(@as(usize, 1), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i + 6), .y = 0 },
+        point_map.items[i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 10, .y = 0 }, point_map.items[5]); // \r
+    try testing.expectEqual(Coordinate{ .x = 10, .y = 0 }, point_map.items[6]); // \n
+    for (0..9) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[7 + i],
+    );
+    try testing.expectEqual(Coordinate{ .x = 8, .y = 1 }, point_map.items[16]); // \r
+    try testing.expectEqual(Coordinate{ .x = 8, .y = 1 }, point_map.items[17]); // \n
+    for (0..3) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 2 },
+        point_map.items[18 + i],
+    );
 }
 
 test "Page plain start_x out of bounds" {
@@ -1476,10 +1950,18 @@ test "Page plain start_x out of bounds" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.start_x = 100;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("", output);
     try testing.expectEqual(@as(usize, 0), state.rows);
     try testing.expectEqual(@as(usize, 0), state.cells);
+
+    // Verify point map is empty
+    try testing.expectEqual(@as(usize, 0), point_map.items.len);
 }
 
 test "Page plain end_x greater than cols" {
@@ -1506,10 +1988,22 @@ test "Page plain end_x greater than cols" {
     var formatter: PageFormatter = .init(page, .plain);
     formatter.end_x = 100;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain end_x less than start_x single row" {
@@ -1538,10 +2032,18 @@ test "Page plain end_x less than start_x single row" {
     formatter.end_y = 1;
     formatter.end_x = 5;
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("", output);
     try testing.expectEqual(@as(usize, 0), state.rows);
     try testing.expectEqual(@as(usize, 0), state.cells);
+
+    // Verify point map is empty
+    try testing.expectEqual(@as(usize, 0), point_map.items.len);
 }
 
 test "Page plain start_y non-zero ignores trailing state" {
@@ -1569,11 +2071,23 @@ test "Page plain start_y non-zero ignores trailing state" {
     formatter.start_y = 1;
     formatter.trailing_state = .{ .rows = 5, .cells = 10 };
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Should NOT output the 5 newlines from trailing_state because start_y is non-zero
-    try testing.expectEqualStrings("world", builder.writer.buffered());
+    try testing.expectEqualStrings("world", output);
     try testing.expectEqual(@as(usize, page.size.rows - 1), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 1 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain start_x non-zero ignores trailing state" {
@@ -1601,11 +2115,23 @@ test "Page plain start_x non-zero ignores trailing state" {
     formatter.start_x = 6;
     formatter.trailing_state = .{ .rows = 2, .cells = 8 };
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // Should NOT output the 2 newlines or 8 spaces from trailing_state because start_x is non-zero
-    try testing.expectEqualStrings("world", builder.writer.buffered());
+    try testing.expectEqualStrings("world", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 11), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i + 6), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page plain start_y and start_x zero uses trailing state" {
@@ -1634,11 +2160,27 @@ test "Page plain start_y and start_x zero uses trailing state" {
     formatter.start_x = 0;
     formatter.trailing_state = .{ .rows = 2, .cells = 0 };
 
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     const state = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
     // SHOULD output the 2 newlines from trailing_state because both start_y and start_x are 0
-    try testing.expectEqualStrings("\r\n\r\nhello", builder.writer.buffered());
+    try testing.expectEqualStrings("\r\n\r\nhello", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 5), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[0]); // \r first blank row
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[1]); // \n first blank row
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 1 }, point_map.items[2]); // \r second blank row
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 1 }, point_map.items[3]); // \n second blank row
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[4 + i],
+    );
 }
 
 test "Page plain single line with styling" {
@@ -1666,13 +2208,25 @@ test "Page plain single line with styling" {
 
     // Create the formatter
     const page = &pages.pages.last.?.data;
-    const formatter: PageFormatter = .init(page, .plain);
+    var formatter: PageFormatter = .init(page, .plain);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
 
     // Verify output
     const state = try formatter.formatWithState(&builder.writer);
-    try testing.expectEqualStrings("hello, world", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello, world", output);
     try testing.expectEqual(@as(usize, page.size.rows), state.rows);
     try testing.expectEqual(@as(usize, page.size.cols - 12), state.cells);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..12) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page VT single line plain text" {
@@ -1696,9 +2250,22 @@ test "Page VT single line plain text" {
     const pages = &t.screen.pages;
     const page = &pages.pages.last.?.data;
 
-    const formatter: PageFormatter = .init(page, .vt);
+    var formatter: PageFormatter = .init(page, .vt);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("hello", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello", output);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
 }
 
 test "Page VT single line with bold" {
@@ -1722,9 +2289,29 @@ test "Page VT single line with bold" {
     const pages = &t.screen.pages;
     const page = &pages.pages.last.?.data;
 
-    const formatter: PageFormatter = .init(page, .vt);
+    var formatter: PageFormatter = .init(page, .vt);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello", output);
+
+    // Verify point map - style sequences should point to first character they style
+    try testing.expectEqual(output.len, point_map.items.len);
+    // \x1b[0m = 4 bytes, \x1b[1m = 4 bytes, total 8 bytes of style sequences
+    // All style bytes should map to the first styled character at (0, 0)
+    for (0..8) |i| try testing.expectEqual(
+        Coordinate{ .x = 0, .y = 0 },
+        point_map.items[i],
+    );
+    // Then "hello" maps to its respective positions
+    for (0..5) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[8 + i],
+    );
 }
 
 test "Page VT multiple styles" {
@@ -1748,9 +2335,18 @@ test "Page VT multiple styles" {
     const pages = &t.screen.pages;
     const page = &pages.pages.last.?.data;
 
-    const formatter: PageFormatter = .init(page, .vt);
+    var formatter: PageFormatter = .init(page, .vt);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello \x1b[0m\x1b[1m\x1b[3mworld", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello \x1b[0m\x1b[1m\x1b[3mworld", output);
+
+    // Verify point map matches output length
+    try testing.expectEqual(output.len, point_map.items.len);
 }
 
 test "Page VT with foreground color" {
@@ -1774,9 +2370,29 @@ test "Page VT with foreground color" {
     const pages = &t.screen.pages;
     const page = &pages.pages.last.?.data;
 
-    const formatter: PageFormatter = .init(page, .vt);
+    var formatter: PageFormatter = .init(page, .vt);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("\x1b[0m\x1b[38;5;1mred", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\x1b[0m\x1b[38;5;1mred", output);
+
+    // Verify point map - style sequences should point to first character they style
+    try testing.expectEqual(output.len, point_map.items.len);
+    // \x1b[0m = 4 bytes, \x1b[38;5;1m = 9 bytes, total 13 bytes of style sequences
+    // All style bytes should map to the first styled character at (0, 0)
+    for (0..13) |i| try testing.expectEqual(
+        Coordinate{ .x = 0, .y = 0 },
+        point_map.items[i],
+    );
+    // Then "red" maps to its respective positions
+    for (0..3) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[13 + i],
+    );
 }
 
 test "Page VT multi-line with styles" {
@@ -1800,9 +2416,18 @@ test "Page VT multi-line with styles" {
     const pages = &t.screen.pages;
     const page = &pages.pages.last.?.data;
 
-    const formatter: PageFormatter = .init(page, .vt);
+    var formatter: PageFormatter = .init(page, .vt);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\r\n\x1b[0m\x1b[3msecond", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\r\n\x1b[0m\x1b[3msecond", output);
+
+    // Verify point map matches output length
+    try testing.expectEqual(output.len, point_map.items.len);
 }
 
 test "Page VT duplicate style not emitted twice" {
@@ -1826,9 +2451,18 @@ test "Page VT duplicate style not emitted twice" {
     const pages = &t.screen.pages;
     const page = &pages.pages.last.?.data;
 
-    const formatter: PageFormatter = .init(page, .vt);
+    var formatter: PageFormatter = .init(page, .vt);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
     try formatter.format(&builder.writer);
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello", builder.writer.buffered());
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello", output);
+
+    // Verify point map matches output length
+    try testing.expectEqual(output.len, point_map.items.len);
 }
 
 test "PageList plain single line" {
