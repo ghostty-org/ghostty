@@ -13,6 +13,7 @@ const unicode = @import("../unicode/main.zig");
 const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
 const StringMap = @import("StringMap.zig");
+const ScreenFormatter = @import("formatter.zig").ScreenFormatter;
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
@@ -2170,163 +2171,51 @@ pub const SelectionString = struct {
 /// Returns the raw text associated with a selection. This will unwrap
 /// soft-wrapped edges. The returned slice is owned by the caller and allocated
 /// using alloc, not the allocator associated with the screen (unless they match).
+///
+/// For more flexibility, use a ScreenFormatter directly.
 pub fn selectionString(
     self: *Screen,
     alloc: Allocator,
     opts: SelectionString,
 ) ![:0]const u8 {
-    // Use an ArrayList so that we can grow the array as we go. We
-    // build an initial capacity of just our rows in our selection times
-    // columns. It can be more or less based on graphemes, newlines, etc.
-    var strbuilder: std.ArrayList(u8) = .empty;
-    defer strbuilder.deinit(alloc);
+    // We'll use this as our buffer to build our string.
+    var aw: std.Io.Writer.Allocating = .init(alloc);
+    defer aw.deinit();
 
-    // If we're building a stringmap, create our builder for the pins.
-    const MapBuilder = std.ArrayList(Pin);
-    var mapbuilder: ?MapBuilder = if (opts.map != null) .empty else null;
-    defer if (mapbuilder) |*b| b.deinit(alloc);
+    // Create a formatter and use that to emit our text.
+    var formatter: ScreenFormatter = .init(
+        self,
+        .{
+            .emit = .plain,
+            .unwrap = true,
+            .trim = opts.trim,
+        },
+    );
+    formatter.content = .{ .selection = opts.sel };
 
-    const sel_ordered = opts.sel.ordered(self, .forward);
-    const sel_start: Pin = start: {
-        var start: Pin = sel_ordered.start();
-        const cell = start.rowAndCell().cell;
-        if (cell.wide == .spacer_tail) start.x -= 1;
-        break :start start;
-    };
-    const sel_end: Pin = end: {
-        var end: Pin = sel_ordered.end();
-        const cell = end.rowAndCell().cell;
-        switch (cell.wide) {
-            .narrow, .wide => {},
-
-            // We can omit the tail
-            .spacer_tail => end.x -= 1,
-
-            // With the head we want to include the wrapped wide character.
-            .spacer_head => if (end.down(1)) |p| {
-                end = p;
-                end.x = 0;
-            },
-        }
-        break :end end;
+    // If we have a string map, we need to set that up.
+    var pins: std.ArrayList(Pin) = .empty;
+    defer pins.deinit(alloc);
+    if (opts.map != null) formatter.pin_map = .{
+        .alloc = alloc,
+        .map = &pins,
     };
 
-    var page_it = sel_start.pageIterator(.right_down, sel_end);
-    while (page_it.next()) |chunk| {
-        const rows = chunk.rows();
-        for (rows, chunk.start.., 0..) |row, y, row_i| {
-            const cells_ptr = row.cells.ptr(chunk.node.data.memory);
+    // Emit
+    try formatter.format(&aw.writer);
 
-            const start_x = if ((row_i == 0 or sel_ordered.rectangle) and
-                sel_start.node == chunk.node)
-                sel_start.x
-            else
-                0;
-            const end_x = if ((row_i == rows.len - 1 or sel_ordered.rectangle) and
-                sel_end.node == chunk.node)
-                sel_end.x + 1
-            else
-                self.pages.cols;
-
-            const cells = cells_ptr[start_x..end_x];
-            for (cells, start_x..) |*cell, x| {
-                // Skip wide spacers
-                switch (cell.wide) {
-                    .narrow, .wide => {},
-                    .spacer_head, .spacer_tail => continue,
-                }
-
-                var buf: [4]u8 = undefined;
-                {
-                    const raw: u21 = if (cell.hasText()) cell.content.codepoint else 0;
-                    const char = if (raw > 0) raw else ' ';
-                    const encode_len = try std.unicode.utf8Encode(char, &buf);
-                    try strbuilder.appendSlice(alloc, buf[0..encode_len]);
-                    if (mapbuilder) |*b| {
-                        for (0..encode_len) |_| try b.append(alloc, .{
-                            .node = chunk.node,
-                            .y = @intCast(y),
-                            .x = @intCast(x),
-                        });
-                    }
-                }
-                if (cell.hasGrapheme()) {
-                    const cps = chunk.node.data.lookupGrapheme(cell).?;
-                    for (cps) |cp| {
-                        const encode_len = try std.unicode.utf8Encode(cp, &buf);
-                        try strbuilder.appendSlice(alloc, buf[0..encode_len]);
-                        if (mapbuilder) |*b| {
-                            for (0..encode_len) |_| try b.append(alloc, .{
-                                .node = chunk.node,
-                                .y = @intCast(y),
-                                .x = @intCast(x),
-                            });
-                        }
-                    }
-                }
-            }
-
-            const is_final_row = chunk.node == sel_end.node and y == sel_end.y;
-
-            if (!is_final_row and
-                (!row.wrap or sel_ordered.rectangle))
-            {
-                try strbuilder.append(alloc, '\n');
-                if (mapbuilder) |*b| try b.append(alloc, .{
-                    .node = chunk.node,
-                    .y = @intCast(y),
-                    .x = chunk.node.data.size.cols - 1,
-                });
-            }
-        }
+    // Build our final text and if we have a string map set that up.
+    const text = try aw.toOwnedSliceSentinel(0);
+    errdefer alloc.free(text);
+    if (opts.map) |map| {
+        map.* = .{
+            .string = try alloc.dupeZ(u8, text),
+            .map = try pins.toOwnedSlice(alloc),
+        };
     }
+    errdefer if (opts.map) |m| m.deinit(alloc);
 
-    if (comptime std.debug.runtime_safety) {
-        if (mapbuilder) |b| assert(strbuilder.items.len == b.items.len);
-    }
-
-    // If we have a mapbuilder, we need to setup our string map.
-    if (mapbuilder) |*b| {
-        var strclone = try strbuilder.clone(alloc);
-        defer strclone.deinit(alloc);
-        const str = try strclone.toOwnedSliceSentinel(alloc, 0);
-        errdefer alloc.free(str);
-        const map = try b.toOwnedSlice(alloc);
-        errdefer alloc.free(map);
-        opts.map.?.* = .{ .string = str, .map = map };
-    }
-
-    // Remove any trailing spaces on lines. We could do optimize this by
-    // doing this in the loop above but this isn't very hot path code and
-    // this is simple.
-    if (opts.trim) {
-        var it = std.mem.tokenizeScalar(u8, strbuilder.items, '\n');
-
-        // Reset our items. We retain our capacity. Because we're only
-        // removing bytes, we know that the trimmed string must be no longer
-        // than the original string so we copy directly back into our
-        // allocated memory.
-        strbuilder.clearRetainingCapacity();
-        while (it.next()) |line| {
-            const trimmed = std.mem.trimRight(u8, line, " \t");
-            const i = strbuilder.items.len;
-            strbuilder.items.len += trimmed.len;
-            std.mem.copyForwards(u8, strbuilder.items[i..], trimmed);
-            try strbuilder.append(alloc, '\n');
-        }
-
-        // Remove all trailing newlines
-        for (0..strbuilder.items.len) |_| {
-            if (strbuilder.items[strbuilder.items.len - 1] != '\n') break;
-            strbuilder.items.len -= 1;
-        }
-    }
-
-    // Get our final string
-    const string = try strbuilder.toOwnedSliceSentinel(alloc, 0);
-    errdefer alloc.free(string);
-
-    return string;
+    return text;
 }
 
 pub const SelectLine = struct {
@@ -8384,7 +8273,7 @@ test "Screen: selectionString trim empty line" {
             .trim = false,
         });
         defer alloc.free(contents);
-        const expected = "1AB  \n     \n2EF";
+        const expected = "1AB  \n\n2EF";
         try testing.expectEqualStrings(expected, contents);
     }
 }

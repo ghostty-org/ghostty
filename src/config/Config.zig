@@ -2006,7 +2006,9 @@ keybind: Keybinds = .{},
 @"clipboard-write": ClipboardAccess = .allow,
 
 /// Trims trailing whitespace on data that is copied to the clipboard. This does
-/// not affect data sent to the clipboard via `clipboard-write`.
+/// not affect data sent to the clipboard via `clipboard-write`. This only
+/// applies to trailing whitespace on lines that have other characters.
+/// Completely blank lines always have their whitespace trimmed.
 @"clipboard-trim-trailing-spaces": bool = true,
 
 /// Require confirmation before pasting text that appears unsafe. This helps
