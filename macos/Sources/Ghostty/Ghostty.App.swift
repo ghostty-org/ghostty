@@ -49,7 +49,7 @@ extension Ghostty {
         init(configPath: String? = nil) {
             self.configPath = configPath
             // Initialize the global configuration.
-            self.config = configPath.flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            self.config = Config(at: configPath)
             if self.config.config == nil {
                 readiness = .error
                 return
@@ -146,7 +146,7 @@ extension Ghostty {
             }
 
             // Hard or full updates have to reload the full configuration
-            let newConfig = configPath.flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -166,7 +166,7 @@ extension Ghostty {
             // Hard or full updates have to reload the full configuration.
             // NOTE: We never set this on self.config because this is a surface-only
             // config. We free it after the call.
-            let newConfig = configPath.flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -1764,31 +1764,5 @@ extension Ghostty {
         }
 
         #endif
-    }
-}
-
-extension Ghostty.App {
-    static func readConfig(at path: String, finalize: Bool = true) -> Ghostty.Config? {
-        guard
-            let cfg = ghostty_config_new()
-        else {
-            return nil
-        }
-        if FileManager.default.fileExists(atPath: path) {
-            ghostty_config_load_file(cfg, path)
-        }
-#if os(macOS)
-        if !isRunningInXcode() {
-            ghostty_config_load_cli_args(cfg)
-        }
-#endif
-        ghostty_config_load_recursive_files(cfg)
-        if finalize {
-            // Finalize will make our defaults available,
-            // and also will combine all the keys into one file,
-            // we might not need this in the future
-            ghostty_config_finalize(cfg)
-        }
-        return Ghostty.Config(config: cfg)
     }
 }
