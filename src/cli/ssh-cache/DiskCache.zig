@@ -70,7 +70,7 @@ pub fn add(
 
     // Create cache directory if needed
     if (std.fs.path.dirname(self.path)) |dir| {
-        std.fs.makeDirAbsolute(dir) catch |err| switch (err) {
+        std.fs.cwd().makePath(dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
