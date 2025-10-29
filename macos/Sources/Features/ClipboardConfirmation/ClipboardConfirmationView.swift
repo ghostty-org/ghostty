@@ -52,6 +52,7 @@ struct ClipboardConfirmationView: View {
             }
             
             TextEditor(text: .constant(contents))
+                .focusable(false)
                 .font(.system(.body, design: .monospaced))
             
             HStack {
