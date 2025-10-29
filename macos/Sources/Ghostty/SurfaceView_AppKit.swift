@@ -83,7 +83,15 @@ extension Ghostty {
         @Published private(set) var backgroundColor: Color? = nil
 
         /// True when the bell is active. This is set inactive on focus or event.
-        @Published private(set) var bell: Bool = false
+        @Published private(set) var bell: Bool = false {
+            didSet {
+                if bell {
+                    Self.ghosttyApp?.belledSurfaceIDs.insert(id)
+                } else {
+                    Self.ghosttyApp?.belledSurfaceIDs.remove(id)
+                }
+            }
+        }
 
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
@@ -180,13 +188,16 @@ extension Ghostty {
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
 
+        static var ghosttyApp: Ghostty.App? {
+            (NSApplication.shared.delegate as? AppDelegate)?.ghostty
+        }
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
             self.markedText = NSMutableAttributedString()
             self.id = uuid ?? .init()
 
             // Our initial config always is our application wide config.
-            if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
-                self.derivedConfig = DerivedConfig(appDelegate.ghostty.config)
+            if let ghostty = Self.ghosttyApp {
+                self.derivedConfig = DerivedConfig(ghostty.config)
             } else {
                 self.derivedConfig = DerivedConfig()
             }
@@ -1564,9 +1575,7 @@ extension Ghostty {
 
         required convenience init(from decoder: Decoder) throws {
             // Decoding uses the global Ghostty app
-            guard let del = NSApplication.shared.delegate,
-                  let appDel = del as? AppDelegate,
-                  let app = appDel.ghostty.app else {
+            guard let app = Self.ghosttyApp?.app else {
                 throw TerminalRestoreError.delegateInvalid
             }
 

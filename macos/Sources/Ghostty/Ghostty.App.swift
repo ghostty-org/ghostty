@@ -28,7 +28,8 @@ extension Ghostty {
         /// for new windows, tabs, etc. Note that when creating a new window, it may inherit some
         /// configuration (i.e. font size) from the previously focused window. This would override this.
         @Published private(set) var config: Config
-
+        /// IDs of surfaces that have rung the bell
+        @Published var belledSurfaceIDs = Set<UUID>()
         /// The ghostty app instance. We only have one of these for the entire app, although I guess
         /// in theory you can have multiple... I don't know why you would...
         @Published var app: ghostty_app_t? = nil {

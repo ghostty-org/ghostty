@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 import OSLog
@@ -118,6 +119,13 @@ class AppDelegate: NSObject,
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
+    private var bellObserver: AnyCancellable?
+    /// Tracks previously triggered bells (sound/notification/bounce).
+    ///
+    /// Notify only on newly triggered bells,
+    /// not when bells are removed.
+    private var rungBells = Set<UUID>()
+
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage? = nil {
         didSet {
@@ -211,12 +219,12 @@ class AppDelegate: NSObject,
             name: .ghosttyConfigDidChange,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(ghosttyBellDidRing(_:)),
-            name: .ghosttyBellDidRing,
-            object: nil
-        )
+        bellObserver = ghostty.$belledSurfaceIDs
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ids in
+                self?.ghosttyBellDidRing(ids)
+            }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(ghosttyNewWindow(_:)),
@@ -295,9 +303,6 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
-
-        // Clear the dock badge when the app becomes active
-        self.setDockBadge(nil)
 
         // First launch stuff
         if (!applicationHasBecomeActive) {
@@ -723,7 +728,18 @@ class AppDelegate: NSObject,
         ghosttyConfigDidChange(config: config)
     }
 
-    @objc private func ghosttyBellDidRing(_ notification: Notification) {
+    private func ghosttyBellDidRing(_ belledSurfaceIDs: Set<UUID>) {
+        let insertions = belledSurfaceIDs.subtracting(rungBells)
+        defer { rungBells = belledSurfaceIDs }
+        // Only continue with newly triggered bells
+        guard !insertions.isEmpty else {
+            /// Clear the badge if all bells are removed.
+            /// Delivered notifications are removed within ``Ghostty/Ghostty/SurfaceView/focusDidChange(_:)``
+            if belledSurfaceIDs.isEmpty {
+                setDockBadge(nil)
+            }
+            return
+        }
         if (ghostty.config.bellFeatures.contains(.system)) {
             NSSound.beep()
         }
