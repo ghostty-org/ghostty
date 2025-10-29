@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const color = @import("color.zig");
 const size = @import("size.zig");
 const charsets = @import("charsets.zig");
 const kitty = @import("kitty.zig");
@@ -33,10 +34,27 @@ pub const Format = enum {
     /// moves back to the beginning prior emitting follow-up lines.
     vt,
 
+    /// HTML output.
+    ///
+    /// This will emit inline styles for as much styling as possible,
+    /// in the interest of simplicity and ease of editing. This isn't meant
+    /// to build the most beautiful or efficient HTML, but rather to be
+    /// stylistically correct.
+    ///
+    /// For colors, RGB values are emitted as inline CSS (#RRGGBB) while palette
+    /// indices use CSS variables (var(--vt-palette-N)). The palette colors are
+    /// emitted by TerminalFormatter.Extra.palette as a <style> block if you
+    /// want to also include that. But if you only format a screen or lower,
+    /// the formatter doesn't have access to the current palette to render it.
+    ///
+    /// Newlines are emitted as actual '\n' characters. Consumers should use
+    /// CSS white-space: pre or pre-wrap to preserve spacing and alignment.
+    html,
+
     pub fn styled(self: Format) bool {
         return switch (self) {
             .plain => false,
-            .vt => true,
+            .html, .vt => true,
         };
     }
 };
@@ -56,8 +74,15 @@ pub const Options = struct {
     /// is currently only space characters (0x20).
     trim: bool = true,
 
+    /// If set, then styled formats in `emit` will use this palette to
+    /// emit colors directly as RGB. If this is null, styled formats will
+    /// still work but will use deferred palette styling (e.g. CSS variables
+    /// for HTML or the actual palette indexes for VT).
+    palette: ?*const color.Palette = null,
+
     pub const plain: Options = .{ .emit = .plain };
     pub const vt: Options = .{ .emit = .vt };
+    pub const html: Options = .{ .emit = .html };
 };
 
 /// Maps byte positions in formatted output to PageList pins.
@@ -191,16 +216,34 @@ pub const TerminalFormatter = struct {
     pub fn format(
         self: TerminalFormatter,
         writer: *std.Io.Writer,
-    ) !void {
+    ) std.Io.Writer.Error!void {
         // Emit palette before screen content if using VT format. Technically
         // we could do this after but this way if replay is slow for whatever
         // reason the colors will be right right away.
-        if (self.opts.emit == .vt and self.extra.palette) {
-            for (self.terminal.color_palette.colors, 0..) |rgb, i| {
-                try writer.print(
-                    "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
-                    .{ i, rgb.r, rgb.g, rgb.b },
-                );
+        if (self.extra.palette) palette: {
+            switch (self.opts.emit) {
+                .plain => break :palette,
+
+                .vt => {
+                    for (self.terminal.color_palette.colors, 0..) |rgb, i| {
+                        try writer.print(
+                            "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
+                            .{ i, rgb.r, rgb.g, rgb.b },
+                        );
+                    }
+                },
+
+                // For HTML, we emit CSS to setup our palette variables.
+                .html => {
+                    try writer.writeAll("<style>:root{");
+                    for (self.terminal.color_palette.colors, 0..) |rgb, i| {
+                        try writer.print(
+                            "--vt-palette-{d}: #{x:0>2}{x:0>2}{x:0>2};",
+                            .{ i, rgb.r, rgb.g, rgb.b },
+                        );
+                    }
+                    try writer.writeAll("}</style>");
+                },
             }
 
             // If we have a pin_map, add the bytes we wrote to map.
@@ -461,7 +504,7 @@ pub const ScreenFormatter = struct {
     pub fn format(
         self: ScreenFormatter,
         writer: *std.Io.Writer,
-    ) !void {
+    ) std.Io.Writer.Error!void {
         switch (self.content) {
             .none => {},
 
@@ -484,6 +527,10 @@ pub const ScreenFormatter = struct {
         switch (self.opts.emit) {
             .plain => return,
             .vt => if (!self.extra.isSet()) return,
+
+            // HTML doesn't preserve any screen state because it has
+            // nothing to do with rendering.
+            .html => return,
         }
 
         // Emit current SGR style state
@@ -656,7 +703,7 @@ pub const PageListFormatter = struct {
     pub fn format(
         self: PageListFormatter,
         writer: *std.Io.Writer,
-    ) !void {
+    ) std.Io.Writer.Error!void {
         const tl: PageList.Pin = self.top_left orelse self.list.getTopLeft(.screen);
         const br: PageList.Pin = self.bottom_right orelse self.list.getBottomRight(.screen).?;
 
@@ -791,14 +838,14 @@ pub const PageFormatter = struct {
     pub fn format(
         self: PageFormatter,
         writer: *std.Io.Writer,
-    ) !void {
+    ) std.Io.Writer.Error!void {
         _ = try self.formatWithState(writer);
     }
 
     pub fn formatWithState(
         self: PageFormatter,
         writer: *std.Io.Writer,
-    ) !TrailingState {
+    ) std.Io.Writer.Error!TrailingState {
         var blank_rows: usize = 0;
         var blank_cells: usize = 0;
 
@@ -854,6 +901,17 @@ pub const PageFormatter = struct {
             return .{ .rows = blank_rows, .cells = blank_cells };
         }
 
+        // Wrap HTML output in monospace font styling
+        if (self.opts.emit == .html) {
+            const monospace = "<div style=\"font-family: monospace; white-space: pre;\">";
+            try writer.writeAll(monospace);
+            if (self.point_map) |*map| map.map.appendNTimes(
+                map.alloc,
+                .{ .x = 0, .y = 0 },
+                monospace.len,
+            ) catch return error.WriteFailed;
+        }
+
         // Our style for non-plain formats
         var style: Style = .{};
 
@@ -904,8 +962,19 @@ pub const PageFormatter = struct {
 
             if (blank_rows > 0) {
                 const sequence: []const u8 = switch (self.opts.emit) {
+                    // Plaintext just uses standard newlines because newlines
+                    // on their own usually move the cursor back in anywhere
+                    // you type plaintext.
                     .plain => "\n",
+
+                    // VT uses \r\n because in a raw pty, \n alone doesn't
+                    // guarantee moving the cursor back to column 0. \r
+                    // makes it work for sure.
                     .vt => "\r\n",
+
+                    // HTML uses just \n because HTML rendering will move
+                    // the cursor back.
+                    .html => "\n",
                 };
 
                 for (0..blank_rows) |_| try writer.writeAll(sequence);
@@ -1012,6 +1081,16 @@ pub const PageFormatter = struct {
                     // We combine codepoint and graphemes because both have
                     // shared style handling. We use comptime to dup it.
                     inline .codepoint, .codepoint_grapheme => |tag| {
+                        // Handle closing our styling if we go back to unstyled
+                        // content.
+                        if (self.opts.emit.styled() and
+                            !cell.hasStyling() and
+                            !style.default())
+                        {
+                            try self.formatStyleClose(writer);
+                            style = .{};
+                        }
+
                         // If we're emitting styling and we have styles, then
                         // we need to load the style and emit any sequences
                         // as necessary.
@@ -1026,15 +1105,28 @@ pub const PageFormatter = struct {
                             // emitted style, don't bloat the output.
                             if (cell_style.eql(style)) break :style;
 
+                            // We need to emit a closing tag if the style
+                            // was non-default before, which means we set
+                            // styles once.
+                            const closing = !style.default();
+
                             // New style, emit it.
                             style = cell_style.*;
-                            try writer.print("{f}", .{style.formatterVt()});
+                            try self.formatStyleOpen(
+                                writer,
+                                &style,
+                                closing,
+                            );
 
                             // If we have a point map, we map the style to
                             // this cell.
                             if (self.point_map) |*map| {
                                 var discarding: std.Io.Writer.Discarding = .init(&.{});
-                                try discarding.writer.print("{f}", .{style.formatterVt()});
+                                try self.formatStyleOpen(
+                                    &discarding.writer,
+                                    &style,
+                                    closing,
+                                );
                                 for (0..discarding.count) |_| map.map.append(map.alloc, .{
                                     .x = x,
                                     .y = y,
@@ -1042,24 +1134,13 @@ pub const PageFormatter = struct {
                             }
                         }
 
-                        try writer.print("{u}", .{cell.content.codepoint});
-                        if (comptime tag == .codepoint_grapheme) {
-                            for (self.page.lookupGrapheme(cell).?) |cp| {
-                                try writer.print("{u}", .{cp});
-                            }
-                        }
+                        try self.writeCell(tag, writer, cell);
 
                         // If we have a point map, all codepoints map to this
                         // cell.
                         if (self.point_map) |*map| {
                             var discarding: std.Io.Writer.Discarding = .init(&.{});
-                            try discarding.writer.print("{u}", .{cell.content.codepoint});
-                            if (comptime tag == .codepoint_grapheme) {
-                                for (self.page.lookupGrapheme(cell).?) |cp| {
-                                    try writer.print("{u}", .{cp});
-                                }
-                            }
-
+                            try self.writeCell(tag, &discarding.writer, cell);
                             for (0..discarding.count) |_| map.map.append(map.alloc, .{
                                 .x = x,
                                 .y = y,
@@ -1075,7 +1156,116 @@ pub const PageFormatter = struct {
             }
         }
 
+        // If the style is non-default, we need to close our style tag.
+        if (!style.default()) try self.formatStyleClose(writer);
+
+        // Close the monospace wrapper for HTML output
+        if (self.opts.emit == .html) {
+            const closing = "</div>";
+            try writer.writeAll(closing);
+            if (self.point_map) |*map| {
+                map.map.ensureUnusedCapacity(
+                    map.alloc,
+                    closing.len,
+                ) catch return error.WriteFailed;
+                map.map.appendNTimesAssumeCapacity(
+                    map.map.items[map.map.items.len - 1],
+                    closing.len,
+                );
+            }
+        }
+
         return .{ .rows = blank_rows, .cells = blank_cells };
+    }
+
+    fn writeCell(
+        self: PageFormatter,
+        comptime tag: Cell.ContentTag,
+        writer: *std.Io.Writer,
+        cell: *const Cell,
+    ) !void {
+        try self.writeCodepoint(writer, cell.content.codepoint);
+        if (comptime tag == .codepoint_grapheme) {
+            for (self.page.lookupGrapheme(cell).?) |cp| {
+                try self.writeCodepoint(writer, cp);
+            }
+        }
+    }
+
+    fn writeCodepoint(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        codepoint: u21,
+    ) !void {
+        switch (self.opts.emit) {
+            .plain, .vt => try writer.print("{u}", .{codepoint}),
+            .html => {
+                switch (codepoint) {
+                    '<' => try writer.writeAll("&lt;"),
+                    '>' => try writer.writeAll("&gt;"),
+                    '&' => try writer.writeAll("&amp;"),
+                    '"' => try writer.writeAll("&quot;"),
+                    '\'' => try writer.writeAll("&#39;"),
+                    else => try writer.print("{u}", .{codepoint}),
+                }
+            },
+        }
+    }
+
+    fn formatStyleOpen(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        style: *const Style,
+        closing: bool,
+    ) std.Io.Writer.Error!void {
+        switch (self.opts.emit) {
+            .plain => unreachable,
+
+            // Note: we don't use closing on purpose because VT sequences
+            // always reset the prior style. Our formatter always emits a
+            // \x1b[0m before emitting a new style if necessary.
+            .vt => {
+                var formatter = style.formatterVt();
+                formatter.palette = self.opts.palette;
+                try writer.print("{f}", .{formatter});
+            },
+
+            // We use `display: inline` so that the div doesn't impact
+            // layout since we're primarily using it as a CSS wrapper.
+            .html => {
+                if (closing) try writer.writeAll("</div>");
+                var formatter = style.formatterHtml();
+                formatter.palette = self.opts.palette;
+                try writer.print(
+                    "<div style=\"display: inline;{f}\">",
+                    .{formatter},
+                );
+            },
+        }
+    }
+
+    fn formatStyleClose(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        const str: []const u8 = switch (self.opts.emit) {
+            .plain => return,
+            .vt => "\x1b[0m",
+            .html => "</div>",
+        };
+
+        try writer.writeAll(str);
+        if (self.point_map) |*m| {
+            assert(m.map.items.len > 0);
+            m.map.ensureUnusedCapacity(
+                m.alloc,
+                str.len,
+            ) catch return error.WriteFailed;
+            m.map.appendNTimesAssumeCapacity(
+                m.map.items[m.map.items.len - 1],
+                str.len,
+            );
+        }
     }
 };
 
@@ -2785,7 +2975,7 @@ test "Page VT single line with bold" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello", output);
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello\x1b[0m", output);
 
     // Verify point map - style sequences should point to first character they style
     try testing.expectEqual(output.len, point_map.items.len);
@@ -2831,7 +3021,7 @@ test "Page VT multiple styles" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello \x1b[0m\x1b[1m\x1b[3mworld", output);
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello \x1b[0m\x1b[1m\x1b[3mworld\x1b[0m", output);
 
     // Verify point map matches output length
     try testing.expectEqual(output.len, point_map.items.len);
@@ -2866,7 +3056,7 @@ test "Page VT with foreground color" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[38;5;1mred", output);
+    try testing.expectEqualStrings("\x1b[0m\x1b[38;5;1mred\x1b[0m", output);
 
     // Verify point map - style sequences should point to first character they style
     try testing.expectEqual(output.len, point_map.items.len);
@@ -2912,7 +3102,7 @@ test "Page VT multi-line with styles" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\r\n\x1b[0m\x1b[3msecond", output);
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\r\n\x1b[0m\x1b[3msecond\x1b[0m", output);
 
     // Verify point map matches output length
     try testing.expectEqual(output.len, point_map.items.len);
@@ -2947,7 +3137,7 @@ test "Page VT duplicate style not emitted twice" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello", output);
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mhello\x1b[0m", output);
 
     // Verify point map matches output length
     try testing.expectEqual(output.len, point_map.items.len);
@@ -3229,7 +3419,7 @@ test "PageList VT spanning two pages" {
     try formatter.format(&builder.writer);
     const full_output = builder.writer.buffered();
     const output = std.mem.trimStart(u8, full_output, "\r\n");
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mpage one\r\n\x1b[0m\x1b[1mpage two", output);
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mpage one\x1b[0m\r\n\x1b[0m\x1b[1mpage two\x1b[0m", output);
 
     // Verify pin map
     try testing.expectEqual(full_output.len, pin_map.items.len);
@@ -4535,4 +4725,342 @@ test "Terminal vt with pwd" {
 
     // Verify pwd matches
     try testing.expectEqualStrings(t.pwd.items, t2.pwd.items);
+}
+
+test "Page html with multiple styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Set bold, then italic, then reset
+    try s.nextSlice("\x1b[1mbold\x1b[3mitalic\x1b[0mnormal");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<div style=\"display: inline;font-weight: bold;\">bold</div>" ++
+            "<div style=\"display: inline;font-weight: bold;font-style: italic;\">italic</div>" ++
+            "normal" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page html plain text" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello, world");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Plain text without styles should be wrapped in monospace div
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">hello, world</div>",
+        output,
+    );
+}
+
+test "Page html with colors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Set red foreground, blue background
+    try s.nextSlice("\x1b[31;44mcolored");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<div style=\"display: inline;color: var(--vt-palette-1);background-color: var(--vt-palette-4);\">colored</div>" ++
+            "</div>",
+        output,
+    );
+}
+
+test "TerminalFormatter html with palette" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Modify some palette colors
+    try s.nextSlice("\x1b]4;0;rgb:12/34/56\x1b\\");
+    try s.nextSlice("\x1b]4;1;rgb:ab/cd/ef\x1b\\");
+    try s.nextSlice("\x1b]4;255;rgb:ff/00/ff\x1b\\");
+    try s.nextSlice("test");
+
+    var formatter: TerminalFormatter = .init(&t, .{ .emit = .html });
+    formatter.extra.palette = true;
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Verify palette CSS variables are emitted
+    try testing.expect(std.mem.indexOf(u8, output, "<style>:root{") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "--vt-palette-0: #123456;") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "--vt-palette-1: #abcdef;") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "--vt-palette-255: #ff00ff;") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "}</style>") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "test") != null);
+}
+
+test "Page html with escaping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("<tag>&\"'text");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">&lt;tag&gt;&amp;&quot;&#39;text</div>",
+        output,
+    );
+
+    // Verify point map length matches output
+    try testing.expectEqual(output.len, point_map.items.len);
+
+    // Opening wrapper div
+    const wrapper_start = "<div style=\"font-family: monospace; white-space: pre;\">";
+    const wrapper_start_len = wrapper_start.len;
+    for (0..wrapper_start_len) |i| try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[i]);
+
+    // Verify each character maps correctly, accounting for escaping
+    const offset = wrapper_start_len;
+    // < (4 bytes: &lt;) -> x=0
+    for (0..4) |i| try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[offset + i]);
+    // t (1 byte) -> x=1
+    try testing.expectEqual(Coordinate{ .x = 1, .y = 0 }, point_map.items[offset + 4]);
+    // a (1 byte) -> x=2
+    try testing.expectEqual(Coordinate{ .x = 2, .y = 0 }, point_map.items[offset + 5]);
+    // g (1 byte) -> x=3
+    try testing.expectEqual(Coordinate{ .x = 3, .y = 0 }, point_map.items[offset + 6]);
+    // > (4 bytes: &gt;) -> x=4
+    for (0..4) |i| try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[offset + 7 + i]);
+    // & (5 bytes: &amp;) -> x=5
+    for (0..5) |i| try testing.expectEqual(Coordinate{ .x = 5, .y = 0 }, point_map.items[offset + 11 + i]);
+    // " (6 bytes: &quot;) -> x=6
+    for (0..6) |i| try testing.expectEqual(Coordinate{ .x = 6, .y = 0 }, point_map.items[offset + 16 + i]);
+    // ' (5 bytes: &#39;) -> x=7
+    for (0..5) |i| try testing.expectEqual(Coordinate{ .x = 7, .y = 0 }, point_map.items[offset + 22 + i]);
+    // t (1 byte) -> x=8
+    try testing.expectEqual(Coordinate{ .x = 8, .y = 0 }, point_map.items[offset + 27]);
+    // e (1 byte) -> x=9
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[offset + 28]);
+    // x (1 byte) -> x=10
+    try testing.expectEqual(Coordinate{ .x = 10, .y = 0 }, point_map.items[offset + 29]);
+    // t (1 byte) -> x=11
+    try testing.expectEqual(Coordinate{ .x = 11, .y = 0 }, point_map.items[offset + 30]);
+}
+
+test "Page VT with palette option emits RGB" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Set a custom palette color and use it
+    try s.nextSlice("\x1b]4;1;rgb:ab/cd/ef\x1b\\");
+    try s.nextSlice("\x1b[31mred");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Without palette option - should emit palette index
+    {
+        builder.clearRetainingCapacity();
+        var formatter: PageFormatter = .init(page, .vt);
+        try formatter.format(&builder.writer);
+        const output = builder.writer.buffered();
+        try testing.expectEqualStrings("\x1b[0m\x1b[38;5;1mred\x1b[0m", output);
+    }
+
+    // With palette option - should emit RGB directly
+    {
+        builder.clearRetainingCapacity();
+        var opts: Options = .vt;
+        opts.palette = &t.color_palette.colors;
+        var formatter: PageFormatter = .init(page, opts);
+        try formatter.format(&builder.writer);
+        const output = builder.writer.buffered();
+        try testing.expectEqualStrings("\x1b[0m\x1b[38;2;171;205;239mred\x1b[0m", output);
+    }
+}
+
+test "Page html with palette option emits RGB" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Set a custom palette color and use it
+    try s.nextSlice("\x1b]4;1;rgb:ab/cd/ef\x1b\\");
+    try s.nextSlice("\x1b[31mred");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Without palette option - should emit CSS variable
+    {
+        builder.clearRetainingCapacity();
+        var formatter: PageFormatter = .init(page, .{ .emit = .html });
+        try formatter.format(&builder.writer);
+        const output = builder.writer.buffered();
+        try testing.expectEqualStrings(
+            "<div style=\"font-family: monospace; white-space: pre;\">" ++
+                "<div style=\"display: inline;color: var(--vt-palette-1);\">red</div>" ++
+                "</div>",
+            output,
+        );
+    }
+
+    // With palette option - should emit RGB directly
+    {
+        builder.clearRetainingCapacity();
+        var opts: Options = .{ .emit = .html };
+        opts.palette = &t.color_palette.colors;
+        var formatter: PageFormatter = .init(page, opts);
+        try formatter.format(&builder.writer);
+        const output = builder.writer.buffered();
+        try testing.expectEqualStrings(
+            "<div style=\"font-family: monospace; white-space: pre;\">" ++
+                "<div style=\"display: inline;color: rgb(171, 205, 239);\">red</div>" ++
+                "</div>",
+            output,
+        );
+    }
+}
+
+test "Page VT style reset properly closes styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Set bold, then reset with SGR 0
+    try s.nextSlice("\x1b[1mbold\x1b[0mnormal");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    builder.clearRetainingCapacity();
+    var formatter: PageFormatter = .init(page, .vt);
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // The reset should properly close the bold style
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mbold\x1b[0mnormal", output);
 }

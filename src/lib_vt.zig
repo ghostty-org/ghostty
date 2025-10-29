@@ -25,6 +25,7 @@ pub const osc = terminal.osc;
 pub const point = terminal.point;
 pub const color = terminal.color;
 pub const device_status = terminal.device_status;
+pub const formatter = terminal.formatter;
 pub const kitty = terminal.kitty;
 pub const modes = terminal.modes;
 pub const page = terminal.page;
