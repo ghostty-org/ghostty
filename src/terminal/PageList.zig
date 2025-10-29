@@ -3216,50 +3216,6 @@ pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
     };
 }
 
-pub const EncodeUtf8Options = struct {
-    /// The start and end points of the dump, both inclusive. The x will
-    /// be ignored and the full row will always be dumped.
-    tl: Pin,
-    br: ?Pin = null,
-
-    /// If true, this will unwrap soft-wrapped lines. If false, this will
-    /// dump the screen as it is visually seen in a rendered window.
-    unwrap: bool = true,
-
-    /// See Page.EncodeUtf8Options.
-    cell_map: ?*Page.CellMap = null,
-};
-
-/// Encode the pagelist to utf8 to the given writer.
-///
-/// The writer should be buffered; this function does not attempt to
-/// efficiently write and often writes one byte at a time.
-///
-/// Note: this is tested using Screen.dumpString. This is a function that
-/// predates this and is a thin wrapper around it so the tests all live there.
-pub fn encodeUtf8(
-    self: *const PageList,
-    writer: *std.Io.Writer,
-    opts: EncodeUtf8Options,
-) anyerror!void {
-    // We don't currently use self at all. There is an argument that this
-    // function should live on Pin instead but there is some future we might
-    // need state on here so... letting it go.
-    _ = self;
-
-    var page_opts: Page.EncodeUtf8Options = .{
-        .unwrap = opts.unwrap,
-        .cell_map = opts.cell_map,
-    };
-    var iter = opts.tl.pageIterator(.right_down, opts.br);
-    while (iter.next()) |chunk| {
-        const page: *const Page = &chunk.node.data;
-        page_opts.start_y = chunk.start;
-        page_opts.end_y = chunk.end;
-        page_opts.preceding = try page.encodeUtf8(writer, page_opts);
-    }
-}
-
 /// Log a debug diagram of the page list to the provided writer.
 ///
 /// EXAMPLE:
@@ -3857,13 +3813,17 @@ pub fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
         },
 
         .viewport => viewport: {
-            const tl = self.getTopLeft(.viewport);
-            break :viewport tl.down(self.rows - 1).?;
+            var br = self.getTopLeft(.viewport);
+            br = br.down(self.rows - 1).?;
+            br.x = br.node.data.size.cols - 1;
+            break :viewport br;
         },
 
         .history => active: {
-            const tl = self.getTopLeft(.active);
-            break :active tl.up(1);
+            var br = self.getTopLeft(.active);
+            br = br.up(1) orelse return null;
+            br.x = br.node.data.size.cols - 1;
+            break :active br;
         },
     };
 }

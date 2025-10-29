@@ -2799,9 +2799,38 @@ pub fn promptPath(
 pub fn dumpString(
     self: *const Screen,
     writer: *std.Io.Writer,
-    opts: PageList.EncodeUtf8Options,
-) anyerror!void {
-    try self.pages.encodeUtf8(writer, opts);
+    opts: struct {
+        /// The start and end points of the dump, both inclusive. The x will
+        /// be ignored and the full row will always be dumped.
+        tl: Pin,
+        br: ?Pin = null,
+
+        /// If true, this will unwrap soft-wrapped lines. If false, this will
+        /// dump the screen as it is visually seen in a rendered window.
+        unwrap: bool = true,
+    },
+) std.Io.Writer.Error!void {
+    // Create a formatter and use that to emit our text.
+    var formatter: ScreenFormatter = .init(self, .{
+        .emit = .plain,
+        .unwrap = opts.unwrap,
+        .trim = false,
+    });
+
+    // Set up the selection based on the pins
+    const tl = opts.tl;
+    const br = opts.br orelse self.pages.getBottomRight(.screen).?;
+
+    formatter.content = .{
+        .selection = Selection.init(
+            tl,
+            br,
+            false, // not rectangle
+        ),
+    };
+
+    // Emit
+    try formatter.format(writer);
 }
 
 /// You should use dumpString, this is a restricted version mostly for
@@ -8915,82 +8944,4 @@ test "Screen: adjustCapacity cursor style exceeds style set capacity" {
     // In such a case, adjust this test accordingly.
     try testing.expect(s.cursor.style.default());
     try testing.expectEqual(style.default_id, s.cursor.style_id);
-}
-
-test "Screen UTF8 cell map with newlines" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try Screen.init(alloc, 80, 24, 0);
-    defer s.deinit();
-    try s.testWriteString("A\n\nB\n\nC");
-
-    var cell_map = Page.CellMap.init(alloc);
-    defer cell_map.deinit();
-    var builder: std.Io.Writer.Allocating = .init(alloc);
-    defer builder.deinit();
-    try s.dumpString(&builder.writer, .{
-        .tl = s.pages.getTopLeft(.screen),
-        .br = s.pages.getBottomRight(.screen),
-        .cell_map = &cell_map,
-    });
-
-    try testing.expectEqual(7, builder.written().len);
-    try testing.expectEqualStrings("A\n\nB\n\nC", builder.written());
-    try testing.expectEqual(builder.written().len, cell_map.map.items.len);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 0,
-        .y = 0,
-    }, cell_map.map.items[0]);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 1,
-        .y = 0,
-    }, cell_map.map.items[1]);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 0,
-        .y = 1,
-    }, cell_map.map.items[2]);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 0,
-        .y = 2,
-    }, cell_map.map.items[3]);
-}
-
-test "Screen UTF8 cell map with blank prefix" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try Screen.init(alloc, 80, 24, 0);
-    defer s.deinit();
-    s.cursorAbsolute(2, 1);
-    try s.testWriteString("B");
-
-    var cell_map: Page.CellMap = .init(alloc);
-    defer cell_map.deinit();
-    var builder: std.Io.Writer.Allocating = .init(alloc);
-    defer builder.deinit();
-    try s.dumpString(&builder.writer, .{
-        .tl = s.pages.getTopLeft(.screen),
-        .br = s.pages.getBottomRight(.screen),
-        .cell_map = &cell_map,
-    });
-
-    try testing.expectEqualStrings("\n  B", builder.written());
-    try testing.expectEqual(builder.written().len, cell_map.map.items.len);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 0,
-        .y = 0,
-    }, cell_map.map.items[0]);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 0,
-        .y = 1,
-    }, cell_map.map.items[1]);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 1,
-        .y = 1,
-    }, cell_map.map.items[2]);
-    try testing.expectEqual(Page.CellMapEntry{
-        .x = 2,
-        .y = 1,
-    }, cell_map.map.items[3]);
 }

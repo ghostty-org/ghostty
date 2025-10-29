@@ -32,6 +32,7 @@ const PageList = terminal.PageList;
 const Pin = PageList.Pin;
 const Selection = terminal.Selection;
 const Screen = terminal.Screen;
+const PageFormatter = @import("formatter.zig").PageFormatter;
 
 /// Searches for a term in a PageList structure.
 ///
@@ -147,10 +148,10 @@ const SlidingWindow = struct {
     const MetaBuf = CircBuf(Meta, undefined);
     const Meta = struct {
         node: *PageList.List.Node,
-        cell_map: Page.CellMap,
+        cell_map: std.ArrayList(point.Coordinate),
 
-        pub fn deinit(self: *Meta) void {
-            self.cell_map.deinit();
+        pub fn deinit(self: *Meta, alloc: Allocator) void {
+            self.cell_map.deinit(alloc);
         }
     };
 
@@ -181,14 +182,14 @@ const SlidingWindow = struct {
         self.data.deinit(self.alloc);
 
         var meta_it = self.meta.iterator(.forward);
-        while (meta_it.next()) |meta| meta.deinit();
+        while (meta_it.next()) |meta| meta.deinit(self.alloc);
         self.meta.deinit(self.alloc);
     }
 
     /// Clear all data but retain allocated capacity.
     pub fn clearAndRetainCapacity(self: *SlidingWindow) void {
         var meta_it = self.meta.iterator(.forward);
-        while (meta_it.next()) |meta| meta.deinit();
+        while (meta_it.next()) |meta| meta.deinit(self.alloc);
         self.meta.clear();
         self.data.clear();
         self.data_offset = 0;
@@ -266,15 +267,15 @@ const SlidingWindow = struct {
             var saved: usize = 0;
             while (meta_it.next()) |meta| {
                 const needed = self.needle.len - 1 - saved;
-                if (meta.cell_map.map.items.len >= needed) {
+                if (meta.cell_map.items.len >= needed) {
                     // We save up to this meta. We set our data offset
                     // to exactly where it needs to be to continue
                     // searching.
-                    self.data_offset = meta.cell_map.map.items.len - needed;
+                    self.data_offset = meta.cell_map.items.len - needed;
                     break;
                 }
 
-                saved += meta.cell_map.map.items.len;
+                saved += meta.cell_map.items.len;
             } else {
                 // If we exited the while loop naturally then we
                 // never got the amount we needed and so there is
@@ -296,8 +297,8 @@ const SlidingWindow = struct {
             var prune_data_len: usize = 0;
             for (0..prune_count) |_| {
                 const meta = meta_it.next().?;
-                prune_data_len += meta.cell_map.map.items.len;
-                meta.deinit();
+                prune_data_len += meta.cell_map.items.len;
+                meta.deinit(self.alloc);
             }
             self.meta.deleteOldest(prune_count);
             self.data.deleteOldest(prune_data_len);
@@ -364,7 +365,7 @@ const SlidingWindow = struct {
             // match.
             const meta_count = tl_meta_idx;
             meta_it.reset();
-            for (0..meta_count) |_| meta_it.next().?.deinit();
+            for (0..meta_count) |_| meta_it.next().?.deinit(self.alloc);
             if (comptime std.debug.runtime_safety) {
                 assert(meta_it.idx == meta_count);
                 assert(meta_it.next().?.node == tl.node);
@@ -396,19 +397,19 @@ const SlidingWindow = struct {
             // meta_i is the index we expect to find the match in the
             // cell map within this meta if it contains it.
             const meta_i = idx - offset.*;
-            if (meta_i >= meta.cell_map.map.items.len) {
+            if (meta_i >= meta.cell_map.items.len) {
                 // This meta doesn't contain the match. This means we
                 // can also prune this set of data because we only look
                 // forward.
-                offset.* += meta.cell_map.map.items.len;
+                offset.* += meta.cell_map.items.len;
                 continue;
             }
 
             // We found the meta that contains the start of the match.
-            const map = meta.cell_map.map.items[meta_i];
+            const map = meta.cell_map.items[meta_i];
             return .{
                 .node = meta.node,
-                .y = map.y,
+                .y = @intCast(map.y),
                 .x = map.x,
             };
         }
@@ -428,12 +429,9 @@ const SlidingWindow = struct {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
-            .cell_map = .{
-                .alloc = self.alloc,
-                .map = .empty,
-            },
+            .cell_map = .empty,
         };
-        errdefer meta.deinit();
+        errdefer meta.deinit(self.alloc);
 
         // This is suboptimal but we need to encode the page once to
         // temporary memory, and then copy it into our circular buffer.
@@ -443,16 +441,20 @@ const SlidingWindow = struct {
         defer encoded.deinit();
 
         // Encode the page into the buffer.
-        const page: *const Page = &meta.node.data;
-        _ = page.encodeUtf8(
-            &encoded.writer,
-            .{ .cell_map = &meta.cell_map },
-        ) catch {
+        const formatter: PageFormatter = formatter: {
+            var formatter: PageFormatter = .init(&meta.node.data, .plain);
+            formatter.point_map = .{
+                .alloc = self.alloc,
+                .map = &meta.cell_map,
+            };
+            break :formatter formatter;
+        };
+        formatter.format(&encoded.writer) catch {
             // writer uses anyerror but the only realistic error on
             // an ArrayList is out of memory.
             return error.OutOfMemory;
         };
-        assert(meta.cell_map.map.items.len == encoded.written().len);
+        assert(meta.cell_map.items.len == encoded.written().len);
 
         // Ensure our buffers are big enough to store what we need.
         try self.data.ensureUnusedCapacity(self.alloc, encoded.written().len);
@@ -476,7 +478,7 @@ const SlidingWindow = struct {
         // Integrity check: verify our data matches our metadata exactly.
         var meta_it = self.meta.iterator(.forward);
         var data_len: usize = 0;
-        while (meta_it.next()) |m| data_len += m.cell_map.map.items.len;
+        while (meta_it.next()) |m| data_len += m.cell_map.items.len;
         assert(data_len == self.data.len());
 
         // Integrity check: verify our data offset is within bounds.
