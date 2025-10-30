@@ -1,0 +1,13 @@
+.{
+    .name = .zig_formatter,
+    .version = "0.0.0",
+    .fingerprint = 0x578de530797eafe6,
+    .dependencies = .{
+        .ghostty = .{ .path = "../../" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
