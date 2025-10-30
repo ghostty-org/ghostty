@@ -1185,13 +1185,13 @@ pub const PageFormatter = struct {
                             const uri = link.uri.offset.ptr(self.page.memory)[0..link.uri.len];
 
                             try writer.writeAll("<a href=\"");
-                            try self.writeHtmlEscaped(writer, uri);
+                            for (uri) |byte| try self.writeCodepoint(writer, byte);
                             try writer.writeAll("\">");
 
                             if (self.point_map) |*map| {
                                 var discarding: std.Io.Writer.Discarding = .init(&.{});
                                 try discarding.writer.writeAll("<a href=\"");
-                                try self.writeHtmlEscaped(&discarding.writer, uri);
+                                for (uri) |byte| try self.writeCodepoint(&discarding.writer, byte);
                                 try discarding.writer.writeAll("\">");
 
                                 for (0..discarding.count) |_| map.map.append(map.alloc, .{
@@ -1351,26 +1351,6 @@ pub const PageFormatter = struct {
                     else => try writer.print("{u}", .{codepoint}),
                 }
             },
-        }
-    }
-
-    /// Write a string with HTML escaping. Used for escaping href attributes
-    /// and other HTML attribute values.
-    fn writeHtmlEscaped(
-        self: PageFormatter,
-        writer: *std.Io.Writer,
-        str: []const u8,
-    ) !void {
-        _ = self;
-        for (str) |byte| {
-            switch (byte) {
-                '<' => try writer.writeAll("&lt;"),
-                '>' => try writer.writeAll("&gt;"),
-                '&' => try writer.writeAll("&amp;"),
-                '"' => try writer.writeAll("&quot;"),
-                '\'' => try writer.writeAll("&#39;"),
-                else => try writer.writeByte(byte),
-            }
         }
     }
 
