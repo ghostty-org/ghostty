@@ -1153,7 +1153,7 @@ extension BaseTerminalController {
         /// We set the scheme on surfaces so they pick the correct theme
         /// and let ``syncAppearance(_:)`` update the window accordingly.
         ///
-        /// Using App's effectiveAppearance here to prevent callback loops.
+        /// Using App's effectiveAppearance here to prevent incorrect updates.
         let themeAppearance = NSApplication.shared.effectiveAppearance
         let scheme: ghostty_color_scheme_e
         if themeAppearance.isDark {
