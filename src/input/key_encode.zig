@@ -412,8 +412,20 @@ fn legacy(
         if (it.nextCodepoint() != null) break :modify_other;
 
         // The mods we encode for this are just the binding mods (shift, ctrl,
-        // super, alt).
-        const mods = event.mods.binding();
+        // super, alt unless it is actually option).
+        const mods = mods: {
+            var mods_binding = event.mods.binding();
+            if (comptime builtin.target.os.tag.isDarwin()) alt: {
+                switch (opts.macos_option_as_alt) {
+                    .false => {},
+                    .true => break :alt,
+                    .left => if (event.mods.sides.alt == .left) break :alt,
+                    .right => if (event.mods.sides.alt == .right) break :alt,
+                }
+                mods_binding.alt = false;
+            }
+            break :mods mods_binding;
+        };
 
         // This copies xterm's `ModifyOtherKeys` function that returns
         // whether modify other keys should be encoded for the given
@@ -1986,6 +1998,37 @@ test "legacy: ctrl+shift+char with modify other state 2 and consumed mods" {
         .modify_other_keys_state_2 = true,
     });
     try testing.expectEqualStrings("\x1b[27;6;72~", writer.buffered());
+}
+
+test "legacy: alt+digit with modify other state 2" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .digit_8,
+        .mods = .{ .alt = true },
+        .consumed_mods = .{},
+        .utf8 = "8",
+    }, .{
+        .modify_other_keys_state_2 = true,
+        .macos_option_as_alt = .true,
+    });
+    try testing.expectEqualStrings("\x1b[27;3;56~", writer.buffered());
+}
+
+test "legacy: alt+digit with modify other state 2 and macos-option-as-alt = false" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .digit_8,
+        .mods = .{ .alt = true },
+        .consumed_mods = .{ .alt = true },
+        .utf8 = "[", // common translation of option+8 with European keyboard layouts
+    }, .{
+        .modify_other_keys_state_2 = true,
+        .macos_option_as_alt = .false,
+    });
+    try testing.expectEqualStrings("[", writer.buffered());
 }
 
 test "legacy: fixterm awkward letters" {
