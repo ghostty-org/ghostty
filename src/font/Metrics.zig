@@ -223,8 +223,9 @@ pub const FaceMetrics = struct {
 ///
 /// For any nullable options that are not provided, estimates will be used.
 pub fn calc(face: FaceMetrics) Metrics {
-    // We use rounding for cell width to match the glyph advances from CoreText,
-    // which avoids spacing issues on non-Retina displays.
+    // We use rounding for cell width to match glyph advances, then the cell
+    // dimensions are scaled by content_scale in Surface.zig to ensure exact
+    // proportional scaling across display scales.
     // We keep ceiling for cell height to ensure vertical space is sufficient.
     const face_width = face.cell_width;
     const face_height = face.lineHeight();
