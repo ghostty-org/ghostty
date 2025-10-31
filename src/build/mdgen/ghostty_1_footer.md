@@ -37,6 +37,19 @@ precedence over the XDG environment locations.
 
 : **WINDOWS ONLY:** alternate location to search for configuration files.
 
+**GHOSTTY_LOG**
+
+: The `GHOSTTY_LOG` environment variable can be used to control which
+destinations receive logs. Ghostty currently defines two destinations:
+
+: - `stderr` - logging to `stderr`.
+: - `macos` - logging to macOS's unified log (has no effect on non-macOS platforms).
+
+: Combine values with a comma to enable multiple destinations. Prefix a
+destination with `no-` to disable it. Enabling and disabling destinations
+can be done at the same time. Setting `GHOSTTY_LOG` to `true` will enable all
+destinations. Setting `GHOSTTY_LOG` to `false` will disable all destinations.
+
 # BUGS
 
 See GitHub issues: <https://github.com/ghostty-org/ghostty/issues>

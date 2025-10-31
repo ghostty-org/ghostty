@@ -604,7 +604,7 @@ pub fn parseAutoStruct(
     return result;
 }
 
-fn parsePackedStruct(comptime T: type, v: []const u8) !T {
+pub fn parsePackedStruct(comptime T: type, v: []const u8) !T {
     const info = @typeInfo(T).@"struct";
     comptime assert(info.layout == .@"packed");
 
