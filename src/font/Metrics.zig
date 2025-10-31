@@ -223,12 +223,13 @@ pub const FaceMetrics = struct {
 ///
 /// For any nullable options that are not provided, estimates will be used.
 pub fn calc(face: FaceMetrics) Metrics {
-    // We use the ceiling of the provided cell width and height to ensure
-    // that the cell is large enough for the provided size, since we cast
-    // it to an integer later.
+    // We use rounding for cell width to match glyph advances, then the cell
+    // dimensions are scaled by content_scale in Surface.zig to ensure exact
+    // proportional scaling across display scales.
+    // We keep ceiling for cell height to ensure vertical space is sufficient.
     const face_width = face.cell_width;
     const face_height = face.lineHeight();
-    const cell_width = @ceil(face_width);
+    const cell_width = @round(face_width);
     const cell_height = @ceil(face_height);
 
     // We split our line gap in two parts, and put half of it on the top
