@@ -2605,6 +2605,9 @@ keybind: Keybinds = .{},
 ///    the same time as the `iTime` uniform, allowing you to compute the
 ///    time since the change by subtracting this from `iTime`.
 ///
+///  * `float iPreviousTimeCursorChange` - Timestamp of the previous terminal
+///    cursor change.
+///
 /// If the shader fails to compile, the shader will be ignored. Any errors
 /// related to shader compilation will not show up as configuration errors
 /// and only show up in the log, since shader compilation happens after
