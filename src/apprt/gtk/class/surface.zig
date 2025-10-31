@@ -2582,10 +2582,14 @@ pub const Surface = extern struct {
         //
         // It's better to do this here rather than within the core callback
         // since we have direct access to the underlying gdk.Event here.
-        if (!consumed and button == .left and !surface.hasSelection()) {
-            if (!self.showOnScreenKeyboard(event)) {
-                log.warn("failed to activate the on-screen keyboard", .{});
-            }
+        const config = priv.config orelse return;
+        switch (config.get().@"gtk-on-screen-keyboard") {
+            .auto => if (!consumed and button == .left and !surface.hasSelection()) {
+                if (!self.showOnScreenKeyboard(event)) {
+                    log.warn("failed to activate the on-screen keyboard", .{});
+                }
+            },
+            .never => {},
         }
     }
 

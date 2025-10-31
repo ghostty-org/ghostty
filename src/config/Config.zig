@@ -3226,6 +3226,32 @@ else
 /// Available since: 1.1.0
 @"gtk-custom-css": RepeatablePath = .{},
 
+/// Whether to enable the on-screen keyboard (OSK).
+///
+/// The on-screen keyboard is an accessibility feature for users using tablets
+/// and/or touch devices, who do not have access to a physical keyboard.
+///
+/// The OSK must first be enabled in your desktop environment's accessibility
+/// settings in order to show up in Ghostty — for GNOME, you need to open the
+/// Settings app, and turn on the "Screen Keyboard" feature under the
+/// "Accessibility" category. Other OSK implementations may be enabled through
+/// other means.
+///
+/// Valid values:
+///
+///  * `auto` (default)
+///
+///    Automatically trigger the OSK when focusing on a terminal surface.
+///
+///  * `never`
+///
+///    Never trigger the OSK. Users who'd like to use the OSK to input
+///    characters need to manually trigger it themselves, either via the
+///    `show_on_screen_keyboard` action or through system settings.
+///
+/// Available since: 1.3.0
+@"gtk-on-screen-keyboard": GtkOnScreenKeyboard = .auto,
+
 /// If `true` (default), applications running in the terminal can show desktop
 /// notifications using certain escape sequences such as OSC 9 or OSC 777.
 @"desktop-notifications": bool = true,
@@ -7361,6 +7387,12 @@ pub const GtkTitlebarStyle = enum(c_int) {
 
         .none => void,
     };
+};
+
+/// See gtk-on-screen-keyboard
+pub const GtkOnScreenKeyboard = enum {
+    auto,
+    never,
 };
 
 /// See app-notifications
