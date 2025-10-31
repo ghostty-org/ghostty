@@ -275,6 +275,7 @@ const DerivedConfig = struct {
     macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
+    selection_word_chars: []const u21,
     vt_kam_allowed: bool,
     wait_after_command: bool,
     window_padding_top: u32,
@@ -349,6 +350,7 @@ const DerivedConfig = struct {
             .macos_option_as_alt = config.@"macos-option-as-alt",
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
+            .selection_word_chars = config.@"selection-word-chars".codepoints,
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .wait_after_command = config.@"wait-after-command",
             .window_padding_top = config.@"window-padding-y".top_left,
@@ -3752,7 +3754,10 @@ pub fn mouseButtonCallback(
 
             // Double click, select the word under our mouse
             2 => {
-                const sel_ = self.io.terminal.screen.selectWord(pin.*);
+                const sel_ = self.io.terminal.screen.selectWord(
+                    pin.*,
+                    self.config.selection_word_chars,
+                );
                 if (sel_) |sel| {
                     try self.io.terminal.screen.select(sel);
                     try self.queueRender();
@@ -3828,7 +3833,7 @@ pub fn mouseButtonCallback(
                     // word selection where we clicked.
                 }
 
-                const sel = screen.selectWord(pin) orelse break :sel;
+                const sel = screen.selectWord(pin, self.config.selection_word_chars) orelse break :sel;
                 try self.setSelection(sel);
                 try self.queueRender();
 
@@ -4125,7 +4130,10 @@ pub fn mousePressureCallback(
         // This should always be set in this state but we don't want
         // to handle state inconsistency here.
         const pin = self.mouse.left_click_pin orelse break :select;
-        const sel = self.io.terminal.screen.selectWord(pin.*) orelse break :select;
+        const sel = self.io.terminal.screen.selectWord(
+            pin.*,
+            self.config.selection_word_chars,
+        ) orelse break :select;
         try self.io.terminal.screen.select(sel);
         try self.queueRender();
     }
@@ -4348,7 +4356,11 @@ fn dragLeftClickDouble(
     const click_pin = self.mouse.left_click_pin.?.*;
 
     // Get the word closest to our starting click.
-    const word_start = screen.selectWordBetween(click_pin, drag_pin) orelse {
+    const word_start = screen.selectWordBetween(
+        click_pin,
+        drag_pin,
+        self.config.selection_word_chars,
+    ) orelse {
         try self.setSelection(null);
         return;
     };
@@ -4357,6 +4369,7 @@ fn dragLeftClickDouble(
     const word_current = screen.selectWordBetween(
         drag_pin,
         click_pin,
+        self.config.selection_word_chars,
     ) orelse {
         try self.setSelection(null);
         return;
