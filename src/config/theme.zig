@@ -8,9 +8,10 @@ const cli = @import("../cli.zig");
 
 /// Location of possible themes. The order of this enum matters because it
 /// defines the priority of theme search (from top to bottom).
-pub const Location = enum {
-    user, // XDG config dir
-    resources, // Ghostty resources dir
+/// ghostty_surface_theme_location_e
+pub const Location = enum(c_int) {
+    user = 0, // XDG config dir
+    resources = 1, // Ghostty resources dir
 
     /// Returns the directory for the given theme based on this location type.
     ///

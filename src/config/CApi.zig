@@ -42,7 +42,7 @@ export fn ghostty_config_clone(self: *Config) ?*Config {
         return null;
     };
 
-    result.* = self.clone(state.alloc) catch |err| {
+    self.clone(state.alloc, result) catch |err| {
         log.err("error cloning config err={}", .{err});
         state.alloc.destroy(result);
         return null;
@@ -76,6 +76,15 @@ export fn ghostty_config_load_recursive_files(self: *Config) void {
     };
 }
 
+/// Load the configuration from a specific file path.
+/// The path must be null-terminated.
+export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
+    const path_slice = std.mem.span(path);
+    self.loadFile(state.alloc, path_slice) catch |err| {
+        log.err("error loading config from file path={s} err={}", .{ path_slice, err });
+    };
+}
+
 export fn ghostty_config_finalize(self: *Config) void {
     self.finalize() catch |err| {
         log.err("error finalizing config err={}", .{err});
@@ -91,6 +100,32 @@ export fn ghostty_config_get(
     @setEvalBranchQuota(10_000);
     const key = std.meta.stringToEnum(Key, key_str[0..len]) orelse return false;
     return c_get.get(self, key, ptr);
+}
+
+export fn ghostty_config_set(
+    self: *Config,
+    key_str: [*]const u8,
+    key_len: usize,
+    value_str: [*]const u8,
+    value_len: usize,
+) bool {
+    @setEvalBranchQuota(10_000);
+    const key = key_str[0..key_len];
+    const value = value_str[0..value_len];
+
+    const entry = std.fmt.allocPrint(state.alloc, "--{s}={s}", .{ key, value }) catch |err| {
+        log.err("error setting {s} to {s} trigger err={}", .{ key, value, err });
+        return false;
+    };
+
+    var it: SimpleIterator = .{ .data = &.{
+        entry,
+    } };
+    self.loadIter(state.alloc, &it) catch |err| {
+        log.err("error changing config err={}", .{err});
+        return false;
+    };
+    return true;
 }
 
 export fn ghostty_config_trigger(
@@ -133,7 +168,54 @@ export fn ghostty_config_open_path() c.String {
     return .fromSlice(path);
 }
 
+/// Export the configuration to a string.
+/// Returns null-terminated string on success, empty string on error.
+/// The returned string must be freed with ghostty_string_free.
+export fn ghostty_config_export_string(config: *Config) [*:0]const u8 {
+    // Safety check: ensure config pointer is valid
+    if (@intFromPtr(config) == 0) {
+        log.err("config pointer is null in ghostty_config_export_string", .{});
+        return "";
+    }
+
+    var buf: std.Io.Writer.Allocating = .init(state.alloc);
+    defer buf.deinit();
+
+    // Try the same approach as show_config.zig
+    const formatter = @import("formatter.zig").FileFormatter{
+        .alloc = state.alloc,
+        .config = config,
+        .docs = false,
+        .changed = true,
+    };
+
+    formatter.format(&buf.writer) catch |err| {
+        log.err("error formatting config err={}", .{err});
+        return "";
+    };
+
+    const result = buf.toOwnedSliceSentinel(0) catch |err| {
+        log.err("error duplicating config string err={}", .{err});
+        return "";
+    };
+
+    return result;
+}
+
 /// Sync with ghostty_diagnostic_s
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",
+};
+
+/// Helper iterator for ghostty_config_set
+const SimpleIterator = struct {
+    data: []const []const u8,
+    i: usize = 0,
+
+    pub fn next(self: *SimpleIterator) ?[]const u8 {
+        if (self.i >= self.data.len) return null;
+        const result = self.data[self.i];
+        self.i += 1;
+        return result;
+    }
 };
