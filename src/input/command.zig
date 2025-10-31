@@ -458,6 +458,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the zoom state of the current split.",
         }},
 
+        .toggle_readonly => comptime &.{.{
+            .action = .toggle_readonly,
+            .title = "Toggle Read-Only Mode",
+            .description = "Toggle read-only mode for the current surface.",
+        }},
+
         .equalize_splits => comptime &.{.{
             .action = .equalize_splits,
             .title = "Equalize Splits",
