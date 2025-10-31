@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const color = @import("color.zig");
 const size = @import("size.zig");
 const charsets = @import("charsets.zig");
+const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
 const modespkg = @import("modes.zig");
 const Screen = @import("Screen.zig");
@@ -972,6 +973,10 @@ pub const PageFormatter = struct {
         // Our style for non-plain formats
         var style: Style = .{};
 
+        // Track hyperlink state for HTML output. We need to close </a> tags
+        // when the hyperlink changes or ends.
+        var current_hyperlink_id: ?hyperlink.Id = null;
+
         for (start_y..end_y + 1) |y_usize| {
             const y: size.CellCountInt = @intCast(y_usize);
             const row: *Row = self.page.getRow(y);
@@ -1134,6 +1139,70 @@ pub const PageFormatter = struct {
                     blank_cells = 0;
                 }
 
+                // Handle hyperlinks for HTML output. We need to track when
+                // hyperlinks start and end to emit proper <a> tags.
+                if (self.opts.emit == .html) {
+                    const cell_link_id = if (cell.hyperlink)
+                        self.page.lookupHyperlink(cell)
+                    else
+                        null;
+
+                    if (current_hyperlink_id) |prev_id| {
+                        if (cell_link_id == null or cell_link_id.? != prev_id) {
+                            if (!style.default()) {
+                                try self.formatStyleClose(writer);
+                                style = .{};
+                            }
+
+                            const closing = "</a>";
+                            try writer.writeAll(closing);
+                            current_hyperlink_id = null;
+
+                            if (self.point_map) |*map| {
+                                map.map.ensureUnusedCapacity(
+                                    map.alloc,
+                                    closing.len,
+                                ) catch return error.WriteFailed;
+
+                                const coord = if (map.map.items.len > 0)
+                                    map.map.items[map.map.items.len - 1]
+                                else
+                                    Coordinate{ .x = x, .y = y };
+
+                                map.map.appendNTimesAssumeCapacity(
+                                    coord,
+                                    closing.len,
+                                );
+                            }
+                        }
+                    }
+
+                    if (cell_link_id) |link_id| {
+                        if (current_hyperlink_id == null or current_hyperlink_id.? != link_id) {
+                            current_hyperlink_id = link_id;
+
+                            const link = self.page.hyperlink_set.get(self.page.memory, link_id);
+                            const uri = link.uri.offset.ptr(self.page.memory)[0..link.uri.len];
+
+                            try writer.writeAll("<a href=\"");
+                            for (uri) |byte| try self.writeCodepoint(writer, byte);
+                            try writer.writeAll("\">");
+
+                            if (self.point_map) |*map| {
+                                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                                try discarding.writer.writeAll("<a href=\"");
+                                for (uri) |byte| try self.writeCodepoint(&discarding.writer, byte);
+                                try discarding.writer.writeAll("\">");
+
+                                for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                                    .x = x,
+                                    .y = y,
+                                }) catch return error.WriteFailed;
+                            }
+                        }
+                    }
+                }
+
                 switch (cell.content_tag) {
                     // We combine codepoint and graphemes because both have
                     // shared style handling. We use comptime to dup it.
@@ -1215,6 +1284,22 @@ pub const PageFormatter = struct {
 
         // If the style is non-default, we need to close our style tag.
         if (!style.default()) try self.formatStyleClose(writer);
+
+        // Close any open hyperlink for HTML output
+        if (self.opts.emit == .html and current_hyperlink_id != null) {
+            const closing = "</a>";
+            try writer.writeAll(closing);
+            if (self.point_map) |*map| {
+                map.map.ensureUnusedCapacity(
+                    map.alloc,
+                    closing.len,
+                ) catch return error.WriteFailed;
+                map.map.appendNTimesAssumeCapacity(
+                    map.map.items[map.map.items.len - 1],
+                    closing.len,
+                );
+            }
+        }
 
         // Close the monospace wrapper for HTML output
         if (self.opts.emit == .html) {
@@ -5301,4 +5386,215 @@ test "Page VT style reset properly closes styles" {
 
     // The reset should properly close the bold style
     try testing.expectEqualStrings("\x1b[0m\x1b[1mbold\x1b[0mnormal", output);
+}
+
+test "Page HTML with hyperlinks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Start a hyperlink, write some text, end it
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\link text\x1b]8;;\x1b\\ normal");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Should have an <a> tag with the URL
+    try testing.expect(std.mem.indexOf(u8, output, "<a href=\"https://example.com\">") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "link text") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "</a>") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "normal") != null);
+}
+
+test "Page HTML with multiple hyperlinks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Two different hyperlinks
+    try s.nextSlice("\x1b]8;;https://first.com\x1b\\first\x1b]8;;\x1b\\ ");
+    try s.nextSlice("\x1b]8;;https://second.com\x1b\\second\x1b]8;;\x1b\\");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Should have both links - note the space after "first" is included in the link
+    try testing.expect(std.mem.indexOf(u8, output, "<a href=\"https://first.com\">first </a>") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "<a href=\"https://second.com\">second</a>") != null);
+}
+
+test "Page HTML with hyperlink escaping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // URL with special characters that need escaping
+    try s.nextSlice("\x1b]8;;https://example.com?a=1&b=2\x1b\\link\x1b]8;;\x1b\\");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // The & should be escaped in the href attribute
+    try testing.expect(std.mem.indexOf(u8, output, "&amp;") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "<a href=\"https://example.com?a=1&amp;b=2\">") != null);
+}
+
+test "Page HTML with styled hyperlink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Bold hyperlink
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\\x1b[1mbold link\x1b[0m\x1b]8;;\x1b\\");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Should have both the hyperlink and the bold style
+    try testing.expect(std.mem.indexOf(u8, output, "<a href=\"https://example.com\">") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "font-weight: bold") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "bold link") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "</a>") != null);
+}
+
+test "Page HTML hyperlink closes style before anchor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Styled hyperlink followed by plain text
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\\x1b[1mbold\x1b[0m plain");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    const style_open = std.mem.indexOf(u8, output, "<div style=\"display: inline;");
+    try testing.expect(style_open != null);
+
+    const slice = output[style_open.?..];
+    const close_div_rel = std.mem.indexOf(u8, slice, "</div>");
+    try testing.expect(close_div_rel != null);
+    const close_anchor_rel = std.mem.indexOf(u8, slice, "</a>");
+    try testing.expect(close_anchor_rel != null);
+
+    // Style should close before the enclosing hyperlink ends
+    try testing.expect(close_div_rel.? < close_anchor_rel.?);
+}
+
+test "Page HTML hyperlink point map maps closing to previous cell" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ normal");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqual(output.len, point_map.items.len);
+
+    const closing = "</a>";
+    const closing_idx = std.mem.indexOf(u8, output, closing);
+    try testing.expect(closing_idx != null);
+    try testing.expect(closing_idx.? > 0);
+    try testing.expect(closing_idx.? + closing.len <= point_map.items.len);
+
+    const expected = point_map.items[closing_idx.? - 1];
+    for (closing_idx.?..closing_idx.? + closing.len) |i| {
+        try testing.expectEqual(expected, point_map.items[i]);
+    }
 }
