@@ -2294,7 +2294,7 @@ pub fn keyCallback(
     )) |v| return v;
 
     // If we're in copy mode, use another handler
-    if (self.copy_mode.active) return try self.handleEventInCopyMode(event);
+    if (self.copy_mode.active) return try self.copyModeHandleEvent(event);
 
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
@@ -5068,7 +5068,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         ),
 
         .toggle_copy_mode => {
-            try self.toggleCopyMode();
+            try self.copyModeToggle();
             return true;
         },
 
@@ -5561,14 +5561,14 @@ const CopyModeState = struct {
     }
 };
 
-fn toggleCopyMode(self: *Surface) !void {
+fn copyModeToggle(self: *Surface) !void {
     if (self.copy_mode.active)
-        try self.exitCopyMode()
+        try self.copyModeExit()
     else
-        try self.enterCopyMode();
+        try self.copyModeEnter();
 }
 
-fn enterCopyMode(self: *Surface) !void  {
+fn copyModeEnter(self: *Surface) !void  {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5579,7 +5579,7 @@ fn enterCopyMode(self: *Surface) !void  {
     self.renderer_state.copy_mode_active = true;
 }
 
-fn exitCopyMode(self: *Surface) !void  {
+fn copyModeExit(self: *Surface) !void  {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5588,23 +5588,23 @@ fn exitCopyMode(self: *Surface) !void  {
     self.renderer_state.copy_mode_active = false;
 }
 
-fn handleEventInCopyMode(self: *Surface, event: input.KeyEvent) !InputEffect {
+fn copyModeHandleEvent(self: *Surface, event: input.KeyEvent) !InputEffect {
     if (!self.copy_mode.active) return .ignored;
 
     log.debug("handle key event: {}", .{event});
 
-    // Only handle press and repeat
+    // Only handle press and repeat.
     switch (event.action) {
         .release => return .consumed,
         .press, .repeat => {},
     }
 
     switch (self.config.copy_mode) {
-        .arrow => return try self.handleEventInCopyModeArrow(event),
+        .arrow => return try self.copyModeHandleEventArrow(event),
     }
 }
 
-fn moveLeftCopyMode(self: *Surface) !InputEffect {
+fn copyModeMoveLeft(self: *Surface) !InputEffect {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5623,7 +5623,7 @@ fn moveLeftCopyMode(self: *Surface) !InputEffect {
     return .consumed;
 }
 
-fn moveRightCopyMode(self: *Surface) !InputEffect {
+fn copyModeMoveRight(self: *Surface) !InputEffect {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5642,7 +5642,7 @@ fn moveRightCopyMode(self: *Surface) !InputEffect {
     return .consumed;
 }
 
-fn moveUpCopyMode(self: *Surface) !InputEffect {
+fn copyModeMoveUp(self: *Surface) !InputEffect {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5661,7 +5661,7 @@ fn moveUpCopyMode(self: *Surface) !InputEffect {
     return .consumed;
 }
 
-fn moveDownCopyMode(self: *Surface) !InputEffect {
+fn copyModeMoveDown(self: *Surface) !InputEffect {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5680,29 +5680,29 @@ fn moveDownCopyMode(self: *Surface) !InputEffect {
     return .consumed;
 }
 
-fn handleEventInCopyModeArrow(self: *Surface, event: input.KeyEvent) !InputEffect {
+fn copyModeHandleEventArrow(self: *Surface, event: input.KeyEvent) !InputEffect {
     if (!self.copy_mode.active) return .ignored;
     
     switch (event.key) {
         .escape => {
-            try self.exitCopyMode();
+            try self.copyModeExit();
             return .consumed;
         },
         
         .arrow_left => {
-            return try self.moveLeftCopyMode();
+            return try self.copyModeMoveLeft();
         },
 
         .arrow_right => {
-            return try self.moveRightCopyMode();
+            return try self.copyModeMoveRight();
         },
 
         .arrow_up => {
-            return try self.moveUpCopyMode();
+            return try self.copyModeMoveUp();
         },
 
         .arrow_down => {
-            return try self.moveDownCopyMode();
+            return try self.copyModeMoveDown();
         },
 
         else => return .ignored,
