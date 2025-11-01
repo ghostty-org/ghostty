@@ -5563,6 +5563,7 @@ const CopyModeState = struct {
 
 const CopyModeDirection = enum { left, right, up, down };
 
+// Toggle copy mode on/off
 fn copyModeToggle(self: *Surface) !void {
     if (self.copy_mode.active)
         try self.copyModeExit()
@@ -5570,6 +5571,7 @@ fn copyModeToggle(self: *Surface) !void {
         try self.copyModeEnter();
 }
 
+// Enter copy mode (copy mode on)
 fn copyModeEnter(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
@@ -5581,6 +5583,7 @@ fn copyModeEnter(self: *Surface) !void {
     self.renderer_state.copy_mode_active = true;
 }
 
+// Exit copy mode (copy mode off)
 fn copyModeExit(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
@@ -5591,6 +5594,7 @@ fn copyModeExit(self: *Surface) !void {
     try self.setSelection(null);
 }
 
+// Handle key event in copy mode, dispatching to configured navigation preset
 fn copyModeHandleEvent(self: *Surface, event: input.KeyEvent) !InputEffect {
     if (!self.copy_mode.active) return .ignored;
 
@@ -5604,9 +5608,11 @@ fn copyModeHandleEvent(self: *Surface, event: input.KeyEvent) !InputEffect {
 
     switch (self.config.copy_mode) {
         .arrow => return try self.copyModeHandleEventArrow(event),
+        // TODO: add vim mode
     }
 }
 
+// Move the cursor left, right, up, or down in copy mode
 fn copyModeMoveCursor(
     self: *Surface,
     direction: CopyModeDirection,
@@ -5636,6 +5642,7 @@ fn copyModeMoveCursor(
     return .consumed;
 }
 
+// Handle a key event in copy mode's arrow mode
 fn copyModeHandleEventArrow(self: *Surface, event: input.KeyEvent) !InputEffect {
     if (!self.copy_mode.active) return .ignored;
 
