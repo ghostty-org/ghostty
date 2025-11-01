@@ -166,9 +166,9 @@ pub const Tab = extern struct {
     /// Set the parent of this tab page. This only affects the first surface
     /// ever created for a tab. If a surface was already created this does
     /// nothing.
-    pub fn setParent(self: *Self, parent: *CoreSurface) void {
+    pub fn setParent(self: *Self, parent: *CoreSurface, force_inherit_pwd: bool) void {
         if (self.getActiveSurface()) |surface| {
-            surface.setParent(parent);
+            surface.setParent(parent, force_inherit_pwd);
         }
     }
 
