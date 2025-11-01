@@ -173,6 +173,10 @@ viewport_pin_row_offset: ?usize,
 cols: size.CellCountInt,
 rows: size.CellCountInt,
 
+/// The lock that must be held whenever the page list is reading or
+/// writing any of its state.
+lock: Lock,
+
 /// If this is true then verifyIntegrity will do nothing. This is
 /// only present with runtime safety enabled.
 pause_integrity_checks: if (build_options.slow_runtime_safety) usize else void =
@@ -290,6 +294,7 @@ pub fn init(
         .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
         .viewport_pin_row_offset = null,
+        .lock = .init,
     };
     result.assertIntegrity();
     return result;
@@ -300,6 +305,10 @@ fn initPages(
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) !struct { List, usize } {
+    // Concurrency note: this is called both for initializing a PageList
+    // as well as operations like clone/reset. We just assume that the proper
+    // locks are held if needed because we can't assert both cases.
+
     var page_list: List = .{};
     var page_size: usize = 0;
 
@@ -414,7 +423,13 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
 
 /// Deinit the pagelist. If you own the memory pool (used clonePool) then
 /// this will reset the pool and retain capacity.
+///
+/// This does NOT grab the write (or read) lock. This assumes that all
+/// possible concurrent readers/writers are dead before deinit is called.
+/// The caller must stop all concurrent access before calling deinit.
 pub fn deinit(self: *PageList) void {
+    // TODO: ensure all page nodes are released at this point
+
     // Verify integrity before cleanup
     self.assertIntegrity();
 
@@ -448,6 +463,9 @@ pub fn deinit(self: *PageList) void {
 /// This can't fail because we always retain at least enough allocated
 /// memory to fit the active area.
 pub fn reset(self: *PageList) void {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
     defer self.assertIntegrity();
 
     // We need enough pages/nodes to keep our active area. This should
@@ -576,9 +594,12 @@ pub const Clone = struct {
 /// area. If the region specified has less rows than the active area then
 /// rows will be added to the bottom of the region to make up the difference.
 pub fn clone(
-    self: *const PageList,
+    self: *PageList,
     opts: Clone,
 ) !PageList {
+    var guard: ReadGuard = .lock(self);
+    defer guard.unlock();
+
     var it = self.pageIterator(.right_down, opts.top, opts.bot);
 
     // Setup our own memory pool if we have to.
@@ -689,6 +710,7 @@ pub fn clone(
         .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
         .viewport_pin_row_offset = null,
+        .lock = .init,
     };
 
     // We always need to have enough rows for our viewport because this is
@@ -696,7 +718,14 @@ pub fn clone(
     if (total_rows < self.rows) {
         const len = self.rows - total_rows;
         for (0..len) |_| {
-            _ = try result.grow();
+            // In general, we don't need to hold the lock because result
+            // is new and there can't possibly be any concurrent access.
+            // In runtime safety though, `growLocked` asserts that the
+            // lock is held so just grab it.
+            _ = if (comptime std.debug.runtime_safety)
+                try result.grow()
+            else
+                try result.growLocked();
 
             // Clear the row. This is not very fast but in reality right
             // now we rarely clone less than the active area and if we do
@@ -737,14 +766,18 @@ pub const Resize = struct {
 /// Resize
 /// TODO: docs
 pub fn resize(self: *PageList, opts: Resize) !void {
-    defer self.assertIntegrity();
-
     if (comptime std.debug.runtime_safety) {
         // Resize does not work with 0 values, this should be protected
         // upstream
         if (opts.cols) |v| assert(v > 0);
         if (opts.rows) |v| assert(v > 0);
     }
+
+    // All things below this could modify our state.
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
+    defer self.assertIntegrity();
 
     // Resizing (especially with reflow) can cause our row offset to
     // become invalid. Rather than do something fancy like we do other
@@ -797,6 +830,8 @@ fn resizeCols(
     cols: size.CellCountInt,
     cursor: ?Resize.Cursor,
 ) !void {
+    self.lock.assertLocked();
+
     assert(cols != self.cols);
 
     // Update our cols. We have to do this early because grow() that we
@@ -881,7 +916,7 @@ fn resizeCols(
         total += node.data.size.rows;
         if (total >= self.rows) break;
     } else {
-        for (total..self.rows) |_| _ = try self.grow();
+        for (total..self.rows) |_| _ = try self.growLocked();
     }
 
     // See preserved_cursor setup for why.
@@ -916,7 +951,7 @@ fn resizeCols(
         req_rows -|= current;
 
         while (req_rows > 0) {
-            _ = try self.grow();
+            _ = try self.growLocked();
             req_rows -= 1;
         }
     }
@@ -1374,7 +1409,7 @@ const ReflowCursor = struct {
             // be correct during a reflow.
             list.pauseIntegrityChecks(true);
             defer list.pauseIntegrityChecks(false);
-            break :node try list.adjustCapacity(
+            break :node try list.adjustCapacityLocked(
                 self.node,
                 adjustment,
             );
@@ -1509,6 +1544,8 @@ const ReflowCursor = struct {
 };
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
+    self.lock.assertLocked();
+
     // We only set the new min_max_size if we're not reflowing. If we are
     // reflowing, then resize handles this for us.
     const old_min_max_size = self.min_max_size;
@@ -1620,7 +1657,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     // since we're not pulling down scrollback.
                     const delta = rows - self.rows;
                     self.rows = rows;
-                    for (0..delta) |_| _ = try self.grow();
+                    for (0..delta) |_| _ = try self.growLocked();
                     break :gt;
                 }
 
@@ -1643,7 +1680,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     if (count >= rows) break;
                 } else {
                     assert(count < rows);
-                    for (count..rows) |_| _ = try self.grow();
+                    for (count..rows) |_| _ = try self.growLocked();
                 }
 
                 // Make sure that the viewport pin isn't below the active
@@ -1909,6 +1946,13 @@ pub const Scroll = union(enum) {
 /// pages, etc. This can only be used to move the viewport within the
 /// previously allocated pages.
 pub fn scroll(self: *PageList, behavior: Scroll) void {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+    self.scrollLocked(behavior);
+}
+
+fn scrollLocked(self: *PageList, behavior: Scroll) void {
+    self.lock.assertLocked();
     defer self.assertIntegrity();
 
     switch (behavior) {
@@ -1952,7 +1996,7 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
                         const v_isize: isize = @intCast(v.*);
                         break :delta n_isize - v_isize;
                     };
-                    self.scroll(.{ .delta_row = delta });
+                    self.scrollLocked(.{ .delta_row = delta });
                     return;
                 },
             }
@@ -2114,6 +2158,8 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
 /// Jump the viewport forwards (positive) or backwards (negative) a set number of
 /// prompts (delta).
 fn scrollPrompt(self: *PageList, delta: isize) void {
+    self.lock.assertLocked();
+
     // If we aren't jumping any prompts then we don't need to do anything.
     if (delta == 0) return;
     const delta_start: usize = @intCast(if (delta > 0) delta else -delta);
@@ -2154,6 +2200,9 @@ fn scrollPrompt(self: *PageList, delta: isize) void {
 /// Clear the screen by scrolling written contents up into the scrollback.
 /// This will not update the viewport.
 pub fn scrollClear(self: *PageList) !void {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
     defer self.assertIntegrity();
 
     // Go through the active area backwards to find the first non-empty
@@ -2180,7 +2229,7 @@ pub fn scrollClear(self: *PageList) !void {
     };
 
     // Scroll
-    for (0..non_empty) |_| _ = try self.grow();
+    for (0..non_empty) |_| _ = try self.growLocked();
 }
 
 /// This represents the state necessary to render a scrollbar for this
@@ -2233,6 +2282,10 @@ pub const Scrollbar = struct {
 /// is (arbitrary pins are expensive). The caller should take care to only
 /// call this as needed and not too frequently.
 pub fn scrollbar(self: *PageList) Scrollbar {
+    // Writing lock because viewportRowOffset may modify cached data.
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
     return .{
         .total = self.total_rows,
         .offset = self.viewportRowOffset(),
@@ -2249,6 +2302,7 @@ pub fn scrollbar(self: *PageList) Scrollbar {
 ///
 /// The result is cached so repeated calls are cheap.
 fn viewportRowOffset(self: *PageList) usize {
+    self.lock.assertLocked();
     return switch (self.viewport) {
         .top => 0,
         .active => self.total_rows - self.rows,
@@ -2298,6 +2352,7 @@ fn fixupViewport(
     self: *PageList,
     removed: usize,
 ) void {
+    self.lock.assertLocked();
     switch (self.viewport) {
         .active => {},
 
@@ -2354,6 +2409,13 @@ inline fn growRequiredForActive(self: *const PageList) bool {
 ///
 /// This returns the newly allocated page node if there is one.
 pub fn grow(self: *PageList) !?*List.Node {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+    return try self.growLocked();
+}
+
+fn growLocked(self: *PageList) !?*List.Node {
+    self.lock.assertLocked();
     defer self.assertIntegrity();
 
     const last = self.pages.last.?;
@@ -2494,6 +2556,17 @@ pub fn adjustCapacity(
     node: *List.Node,
     adjustment: AdjustCapacity,
 ) AdjustCapacityError!*List.Node {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+    return try self.adjustCapacityLocked(node, adjustment);
+}
+
+fn adjustCapacityLocked(
+    self: *PageList,
+    node: *List.Node,
+    adjustment: AdjustCapacity,
+) AdjustCapacityError!*List.Node {
+    self.lock.assertLocked();
     defer self.assertIntegrity();
     const page: *Page = &node.data;
 
@@ -2556,6 +2629,10 @@ inline fn createPage(
     self: *PageList,
     cap: Capacity,
 ) Allocator.Error!*List.Node {
+    // We must have the lock held to create a page because the allocator
+    // isn't necessarily thread-safe and we update fields like page_size.
+    self.lock.assertLocked();
+
     // log.debug("create page cap={}", .{cap});
     return try createPageExt(&self.pool, cap, &self.page_size);
 }
@@ -2649,6 +2726,9 @@ pub fn eraseRow(
     self: *PageList,
     pt: point.Point,
 ) !void {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
     defer self.assertIntegrity();
     const pn = self.pin(pt).?;
 
@@ -2742,6 +2822,9 @@ pub fn eraseRowBounded(
     pt: point.Point,
     limit: usize,
 ) !void {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
     defer self.assertIntegrity();
 
     // This function has a lot of repeated code in it because it is a hot path.
@@ -2937,6 +3020,9 @@ pub fn eraseRows(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) void {
+    var guard: WriteGuard = .lock(self);
+    defer guard.unlock();
+
     defer self.assertIntegrity();
 
     // The count of rows that was erased.
@@ -3023,7 +3109,7 @@ pub fn eraseRows(
     // If we deleted active, we need to regrow because one of our invariants
     // is that we always have full active space.
     if (tl_pt == .active) {
-        for (0..erased) |_| _ = self.grow() catch |err| {
+        for (0..erased) |_| _ = self.growLocked() catch |err| {
             // If this fails its a pretty big issue actually... but I don't
             // want to turn this function into an error-returning function
             // because erasing active is so rare and even if it happens failing
@@ -3421,6 +3507,72 @@ pub fn diagram(self: *const PageList, writer: *std.Io.Writer) !void {
         try writer.writeByte('\n');
     }
 }
+
+/// A standard read-write lock for the pagelist.
+///
+/// This is a separate struct so that we can change the implementation
+/// if we have to easily and also so we can add stuff like safety information
+/// in debug modes. For now at the time of writing it is just a simple
+/// RwLock wrapper.
+const Lock = struct {
+    rw: std.Thread.RwLock,
+
+    pub const init: Lock = .{
+        .rw = .{},
+    };
+
+    pub fn lock(self: *Lock) void {
+        self.rw.lock();
+    }
+
+    pub fn unlock(self: *Lock) void {
+        self.rw.unlock();
+    }
+
+    fn assertLocked(self: *Lock) void {
+        if (comptime std.debug.runtime_safety) {
+            assert(!self.rw.tryLock());
+        }
+    }
+
+    fn assertReadLocked(self: *Lock) void {
+        if (comptime std.debug.runtime_safety) {
+            assert(!self.rw.tryLockShared());
+        }
+    }
+};
+
+/// A held write lock on a PageList.
+///
+/// This is NOT pub because it should be impossible for outside callers
+/// of PageList to modify the internal PageList state except via the published
+/// PageList functions.
+const WriteGuard = struct {
+    list: *PageList,
+
+    pub fn lock(list: *PageList) WriteGuard {
+        list.lock.lock();
+        return .{ .list = list };
+    }
+
+    pub fn unlock(self: *WriteGuard) void {
+        self.list.lock.unlock();
+    }
+};
+
+/// A held read lock on a PageList.
+pub const ReadGuard = struct {
+    list: *PageList,
+
+    pub fn lock(list: *PageList) ReadGuard {
+        list.lock.rw.lockShared();
+        return .{ .list = list };
+    }
+
+    pub fn unlock(self: *ReadGuard) void {
+        self.list.lock.rw.unlockShared();
+    }
+};
 
 /// Direction that iterators can move.
 pub const Direction = enum { left_up, right_down };
@@ -8039,11 +8191,17 @@ test "PageList resize (no reflow) more rows adds blank rows if cursor at bottom"
     }
 
     // Resize
-    try s.resizeWithoutReflow(.{
-        .rows = 10,
-        .reflow = false,
-        .cursor = .{ .x = 0, .y = s.rows - 2 },
-    });
+    {
+        // While there is no concurrency here, we have assertions that
+        // check we hold the lock for these operations.
+        var guard: WriteGuard = .lock(&s);
+        defer guard.unlock();
+        try s.resizeWithoutReflow(.{
+            .rows = 10,
+            .reflow = false,
+            .cursor = .{ .x = 0, .y = s.rows - 2 },
+        });
+    }
     try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 10), s.rows);
 

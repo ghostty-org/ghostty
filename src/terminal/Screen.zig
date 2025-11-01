@@ -321,7 +321,7 @@ pub fn reset(self: *Screen) void {
 ///     be filled in at the bottom.
 ///
 pub fn clone(
-    self: *const Screen,
+    self: *Screen,
     alloc: Allocator,
     top: point.Point,
     bot: ?point.Point,
@@ -332,7 +332,7 @@ pub fn clone(
 /// Same as clone but you can specify a custom memory pool to use for
 /// the screen.
 pub fn clonePool(
-    self: *const Screen,
+    self: *Screen,
     alloc: Allocator,
     pool: ?*PageList.MemoryPool,
     top: point.Point,
