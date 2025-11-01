@@ -92,10 +92,10 @@ extension Ghostty {
                     #endif
 
                     // If our geo size changed then we show the resize overlay as configured.
-                    if let surfaceSize = surfaceView.surfaceSize {
+                    if let screenSize = surfaceView.screenSize {
                         SurfaceResizeOverlay(
                             geoSize: geo.size,
-                            size: surfaceSize,
+                            size: screenSize,
                             overlay: ghostty.config.resizeOverlay,
                             position: ghostty.config.resizeOverlayPosition,
                             duration: ghostty.config.resizeOverlayDuration,
@@ -280,7 +280,7 @@ extension Ghostty {
     // size during a resize operation.
     struct SurfaceResizeOverlay: View {
         let geoSize: CGSize
-        let size: ghostty_surface_size_s
+        let size: ghostty_screen_size_s
         let overlay: Ghostty.Config.ResizeOverlay
         let position: Ghostty.Config.ResizeOverlayPosition
         let duration: UInt

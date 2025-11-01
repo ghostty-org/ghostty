@@ -31,19 +31,29 @@ pub const Size = struct {
         return self.screen.subPadding(self.padding);
     }
 
-    /// Set the padding to be balanced around the grid. The balanced
-    /// padding is calculated AFTER the explicit padding is taken
-    /// into account.
-    pub fn balancePadding(self: *Size, explicit: Padding) void {
-        // This ensure grid() does the right thing
-        self.padding = explicit;
-
-        // Now we can calculate the balanced padding
-        self.padding = .balanced(
-            self.screen,
-            self.grid(),
-            self.cell,
-        );
+    /// Set the total padding as the sum of explicit (configured) padding and
+    /// edge insets. If we're balancing the padding, this only applies to the
+    /// explicit padding after subtracting the insets from the screen size.
+    pub fn setPadding(self: *Size, explicit: Padding, edge_insets: Padding, balance: bool) void {
+        const configured: Padding = switch (balance) {
+            false => explicit,
+            true => balanced: {
+                const inset_size: Size = .{
+                    .screen = .{
+                        .width = self.screen.width -| (edge_insets.left + edge_insets.right),
+                        .height = self.screen.height -| (edge_insets.top + edge_insets.bottom),
+                    },
+                    .cell = self.cell,
+                    .padding = explicit,
+                };
+                break :balanced .balanced(
+                    inset_size.screen,
+                    inset_size.grid(),
+                    inset_size.cell,
+                );
+            },
+        };
+        self.padding = edge_insets.add(configured);
     }
 };
 
@@ -192,8 +202,8 @@ pub const ScreenSize = struct {
         return .{
             .top = 0,
             .bottom = leftover_height,
-            .right = leftover_width,
             .left = 0,
+            .right = leftover_width,
         };
     }
 
@@ -240,8 +250,8 @@ pub const GridSize = struct {
 pub const Padding = struct {
     top: u32 = 0,
     bottom: u32 = 0,
-    right: u32 = 0,
     left: u32 = 0,
+    right: u32 = 0,
 
     /// Returns padding that balances the whitespace around the screen
     /// for the given grid and cell sizes.
@@ -259,8 +269,8 @@ pub const Padding = struct {
         const space_bot = @as(f32, @floatFromInt(screen.height)) - grid_height;
 
         // The left/right padding is just an equal split.
-        const padding_right = @floor(space_right / 2);
-        const padding_left = padding_right;
+        const padding_left = @floor(space_right / 2);
+        const padding_right = padding_left;
 
         // The top/bottom padding is interesting. Subjectively, lots of padding
         // at the top looks bad. So instead of always being equal (like left/right),
@@ -273,8 +283,8 @@ pub const Padding = struct {
         return .{
             .top = @intFromFloat(@max(zero, padding_top)),
             .bottom = @intFromFloat(@max(zero, padding_bot)),
-            .right = @intFromFloat(@max(zero, padding_right)),
             .left = @intFromFloat(@max(zero, padding_left)),
+            .right = @intFromFloat(@max(zero, padding_right)),
         };
     }
 
@@ -283,8 +293,8 @@ pub const Padding = struct {
         return .{
             .top = self.top + other.top,
             .bottom = self.bottom + other.bottom,
-            .right = self.right + other.right,
             .left = self.left + other.left,
+            .right = self.right + other.right,
         };
     }
 
@@ -292,8 +302,8 @@ pub const Padding = struct {
     pub fn eql(self: Padding, other: Padding) bool {
         return self.top == other.top and
             self.bottom == other.bottom and
-            self.right == other.right and
-            self.left == other.left;
+            self.left == other.left and
+            self.right == other.right;
     }
 };
 
@@ -306,6 +316,21 @@ test "Padding balanced on zero" {
     const screen: ScreenSize = .{ .width = 0, .height = 0 };
     const padding = Padding.balanced(screen, grid, cell);
     try testing.expectEqual(Padding{}, padding);
+}
+
+test "padding with edge insets" {
+    const testing = std.testing;
+    var size: Size = .{ .screen = .{ .width = (100 * 10) + 8, .height = (37 * 20) + 16 }, .cell = .{ .width = 10, .height = 20 }, .padding = .{} };
+    const explicit: Padding = .{ .top = 4, .bottom = 2, .left = 7, .right = 3 };
+    const edge_insets: Padding = .{ .top = 0, .bottom = 7, .left = 0, .right = 13 };
+
+    size.setPadding(explicit, edge_insets, false);
+    try testing.expectEqual(GridSize{ .columns = 98, .rows = 37 }, size.grid());
+    try testing.expectEqual(Padding{ .top = 4, .bottom = 2 + 7, .left = 7, .right = 3 + 13 }, size.padding);
+
+    size.setPadding(explicit, edge_insets, true);
+    try testing.expectEqual(GridSize{ .columns = 98, .rows = 37 }, size.grid());
+    try testing.expectEqual(Padding{ .top = 4, .bottom = 5 + 7, .left = 7, .right = 7 + 13 }, size.padding);
 }
 
 test "GridSize update exact" {

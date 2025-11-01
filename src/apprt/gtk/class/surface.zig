@@ -1426,6 +1426,12 @@ pub const Surface = extern struct {
         return priv.size;
     }
 
+    pub fn getEdgeInsets(self: *Self) apprt.SurfaceEdgeInsets {
+        // The gtk apprt doesn't require edge insets.
+        _ = self;
+        return .{};
+    }
+
     pub fn getCursorPos(self: *Self) apprt.CursorPos {
         return self.private().cursor_pos;
     }
@@ -2991,7 +2997,7 @@ pub const Surface = extern struct {
                 log.warn("error in content scale callback err={}", .{err});
             };
 
-            surface.sizeCallback(priv.size) catch |err| {
+            surface.sizeCallback(priv.size, .{}) catch |err| {
                 log.warn("error in size callback err={}", .{err});
             };
 

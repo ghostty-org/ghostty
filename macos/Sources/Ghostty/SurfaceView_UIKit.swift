@@ -43,9 +43,9 @@ extension Ghostty {
 
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.
-        var surfaceSize: ghostty_surface_size_s? {
+        var screenSize: ghostty_screen_size_s? {
             guard let surface = self.surface else { return nil }
-            return ghostty_surface_size(surface)
+            return ghostty_screen_size(surface)
         }
 
         private(set) var surface: ghostty_surface_t?
@@ -100,8 +100,7 @@ extension Ghostty {
             ghostty_surface_set_content_scale(surface, scale, scale)
             ghostty_surface_set_size(
                 surface,
-                UInt32(size.width * scale),
-                UInt32(size.height * scale)
+                ghostty_surface_size_s(width: UInt32(size.width * scale), height: UInt32(size.height * scale)),
             )
         }
 

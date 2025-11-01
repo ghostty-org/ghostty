@@ -13,7 +13,7 @@ import Combine
 /// - `documentView`: A blank NSView whose height represents total scrollback (in pixels)
 /// - `surfaceView`: The actual Ghostty renderer, positioned to fill the visible rect
 class SurfaceScrollView: NSView {
-    private let scrollView: NSScrollView
+    private let scrollView: SurfaceScrollSubView
     private let documentView: NSView
     private let surfaceView: Ghostty.SurfaceView
     private var observers: [NSObjectProtocol] = []
@@ -30,7 +30,7 @@ class SurfaceScrollView: NSView {
         self.surfaceView = surfaceView
         // The scroll view is our outermost view that controls all our scrollbar
         // rendering and behavior.
-        scrollView = NSScrollView()
+        scrollView = SurfaceScrollSubView()
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -44,10 +44,12 @@ class SurfaceScrollView: NSView {
         documentView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         scrollView.documentView = documentView
         
-        // The document view contains our actual surface as a child.
-        // We synchronize the scrolling of the document with this surface
-        // so that our primary Ghostty renderer only needs to render the viewport.
-        documentView.addSubview(surfaceView)
+        // The actual surface view is added as a direct subview of the scroll
+        // view. SurfaceScrollSubView automatically maintains the subview order
+        // such that the scrollers are drawn on top of the surface, while the
+        // fake content and document views are placed below so they won't
+        // interfere with mouse events et cetera.
+        scrollView.addSubview(surfaceView)
         
         super.init(frame: .zero)
         
@@ -56,17 +58,6 @@ class SurfaceScrollView: NSView {
         
         // Apply initial scrollbar settings
         synchronizeAppearance()
-        
-        // We listen for scroll events through bounds notifications on our NSClipView.
-        // This is based on: https://christiantietze.de/posts/2018/07/synchronize-nsscrollview/
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleScrollChange(notification)
-        })
         
         // Listen for scrollbar updates from Ghostty
         observers.append(NotificationCenter.default.addObserver(
@@ -135,44 +126,31 @@ class SurfaceScrollView: NSView {
     override func layout() {
         super.layout()
 
-        // The SwiftUI ScrollView host likes to add its own styling overlays to
-        // the titlebar area, which are incompatible with the hidden titlebar
-        // style. They won't be present when the app is first opened, but will
-        // appear when creating splits or cycling fullscreen. There's no public
-        // way to disable them in AppKit, so we just have to play whack-a-mole.
-        // See https://developer.apple.com/forums/thread/798392.
-        if window is HiddenTitlebarTerminalWindow {
-            for view in scrollView.subviews {
-                if view.className.contains("NSScrollPocket") {
-                    view.removeFromSuperview()
-                }
-            }
-        }
-        
-        // Fill entire bounds with scroll view
+        // Fill entire bounds with scroll view and surface view
         scrollView.frame = bounds
+        surfaceView.frame = scrollView.bounds
         
-        // Use contentSize to account for visible scrollers
-        //
         // Only update sizes if we have a valid (non-zero) content size. The content size
         // can be zero when this is added early to a view, or to an invisible hierarchy.
         // Practically, this happened in the quick terminal.
-        var contentSize = scrollView.contentSize
-        guard contentSize.width > 0 && contentSize.height > 0 else {
-            synchronizeSurfaceView()
-            return
-        }
+        let contentSize = scrollView.contentSize
+        guard contentSize.width > 0 && contentSize.height > 0 else { return }
         
-        // If we have a legacy scrollbar and its not visible, then we account for that
-        // in advance, because legacy scrollbars change our contentSize and force reflow
-        // of our terminal which is not desirable.
+        // Inform the actual pty of our size change, including the scroller
+        // width to prevent our rows/cols from going into the non-content area.
+        //
+        // If we have a legacy scrollbar, then we account for that regardless of
+        // whether its currently visible, because legacy scrollbars change our
+        // content size and force reflow of our terminal which is not desirable.
         // See: https://github.com/ghostty-org/ghostty/discussions/9254
         let style = scrollView.verticalScroller?.scrollerStyle ?? NSScroller.preferredScrollerStyle
-        if style == .legacy {
-            if (scrollView.verticalScroller?.isHidden ?? true) {
-                let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-                contentSize.width -= scrollerWidth
-            }
+        if (style == .legacy) && scrollView.hasVerticalScroller {
+            let scrollerWidth =
+                scrollView.verticalScroller?.frame.width
+                ?? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+            surfaceView.sizeDidChange(surfaceView.frame.size, scrollerInset: scrollerWidth)
+        } else {
+            surfaceView.sizeDidChange(surfaceView.frame.size, scrollerInset: 0)
         }
         
         // Keep document width synchronized with content width, and update the
@@ -181,14 +159,6 @@ class SurfaceScrollView: NSView {
             width: contentSize.width,
             height: documentHeight(currentScrollbar),
         ))
-        
-        // Inform the actual pty of our size change. This doesn't change the actual view
-        // frame because we do want to render the whole thing, but it will prevent our
-        // rows/cols from going into the non-content area.
-        surfaceView.sizeDidChange(contentSize)
-        
-        // When our scrollview changes make sure our surface view is synchronized
-        synchronizeSurfaceView()
     }
     
     // MARK: Scrolling
@@ -198,22 +168,7 @@ class SurfaceScrollView: NSView {
         scrollView.hasVerticalScroller = scrollbarConfig != .never
     }
     
-    /// Positions the surface view to fill the currently visible rectangle.
-    ///
-    /// This is called whenever the scroll position changes. The surface view (which does the
-    /// actual terminal rendering) always fills exactly the visible portion of the document view,
-    /// so the renderer only needs to render what's currently on screen.
-    private func synchronizeSurfaceView() {
-        let visibleRect = scrollView.contentView.documentVisibleRect
-        surfaceView.frame = visibleRect
-    }
-    
     // MARK: Notifications
-    
-    /// Handles bounds changes in the scroll view's clip view, keeping the surface view synchronized.
-    private func handleScrollChange(_ notification: Notification) {
-        synchronizeSurfaceView()
-    }
     
     /// Handles live scroll events (user actively dragging the scrollbar).
     ///
@@ -227,7 +182,7 @@ class SurfaceScrollView: NSView {
         guard cellHeight > 0 else { return }
         
         // AppKit views are +Y going up, so we calculate from the bottom
-        let visibleRect = scrollView.contentView.documentVisibleRect
+        let visibleRect = scrollView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
         let row = Int(scrollOffset / cellHeight)
@@ -296,5 +251,63 @@ class SurfaceScrollView: NSView {
             return documentGridHeight + padding
         }
         return contentHeight
+    }
+}
+
+/// An NSScrollView subclass that keeps SurfaceViews sandwiched between the clip
+/// view and scroller, and disables spurious edge effects when the terminal
+/// window titlebar is hidden.
+///
+/// We can't make the surfaceView a subview of the contentView/documentView,
+/// because it would clipped and unable to draw the background behind the
+/// transparent scroller slot. Instead, we have to make it a direct subview of
+/// the NSScrollView and pay attention to its position in the stack. Both
+/// visuals and event handling require that it's above the clip view and below
+/// the scroller(s).
+///
+/// The SwiftUI ScrollView host sometimes adds extra styling overlays to the
+/// titlebar area, which are incompatible with the hidden titlebar style. Even
+/// not present when the app is first opened, they may appear when creating
+/// splits or cycling fullscreen. NSScrollView doesn't have a public way to
+/// disable this, so we use this subclass to reject them.
+/// See https://developer.apple.com/forums/thread/798392.
+fileprivate class SurfaceScrollSubView: NSScrollView {
+    private var titlebarIsHidden: Bool = false {
+        didSet {
+            if titlebarIsHidden {
+                subviews = subviews.filter({ !$0.className.contains("NSScrollPocket") })
+            }
+        }
+    }
+    override func viewDidMoveToWindow() {
+        titlebarIsHidden = window is HiddenTitlebarTerminalWindow
+    }
+    override func addSubview(_ view: NSView) {
+        if titlebarIsHidden && view.className.contains("NSScrollPocket") { return }
+        super.addSubview(view)
+        // maintain order invariant: clipView < surfaceView < scroller
+        guard let surfaceIndex = subviews.lastIndex(where: { $0 is Ghostty.SurfaceView }) else {
+            return
+        }
+        if let scrollerIndex = subviews.firstIndex(where: { $0 is NSScroller }) {
+            if surfaceIndex > scrollerIndex {
+                moveSubview(from: surfaceIndex, to: scrollerIndex)
+                // return here because if we ended up in this branch, the next
+                // case should be OK, and if that's somehow wrong and we're
+                // forced to choose, having a visible scroller is more important
+                return
+            }
+        }
+        if let clipViewIndex = subviews.lastIndex(where: { $0 is NSClipView }) {
+            if surfaceIndex < clipViewIndex {
+                moveSubview(from: surfaceIndex, to: clipViewIndex)
+            }
+        }
+    }
+    private func moveSubview(from: Array<NSView>.Index, to: Array<NSView>.Index) {
+        var new_subviews = subviews
+        let movedView = new_subviews.remove(at: from)
+        new_subviews.insert(movedView, at: to)
+        subviews = new_subviews
     }
 }

@@ -14,6 +14,14 @@ pub const SurfaceSize = struct {
     height: u32,
 };
 
+/// The apprt insets for the surface
+pub const SurfaceEdgeInsets = struct {
+    top: u32 = 0,
+    bottom: u32 = 0,
+    left: u32 = 0,
+    right: u32 = 0,
+};
+
 /// The position of the cursor in pixels.
 pub const CursorPos = struct {
     x: f32,
