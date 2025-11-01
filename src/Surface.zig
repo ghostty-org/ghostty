@@ -5545,7 +5545,7 @@ fn presentSurface(self: *Surface) !void {
     );
 }
 
-/// Copy mode navigation state. 
+/// Copy mode navigation state.
 const CopyModeState = struct {
     /// True when copy mode has been toggled on.
     active: bool = false,
@@ -5561,6 +5561,8 @@ const CopyModeState = struct {
     }
 };
 
+const CopyModeDirection = enum { left, right, up, down };
+
 fn copyModeToggle(self: *Surface) !void {
     if (self.copy_mode.active)
         try self.copyModeExit()
@@ -5568,7 +5570,7 @@ fn copyModeToggle(self: *Surface) !void {
         try self.copyModeEnter();
 }
 
-fn copyModeEnter(self: *Surface) !void  {
+fn copyModeEnter(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5579,7 +5581,7 @@ fn copyModeEnter(self: *Surface) !void  {
     self.renderer_state.copy_mode_active = true;
 }
 
-fn copyModeExit(self: *Surface) !void  {
+fn copyModeExit(self: *Surface) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
@@ -5605,72 +5607,25 @@ fn copyModeHandleEvent(self: *Surface, event: input.KeyEvent) !InputEffect {
     }
 }
 
-fn copyModeMoveLeft(self: *Surface) !InputEffect {
+fn copyModeMoveCursor(
+    self: *Surface,
+    direction: CopyModeDirection,
+) !InputEffect {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
+    // Change the positon of the copy mode cursor
     const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
     const current = cursor_ptr.*;
-    const next: terminal.Pin = current.leftWrap(1) orelse current;
+    const next: terminal.Pin = switch (direction) {
+        .left => current.leftWrap(1) orelse current,
+        .right => current.rightWrap(1) orelse current,
+        .up => current.up(1) orelse current,
+        .down => current.down(1) orelse current,
+    };
     cursor_ptr.* = next;
 
-    try self.setSelection(terminal.Selection.init(
-        cursor_ptr.*,
-        cursor_ptr.*,
-        false,
-    ));
-    try self.queueRender();
-
-    return .consumed;
-}
-
-fn copyModeMoveRight(self: *Surface) !InputEffect {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-
-    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
-    const current = cursor_ptr.*;
-    const next: terminal.Pin = current.rightWrap(1) orelse current;
-    cursor_ptr.* = next;
-
-    try self.setSelection(terminal.Selection.init(
-        cursor_ptr.*,
-        cursor_ptr.*,
-        false,
-    ));
-    try self.queueRender();
-
-    return .consumed;
-}
-
-fn copyModeMoveUp(self: *Surface) !InputEffect {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-
-    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
-    const current = cursor_ptr.*;
-    const next: terminal.Pin = current.up(1) orelse current;
-    cursor_ptr.* = next;
-
-    try self.setSelection(terminal.Selection.init(
-        cursor_ptr.*,
-        cursor_ptr.*,
-        false,
-    ));
-    try self.queueRender();
-
-    return .consumed;
-}
-
-fn copyModeMoveDown(self: *Surface) !InputEffect {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-
-    const cursor_ptr = self.copy_mode.cursor orelse return .ignored;
-    const current = cursor_ptr.*;
-    const next: terminal.Pin = current.down(1) orelse current;
-    cursor_ptr.* = next;
-
+    // Set the selection based on the updated cursor position
     try self.setSelection(terminal.Selection.init(
         cursor_ptr.*,
         cursor_ptr.*,
@@ -5683,27 +5638,27 @@ fn copyModeMoveDown(self: *Surface) !InputEffect {
 
 fn copyModeHandleEventArrow(self: *Surface, event: input.KeyEvent) !InputEffect {
     if (!self.copy_mode.active) return .ignored;
-    
+
     switch (event.key) {
         .escape => {
             try self.copyModeExit();
             return .consumed;
         },
-        
+
         .arrow_left => {
-            return try self.copyModeMoveLeft();
+            return try self.copyModeMoveCursor(.left);
         },
 
         .arrow_right => {
-            return try self.copyModeMoveRight();
+            return try self.copyModeMoveCursor(.right);
         },
 
         .arrow_up => {
-            return try self.copyModeMoveUp();
+            return try self.copyModeMoveCursor(.up);
         },
 
         .arrow_down => {
-            return try self.copyModeMoveDown();
+            return try self.copyModeMoveCursor(.down);
         },
 
         else => return .ignored,
