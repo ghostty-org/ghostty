@@ -19,7 +19,6 @@ class SurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
-    private var currentScrollbar: Ghostty.Action.Scrollbar? = nil
     
     /// The last row position sent via scroll_to_row action. Used to avoid
     /// sending redundant actions when the user drags the scrollbar but stays
@@ -179,7 +178,7 @@ class SurfaceScrollView: NSView {
         // document height as appropriate for the current surface size.
         documentView.setFrameSize(CGSize(
             width: contentSize.width,
-            height: documentHeight(currentScrollbar),
+            height: documentHeight(surfaceView.scrollbar),
         ))
         
         // Inform the actual pty of our size change. This doesn't change the actual view
@@ -255,7 +254,7 @@ class SurfaceScrollView: NSView {
         guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
             return
         }
-        currentScrollbar = scrollbar
+        surfaceView.scrollbar = scrollbar
         
         // Convert row units to pixels using cell height, ignore zero height.
         let cellHeight = surfaceView.cellSize.height

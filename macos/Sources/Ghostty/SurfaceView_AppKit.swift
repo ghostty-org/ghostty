@@ -144,6 +144,9 @@ extension Ghostty {
         var surface: ghostty_surface_t? {
             surfaceModel?.unsafeCValue
         }
+        /// Current scrollbar state, cached here for persistence across rebuilds
+        /// of the SwiftUI view hierarchy, for example when changing splits
+        var scrollbar: Ghostty.Action.Scrollbar?
 
         // Notification identifiers associated with this surface
         var notificationIdentifiers: Set<String> = []
