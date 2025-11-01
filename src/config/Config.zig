@@ -952,6 +952,14 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
+/// Control when Ghostty preserves the zoomed state of a split. This is a packed
+/// struct so more options can be added in the future. The `navigation` option
+/// keeps the current split zoomed when split navigation (`goto_split`) changes
+/// the focused split.
+///
+/// Example: `split-preserve-zoom = navigation`
+@"split-preserve-zoom": SplitPreserveZoom = .{},
+
 /// The command to run, usually a shell. If this is not an absolute path, it'll
 /// be looked up in the `PATH`. If this is not set, a default will be looked up
 /// from your system. The rules for the default lookup are:
@@ -7048,6 +7056,10 @@ pub const ShellIntegrationFeatures = packed struct {
     @"ssh-env": bool = false,
     @"ssh-terminfo": bool = false,
     path: bool = true,
+};
+
+pub const SplitPreserveZoom = packed struct {
+    navigation: bool = false,
 };
 
 pub const RepeatableCommand = struct {
