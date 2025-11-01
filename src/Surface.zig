@@ -5586,6 +5586,7 @@ fn copyModeExit(self: *Surface) !void  {
     const screen = &self.io.terminal.screen;
     self.copy_mode.reset(screen);
     self.renderer_state.copy_mode_active = false;
+    try self.setSelection(null);
 }
 
 fn copyModeHandleEvent(self: *Surface, event: input.KeyEvent) !InputEffect {
