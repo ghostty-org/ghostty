@@ -7,8 +7,8 @@ struct GeneralContentView: View {
         Form {
             Section {
                 Picker("Update Channel", selection: $updateChannel) {
-                    ForEach(Ghostty.AutoUpdateChannel.allCases) { chanel in
-                        Text(chanel.description).tag(chanel)
+                    ForEach(Ghostty.AutoUpdateChannel.allCases) { channel in
+                        Text(channel.description).tag(channel)
                     }
                 }
             }
