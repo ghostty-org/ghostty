@@ -111,6 +111,7 @@
 				"Features/Settings/settings-theme-preview.txt",
 				Features/Settings/SettingsController.swift,
 				Features/Settings/SettingsView.swift,
+				Features/Settings/UserDefaultsConfigProvider.swift,
 				Features/Splits/SplitTree.swift,
 				Features/Splits/SplitView.Divider.swift,
 				Features/Splits/SplitView.swift,

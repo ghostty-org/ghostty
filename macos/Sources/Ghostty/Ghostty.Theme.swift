@@ -32,7 +32,7 @@ extension Ghostty {
     }
 
     /// Swift type for `ghostty_config_theme_s`, only supports name for now
-    struct Theme: GhosttyConfigValueConvertible, GhosttyConfigValueBridgeable {
+    struct Theme {
         static let defaultValue = Self(light: "Ghostty Default Style Dark", dark: "Ghostty Default Style Dark")
 
         var light: String = ""
@@ -68,25 +68,9 @@ extension Ghostty {
             }
         }
 
-        typealias GhosttyValue = ghostty_config_theme_s
-
-        init(ghosttyValue: GhosttyValue?) {
-            if let theme = ghosttyValue {
-                light = String(bytes: UnsafeBufferPointer(start: theme.light, count: theme.light_len).map(UInt8.init(_:)), encoding: .utf8) ?? ""
-                dark = String(bytes: UnsafeBufferPointer(start: theme.dark, count: theme.dark_len).map(UInt8.init(_:)), encoding: .utf8) ?? ""
-            }
-        }
-
         init(light: String = "", dark: String = "") {
             self.light = light
             self.dark = dark
-        }
-
-        func representedValues(for key: String) -> [String] {
-            guard light != dark, !light.isEmpty, !dark.isEmpty else {
-                return [light.isEmpty ? dark : light]
-            }
-            return ["light:\(light),dark:\(dark)"]
         }
     }
 }

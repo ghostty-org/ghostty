@@ -8,13 +8,11 @@ extension Ghostty {
         // The underlying C pointer to the Ghostty config structure. This
         // should never be accessed directly. Any operations on this should
         // be called from the functions on this or another class.
-        private(set) var config: ghostty_config_t? {
-            didSet {
-                // Free the old value whenever we change
-                guard let old = oldValue else { return }
-                ghostty_config_free(old)
-            }
+        var config: ghostty_config_t? {
+            (NSApp.delegate as? AppDelegate)?.ghostty.config.config
         }
+
+        let persistProvider: (any GhosttyConfigPersistProvider)? = UserDefaultsConfigProvider()
 
         let configFile: URL
         nonisolated static func defaultConfigFile() -> URL {
@@ -71,7 +69,7 @@ extension Ghostty {
         }
 
         // bridge from float
-        @Ghostty.ConfigEntry(parsing: "font-size") var fontSize: Double
+        @Ghostty.ConfigEntry("font-size", parsing: Float.self) var fontSize: Double
         @Ghostty.ConfigEntry("font-style") var regularFontStyle: String?
         @Ghostty.ConfigEntry("font-style-bold", readDefaultValue: false)
         var boldFontStyle: String?
@@ -80,7 +78,7 @@ extension Ghostty {
         @Ghostty.ConfigEntry("font-style-bold-italic", readDefaultValue: false)
         var boldItalicFontStyle: String?
         // bridge from [RepeatableItem]
-        @Ghostty.ConfigEntry(parsing: "font-codepoint-map") var fontCodePointMap: FontCodePointArray {
+        @Ghostty.ConfigEntry("font-codepoint-map") var fontCodePointMap: FontCodePointArray {
             didSet {
                 guard fontCodePointMap != oldValue else { return }
                 updateFontFamilySettings()
@@ -98,47 +96,23 @@ extension Ghostty {
 
         @Ghostty.ConfigEntry("auto-update-channel") var updateChannel: AutoUpdateChannel
 
-        deinit {
-            self.config = nil
-        }
-
-        fileprivate init(config: ghostty_config_t?, configFile: URL) {
-            self.config = config
+        fileprivate init(configFile: URL) {
             self.configFile = configFile
         }
 
         convenience init(configFile: URL? = nil, loadUsersConfig: Bool = false) {
             let configFile = configFile ?? Self.defaultConfigFile()
-            guard
-                let cfg = ghostty_config_new()
-            else {
-                self.init(config: nil, configFile: configFile)
-                return
-            }
-
-            let initialFile: URL
-            if !FileManager.default.fileExists(atPath: configFile.path), loadUsersConfig {
-                initialFile = URL(filePath: Ghostty.AllocatedString(ghostty_config_open_path()).string)
-            } else {
-                initialFile = configFile
-            }
-            let path = initialFile.path(percentEncoded: false)
-            if FileManager.default.fileExists(atPath: path) {
-                ghostty_config_load_file(cfg, path)
-            }
-            if !isRunningInXcode() {
-                ghostty_config_load_cli_args(cfg)
-            }
-            ghostty_config_load_recursive_files(cfg)
-            self.init(config: cfg, configFile: configFile)
+            self.init(configFile: configFile)
             setupObservers()
             updateFontFamilySettings()
         }
 
         @concurrent func save() async {
             do {
-                let content = await MainActor.run { export() }
-                try content.write(to: configFile, atomically: true, encoding: .utf8)
+                guard let content = await persistProvider?.export() else {
+                    return
+                }
+                try content.write(to: configFile)
             } catch {
                 await MainActor.run {
                     saveError = error
@@ -161,18 +135,9 @@ extension Ghostty {
         }
 
         private func _reload(for preferredApp: ghostty_app_t?) {
-            guard let cfg = config else {
-                return
-            }
-
-            // we only finalise config temporarily = hard reload
-            let newCfg = ghostty_config_clone(cfg)
-            if let app = preferredApp ?? (NSApp.delegate as? AppDelegate)?.ghostty.app {
-                ghostty_config_finalize(newCfg)
-                ghostty_app_update_config(app, newCfg)
-                Task {
-                    await save()
-                }
+            Task {
+                await save()
+                (NSApp.delegate as? AppDelegate)?.ghostty.reloadConfig(soft: false, configPath: configFile.path)
             }
         }
     }

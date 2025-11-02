@@ -147,7 +147,7 @@ extension Ghostty {
         }
 
         /// Reload the configuration.
-        func reloadConfig(soft: Bool = false) {
+        func reloadConfig(soft: Bool = false, configPath: String? = nil) {
             guard let app = self.app else { return }
 
             // Soft updates just call with our existing config
@@ -157,12 +157,12 @@ extension Ghostty {
             }
 
             // Hard or full updates have to reload the full configuration
-            let newConfig = configPath.flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            let newConfig = (configPath ?? self.configPath).flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
             }
-
+            self.configPath = configPath ?? self.configPath
             ghostty_app_update_config(app, newConfig.config!)
             /// applied config will be updated in ``Self.configChange(_:target:v:)``
         }
