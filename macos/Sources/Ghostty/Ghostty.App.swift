@@ -49,7 +49,7 @@ extension Ghostty {
         init(configPath: String? = nil) {
             self.configPath = configPath
             // Initialize the global configuration.
-            self.config = configPath.flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            self.config = Config(at: configPath)
             if self.config.config == nil {
                 readiness = .error
                 return
@@ -157,7 +157,7 @@ extension Ghostty {
             }
 
             // Hard or full updates have to reload the full configuration
-            let newConfig = (configPath ?? self.configPath).flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            let newConfig = Config(at: configPath ?? self.configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -177,7 +177,7 @@ extension Ghostty {
             // Hard or full updates have to reload the full configuration.
             // NOTE: We never set this on self.config because this is a surface-only
             // config. We free it after the call.
-            let newConfig = configPath.flatMap({ Self.readConfig(at: $0, finalize: true) }) ?? Config()
+            let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return

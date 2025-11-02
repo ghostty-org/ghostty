@@ -65,6 +65,15 @@ export fn ghostty_config_load_default_files(self: *Config) void {
     };
 }
 
+/// Load the configuration from a specific file path.
+/// The path must be null-terminated.
+export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
+    const path_slice = std.mem.span(path);
+    self.loadFile(state.alloc, path_slice) catch |err| {
+        log.err("error loading config from file path={s} err={}", .{ path_slice, err });
+    };
+}
+
 /// Load the configuration from the user-specified configuration
 /// file locations in the previously loaded configuration. This will
 /// recursively continue to load up to a built-in limit.
