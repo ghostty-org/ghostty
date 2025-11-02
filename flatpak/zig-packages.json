@@ -61,9 +61,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz",
-    "dest": "vendor/p/N-V-__8AAPk1AwBAULkMLaJVuAoOyhTMRIh-joZs-jRJKHBJ",
-    "sha256": "cb6be1c250d4a600bac795cfa4363de8a3521ddfec461c89a608aececb4ff69d"
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251027-150540-8f50c1d/ghostty-themes.tgz",
+    "dest": "vendor/p/N-V-__8AAPk1AwCUvXvHG6RrcHLBcnO9OM9_eld_kjLSz6wm",
+    "sha256": "2b266b8ea3a39ab80865223d2d74c45f9c52ecea21683d05cb5c8667cb87d184"
   },
   {
     "type": "archive",
