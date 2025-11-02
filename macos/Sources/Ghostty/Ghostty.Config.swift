@@ -64,7 +64,7 @@ extension Ghostty {
             // We only do this on macOS because other Apple platforms do not have the
             // same filesystem concept.
 #if os(macOS)
-            if let path, FileManager.default.fileExists(atPath: path) {
+            if let path {
                 ghostty_config_load_file(cfg, path)
             } else {
                 ghostty_config_load_default_files(cfg)

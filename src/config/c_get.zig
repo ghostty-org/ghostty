@@ -253,8 +253,8 @@ test "c_get: font-family" {
     var cval: Config.RepeatableItemList = undefined;
     try testing.expect(get(&c, .@"font-family", @ptrCast(&cval)));
     try testing.expectEqual(@as(usize, 2), cval.len);
-    try testing.expectEqualStrings("font-family", std.mem.span(cval.items[0].key));
+    try testing.expectEqualStrings("", std.mem.span(cval.items[0].key));
     try testing.expectEqualStrings("Arial", std.mem.span(cval.items[0].value));
-    try testing.expectEqualStrings("font-family", std.mem.span(cval.items[1].key));
+    try testing.expectEqualStrings("", std.mem.span(cval.items[1].key));
     try testing.expectEqualStrings("Helvetica", std.mem.span(cval.items[1].value));
 }

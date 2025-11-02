@@ -14,7 +14,7 @@ class ConfigFileTestSuite {
     init() {
         randomFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ghostty")
-        config = Ghostty.ConfigFile(configFile: randomFile, loadUsersConfig: false)
+        config = Ghostty.ConfigFile(configFile: randomFile, persistProvider: nil)
     }
 
     deinit {

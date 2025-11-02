@@ -9,10 +9,11 @@ extension Ghostty {
         // should never be accessed directly. Any operations on this should
         // be called from the functions on this or another class.
         var config: ghostty_config_t? {
-            (NSApp.delegate as? AppDelegate)?.ghostty.config.config
+            _config.config
         }
 
-        let persistProvider: (any GhosttyConfigPersistProvider)? = UserDefaultsConfigProvider()
+        let _config: Config
+        let persistProvider: (any GhosttyConfigPersistProvider)?
 
         let configFile: URL
         nonisolated static func defaultConfigFile() -> URL {
@@ -96,13 +97,11 @@ extension Ghostty {
 
         @Ghostty.ConfigEntry("auto-update-channel") var updateChannel: AutoUpdateChannel
 
-        fileprivate init(configFile: URL) {
-            self.configFile = configFile
-        }
-
-        convenience init(configFile: URL? = nil, loadUsersConfig: Bool = false) {
+        init(configFile: URL? = nil, persistProvider: (any GhosttyConfigPersistProvider)? = UserDefaultsConfigProvider()) {
             let configFile = configFile ?? Self.defaultConfigFile()
-            self.init(configFile: configFile)
+            self.configFile = configFile
+            self._config = Config(at: configFile.path, finalize: false)
+            self.persistProvider = persistProvider
             setupObservers()
             updateFontFamilySettings()
         }
