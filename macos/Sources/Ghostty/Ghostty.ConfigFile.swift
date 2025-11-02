@@ -21,7 +21,7 @@ extension Ghostty {
                 .appendingPathComponent("ghostty-settings")
         }
 
-        private let reloadSignal = PassthroughSubject<ghostty_app_t?, Never>()
+        private let reloadSignal = PassthroughSubject<Void, Never>()
         private var observers = Set<AnyCancellable>()
 
         var isExportingFontSettings = false
@@ -119,21 +119,21 @@ extension Ghostty {
             }
         }
 
-        func reload(for preferredApp: ghostty_app_t?) {
-            reloadSignal.send(preferredApp)
+        func reload() {
+            reloadSignal.send()
         }
 
         private func setupObservers() {
             reloadSignal
                 .throttle(for: 0.5, scheduler: DispatchQueue.global(), latest: true)
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self] app in
-                    self?._reload(for: app)
+                .sink { [weak self] in
+                    self?._reload()
                 }
                 .store(in: &observers)
         }
 
-        private func _reload(for preferredApp: ghostty_app_t?) {
+        private func _reload() {
             Task {
                 await save()
                 (NSApp.delegate as? AppDelegate)?.ghostty.reloadConfig(soft: false, configPath: configFile.path)

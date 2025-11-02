@@ -2084,27 +2084,3 @@ extension Ghostty {
         #endif
     }
 }
-
-extension Ghostty.App {
-    static func readConfig(at path: String, finalize: Bool = true) -> Ghostty.Config? {
-        guard
-            let cfg = ghostty_config_new()
-        else {
-            return nil
-        }
-        if FileManager.default.fileExists(atPath: path) {
-            ghostty_config_load_file(cfg, path)
-        }
-        if !isRunningInXcode() {
-            ghostty_config_load_cli_args(cfg)
-        }
-        ghostty_config_load_recursive_files(cfg)
-        if finalize {
-            // Finalize will make our defaults available,
-            // and also will combine all the keys into one file,
-            // we might not need this in the future
-            ghostty_config_finalize(cfg)
-        }
-        return Ghostty.Config(config: cfg)
-    }
-}

@@ -34,7 +34,7 @@ extension Ghostty {
                 guard let range = ClosedRange<Unicode.Scalar>(hexRange: item.key) else {
                     continue
                 }
-                let newRange = Ghostty.FontCodePointRange.init(fontFamily: item.value, range: range)
+                let newRange = Ghostty.FontCodePointRange(fontFamily: item.value, range: range)
                 if !result.contains(newRange) {
                     result.append(newRange)
                 }
@@ -44,9 +44,44 @@ extension Ghostty {
     }
 }
 
-
 extension Ghostty.ConfigEntry where Bridge == Ghostty.FontCodePointBridge {
     init(_ key: String, reload: Bool = true, readDefaultValue: Bool = true) {
         self.init(key, reload: reload, readDefaultValue: readDefaultValue, bridge: Bridge.self)
+    }
+}
+
+extension Unicode.Scalar {
+    init?(hexValue: String) {
+        let hex = hexValue.replacingOccurrences(of: "U+", with: "")
+            .replacingOccurrences(of: "u+", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = UInt32(hex, radix: 16) else { return nil }
+        self.init(value)
+    }
+
+    var hexValue: String {
+        String(format: "U+%04X", value)
+    }
+}
+
+extension ClosedRange where Bound == Unicode.Scalar {
+    init?(hexRange: String) {
+        let parts = hexRange.split(separator: "-")
+        guard
+            parts.count == 2,
+            let lower = Unicode.Scalar(hexValue: String(parts[0])),
+            let upper = Unicode.Scalar(hexValue: String(parts[1]))
+        else {
+            return nil
+        }
+        self = lower ... upper
+    }
+
+    var description: String {
+        [lowerBound.description, upperBound.description].joined(separator: " - ")
+    }
+
+    var representedString: String {
+        [lowerBound.hexValue, upperBound.hexValue].joined(separator: "-")
     }
 }

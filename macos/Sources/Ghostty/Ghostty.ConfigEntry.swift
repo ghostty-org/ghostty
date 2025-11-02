@@ -1,6 +1,9 @@
 import Combine
 import GhosttyKit
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 protocol GhosttyConfigPersistProvider {
     func set(_ value: [String], for key: String)
@@ -12,7 +15,7 @@ protocol GhosttyConfigPersistProvider {
 /// An object that has reference to a `ghostty_config_t`
 protocol GhosttyConfigObject: AnyObject {
     var config: ghostty_config_t? { get }
-    func reload(for preferredApp: ghostty_app_t?)
+    func reload()
     var persistProvider: GhosttyConfigPersistProvider? { get }
 }
 
@@ -124,7 +127,7 @@ extension Ghostty {
                 let underlyingValue = Bridge.convert(value: newValue)
                 instance.persistProvider?.set(underlyingValue.persistValues(for: key), for: key)
                 if info.reloadOnSet {
-                    instance.reload(for: nil)
+                    instance.reload()
                 }
             }
         }
