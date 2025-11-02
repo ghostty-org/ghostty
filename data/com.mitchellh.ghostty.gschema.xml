@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="com.mitchellh.ghostty" path="/com/mitchellh/ghostty/">
+    <key name="window-size" type="(uu)">
+      <default>(0, 0)</default>
+      <summary>Last window size</summary>
+      <description>
+        The last window size in terminal columns and rows. This is used to
+        restore the window size when window-save-state is enabled. A value
+        of (0, 0) means no size has been saved yet.
+      </description>
+    </key>
+  </schema>
+</schemalist>

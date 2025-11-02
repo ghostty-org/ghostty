@@ -19,6 +19,7 @@ const gtk_version = @import("../gtk_version.zig");
 const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
 const winprotopkg = @import("../winproto.zig");
+const gtkSettings = @import("../settings.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
@@ -235,6 +236,9 @@ pub const Window = extern struct {
         /// State and logic for windowing protocol for a window.
         winproto: winprotopkg.Window,
 
+        /// GSettings for window state persistence
+        gsettings: gtkSettings.Settings,
+
         /// Kind of hacky to have this but this lets us know if we've
         /// initialized any single surface yet. We need this because we
         /// gate default size on this so that we don't resize the window
@@ -283,6 +287,9 @@ pub const Window = extern struct {
         // We initialize our windowing protocol to none because we can't
         // actually initialize this until we get realized.
         priv.winproto = .none;
+
+        // Initialize GSettings for window state persistence
+        priv.gsettings = gtkSettings.Settings.init();
 
         // Add our dev CSS class if we're in debug mode.
         if (comptime build_config.is_debug) {
@@ -1175,6 +1182,7 @@ pub const Window = extern struct {
         const priv = self.private();
         priv.tab_bindings.unref();
         priv.winproto.deinit(Application.default().allocator());
+        priv.gsettings.deinit();
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -1284,10 +1292,36 @@ pub const Window = extern struct {
         return 0;
     }
 
+    /// Save the current window size to GSettings if enabled
+    fn saveWindowSize(self: *Self) void {
+        const priv = self.private();
+
+        // Check if we should save state
+        const config = if (priv.config) |c| c.get() else return;
+        if (config.@"window-save-state" == .never) return;
+
+        // Get the active surface to read terminal dimensions
+        const surface = self.getActiveSurface() orelse return;
+        const core_surface = surface.core() orelse return;
+
+        // Get terminal grid dimensions
+        const grid_size = core_surface.size.grid();
+        if (grid_size.rows == 0 or grid_size.columns == 0) return;
+
+        // Save to GSettings
+        priv.gsettings.setWindowSize(.{
+            .columns = @intCast(grid_size.columns),
+            .rows = @intCast(grid_size.rows),
+        });
+    }
+
     fn windowCloseRequest(
         _: *gtk.Window,
         self: *Self,
     ) callconv(.c) c_int {
+        // Save window size before closing
+        self.saveWindowSize();
+
         if (self.getNeedsConfirmQuit()) {
             // Show a confirmation dialog
             const dialog: *CloseConfirmationDialog = .new(.window);
@@ -1636,6 +1670,41 @@ pub const Window = extern struct {
         // Make sure we init only once
         if (priv.surface_init) return;
         priv.surface_init = true;
+
+        // Try to restore window size from GSettings if enabled
+        restore: {
+            const config = if (priv.config) |c| c.get() else break :restore;
+            if (config.@"window-save-state" == .never) break :restore;
+
+            // Try to get saved size
+            const saved_size = priv.gsettings.getWindowSize() orelse break :restore;
+            
+            // Skip if no valid size was saved yet (0, 0 means unset)
+            if (saved_size.columns == 0 or saved_size.rows == 0) break :restore;
+
+            // Get the core surface to calculate pixel dimensions
+            const core_surface = surface.core() orelse break :restore;
+            
+            // Calculate pixel dimensions from grid size
+            // pixel_size = (columns/rows * cell_width/height) + padding
+            const cell_size = core_surface.size.cell;
+            const padding = core_surface.size.padding;
+            const width = saved_size.columns * cell_size.width + padding.left + padding.right;
+            const height = saved_size.rows * cell_size.height + padding.top + padding.bottom;
+
+            // Set the window size
+            surface.setDefaultSize(.{
+                .width = width,
+                .height = height,
+            });
+
+            log.debug("restored window size: {}x{} cols/rows ({}x{} pixels)", .{
+                saved_size.columns,
+                saved_size.rows,
+                width,
+                height,
+            });
+        }
 
         // Setup our default and minimum size.
         if (surface.getDefaultSize()) |size| {

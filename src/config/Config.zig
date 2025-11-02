@@ -1870,7 +1870,10 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `default`.
 ///
-/// This is currently only supported on macOS. This has no effect on Linux.
+/// On macOS, this controls native window state restoration. On Linux with GTK,
+/// this saves/restores the window size (in terminal grid dimensions) using
+/// GSettings. Full session restoration (tabs, splits, working directories) is
+/// currently only supported on macOS.
 @"window-save-state": WindowSaveState = .default,
 
 /// Resize the window in discrete increments of the focused surface's cell size.
