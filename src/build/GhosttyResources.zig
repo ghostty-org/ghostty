@@ -367,6 +367,15 @@ fn addLinuxAppResources(
         try steps.append(b.allocator, &copy.step);
     }
 
+    // GSettings schema for window state persistence
+    {
+        const schema_install = b.addInstallFile(
+            b.path("data/com.mitchellh.ghostty.gschema.xml"),
+            "share/glib-2.0/schemas/com.mitchellh.ghostty.gschema.xml",
+        );
+        try steps.append(b.allocator, &schema_install.step);
+    }
+
     // Right click menu action for Plasma desktop
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("dist/linux/ghostty_dolphin.desktop"),
