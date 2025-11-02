@@ -153,10 +153,12 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil
 
     override init() {
+        let settingsConfigPath = Ghostty.ConfigFile.defaultConfigFile().path
+        let configPath: String? = FileManager.default.fileExists(atPath: settingsConfigPath) ? settingsConfigPath : nil
 #if DEBUG
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? Ghostty.ConfigFile.defaultConfigFile().path)
+        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? configPath)
 #else
-        ghostty = Ghostty.App(configPath: Ghostty.ConfigFile.configFile.path)
+        ghostty = Ghostty.App(configPath: configPath)
 #endif
         super.init()
 
