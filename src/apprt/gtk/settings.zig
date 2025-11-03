@@ -29,7 +29,7 @@ pub const Settings = struct {
             app_id,
             @intFromBool(false),
         ) orelse {
-            log.info("GSettings schema '{s}' not installed, window state will not persist", .{app_id});
+            log.warn("GSettings schema '{s}' not installed, window state will not persist", .{app_id});
             return .{ .settings = null };
         };
         defer schema.unref();
