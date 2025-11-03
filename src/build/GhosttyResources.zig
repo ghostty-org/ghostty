@@ -350,12 +350,13 @@ fn addLinuxAppResources(
         break :templates try ts.toOwnedSlice(b.allocator);
     };
 
-    // Convert app_id to path format (com.mitchellh.ghostty -> /com/mitchellh/ghostty)
+    // Convert app_id to path format (com.mitchellh.ghostty -> /com/mitchellh/ghostty/)
     const app_id_path = appid_path: {
-        const path = try b.allocator.alloc(u8, app_id.len);
-        for (app_id, 0..) |c, i| {
-            path[i] = if (c == '.') '/' else c;
-        }
+        const path = try b.allocator.alloc(u8, app_id.len + 2);
+        path[0] = '/';
+        @memcpy(path[1 .. app_id.len + 1], app_id);
+        std.mem.replaceScalar(u8, path[1 .. app_id.len + 1], '.', '/');
+        path[path.len - 1] = '/';
         break :appid_path path;
     };
 

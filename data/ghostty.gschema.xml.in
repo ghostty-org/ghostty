@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="@APPID@" path="/@APPID_PATH@/">
+  <schema id="@APPID@" path="@APPID_PATH@">
     <key name="window-size" type="(uu)">
       <default>(0, 0)</default>
       <summary>Last window size</summary>
