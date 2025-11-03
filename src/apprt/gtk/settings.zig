@@ -1,5 +1,6 @@
 //! GSettings wrapper for window state persistence on Linux
 const std = @import("std");
+const build_config = @import("../../build_config.zig");
 const gio = @import("gio");
 const glib = @import("glib");
 
@@ -15,8 +16,6 @@ pub const WindowSize = struct {
 pub const Settings = struct {
     settings: ?*gio.Settings,
 
-    const schema_id = "com.mitchellh.ghostty";
-
     /// Initialize GSettings. Returns null if schema is not installed.
     pub fn init() Settings {
         // Check if schema exists before trying to use it
@@ -27,15 +26,15 @@ pub const Settings = struct {
 
         const schema = gio.SettingsSchemaSource.lookup(
             source,
-            schema_id,
+            build_config.bundle_id,
             @intFromBool(false),
         ) orelse {
-            log.info("GSettings schema '{s}' not installed, window state will not persist", .{schema_id});
+            log.info("GSettings schema '{s}' not installed, window state will not persist", .{build_config.bundle_id});
             return .{ .settings = null };
         };
         defer schema.unref();
 
-        const settings = gio.Settings.new(schema_id);
+        const settings = gio.Settings.new(build_config.bundle_id);
         return .{ .settings = settings };
     }
 
