@@ -341,7 +341,22 @@ fn addLinuxAppResources(
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
         });
 
+        // GSettings schema
+        try ts.append(b.allocator, .{
+            b.path("data/ghostty.gschema.xml.in"),
+            b.fmt("share/glib-2.0/schemas/{s}.gschema.xml", .{app_id}),
+        });
+
         break :templates try ts.toOwnedSlice(b.allocator);
+    };
+
+    // Convert app_id to path format (com.mitchellh.ghostty -> /com/mitchellh/ghostty)
+    const app_id_path = appid_path: {
+        const path = try b.allocator.alloc(u8, app_id.len);
+        for (app_id, 0..) |c, i| {
+            path[i] = if (c == '.') '/' else c;
+        }
+        break :appid_path path;
     };
 
     // Process all our templates
@@ -351,6 +366,7 @@ fn addLinuxAppResources(
         }, .{
             .NAME = name,
             .APPID = app_id,
+            .APPID_PATH = app_id_path,
             .GHOSTTY = exe_abs_path,
         });
 
@@ -365,15 +381,6 @@ fn addLinuxAppResources(
         );
 
         try steps.append(b.allocator, &copy.step);
-    }
-
-    // GSettings schema for window state persistence
-    {
-        const schema_install = b.addInstallFile(
-            b.path("data/com.mitchellh.ghostty.gschema.xml"),
-            "share/glib-2.0/schemas/com.mitchellh.ghostty.gschema.xml",
-        );
-        try steps.append(b.allocator, &schema_install.step);
     }
 
     // Right click menu action for Plasma desktop

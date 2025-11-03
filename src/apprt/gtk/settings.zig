@@ -17,7 +17,7 @@ pub const Settings = struct {
     settings: ?*gio.Settings,
 
     /// Initialize GSettings. Returns null if schema is not installed.
-    pub fn init() Settings {
+    pub fn init(app_id: [*:0]const u8) Settings {
         // Check if schema exists before trying to use it
         const source = gio.SettingsSchemaSource.getDefault() orelse {
             log.warn("no GSettings schema source available", .{});
@@ -26,15 +26,15 @@ pub const Settings = struct {
 
         const schema = gio.SettingsSchemaSource.lookup(
             source,
-            build_config.bundle_id,
+            app_id,
             @intFromBool(false),
         ) orelse {
-            log.info("GSettings schema '{s}' not installed, window state will not persist", .{build_config.bundle_id});
+            log.info("GSettings schema '{s}' not installed, window state will not persist", .{app_id});
             return .{ .settings = null };
         };
         defer schema.unref();
 
-        const settings = gio.Settings.new(build_config.bundle_id);
+        const settings = gio.Settings.new(app_id);
         return .{ .settings = settings };
     }
 

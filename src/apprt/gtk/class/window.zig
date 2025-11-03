@@ -289,7 +289,10 @@ pub const Window = extern struct {
         priv.winproto = .none;
 
         // Initialize GSettings for window state persistence
-        priv.gsettings = gtk_settings.Settings.init();
+        // Get the actual app ID from the application (includes -debug suffix for debug builds)
+        const app = Application.default();
+        const app_id = app.as(gio.Application).getApplicationId() orelse build_config.bundle_id;
+        priv.gsettings = gtk_settings.Settings.init(app_id);
 
         // Add our dev CSS class if we're in debug mode.
         if (comptime build_config.is_debug) {
