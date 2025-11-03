@@ -34,6 +34,21 @@ pub const Settings = struct {
         };
         defer schema.unref();
 
+        // Attempt to fetch and log localized summary/description for our key.
+        // We only do this for debugging/verification of translations.
+        const key_name: [*:0]const u8 = "window-size";
+        if (getSchemaKey(schema, key_name)) |key| {
+            defer schemaKeyUnref(key);
+            const summary = schemaKeyGetSummary(key) orelse "(null)";
+            const desc = schemaKeyGetDescription(key) orelse "(null)";
+            log.debug(
+                "schema key '{s}' summary='{s}' description='{s}'",
+                .{ key_name, summary, desc },
+            );
+        } else {
+            log.debug("failed to lookup schema key '{s}' for translation test", .{key_name});
+        }
+
         const settings = gio.Settings.new(app_id);
         return .{ .settings = settings };
     }
@@ -89,3 +104,26 @@ pub const Settings = struct {
         log.debug("saved window size: {}x{}", .{ size.columns, size.rows });
     }
 };
+
+// Minimal extern bindings for GSettingsSchemaKey access. We keep them local
+// to this file since we only need them for debug logging of translations.
+extern fn g_settings_schema_get_key(schema: *anyopaque, name: [*:0]const u8) ?*anyopaque;
+extern fn g_settings_schema_key_get_summary(key: *anyopaque) ?[*:0]const u8;
+extern fn g_settings_schema_key_get_description(key: *anyopaque) ?[*:0]const u8;
+extern fn g_settings_schema_key_unref(key: *anyopaque) void;
+
+fn getSchemaKey(schema: *anyopaque, name: [*:0]const u8) ?*anyopaque {
+    return g_settings_schema_get_key(schema, name);
+}
+
+fn schemaKeyGetSummary(key: *anyopaque) ?[*:0]const u8 {
+    return g_settings_schema_key_get_summary(key);
+}
+
+fn schemaKeyGetDescription(key: *anyopaque) ?[*:0]const u8 {
+    return g_settings_schema_key_get_description(key);
+}
+
+fn schemaKeyUnref(key: *anyopaque) void {
+    g_settings_schema_key_unref(key);
+}
