@@ -1678,13 +1678,13 @@ pub const Window = extern struct {
 
             // Try to get saved size
             const saved_size = priv.gsettings.getWindowSize() orelse break :restore;
-            
+
             // Skip if no valid size was saved yet (0, 0 means unset)
             if (saved_size.columns == 0 or saved_size.rows == 0) break :restore;
 
             // Get the core surface to calculate pixel dimensions
             const core_surface = surface.core() orelse break :restore;
-            
+
             // Calculate pixel dimensions from grid size
             // pixel_size = (columns/rows * cell_width/height) + padding
             const cell_size = core_surface.size.cell;
