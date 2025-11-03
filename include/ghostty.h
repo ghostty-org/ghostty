@@ -933,6 +933,9 @@ ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
 uint32_t ghostty_config_diagnostics_count(ghostty_config_t);
 ghostty_diagnostic_s ghostty_config_get_diagnostic(ghostty_config_t, uint32_t);
 ghostty_string_s ghostty_config_open_path(void);
+bool ghostty_config_quick_terminal_autohide_ignore_contains(ghostty_config_t,
+                                                            const char*,
+                                                            uintptr_t);
 
 ghostty_app_t ghostty_app_new(const ghostty_runtime_config_s*,
                               ghostty_config_t);

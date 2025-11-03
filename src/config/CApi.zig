@@ -133,6 +133,21 @@ export fn ghostty_config_open_path() c.String {
     return .fromSlice(path);
 }
 
+/// Check if a bundle ID is in the quick-terminal-autohide-ignore list.
+/// Returns true if the bundle ID should be ignored (i.e., quick terminal
+/// should NOT auto-hide when this app becomes active).
+export fn ghostty_config_quick_terminal_autohide_ignore_contains(
+    self: *Config,
+    bundle_id: [*]const u8,
+    len: usize,
+) bool {
+    const id = bundle_id[0..len];
+    for (self.@"quick-terminal-autohide-ignore".list.items) |item| {
+        if (std.mem.eql(u8, item, id)) return true;
+    }
+    return false;
+}
+
 /// Sync with ghostty_diagnostic_s
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",

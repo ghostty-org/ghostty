@@ -492,6 +492,15 @@ extension Ghostty {
             return v
         }
 
+        func quickTerminalAutohideIgnoreContains(_ bundleId: String) -> Bool {
+            guard let config = self.config else { return false }
+            return ghostty_config_quick_terminal_autohide_ignore_contains(
+                config,
+                bundleId,
+                UInt(bundleId.utf8.count)
+            )
+        }
+
         var quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior {
             guard let config = self.config else { return .move }
             var v: UnsafePointer<Int8>? = nil

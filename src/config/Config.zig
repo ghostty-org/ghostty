@@ -2358,6 +2358,23 @@ keybind: Keybinds = .{},
     else => false,
 },
 
+/// List of application bundle identifiers that should not trigger the quick
+/// terminal to auto-hide when they become active. This is useful for launcher
+/// apps (like Alfred, Raycast) or other utilities that are often used alongside
+/// the terminal.
+///
+/// This configuration can be repeated multiple times to specify multiple apps.
+///
+/// Example:
+///
+///     quick-terminal-autohide-ignore = com.runningwithcrayons.Alfred
+///     quick-terminal-autohide-ignore = com.raycast.macos
+///
+/// Only implemented on macOS.
+///
+/// Available since: 1.3.0
+@"quick-terminal-autohide-ignore": RepeatableString = .{},
+
 /// This configuration option determines the behavior of the quick terminal
 /// when switching between macOS spaces. macOS spaces are virtual desktops
 /// that can be manually created or are automatically created when an

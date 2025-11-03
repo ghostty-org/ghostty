@@ -79,6 +79,15 @@ class QuickTerminalController: BaseTerminalController {
             selector: #selector(windowDidResize(_:)),
             name: NSWindow.didResizeNotification,
             object: nil)
+
+        // We observe when other applications are activated so we can determine
+        // if we should autohide.
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceCenter.addObserver(
+            self,
+            selector: #selector(otherApplicationDidActivate(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -167,49 +176,20 @@ class QuickTerminalController: BaseTerminalController {
         guard window?.attachedSheet == nil else { return }
 
         // If our app is still active, then it means that we're switching
-        // to another window within our app, so we remove the previous app
-        // so we don't restore it.
+        // to another window within our app. In this case, we want to hide
+        // the quick terminal.
         if NSApp.isActive {
             self.previousApp = nil
-        }
-
-        // Regardless of autohide, we always want to bring the dock back
-        // when we lose focus.
-        hiddenDock?.restore()
-
-        if derivedConfig.quickTerminalAutoHide {
-            switch derivedConfig.quickTerminalSpaceBehavior {
-            case .remain:
-                // If we lose focus on the active space, then we can animate out
+            hiddenDock?.restore()
+            if derivedConfig.quickTerminalAutoHide {
                 animateOut()
-
-            case .move:
-                let currentActiveSpace = CGSSpace.active()
-                if previousActiveSpace == currentActiveSpace {
-                    // We haven't moved spaces. We lost focus to another app on the
-                    // current space. Animate out.
-                    animateOut()
-                } else {
-                    // We've moved to a different space.
-
-                    // If we're fullscreen, we need to exit fullscreen because the visible
-                    // bounds may have changed causing a new behavior.
-                    if let fullscreenStyle, fullscreenStyle.isFullscreen {
-                        fullscreenStyle.exit()
-                        DispatchQueue.main.async {
-                            self.onToggleFullscreen()
-                        }
-                    }
-
-                    // Make the window visible again on this space
-                    DispatchQueue.main.async {
-                        self.window?.makeKeyAndOrderFront(nil)
-                    }
-
-                    self.previousActiveSpace = currentActiveSpace
-                }
             }
+            return
         }
+
+        // If the app is deactivating, we defer the decision to the
+        // `otherApplicationDidActivate` notification handler, which has a more
+        // up-to-date view of the new frontmost application.
     }
 
     override func windowDidResize(_ notification: Notification) {
@@ -669,6 +649,63 @@ class QuickTerminalController: BaseTerminalController {
         showNoNewTabAlert()
     }
 
+    @objc private func otherApplicationDidActivate(_ notification: Notification) {
+        // If we're not visible, we don't care.
+        guard visible else { return }
+
+        // If our own app was activated, do nothing. This can happen if we are
+        // activating from a de-activated state.
+        guard let newApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              newApp != NSRunningApplication.current else {
+            return
+        }
+
+        // If the new frontmost app is on our ignore list, do nothing.
+        if let bundleId = newApp.bundleIdentifier,
+           let config = derivedConfig.config,
+           config.quickTerminalAutohideIgnoreContains(bundleId) {
+            // We also clear previousApp so we don't restore focus incorrectly later.
+            self.previousApp = nil
+            return
+        }
+
+        // The new app is not on the ignore list, so hide the window.
+        hiddenDock?.restore()
+        if derivedConfig.quickTerminalAutoHide {
+            switch derivedConfig.quickTerminalSpaceBehavior {
+            case .remain:
+                // If we lose focus on the active space, then we can animate out
+                animateOut()
+
+            case .move:
+                let currentActiveSpace = CGSSpace.active()
+                if previousActiveSpace == currentActiveSpace {
+                    // We haven't moved spaces. We lost focus to another app on the
+                    // current space. Animate out.
+                    animateOut()
+                } else {
+                    // We've moved to a different space.
+
+                    // If we're fullscreen, we need to exit fullscreen because the visible
+                    // bounds may have changed causing a new behavior.
+                    if let fullscreenStyle, fullscreenStyle.isFullscreen {
+                        fullscreenStyle.exit()
+                        DispatchQueue.main.async {
+                            self.onToggleFullscreen()
+                        }
+                    }
+
+                    // Make the window visible again on this space
+                    DispatchQueue.main.async {
+                        self.window?.makeKeyAndOrderFront(nil)
+                    }
+
+                    self.previousActiveSpace = currentActiveSpace
+                }
+            }
+        }
+    }
+
     private struct DerivedConfig {
         let quickTerminalScreen: QuickTerminalScreen
         let quickTerminalAnimationDuration: Double
@@ -676,6 +713,9 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let quickTerminalSize: QuickTerminalSize
         let backgroundOpacity: Double
+        
+        // Keep a reference to the config for checking autohide ignore list
+        weak var config: Ghostty.Config?
 
         init() {
             self.quickTerminalScreen = .main
@@ -684,6 +724,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalSpaceBehavior = .move
             self.quickTerminalSize = QuickTerminalSize()
             self.backgroundOpacity = 1.0
+            self.config = nil
         }
 
         init(_ config: Ghostty.Config) {
@@ -693,6 +734,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
             self.quickTerminalSize = config.quickTerminalSize
             self.backgroundOpacity = config.backgroundOpacity
+            self.config = config
         }
     }
 
@@ -723,6 +765,18 @@ class QuickTerminalController: BaseTerminalController {
             Dock.autoHideEnabled = previousAutoHide
             hidden = false
         }
+    }
+
+    /// Checks if the currently active application is in the autohide ignore list.
+    /// This is used to prevent the quick terminal from auto-hiding when certain apps
+    /// (like launchers, clipboard managers, etc.) become active.
+    private func isLauncherAppActive() -> Bool {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return false }
+        guard let bundleId = frontmostApp.bundleIdentifier else { return false }
+        guard let config = derivedConfig.config else { return false }
+        
+        // Check if the frontmost app is in the user-configured ignore list
+        return config.quickTerminalAutohideIgnoreContains(bundleId)
     }
 }
 
