@@ -65,7 +65,7 @@ pub const Settings = struct {
             return null;
         }
 
-        return WindowSize{
+        return .{
             .columns = @intCast(columns),
             .rows = @intCast(rows),
         };
