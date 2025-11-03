@@ -19,7 +19,7 @@ const gtk_version = @import("../gtk_version.zig");
 const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
 const winprotopkg = @import("../winproto.zig");
-const gtkSettings = @import("../settings.zig");
+const gtk_settings = @import("../settings.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
@@ -237,7 +237,7 @@ pub const Window = extern struct {
         winproto: winprotopkg.Window,
 
         /// GSettings for window state persistence
-        gsettings: gtkSettings.Settings,
+        gsettings: gtk_settings.Settings,
 
         /// Kind of hacky to have this but this lets us know if we've
         /// initialized any single surface yet. We need this because we
@@ -289,7 +289,7 @@ pub const Window = extern struct {
         priv.winproto = .none;
 
         // Initialize GSettings for window state persistence
-        priv.gsettings = gtkSettings.Settings.init();
+        priv.gsettings = gtk_settings.Settings.init();
 
         // Add our dev CSS class if we're in debug mode.
         if (comptime build_config.is_debug) {
