@@ -1062,7 +1062,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    func windowDidBecomeMain(_ notification: Notification) {
+    override func windowDidBecomeMain(_ notification: Notification) {
+        super.windowDidBecomeMain(notification)
         // Whenever we get focused, use that as our last window position for
         // restart. This differs from Terminal.app but matches iTerm2 behavior
         // and I think its sensible.

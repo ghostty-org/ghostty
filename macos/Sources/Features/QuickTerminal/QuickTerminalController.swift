@@ -153,18 +153,14 @@ class QuickTerminalController: BaseTerminalController {
         hiddenDock?.hide()
     }
 
-    override func windowDidResignKey(_ notification: Notification) {
-        super.windowDidResignKey(notification)
+    override func windowDidResignMain(_ notification: Notification) {
+        super.windowDidResignMain(notification)
 
         // If we're not visible then we don't want to run any of the logic below
         // because things like resetting our previous app assume we're visible.
         // windowDidResignKey will also get called after animateOut so this
         // ensures we don't run logic twice.
         guard visible else { return }
-
-        // We don't animate out if there is a modal sheet being shown currently.
-        // This lets us show alerts without causing the window to disappear.
-        guard window?.attachedSheet == nil else { return }
 
         // If our app is still active, then it means that we're switching
         // to another window within our app, so we remove the previous app

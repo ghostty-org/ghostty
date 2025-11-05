@@ -980,6 +980,10 @@ class BaseTerminalController: NSWindowController,
         self.syncFocusToSurfaceTree()
     }
 
+    func windowDidBecomeMain(_ notification: Notification) {}
+
+    func windowDidResignMain(_ notification: Notification) {}
+
     func windowDidChangeOcclusionState(_ notification: Notification) {
         let visible = self.window?.occlusionState.contains(.visible) ?? false
         for view in surfaceTree {
