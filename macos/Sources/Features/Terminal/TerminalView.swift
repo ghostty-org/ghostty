@@ -110,6 +110,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     }
                 }
             }
+            .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
         }
     }
 }
