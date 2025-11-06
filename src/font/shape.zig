@@ -79,6 +79,10 @@ pub const RunOptions = struct {
     /// screen; it is not validated.
     row: terminal.Pin,
 
+    /// This is true when blinking text should be visible and false
+    /// when it should not be visible
+    text_blink_visible: bool,
+
     /// The selection boundaries. This is used to break shaping on
     /// selection boundaries. This can be disabled by setting this to
     /// null.

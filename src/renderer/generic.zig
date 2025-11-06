@@ -1060,6 +1060,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             state: *renderer.State,
             cursor_blink_visible: bool,
+            text_blink_visible: bool,
         ) !void {
             // Data we extract out of the critical area.
             const Critical = struct {
@@ -1073,6 +1074,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 cursor_style: ?renderer.CursorStyle,
                 color_palette: terminal.color.Palette,
                 scrollbar: terminal.Scrollbar,
+                text_blink_visible: bool,
 
                 /// If true, rebuild the full screen.
                 full_rebuild: bool,
@@ -1214,6 +1216,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_style = cursor_style,
                     .color_palette = state.terminal.colors.palette.current,
                     .scrollbar = scrollbar,
+                    .text_blink_visible = text_blink_visible,
                     .full_rebuild = full_rebuild,
                 };
             };
@@ -1234,6 +1237,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 critical.bg,
                 critical.fg,
                 critical.cursor_color,
+                critical.text_blink_visible,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -2325,6 +2329,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             background: terminal.color.RGB,
             foreground: terminal.color.RGB,
             terminal_cursor_color: ?terminal.color.RGB,
+            text_blink_visible: bool,
         ) !void {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
@@ -2475,6 +2480,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .row = row,
                     .selection = row_selection,
                     .cursor_x = if (shape_cursor) screen.cursor.x else null,
+                    .text_blink_visible = text_blink_visible,
                 };
                 run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
                 var run_iter = self.font_shaper.runIterator(run_iter_opts);
@@ -2700,7 +2706,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // emulators, e.g. Alacritty, still render text decorations
                     // and only make the text itself invisible. The decision
                     // has been made here to match xterm's behavior for this.
-                    if (style.flags.invisible) {
+                    if (style.flags.invisible or (style.flags.blink and !text_blink_visible)) {
                         continue;
                     }
 
