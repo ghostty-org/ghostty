@@ -1444,6 +1444,10 @@ pub const LineIterator = struct {
             var entry = writer.buffered();
             self.line += 1;
 
+            if (self.line == 1) {
+                entry = skipBOM(entry);
+            }
+
             // Trim any whitespace (including CR) around it
             const trim = std.mem.trim(u8, entry, whitespace ++ "\r");
             if (trim.len != entry.len) {
@@ -1501,6 +1505,35 @@ pub const LineIterator = struct {
             .path = try alloc.dupe(u8, self.filepath),
             .line = self.line,
         } };
+    }
+
+    fn skipBOM(data: []const u8) []const u8 {
+        // UTF-8 BOM: EF BB BF
+        if (data.len >= 3 and
+            data[0] == 0xEF and
+            data[1] == 0xBB and
+            data[2] == 0xBF)
+        {
+            return data[3..];
+        }
+
+        // UTF-16 BE BOM: FE FF
+        if (data.len >= 2 and
+            data[0] == 0xFE and
+            data[1] == 0xFF)
+        {
+            return data[2..];
+        }
+
+        // UTF-16 LE BOM: FF FE
+        if (data.len >= 2 and
+            data[0] == 0xFF and
+            data[1] == 0xFE)
+        {
+            return data[2..];
+        }
+
+        return data;
     }
 };
 
