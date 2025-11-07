@@ -472,7 +472,7 @@ class AppDelegate: NSObject,
         case .new_tab:
             _ = TerminalController.newTab(
                 ghostty,
-                from: TerminalController.preferredParent?.window,
+                from: TerminalController.preferredNewTabParent?.window,
                 withBaseConfig: config
             )
         case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
@@ -1054,7 +1054,7 @@ class AppDelegate: NSObject,
     @IBAction func newTab(_ sender: Any?) {
         _ = TerminalController.newTab(
             ghostty,
-            from: TerminalController.preferredParent?.window
+            from: TerminalController.preferredNewTabParent?.window
         )
     }
 

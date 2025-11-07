@@ -179,14 +179,40 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-
-    // The preferred parent terminal controller.
-    static var preferredParent: TerminalController? {
-        all.first {
-            $0.window?.isMainWindow ?? false
-        } ?? lastMain ?? all.last
+    // The preferred parent terminal controller for new window.
+    static var preferredNewWindowParent: TerminalController? {
+        preferredParent(on: .main)
     }
-    
+
+    // The preferred parent terminal controller for new tab.
+    static var preferredNewTabParent: TerminalController? {
+        // We choose a proper window on the current screen first.
+        // If none is found, we use existing windows on another screen.
+        // This could be changed to match `preferredNewWindowParent`,
+        // but for now, we always use an existing window.
+        preferredParent(on: .main) ?? preferredParent(on: nil)
+    }
+
+    /// Preferred parent terminal controller on specified screen
+    private static func preferredParent(on screen: NSScreen?) -> TerminalController? {
+        guard let screen else {
+            return all.first {
+                $0.window?.isMainWindow ?? false
+            } ?? lastMain ?? all.last
+        }
+        return all.last {
+            // find last main window in the screen first
+            $0.window?.screen == screen && $0.window?.isMainWindow == true
+        } ?? all.last {
+            // if no main window was found(typically out of focus)
+            // then just find the last visible window in the screen
+            // AppKit will store closed window for a while,
+            // We want to keep the first visible window
+            // in the same spot
+            $0.window?.screen == screen && $0.window?.isVisible == true
+        }
+    }
+
     // The last controller to be main. We use this when paired with "preferredParent"
     // to find the preferred window to attach new tabs, perform actions, etc. We
     // always prefer the main window but if there isn't any (because we're triggered
@@ -203,7 +229,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
-        let parent: NSWindow? = explicitParent ?? preferredParent?.window
+        let parent: NSWindow? = explicitParent ?? preferredNewWindowParent?.window
 
         if let parent {
             if parent.styleMask.contains(.fullScreen) {
