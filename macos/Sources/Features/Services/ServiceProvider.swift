@@ -52,7 +52,7 @@ class ServiceProvider: NSObject {
 
             switch (target) {
             case .window:
-                _ = TerminalController.newWindow(delegate.ghostty, withBaseConfig: config, withParent: TerminalController.preferredNewWindowParent?.window)
+                _ = TerminalController.newWindow(delegate.ghostty, withBaseConfig: config)
 
             case .tab:
                 _ = TerminalController.newTab(

@@ -125,13 +125,17 @@ struct NewTerminalIntent: AppIntent {
             }
 
         case .splitLeft, .splitRight, .splitUp, .splitDown:
-            guard let parent,
-                  let controller = parent.window?.windowController as? BaseTerminalController else {
+            // split parent is like tab parent
+            let splitParent = parent ??
+                TerminalController.preferredNewSplitParent?.focusedSurface ??
+                TerminalController.preferredNewSplitParent?.surfaceTree.root?.leftmostLeaf()
+            guard let splitParent,
+                  let controller = splitParent.window?.windowController as? BaseTerminalController else {
                 throw GhosttyIntentError.surfaceNotFound
             }
 
             if let view = controller.newSplit(
-                at: parent,
+                at: splitParent,
                 direction: location.splitDirection!,
                 baseConfig: config
             ) {
