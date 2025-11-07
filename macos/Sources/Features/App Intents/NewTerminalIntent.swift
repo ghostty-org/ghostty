@@ -94,8 +94,6 @@ struct NewTerminalIntent: AppIntent {
             }
 
             parent = view
-        } else if let preferred = TerminalController.preferredParent {
-            parent = preferred.focusedSurface ?? preferred.surfaceTree.root?.leftmostLeaf()
         } else {
             parent = nil
         }
@@ -107,18 +105,20 @@ struct NewTerminalIntent: AppIntent {
         }
         switch location {
         case .window:
+            let parentWindow = parent?.window ?? TerminalController.preferredNewWindowParent?.window
             let newController = TerminalController.newWindow(
                 ghostty,
                 withBaseConfig: config,
-                withParent: parent?.window)
+                withParent: parentWindow)
             if let view = newController.surfaceTree.root?.leftmostLeaf() {
                 return .result(value: TerminalEntity(view))
             }
 
         case .tab:
+            let parentWindow = parent?.window ?? TerminalController.preferredNewTabParent?.window
             let newController = TerminalController.newTab(
                 ghostty,
-                from: parent?.window,
+                from: parentWindow,
                 withBaseConfig: config)
             if let view = newController?.surfaceTree.root?.leftmostLeaf() {
                 return .result(value: TerminalEntity(view))
