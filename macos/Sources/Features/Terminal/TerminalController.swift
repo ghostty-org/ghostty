@@ -193,6 +193,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         preferredParent(on: .main) ?? preferredParent(on: nil)
     }
 
+    // The preferred parent terminal controller for new split.
+    static var preferredNewSplitParent: TerminalController? {
+        preferredNewTabParent
+    }
+
     /// Preferred parent terminal controller on specified screen
     private static func preferredParent(on screen: NSScreen?) -> TerminalController? {
         guard let screen else {
