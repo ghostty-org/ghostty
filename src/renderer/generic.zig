@@ -2421,6 +2421,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 screen.pages.rows,
                 self.cells.size.rows,
             );
+
             while (row_it.next()) |row| {
                 // The viewport may have more rows than our cell contents,
                 // so we need to break from the loop early if we hit y = 0.
@@ -2428,10 +2429,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 y -= 1;
 
-                if (!rebuild) {
-                    // Only rebuild if we are doing a full rebuild or this row is dirty.
-                    if (!row.isDirty()) continue;
+                const row_cells_all = row.cells(.all);
+                var has_blink = false;
 
+                for (row_cells_all) |x| {
+                    const style = row.style(&x);
+                    if (style.flags.blink) {
+                        has_blink = true;
+                        break;
+                    }
+                }
+
+                if (!rebuild) {
+                    // Only rebuild if we are doing a full rebuild or this row is dirty
+                    // or any of the cells has blink
+                    if (!has_blink and !row.isDirty()) continue;
                     // Clear the cells if the row is dirty
                     self.cells.clear(y);
                 }
@@ -2487,8 +2499,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
                 var shaper_cells: ?[]const font.shape.Cell = null;
                 var shaper_cells_i: usize = 0;
-
-                const row_cells_all = row.cells(.all);
 
                 // If our viewport is wider than our cell contents buffer,
                 // we still only process cells up to the width of the buffer.
@@ -2709,7 +2719,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     if (style.flags.invisible or (style.flags.blink and !text_blink_visible)) {
                         continue;
                     }
-
                     // Give links a single underline, unless they already have
                     // an underline, in which case use a double underline to
                     // distinguish them.
@@ -2865,7 +2874,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 screen.cursor.page_cell,
                                 color_palette,
                             ) orelse background;
-
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
                                 .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,

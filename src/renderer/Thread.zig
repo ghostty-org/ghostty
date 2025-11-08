@@ -601,6 +601,7 @@ fn renderCallback(
     t.renderer.updateFrame(
         t.state,
         t.flags.cursor_blink_visible,
+        t.flags.text_blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
 
@@ -648,7 +649,14 @@ fn blinkTimerCallback(
     }
     t.wakeup.notify() catch {};
 
-    t.blink_h.run(&t.loop, &t.blink_c, t.config.blink_interval, Thread, t, blinkTimerCallback);
+    t.blink_h.run(
+        &t.loop,
+        &t.blink_c,
+        t.config.blink_interval,
+        Thread,
+        t,
+        blinkTimerCallback,
+    );
     return .disarm;
 }
 

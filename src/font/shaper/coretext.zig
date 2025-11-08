@@ -608,6 +608,7 @@ test "run iterator" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -625,6 +626,7 @@ test "run iterator" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -643,6 +645,7 @@ test "run iterator" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -662,6 +665,7 @@ test "run iterator" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -707,6 +711,7 @@ test "run iterator: empty cells with background set" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         {
             const run = (try it.next(alloc)).?;
@@ -741,6 +746,7 @@ test "shape" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -774,6 +780,7 @@ test "shape nerd fonts" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -800,6 +807,7 @@ test "shape inconsolata ligs" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -823,6 +831,7 @@ test "shape inconsolata ligs" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -854,6 +863,7 @@ test "shape monaspace ligs" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -886,6 +896,7 @@ test "shape left-replaced lig in last run" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -918,6 +929,7 @@ test "shape left-replaced lig in early run" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
 
         const run = (try it.next(alloc)).?;
@@ -947,6 +959,7 @@ test "shape U+3C9 with JB Mono" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
 
         var run_count: usize = 0;
@@ -978,6 +991,7 @@ test "shape emoji width" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1026,6 +1040,7 @@ test "shape emoji width long" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 1 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1060,6 +1075,7 @@ test "shape variation selector VS15" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1093,6 +1109,7 @@ test "shape variation selector VS16" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1123,6 +1140,7 @@ test "shape with empty cells in between" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1159,6 +1177,7 @@ test "shape Chinese characters" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1197,6 +1216,7 @@ test "shape box glyphs" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1236,6 +1256,7 @@ test "shape selection boundary" {
                 screen.pages.pin(.{ .active = .{ .x = screen.pages.cols - 1, .y = 0 } }).?,
                 false,
             ),
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1258,6 +1279,7 @@ test "shape selection boundary" {
                 screen.pages.pin(.{ .active = .{ .x = screen.pages.cols - 1, .y = 0 } }).?,
                 false,
             ),
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1280,6 +1302,7 @@ test "shape selection boundary" {
                 screen.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
                 false,
             ),
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1302,6 +1325,7 @@ test "shape selection boundary" {
                 screen.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
                 false,
             ),
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1324,6 +1348,7 @@ test "shape selection boundary" {
                 screen.pages.pin(.{ .active = .{ .x = 1, .y = 0 } }).?,
                 false,
             ),
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1354,6 +1379,7 @@ test "shape cursor boundary" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1373,6 +1399,7 @@ test "shape cursor boundary" {
                 .screen = &screen,
                 .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
                 .cursor_x = 0,
+                .text_blink_visible = true,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1389,6 +1416,7 @@ test "shape cursor boundary" {
                 .grid = testdata.grid,
                 .screen = &screen,
                 .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+                .text_blink_visible = true,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1409,6 +1437,7 @@ test "shape cursor boundary" {
                 .screen = &screen,
                 .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
                 .cursor_x = 1,
+                .text_blink_visible = true,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1425,6 +1454,7 @@ test "shape cursor boundary" {
                 .grid = testdata.grid,
                 .screen = &screen,
                 .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+                .text_blink_visible = true,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1444,6 +1474,7 @@ test "shape cursor boundary" {
                 .screen = &screen,
                 .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
                 .cursor_x = 9,
+                .text_blink_visible = true,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1460,6 +1491,7 @@ test "shape cursor boundary" {
                 .grid = testdata.grid,
                 .screen = &screen,
                 .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+                .text_blink_visible = true,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1491,6 +1523,7 @@ test "shape cursor boundary and colored emoji" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1509,6 +1542,7 @@ test "shape cursor boundary and colored emoji" {
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
             .cursor_x = 0,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1524,6 +1558,7 @@ test "shape cursor boundary and colored emoji" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1540,6 +1575,7 @@ test "shape cursor boundary and colored emoji" {
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
             .cursor_x = 1,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1555,6 +1591,7 @@ test "shape cursor boundary and colored emoji" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1583,6 +1620,7 @@ test "shape cell attribute change" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1605,6 +1643,7 @@ test "shape cell attribute change" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1628,6 +1667,7 @@ test "shape cell attribute change" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1651,6 +1691,7 @@ test "shape cell attribute change" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1673,6 +1714,7 @@ test "shape cell attribute change" {
             .grid = testdata.grid,
             .screen = &screen,
             .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            .text_blink_visible = true,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1711,6 +1753,7 @@ test "shape high plane sprite font codepoint" {
         .grid = testdata.grid,
         .screen = &screen,
         .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        .text_blink_visible = true,
     });
     // We should get one run
     const run = (try it.next(alloc)).?;
