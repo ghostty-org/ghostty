@@ -16,6 +16,10 @@ layout(binding = 1, std140) uniform Globals {
     uniform vec4  iCurrentCursorColor;
     uniform vec4  iPreviousCursorColor;
     uniform float iTimeCursorChange;
+    uniform vec4  iPalette[256];
+    uniform vec4  iBackgroundColor;
+    uniform vec4  iForegroundColor;
+    uniform vec4  iCursorColor;
 };
 
 layout(binding = 0) uniform sampler2D iChannel0;
