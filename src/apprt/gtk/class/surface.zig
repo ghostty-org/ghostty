@@ -3377,9 +3377,9 @@ const Clipboard = struct {
                         // MIME, when the charset is missing, the default
                         // charset is ASCII.
                         const text_provider_atoms = [_][:0]const u8{
-                            "text/plain",
-                            "text/plain;charset=utf-8",
                             "UTF8_STRING",
+                            "text/plain;charset=utf-8",
+                            "text/plain",
                         };
                         // Following on the same logic as our outer union,
                         // looks like we only need this memory during union
