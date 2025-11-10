@@ -116,8 +116,8 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251027-150540-8f50c1d/ghostty-themes.tgz",
-            .hash = "N-V-__8AAPk1AwCUvXvHG6RrcHLBcnO9OM9_eld_kjLSz6wm",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251103-150536-ae86c8c/ghostty-themes.tgz",
+            .hash = "N-V-__8AAPZCAwDJ0OsIn2nbr3FMvBw68oiv-hC2pFuY1eLN",
             .lazy = true,
         },
     },

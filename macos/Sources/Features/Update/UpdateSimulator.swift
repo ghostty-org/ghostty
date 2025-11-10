@@ -262,18 +262,7 @@ enum UpdateSimulator {
                 
                 if j == 5 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        viewModel.state = .readyToInstall(.init(
-                            reply: { choice in
-                                if choice == .install {
-                                    viewModel.state = .installing(.init(retryTerminatingApplication: {
-                                        print("Restart button clicked in simulator - resetting to idle")
-                                        viewModel.state = .idle
-                                    }))
-                                } else {
-                                    viewModel.state = .idle
-                                }
-                            }
-                        ))
+                        simulateInstalling(viewModel)
                     }
                 }
             }

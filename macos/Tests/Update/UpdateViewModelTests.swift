@@ -50,15 +50,11 @@ struct UpdateViewModelTests {
         #expect(viewModel.text == "Preparing: 75%")
     }
     
-    @Test func testReadyToInstallText() {
-        let viewModel = UpdateViewModel()
-        viewModel.state = .readyToInstall(.init(reply: { _ in }))
-        #expect(viewModel.text == "Ready to Install Update")
-    }
-    
     @Test func testInstallingText() {
         let viewModel = UpdateViewModel()
-        viewModel.state = .installing(.init(retryTerminatingApplication: {}))
+        viewModel.state = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}))
+        #expect(viewModel.text == "Installing…")
+        viewModel.state = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}))
         #expect(viewModel.text == "Restart to Complete Update")
     }
     

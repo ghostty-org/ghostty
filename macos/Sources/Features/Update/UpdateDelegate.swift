@@ -1,7 +1,7 @@
 import Sparkle
 import Cocoa
 
-class UpdaterDelegate: NSObject, SPUUpdaterDelegate {
+extension UpdateDriver: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
         guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else {
             return nil
@@ -14,6 +14,16 @@ class UpdaterDelegate: NSObject, SPUUpdaterDelegate {
         case .tip: return "https://tip.files.ghostty.org/appcast.xml"
         case .stable: return "https://release.files.ghostty.org/appcast.xml"
         }
+    }
+
+    /// Called when an update is scheduled to install silently,
+    /// which occurs when `auto-update = download`.
+    ///
+    /// When `auto-update = check`, Sparkle will call the corresponding
+    /// delegate method on the responsible driver instead.
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        viewModel.state = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: immediateInstallHandler))
+        return true
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {

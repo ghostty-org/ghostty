@@ -29,7 +29,7 @@ https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e
 https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
 https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz
 https://github.com/jacobsandlund/uucode/archive/b309dfb4e25a38201d7b300b201a698e02283862.tar.gz
-https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251027-150540-8f50c1d/ghostty-themes.tgz
+https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251103-150536-ae86c8c/ghostty-themes.tgz
 https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz
 https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz
 https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz

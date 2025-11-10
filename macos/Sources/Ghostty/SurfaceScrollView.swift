@@ -36,6 +36,9 @@ class SurfaceScrollView: NSView {
         scrollView.usesPredominantAxisScrolling = true
         // hide default background to show blur effect properly
         scrollView.drawsBackground = false
+        // don't let the content view clip it's subviews, to enable the
+        // surface to draw the background behind non-overlay scrollers
+        scrollView.contentView.clipsToBounds = false
         
         // The document view is what the scrollview is actually going
         // to be directly scrolling. We set it up to a "blank" NSView
@@ -101,6 +104,14 @@ class SurfaceScrollView: NSView {
             self?.handleLiveScroll()
         })
         
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScrollerStyleChange()
+        })
+
         // Listen for frame change events. See the docstring for
         // handleFrameChange for why this is necessary.
         observers.append(NotificationCenter.default.addObserver(
@@ -118,7 +129,7 @@ class SurfaceScrollView: NSView {
         surfaceView.$derivedConfig
             .sink { [weak self] _ in
                 DispatchQueue.main.async { [weak self] in
-                    self?.synchronizeAppearance()
+                    self?.handleConfigChange()
                 }
             }
             .store(in: &cancellables)
@@ -142,23 +153,16 @@ class SurfaceScrollView: NSView {
         
         // Fill entire bounds with scroll view
         scrollView.frame = bounds
+        surfaceView.frame.size = scrollView.bounds.size
+
+        // We only set the width of the documentView here, as the height depends
+        // on the scrollbar state and is updated in synchronizeScrollView
+        documentView.frame.size.width = scrollView.bounds.width
         
         // When our scrollview changes make sure our scroller and surface views are synchronized
         synchronizeScrollView()
         synchronizeSurfaceView()
-        
-        // Inform the actual pty of our size change. This doesn't change the actual view
-        // frame because we do want to render the whole thing, but it will prevent our
-        // rows/cols from going into the non-content area.
-        //
-        // Only update the pty if we have a valid (non-zero) content size. The content size
-        // can be zero when this is added early to a view, or to an invisible hierarchy.
-        // Practically, this happened in the quick terminal.
-        let width = surfaceContentWidth()
-        let height = surfaceView.frame.height
-        if width > 0 && height > 0 {
-            surfaceView.sizeDidChange(CGSize(width: width, height: height))
-        }
+        synchronizeCoreSurface()
     }
     
     // MARK: Scrolling
@@ -175,20 +179,27 @@ class SurfaceScrollView: NSView {
     /// so the renderer only needs to render what's currently on screen.
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
-        surfaceView.frame = visibleRect
+        surfaceView.frame.origin = visibleRect.origin
+    }
+
+    /// Inform the actual pty of our size change. This doesn't change the actual view
+    /// frame because we do want to render the whole thing, but it will prevent our
+    /// rows/cols from going into the non-content area.
+    private func synchronizeCoreSurface() {
+        // Only update the pty if we have a valid (non-zero) content size. The content size
+        // can be zero when this is added early to a view, or to an invisible hierarchy.
+        // Practically, this happened in the quick terminal.
+        let width = surfaceContentWidth()
+        let height = surfaceView.frame.height
+        if width > 0 && height > 0 {
+            surfaceView.sizeDidChange(CGSize(width: width, height: height))
+        }
     }
 
     /// Sizes the document view and scrolls the content view according to the scrollbar state
     private func synchronizeScrollView() {
-        // We adjust the document height first, as the content width may depend on it.
+        // Update the document height to give our scroller the correct proportions
         documentView.frame.size.height = documentHeight()
-
-        // Our width should be the content width to account for visible scrollers.
-        // We don't do horizontal scrolling in terminals. The surfaceView width is
-        // yoked to the document width (this is distinct from the content width
-        // passed to surfaceView.sizeDidChange, which is only updated on layout).
-        documentView.frame.size.width = scrollView.contentSize.width
-        surfaceView.frame.size.width = scrollView.contentSize.width
         
         // Only update our actual scroll position if we're not actively scrolling.
         if !isLiveScrolling {
@@ -215,6 +226,17 @@ class SurfaceScrollView: NSView {
     /// Handles bounds changes in the scroll view's clip view, keeping the surface view synchronized.
     private func handleScrollChange(_ notification: Notification) {
         synchronizeSurfaceView()
+    }
+
+    /// Handles scrollbar style changes
+    private func handleScrollerStyleChange() {
+        synchronizeCoreSurface()
+    }
+
+    /// Handles config changes
+    private func handleConfigChange() {
+        synchronizeAppearance()
+        synchronizeCoreSurface()
     }
     
     /// Handles live scroll events (user actively dragging the scrollbar).

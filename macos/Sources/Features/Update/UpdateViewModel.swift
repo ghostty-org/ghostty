@@ -30,10 +30,8 @@ class UpdateViewModel: ObservableObject {
             return "Downloading…"
         case .extracting(let extracting):
             return String(format: "Preparing: %.0f%%", extracting.progress * 100)
-        case .readyToInstall:
-            return "Ready to Install Update"
-        case .installing:
-            return "Restart to Complete Update"
+        case .installing(let install):
+            return install.isAutoUpdate ? "Restart to Complete Update" : "Installing…"
         case .notFound:
             return "No Updates Available"
         case .error(let err):
@@ -69,8 +67,6 @@ class UpdateViewModel: ObservableObject {
             return "arrow.down.circle"
         case .extracting:
             return "shippingbox"
-        case .readyToInstall:
-            return "restart.circle.fill"
         case .installing:
             return "power.circle"
         case .notFound:
@@ -96,10 +92,8 @@ class UpdateViewModel: ObservableObject {
             return "Downloading the update package"
         case .extracting:
             return "Extracting and preparing the update"
-        case .readyToInstall:
-            return "Update is ready to install"
-        case .installing:
-            return "Installing update and preparing to restart"
+        case let .installing(install):
+            return install.isAutoUpdate ? "Restart to Complete Update" : "Installing update and preparing to restart"
         case .notFound:
             return "You are running the latest version"
         case .error:
@@ -136,7 +130,7 @@ class UpdateViewModel: ObservableObject {
             return .white
         case .checking:
             return .secondary
-        case .updateAvailable, .readyToInstall:
+        case .updateAvailable:
             return .accentColor
         case .downloading, .extracting, .installing:
             return .secondary
@@ -154,8 +148,6 @@ class UpdateViewModel: ObservableObject {
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
         case .updateAvailable:
             return .accentColor
-        case .readyToInstall:
-            return Color(nsColor: NSColor.systemGreen.blended(withFraction: 0.3, of: .black) ?? .systemGreen)
         case .notFound:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
         case .error:
@@ -170,7 +162,7 @@ class UpdateViewModel: ObservableObject {
         switch state {
         case .permissionRequest:
             return .white
-        case .updateAvailable, .readyToInstall:
+        case .updateAvailable:
             return .white
         case .notFound:
             return .white
@@ -191,7 +183,6 @@ enum UpdateState: Equatable {
     case error(Error)
     case downloading(Downloading)
     case extracting(Extracting)
-    case readyToInstall(ReadyToInstall)
     case installing(Installing)
     
     var isIdle: Bool {
@@ -206,7 +197,6 @@ enum UpdateState: Equatable {
                 .updateAvailable,
                 .downloading,
                 .extracting,
-                .readyToInstall,
                 .installing:
             return true
             
@@ -223,8 +213,6 @@ enum UpdateState: Equatable {
             available.reply(.dismiss)
         case .downloading(let downloading):
             downloading.cancel()
-        case .readyToInstall(let ready):
-            ready.reply(.dismiss)
         case .notFound(let notFound):
             notFound.acknowledgement()
         case .error(let err):
@@ -241,8 +229,6 @@ enum UpdateState: Equatable {
         switch self {
         case .updateAvailable(let available):
             available.reply(.install)
-        case .readyToInstall(let ready):
-            ready.reply(.install)
         default:
             break
         }
@@ -266,10 +252,8 @@ enum UpdateState: Equatable {
             return lDown.progress == rDown.progress && lDown.expectedLength == rDown.expectedLength
         case (.extracting(let lExt), .extracting(let rExt)):
             return lExt.progress == rExt.progress
-        case (.readyToInstall, .readyToInstall):
-            return true
-        case (.installing, .installing):
-            return true
+        case (.installing(let lInstall), .installing(let rInstall)):
+            return lInstall.isAutoUpdate == rInstall.isAutoUpdate
         default:
             return false
         }
@@ -379,11 +363,9 @@ enum UpdateState: Equatable {
         let progress: Double
     }
     
-    struct ReadyToInstall {
-        let reply: @Sendable (SPUUserUpdateChoice) -> Void
-    }
-    
     struct Installing {
+        /// True if this state is triggered by ``Ghostty/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
+        var isAutoUpdate = false
         let retryTerminatingApplication: () -> Void
     }
 }

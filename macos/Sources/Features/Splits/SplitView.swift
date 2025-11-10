@@ -21,6 +21,9 @@ struct SplitView<L: View, R: View>: View {
     let left: L
     let right: R
 
+    /// Called when the divider is double-tapped to equalize splits.
+    let onEqualize: () -> Void
+
     /// The minimum size (in points) of a split
     let minSize: CGFloat = 10
 
@@ -56,6 +59,9 @@ struct SplitView<L: View, R: View>: View {
                         split: $split)
                     .position(splitterPoint)
                     .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
+                    .onTapGesture(count: 2) {
+                        onEqualize()
+                    }
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(splitViewLabel)
@@ -69,7 +75,8 @@ struct SplitView<L: View, R: View>: View {
         dividerColor: Color,
         resizeIncrements: NSSize = .init(width: 1, height: 1),
         @ViewBuilder left: (() -> L),
-        @ViewBuilder right: (() -> R)
+        @ViewBuilder right: (() -> R),
+        onEqualize: @escaping () -> Void
     ) {
         self.direction = direction
         self._split = split
@@ -77,6 +84,7 @@ struct SplitView<L: View, R: View>: View {
         self.resizeIncrements = resizeIncrements
         self.left = left()
         self.right = right()
+        self.onEqualize = onEqualize
     }
 
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {

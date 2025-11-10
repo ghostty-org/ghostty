@@ -55,6 +55,10 @@ struct TerminalSplitSubtreeView: View {
                 },
                 right: {
                     TerminalSplitSubtreeView(node: split.right, onResize: onResize)
+                },
+                onEqualize: {
+                    guard let surface = node.leftmostLeaf().surface else { return }
+                    ghostty.splitEqualize(surface: surface)
                 }
             )
         }

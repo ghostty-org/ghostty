@@ -10,7 +10,6 @@ import Combine
 class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
-    private let updaterDelegate = UpdaterDelegate()
     private var installCancellable: AnyCancellable?
     
     var viewModel: UpdateViewModel {
@@ -32,7 +31,7 @@ class UpdateController {
             hostBundle: hostBundle,
             applicationBundle: hostBundle,
             userDriver: userDriver,
-            delegate: updaterDelegate
+            delegate: userDriver
         )
     }
     

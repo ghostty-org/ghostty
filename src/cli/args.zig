@@ -1427,7 +1427,12 @@ pub const LineIterator = struct {
         //
         // This will also optimize reads down the line as we're
         // more likely to beworking with buffered data.
-        self.r.fillMore() catch {};
+        //
+        // fillMore asserts that the buffer has available capacity,
+        // so skip this if it's full.
+        if (self.r.bufferedLen() < self.r.buffer.len) {
+            self.r.fillMore() catch {};
+        }
 
         var writer: std.Io.Writer = .fixed(self.entry[2..]);
 
@@ -1585,6 +1590,36 @@ test "LineIterator with CRLF line endings" {
     var reader: std.Io.Reader = .fixed("A\r\nB = C\r\n");
 
     var iter: LineIterator = .init(&reader);
+    try testing.expectEqualStrings("--A", iter.next().?);
+    try testing.expectEqualStrings("--B=C", iter.next().?);
+    try testing.expectEqual(@as(?[]const u8, null), iter.next());
+    try testing.expectEqual(@as(?[]const u8, null), iter.next());
+}
+
+test "LineIterator with buffered reader" {
+    const testing = std.testing;
+    var f: std.Io.Reader = .fixed("A\nB = C\n");
+    var buf: [2]u8 = undefined;
+    var r = f.limited(.unlimited, &buf);
+    const reader = &r.interface;
+
+    var iter: LineIterator = .init(reader);
+    try testing.expectEqualStrings("--A", iter.next().?);
+    try testing.expectEqualStrings("--B=C", iter.next().?);
+    try testing.expectEqual(@as(?[]const u8, null), iter.next());
+    try testing.expectEqual(@as(?[]const u8, null), iter.next());
+}
+
+test "LineIterator with buffered and primed reader" {
+    const testing = std.testing;
+    var f: std.Io.Reader = .fixed("A\nB = C\n");
+    var buf: [2]u8 = undefined;
+    var r = f.limited(.unlimited, &buf);
+    const reader = &r.interface;
+
+    try reader.fill(buf.len);
+
+    var iter: LineIterator = .init(reader);
     try testing.expectEqualStrings("--A", iter.next().?);
     try testing.expectEqualStrings("--B=C", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());

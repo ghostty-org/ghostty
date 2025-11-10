@@ -815,6 +815,14 @@ class AppDelegate: NSObject,
                 autoUpdate == .check || autoUpdate == .download
             updateController.updater.automaticallyDownloadsUpdates =
                 autoUpdate == .download
+            /**
+             To test `auto-update` easily, uncomment the line below and
+             delete `SUEnableAutomaticChecks` in Ghostty-Info.plist.
+
+             Note: When `auto-update = download`, you may need to
+             `Clean Build Folder` if a background install has already begun.
+             */
+            //updateController.updater.checkForUpdatesInBackground()
         }
 
         // Config could change keybindings, so update everything that depends on that

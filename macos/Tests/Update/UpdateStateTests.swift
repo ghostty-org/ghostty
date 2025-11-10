@@ -25,9 +25,11 @@ struct UpdateStateTests {
     }
     
     @Test func testInstallingEquality() {
-        let state1: UpdateState = .installing(.init(retryTerminatingApplication: {}))
-        let state2: UpdateState = .installing(.init(retryTerminatingApplication: {}))
+        let state1: UpdateState = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}))
+        let state2: UpdateState = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}))
         #expect(state1 == state2)
+        let state3: UpdateState = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}))
+        #expect(state3 != state2)
     }
     
     @Test func testPermissionRequestEquality() {
@@ -35,12 +37,6 @@ struct UpdateStateTests {
         let request2 = SPUUpdatePermissionRequest(systemProfile: [])
         let state1: UpdateState = .permissionRequest(.init(request: request1, reply: { _ in }))
         let state2: UpdateState = .permissionRequest(.init(request: request2, reply: { _ in }))
-        #expect(state1 == state2)
-    }
-    
-    @Test func testReadyToInstallEquality() {
-        let state1: UpdateState = .readyToInstall(.init(reply: { _ in }))
-        let state2: UpdateState = .readyToInstall(.init(reply: { _ in }))
         #expect(state1 == state2)
     }
     
