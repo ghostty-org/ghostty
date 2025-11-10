@@ -3376,6 +3376,20 @@ const Clipboard = struct {
                         // MIME parameter for correctness; technically, for
                         // MIME, when the charset is missing, the default
                         // charset is ASCII.
+                        //
+                        // At least in some versions of GTK it appears as though
+                        // the providers union acts like a stack, with the first
+                        // thing we create ending up as the bottom entry. Because
+                        // (some?) Electron apps fail to paste if they encounter
+                        // an invalid mime type like UTF8_STRING before they
+                        // encounter a mime type they want (usually text/plain),
+                        // we create the UTF8_STRING atom first then push the rest
+                        // of the types on top of it.
+                        //
+                        // This still needs testing in other versions of GTK which
+                        // may have different behaviour. It's possible the only
+                        // solution here (other than fixing Electron) is to not
+                        // use the UTF8_STRING atom unless we're running on X11.
                         const text_provider_atoms = [_][:0]const u8{
                             "UTF8_STRING",
                             "text/plain;charset=utf-8",
