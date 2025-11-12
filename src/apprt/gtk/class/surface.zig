@@ -648,6 +648,7 @@ pub const Surface = extern struct {
     pub fn setParent(
         self: *Self,
         parent: *CoreSurface,
+        force_inherit_pwd: bool,
     ) void {
         const priv = self.private();
 
@@ -671,7 +672,7 @@ pub const Surface = extern struct {
             const config = config_obj.get();
 
             // Setup our pwd if configured to inherit
-            if (config.@"window-inherit-working-directory") {
+            if (config.@"window-inherit-working-directory" or force_inherit_pwd) {
                 if (parent.rt_surface.surface.getPwd()) |pwd| {
                     priv.pwd = glib.ext.dupeZ(u8, pwd);
                     self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
