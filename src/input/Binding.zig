@@ -528,6 +528,16 @@ pub const Action = union(enum) {
     /// reflect this by displaying an icon indicating the zoomed state.
     toggle_split_zoom,
 
+    /// Toggle read-only mode for the current surface.
+    ///
+    /// When a surface is in read-only mode:
+    ///   - No input is sent to the PTY (mouse events, key encoding)
+    ///   - Input can still be used at the terminal level to make selections,
+    ///     copy/paste (keybinds), scroll, etc.
+    ///   - Warn before quit is always enabled in this state even if an active
+    ///     process is not running
+    toggle_readonly,
+
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
     /// like in `resize_split:up,10`.
@@ -1207,6 +1217,7 @@ pub const Action = union(enum) {
             .new_split,
             .goto_split,
             .toggle_split_zoom,
+            .toggle_readonly,
             .resize_split,
             .equalize_splits,
             .inspector,
