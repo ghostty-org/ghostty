@@ -708,6 +708,29 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// on the same selection.
 @"selection-clear-on-copy": bool = false,
 
+/// Characters that mark word boundaries during text selection operations such
+/// as double-clicking. When selecting a word, the selection will stop at any
+/// of these characters.
+///
+/// This is similar to the `WORDCHARS` environment variable in zsh, except this
+/// specifies the boundary characters rather than the word characters. The
+/// default includes common delimiters and punctuation that typically separate
+/// words in code and prose.
+///
+/// Each character in this string becomes a word boundary. Multi-byte UTF-8
+/// characters are supported.
+///
+/// The null character (U+0000) is always treated as a boundary and does not
+/// need to be included in this configuration.
+///
+/// Default: ` \t'"│`|:;,()[]{}<>$`
+///
+/// To add or remove specific characters, you can set this to a custom value.
+/// For example, to treat semicolons as part of words:
+///
+///     selection-word-chars = " \t'\"│`|:,()[]{}<>$"
+@"selection-word-chars": SelectionWordChars = .{},
+
 /// The minimum contrast ratio between the foreground and background colors.
 /// The contrast ratio is a value between 1 and 21. A value of 1 allows for no
 /// contrast (e.g. black on black). This value is the contrast ratio as defined
@@ -5578,6 +5601,113 @@ pub const RepeatableString = struct {
         try list.parseCLI(alloc, "B");
         try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.written());
+    }
+};
+
+/// SelectionWordChars stores the parsed codepoints for word boundary
+/// characters used during text selection. The string is parsed once
+/// during configuration and stored as u21 codepoints for efficient
+/// lookup during selection operations.
+pub const SelectionWordChars = struct {
+    const Self = @This();
+
+    /// Default boundary characters: ` \t'"│`|:;,()[]{}<>$`
+    const default_codepoints = [_]u21{
+        0, // null
+        ' ', // space
+        '\t', // tab
+        '\'', // single quote
+        '"', // double quote
+        '│', // U+2502 box drawing
+        '`', // backtick
+        '|', // pipe
+        ':', // colon
+        ';', // semicolon
+        ',', // comma
+        '(', // left paren
+        ')', // right paren
+        '[', // left bracket
+        ']', // right bracket
+        '{', // left brace
+        '}', // right brace
+        '<', // less than
+        '>', // greater than
+        '$', // dollar
+    };
+
+    /// The parsed codepoints. Always includes null (U+0000) at index 0.
+    codepoints: []const u21 = &default_codepoints,
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+
+        // Parse UTF-8 string into codepoints
+        var list: std.ArrayList(u21) = .empty;
+        defer list.deinit(alloc);
+
+        // Always include null as first boundary
+        try list.append(alloc, 0);
+
+        // Parse the UTF-8 string
+        const utf8_view = std.unicode.Utf8View.init(value) catch {
+            // Invalid UTF-8, just use null boundary
+            self.codepoints = try list.toOwnedSlice(alloc);
+            return;
+        };
+
+        var utf8_it = utf8_view.iterator();
+        while (utf8_it.nextCodepoint()) |codepoint| {
+            try list.append(alloc, codepoint);
+        }
+
+        self.codepoints = try list.toOwnedSlice(alloc);
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        const copy = try alloc.dupe(u21, self.codepoints);
+        return .{ .codepoints = copy };
+    }
+
+    /// Compare if two values are equal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return std.mem.eql(u21, self.codepoints, other.codepoints);
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        // Convert codepoints back to UTF-8 string for display
+        var buf: [4096]u8 = undefined;
+        var pos: usize = 0;
+
+        // Skip the null character at index 0
+        for (self.codepoints[1..]) |codepoint| {
+            var utf8_buf: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch continue;
+            if (pos + len > buf.len) break;
+            @memcpy(buf[pos..][0..len], utf8_buf[0..len]);
+            pos += len;
+        }
+
+        try formatter.formatEntry([]const u8, buf[0..pos]);
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var chars: Self = .{};
+        try chars.parseCLI(alloc, " \t;,");
+
+        // Should have null + 4 characters
+        try testing.expectEqual(@as(usize, 5), chars.codepoints.len);
+        try testing.expectEqual(@as(u21, 0), chars.codepoints[0]);
+        try testing.expectEqual(@as(u21, ' '), chars.codepoints[1]);
+        try testing.expectEqual(@as(u21, '\t'), chars.codepoints[2]);
+        try testing.expectEqual(@as(u21, ';'), chars.codepoints[3]);
+        try testing.expectEqual(@as(u21, ','), chars.codepoints[4]);
     }
 };
 
