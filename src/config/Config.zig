@@ -2376,6 +2376,12 @@ keybind: Keybinds = .{},
 /// program, not the terminal emulator).
 @"clipboard-paste-bracketed-safe": bool = true,
 
+/// If true, convert newlines to carriage returns in bracketed paste mode.
+/// This matches Terminal.app's "Paste newlines as carriage returns" behavior.
+/// When disabled, newlines are preserved as-is in bracketed paste mode
+/// (default xterm behavior).
+@"clipboard-paste-bracketed-safe-newline": bool = false,
+
 /// Enables or disabled title reporting (CSI 21 t). This escape sequence
 /// allows the running program to query the terminal title. This is a common
 /// security issue and is disabled by default.
