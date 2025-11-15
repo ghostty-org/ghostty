@@ -251,6 +251,10 @@ fn dtDrop(
         const priv = self.private();
         if (priv.core_surface) |surface| {
             if (surface.config.@"image-upload-enable") {
+                // SHOW PROGRESS OVERLAY (does NOT write to terminal!)
+                priv.progress_bar_overlay.as(gtk.Widget).setVisible(true);
+                priv.progress_bar_overlay.pulse();
+
                 var uploader = image_upload.Uploader{
                     .allocator = alloc,
                     .config = &surface.config,
@@ -258,9 +262,12 @@ fn dtDrop(
 
                 const result = uploader.upload(path_slice) catch .fallback;
 
+                // HIDE PROGRESS OVERLAY
+                priv.progress_bar_overlay.as(gtk.Widget).setVisible(false);
+
                 switch (result) {
                     .success => |url| {
-                        // Paste the uploaded URL
+                        // NOW paste the uploaded URL to terminal
                         Clipboard.paste(self, url);
                         return 1;
                     },
@@ -293,9 +300,9 @@ fn dtDrop(
 
 **macOS**: Similar modifications in `macos/Sources/Ghostty/SurfaceView_AppKit.swift:performDragOperation`
 
-#### B. Async Upload Support (Optional Enhancement)
+#### B. Async Upload Support (Phase 3 Enhancement)
 
-To avoid blocking the UI during upload, implement async upload:
+To avoid blocking the UI during upload, implement async upload with thread:
 
 ```zig
 // In src/image_upload.zig
@@ -312,7 +319,7 @@ pub const AsyncUploader = struct {
     }
 
     fn uploadThread(self: *AsyncUploader) void {
-        // Perform upload
+        // Perform upload in background thread
         // Set result
         self.done.store(true, .release);
     }
@@ -324,20 +331,143 @@ pub const AsyncUploader = struct {
 };
 ```
 
-Integration with progress indicator (GTK):
+Integration with progress overlay (GTK):
 ```zig
-// Show progress bar overlay while uploading
-priv.progress_bar_overlay.show();
-priv.progress_bar_overlay.pulse();
+// NEW: Async upload with non-intrusive progress indicator
 
-// Poll in render loop
-if (async_uploader.poll()) |result| {
-    priv.progress_bar_overlay.hide();
-    // Handle result
+// 1. Show progress overlay (NOT writing to terminal!)
+priv.progress_bar_overlay.as(gtk.Widget).setVisible(true);
+
+// 2. Start async upload
+const async_uploader = try AsyncUploader.start(alloc, &surface.config, path_slice);
+
+// 3. Poll in render loop (glareaRender callback)
+//    This keeps UI responsive and progress bar pulsing
+if (priv.async_uploader) |uploader| {
+    // Pulse progress bar each frame
+    priv.progress_bar_overlay.pulse();
+
+    // Check if upload finished
+    if (uploader.poll()) |result| {
+        // Hide progress overlay
+        priv.progress_bar_overlay.as(gtk.Widget).setVisible(false);
+
+        // Paste result to terminal
+        switch (result) {
+            .success => |url| Clipboard.paste(self, url),
+            .failure => |err| log.err("upload failed: {s}", .{err}),
+            .fallback => {}, // paste file path instead
+        }
+
+        priv.async_uploader = null;
+    }
 }
 ```
 
-### 4. Example Configurations
+**Benefits**:
+- UI remains responsive during upload
+- Terminal stays interactive
+- Progress bar pulses smoothly (updated each render frame)
+- User can cancel by closing window/tab
+- No blocking on network I/O
+
+### 4. UI/UX - Progress Indicator (Non-Intrusive Overlay)
+
+**IMPORTANT**: Progress indicator **MUST NOT** interfere with terminal content!
+
+#### Existing Overlay Infrastructure
+
+Ghostty already has perfect infrastructure for non-intrusive visual feedback:
+
+**GTK** (`src/apprt/gtk/ui/1.2/surface.blp:46-55`):
+```blueprint
+[overlay]
+ProgressBar progress_bar_overlay {
+  styles ["osd"]
+  visible: false;
+  halign: fill;
+  valign: start;
+}
+```
+
+**URL Overlay Reference** (lines 88-116):
+```blueprint
+[overlay]
+Label url_left {
+  styles ["background", "url-overlay"]
+  visible: false;
+  halign: start;
+  valign: end;
+  label: bind template.mouse-hover-url;
+}
+```
+
+#### How It Works
+
+1. **BEFORE upload starts**:
+   - User drops image file
+   - NO text is written to terminal yet
+   - Show `progress_bar_overlay` (already exists!)
+
+2. **DURING upload**:
+   - Progress bar pulses at top of terminal (OSD style)
+   - Terminal content completely untouched
+   - User can still interact with terminal
+   - Similar to how URL tooltip shows on Ctrl+hover
+
+3. **AFTER upload completes**:
+   - Hide progress bar
+   - Paste the uploaded URL into terminal (as if user typed it)
+   - OR fallback to file path if upload failed
+
+#### Visual Behavior
+
+```
+┌─────────────────────────────────────┐
+│ [████████░░░░] Uploading image...   │ ← Overlay (does NOT affect terminal)
+├─────────────────────────────────────┤
+│ $ ls                                │
+│ file1.txt  file2.txt                │ ← Terminal content unchanged
+│ $ vim config                         │
+│ ~                                    │
+│ ~                                    │
+└─────────────────────────────────────┘
+```
+
+**After upload completes:**
+```
+┌─────────────────────────────────────┐
+│ $ ls                                │
+│ file1.txt  file2.txt                │
+│ $ vim config                         │
+│ ~                                    │
+│ $ https://i.imgur.com/abc123.png█   │ ← URL pasted into terminal
+└─────────────────────────────────────┘
+```
+
+#### Implementation
+
+**GTK**: Reuse existing `progress_bar_overlay`
+```zig
+// Show progress
+priv.progress_bar_overlay.as(gtk.Widget).setVisible(true);
+priv.progress_bar_overlay.pulse();
+
+// Hide when done
+priv.progress_bar_overlay.as(gtk.Widget).setVisible(false);
+```
+
+**macOS**: Create similar NSView overlay
+```swift
+// Show overlay view
+uploadIndicator.isHidden = false
+uploadIndicator.startAnimation(nil)
+
+// Hide when done
+uploadIndicator.isHidden = true
+```
+
+### 5. Example Configurations
 
 #### Imgur
 
@@ -399,10 +529,11 @@ image-upload-fallback = error
 
 ### Phase 3: UX Enhancements
 - [ ] Async upload (non-blocking)
-- [ ] Progress indicator during upload
-- [ ] Notifications on success/failure
+- [ ] Progress overlay using existing `progress_bar_overlay` (GTK)
+- [ ] Progress overlay for macOS (custom NSView)
+- [ ] Optional desktop notifications on success/failure
 - [ ] Upload history/cache
-- [ ] Retry logic
+- [ ] Retry logic with exponential backoff
 
 ### Phase 4: Advanced Features
 - [ ] Image optimization before upload (resize, compress)
