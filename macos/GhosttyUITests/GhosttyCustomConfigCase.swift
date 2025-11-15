@@ -8,6 +8,21 @@
 import XCTest
 
 class GhosttyCustomConfigCase: XCTestCase {
+    /// We only want run these UI tests
+    /// when testing manually with Xcode IDE
+    ///
+    /// So that we don't have to wait for each ci check
+    /// to run these tedious tests
+    override class var defaultTestSuite: XCTestSuite {
+        // https://lldb.llvm.org/cpp_reference/PlatformDarwin_8cpp_source.html#:~:text==%20%22-,IDE_DISABLED_OS_ACTIVITY_DT_MODE
+
+        if ProcessInfo.processInfo.environment["IDE_DISABLED_OS_ACTIVITY_DT_MODE"] != nil {
+            return XCTestSuite(forTestCaseClass: Self.self)
+        } else {
+            return XCTestSuite(name: "Skipping \(className())")
+        }
+    }
+
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }
@@ -23,24 +38,22 @@ class GhosttyCustomConfigCase: XCTestCase {
         }
     }
 
-    var customGhosttyConfig: String? {
-        nil
+    func updateConfig(_ newConfig: String) throws {
+        if configFile == nil {
+            let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("ghostty")
+            configFile = temporaryConfig
+        }
+        try newConfig.write(to: configFile!, atomically: true, encoding: .utf8)
     }
 
     func ghosttyApplication() throws -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments.append(contentsOf: ["-ApplePersistenceIgnoreState", "YES"])
-        guard let customGhosttyConfig else {
+        guard let configFile else {
             return app
         }
-        if let configFile {
-            try FileManager.default.removeItem(at: configFile)
-        }
-        let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("ghostty")
-        try customGhosttyConfig.write(to: temporaryConfig, atomically: true, encoding: .utf8)
-        configFile = temporaryConfig
-        app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile?.path
+        app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile.path
         return app
     }
 }
