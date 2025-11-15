@@ -33,6 +33,7 @@ const Window = @import("window.zig").Window;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
+const image_upload = @import("../../../image_upload.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -2360,13 +2361,53 @@ pub const Surface = extern struct {
             };
             defer if (list) |v| v.free();
 
-            {
+            const priv = self.private();
+            const core_surface = priv.core_surface;
+
+            file_loop: {
                 var current: ?*glib.SList = list;
                 while (current) |item| : (current = item.f_next) {
                     const file: *gio.File = @ptrCast(@alignCast(item.f_data orelse continue));
                     const path = file.getPath() orelse continue;
-                    const slice = std.mem.span(path);
                     defer glib.free(path);
+                    const slice = std.mem.span(path);
+
+                    if (core_surface) |surface| {
+                        if (surface.config.@"image-upload-enable") {
+                            var uploader = image_upload.Uploader{
+                                .allocator = alloc,
+                                .config = &surface.config,
+                            };
+
+                            const result = uploader.upload(slice);
+                            defer result.deinit(alloc);
+
+                            switch (result) {
+                                .success => |url| {
+                                    writer.writeAll(std.mem.span(url)) catch |err| {
+                                        log.err("unable to write uploaded URL to buffer: {}", .{err});
+                                        continue :file_loop;
+                                    };
+                                    writer.writeAll("\n") catch |err| {
+                                        log.err("unable to write to buffer: {}", .{err});
+                                        continue :file_loop;
+                                    };
+                                    continue :file_loop;
+                                },
+                                .failure => |err| {
+                                    switch (surface.config.@"image-upload-fallback") {
+                                        .path => {},
+                                        .@"error" => {
+                                            log.err("image upload failed: {s}", .{err});
+                                            return 0;
+                                        },
+                                        .empty => continue :file_loop,
+                                    }
+                                },
+                                .fallback => {},
+                            }
+                        }
+                    }
 
                     writer.writeAll(slice) catch |err| {
                         log.err("unable to write path to buffer: {}", .{err});
@@ -2392,12 +2433,46 @@ pub const Surface = extern struct {
             const object = value.getObject() orelse return 0;
             const file = gobject.ext.cast(gio.File, object) orelse return 0;
             const path = file.getPath() orelse return 0;
+            const path_slice = std.mem.span(path);
+            defer glib.free(path);
+
+            const priv = self.private();
+            if (priv.core_surface) |surface| {
+                if (surface.config.@"image-upload-enable") {
+                    var uploader = image_upload.Uploader{
+                        .allocator = alloc,
+                        .config = &surface.config,
+                    };
+
+                    const result = uploader.upload(path_slice);
+                    defer result.deinit(alloc);
+
+                    switch (result) {
+                        .success => |url| {
+                            Clipboard.paste(self, url);
+                            return 1;
+                        },
+                        .failure => |err| {
+                            switch (surface.config.@"image-upload-fallback") {
+                                .path => {},
+                                .@"error" => {
+                                    log.err("image upload failed: {s}", .{err});
+                                    return 0;
+                                },
+                                .empty => return 1,
+                            }
+                        },
+                        .fallback => {},
+                    }
+                }
+            }
+
             var stream: std.Io.Writer.Allocating = .init(alloc);
             defer stream.deinit();
 
             var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
             const writer = &shell_escape_writer.writer;
-            writer.writeAll(std.mem.span(path)) catch |err| {
+            writer.writeAll(path_slice) catch |err| {
                 log.err("unable to write path to buffer: {}", .{err});
                 return 0;
             };
@@ -2411,6 +2486,7 @@ pub const Surface = extern struct {
                 return 0;
             };
             defer alloc.free(string);
+            Clipboard.paste(self, string);
             return 1;
         }
 
