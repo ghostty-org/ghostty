@@ -46,6 +46,7 @@ modules:
         --prefix /app
         --search-prefix /app
         --system $PWD/vendor/p
+      - glib-compile-schemas /app/share/glib-2.0/schemas
     sources:
       - type: dir
         path: ..
