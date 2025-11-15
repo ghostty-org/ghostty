@@ -3256,6 +3256,57 @@ else
 /// notifications using certain escape sequences such as OSC 9 or OSC 777.
 @"desktop-notifications": bool = true,
 
+/// Enable automatic image upload when dropping image files.
+/// If disabled, image files will be pasted as file paths (default behavior).
+@"image-upload-enable": bool = false,
+
+/// API endpoint for image uploads.
+/// Examples:
+///   - https://api.imgur.com/3/image
+///   - https://api.imgbb.com/1/upload
+///   - https://your-server.com/api/upload
+@"image-upload-url": ?[:0]const u8 = null,
+
+/// HTTP method for upload request.
+@"image-upload-method": ImageUploadMethod = .post,
+
+/// Request format for image upload.
+/// - multipart: Use multipart/form-data (most common)
+/// - json: Send image as base64 in JSON
+/// - binary: Send raw image bytes
+@"image-upload-format": ImageUploadFormat = .multipart,
+
+/// Field name for the image in the upload request.
+/// For multipart: the form field name
+/// For JSON: the JSON key name
+@"image-upload-field": [:0]const u8 = "image",
+
+/// Additional HTTP headers for the upload request.
+/// Format: "Header-Name: value"
+/// Can be specified multiple times for multiple headers.
+/// Example: image-upload-header = "Authorization: Bearer YOUR_TOKEN"
+@"image-upload-header": RepeatableString = .{},
+
+/// JSONPath or regex to extract the URL from the API response.
+/// Examples:
+///   - json:$.data.link (JSONPath for Imgur)
+///   - json:$.data.url (JSONPath for ImgBB)
+///   - regex:https?://[^\s"]+ (regex fallback)
+@"image-upload-response-path": [:0]const u8 = "json:$.data.link",
+
+/// Maximum image file size to upload (in MB). Files larger than this
+/// will fall back to pasting the local path.
+@"image-upload-max-size": u32 = 10,
+
+/// Timeout for upload requests in seconds.
+@"image-upload-timeout": u32 = 30,
+
+/// Fallback behavior if upload fails.
+/// - path: Paste the local file path
+/// - error: Show error message and paste nothing
+/// - empty: Paste nothing silently
+@"image-upload-fallback": ImageUploadFallback = .path,
+
 /// Modifies the color used for bold text in the terminal.
 ///
 /// This can be set to a specific color, using the same format as
@@ -8200,6 +8251,47 @@ pub const LinuxCgroup = enum {
     never,
     always,
     @"single-instance",
+};
+
+/// See image-upload-method
+pub const ImageUploadMethod = enum {
+    post,
+
+    pub fn parseCLI(input: ?[]const u8) !ImageUploadMethod {
+        const value = input orelse return error.ValueRequired;
+        if (std.mem.eql(u8, value, "post")) return .post;
+        return error.InvalidValue;
+    }
+};
+
+/// See image-upload-format
+pub const ImageUploadFormat = enum {
+    multipart,
+    json,
+    binary,
+
+    pub fn parseCLI(input: ?[]const u8) !ImageUploadFormat {
+        const value = input orelse return error.ValueRequired;
+        if (std.mem.eql(u8, value, "multipart")) return .multipart;
+        if (std.mem.eql(u8, value, "json")) return .json;
+        if (std.mem.eql(u8, value, "binary")) return .binary;
+        return error.InvalidValue;
+    }
+};
+
+/// See image-upload-fallback
+pub const ImageUploadFallback = enum {
+    path,
+    @"error",
+    empty,
+
+    pub fn parseCLI(input: ?[]const u8) !ImageUploadFallback {
+        const value = input orelse return error.ValueRequired;
+        if (std.mem.eql(u8, value, "path")) return .path;
+        if (std.mem.eql(u8, value, "error")) return .@"error";
+        if (std.mem.eql(u8, value, "empty")) return .empty;
+        return error.InvalidValue;
+    }
 };
 
 /// See async-backend
