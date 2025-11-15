@@ -75,7 +75,7 @@ pub const Uploader = struct {
 
         const url = self.config.@"image-upload-url".?;
 
-        const response = self.uploadMultipart(url, contents) catch |err| {
+        const response = self.uploadMultipart(url, file_path, contents) catch |err| {
             const err_msg = std.fmt.allocPrintZ(
                 self.allocator,
                 "upload failed: {s}",
@@ -102,6 +102,7 @@ pub const Uploader = struct {
     fn uploadMultipart(
         self: *Uploader,
         url: [:0]const u8,
+        file_path: []const u8,
         contents: []const u8,
     ) ![]u8 {
         const uri = try std.Uri.parse(url);
@@ -112,12 +113,15 @@ pub const Uploader = struct {
         const boundary = "----GhosttyImageUploadBoundary";
         const field_name = self.config.@"image-upload-field";
 
+        // Extract filename from file_path
+        const filename = std.fs.path.basename(file_path);
+
         var body_list = std.ArrayList(u8).init(self.allocator);
         defer body_list.deinit();
         const body_writer = body_list.writer();
 
         try body_writer.print("--{s}\r\n", .{boundary});
-        try body_writer.print("Content-Disposition: form-data; name=\"{s}\"; filename=\"image.png\"\r\n", .{field_name});
+        try body_writer.print("Content-Disposition: form-data; name=\"{s}\"; filename=\"{s}\"\r\n", .{ field_name, filename });
         try body_writer.writeAll("Content-Type: application/octet-stream\r\n\r\n");
         try body_writer.writeAll(contents);
         try body_writer.print("\r\n--{s}--\r\n", .{boundary});
@@ -152,11 +156,23 @@ pub const Uploader = struct {
 
         req.transfer_encoding = .{ .content_length = body.len };
 
+        // Calculate deadline based on timeout config
+        const timeout_ns = @as(u64, self.config.@"image-upload-timeout") * std.time.ns_per_s;
+        const start_time = std.time.nanoTimestamp();
+        const deadline = start_time + @as(i128, timeout_ns);
+
         try req.send();
         try req.writeAll(body);
         try req.finish();
 
         try req.wait();
+
+        // Check if we exceeded timeout
+        const now = std.time.nanoTimestamp();
+        if (now > deadline) {
+            log.err("Upload exceeded timeout of {}s", .{self.config.@"image-upload-timeout"});
+            return error.UploadTimeout;
+        }
 
         if (req.response.status != .ok) {
             log.err("HTTP request failed with status: {}", .{req.response.status});
@@ -233,4 +249,241 @@ pub const Uploader = struct {
             },
         }
     }
+};
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+const testing = std.testing;
+
+test "UploadResult.deinit success" {
+    const allocator = testing.allocator;
+    const url = try allocator.dupeZ(u8, "https://example.com/image.png");
+    const result = UploadResult{ .success = url };
+    result.deinit(allocator);
+}
+
+test "UploadResult.deinit failure" {
+    const allocator = testing.allocator;
+    const err_msg = try allocator.dupeZ(u8, "upload failed");
+    const result = UploadResult{ .failure = err_msg };
+    result.deinit(allocator);
+}
+
+test "UploadResult.deinit fallback" {
+    const allocator = testing.allocator;
+    const result = UploadResult.fallback;
+    result.deinit(allocator);
+}
+
+test "parseJsonPath simple object" {
+    const allocator = testing.allocator;
+
+    // Create minimal config
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const json =
+        \\{
+        \\  "data": {
+        \\    "link": "https://i.imgur.com/abc123.png"
+        \\  }
+        \\}
+    ;
+
+    const url = try uploader.parseJsonPath(json, "$.data.link");
+    defer allocator.free(url);
+
+    try testing.expectEqualStrings("https://i.imgur.com/abc123.png", url);
+}
+
+test "parseJsonPath nested object" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const json =
+        \\{
+        \\  "response": {
+        \\    "data": {
+        \\      "url": "https://example.com/test.jpg"
+        \\    }
+        \\  }
+        \\}
+    ;
+
+    const url = try uploader.parseJsonPath(json, "$.response.data.url");
+    defer allocator.free(url);
+
+    try testing.expectEqualStrings("https://example.com/test.jpg", url);
+}
+
+test "parseJsonPath array access" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const json =
+        \\{
+        \\  "images": [
+        \\    "https://example.com/first.png",
+        \\    "https://example.com/second.png"
+        \\  ]
+        \\}
+    ;
+
+    const url = try uploader.parseJsonPath(json, "$.images.0");
+    defer allocator.free(url);
+
+    try testing.expectEqualStrings("https://example.com/first.png", url);
+}
+
+test "parseJsonPath missing field" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const json =
+        \\{
+        \\  "data": {
+        \\    "link": "https://example.com/test.png"
+        \\  }
+        \\}
+    ;
+
+    const result = uploader.parseJsonPath(json, "$.data.missing");
+    try testing.expectError(error.JsonPathNotFound, result);
+}
+
+test "parseJsonPath non-string value" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const json =
+        \\{
+        \\  "data": {
+        \\    "count": 42
+        \\  }
+        \\}
+    ;
+
+    const result = uploader.parseJsonPath(json, "$.data.count");
+    try testing.expectError(error.NotAString, result);
+}
+
+test "parseResponse with json prefix" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+    config.@"image-upload-response-path" = "json:$.data.link";
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const json =
+        \\{
+        \\  "data": {
+        \\    "link": "https://i.imgur.com/test.png"
+        \\  }
+        \\}
+    ;
+
+    const url = try uploader.parseResponse(json);
+    defer allocator.free(url);
+
+    try testing.expectEqualStrings("https://i.imgur.com/test.png", url);
+}
+
+test "parseResponse with regex prefix returns error" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = null;
+    config.@"image-upload-response-path" = "regex:https?://.*";
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const response = "https://example.com/test.png";
+    const result = uploader.parseResponse(response);
+    try testing.expectError(error.RegexNotImplemented, result);
+}
+
+test "upload returns fallback when disabled" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = false;
+    config.@"image-upload-url" = "https://api.example.com/upload";
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const result = uploader.upload("/tmp/test.png");
+    defer result.deinit(allocator);
+
+    try testing.expect(result == .fallback);
+}
+
+test "upload returns fallback when url is null" {
+    const allocator = testing.allocator;
+
+    var config = Config{};
+    config.@"image-upload-enable" = true;
+    config.@"image-upload-url" = null;
+
+    var uploader = Uploader{
+        .allocator = allocator,
+        .config = &config,
+    };
+
+    const result = uploader.upload("/tmp/test.png");
+    defer result.deinit(allocator);
+
+    try testing.expect(result == .fallback);
 };
