@@ -143,8 +143,8 @@ test "simple search" {
     var search: PageListSearch = try .init(
         alloc,
         "Fizz",
-        &t.screen.pages,
-        t.screen.pages.pages.last.?,
+        &t.screens.active.pages,
+        t.screens.active.pages.pages.last.?,
     );
     defer search.deinit();
 
@@ -153,22 +153,22 @@ test "simple search" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 2,
-        } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
     }
     {
         const sel = search.next().?;
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
     }
     try testing.expect(search.next() == null);
 
@@ -185,21 +185,21 @@ test "feed multiple pages with matches" {
     defer s.deinit();
 
     // Fill up first page
-    const first_page_rows = t.screen.pages.pages.first.?.data.capacity.rows;
+    const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
     for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
     try s.nextSlice("Fizz");
-    try testing.expect(t.screen.pages.pages.first == t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Create second page
     try s.nextSlice("\r\n");
-    try testing.expect(t.screen.pages.pages.first != t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
     try s.nextSlice("Buzz\r\nFizz");
 
     var search: PageListSearch = try .init(
         alloc,
         "Fizz",
-        &t.screen.pages,
-        t.screen.pages.pages.last.?,
+        &t.screens.active.pages,
+        t.screens.active.pages.pages.last.?,
     );
     defer search.deinit();
 
@@ -229,20 +229,20 @@ test "feed multiple pages no matches" {
     defer s.deinit();
 
     // Fill up first page
-    const first_page_rows = t.screen.pages.pages.first.?.data.capacity.rows;
+    const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
     for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
     try s.nextSlice("Hello");
 
     // Create second page
     try s.nextSlice("\r\n");
-    try testing.expect(t.screen.pages.pages.first != t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
     try s.nextSlice("World");
 
     var search: PageListSearch = try .init(
         alloc,
         "Nope",
-        &t.screen.pages,
-        t.screen.pages.pages.last.?,
+        &t.screens.active.pages,
+        t.screens.active.pages.pages.last.?,
     );
     defer search.deinit();
 
@@ -267,23 +267,23 @@ test "feed iteratively through multiple matches" {
     var s = t.vtStream();
     defer s.deinit();
 
-    const first_page_rows = t.screen.pages.pages.first.?.data.capacity.rows;
+    const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
 
     // Fill first page with a match at the end
     for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
     try s.nextSlice("Page1Test");
-    try testing.expect(t.screen.pages.pages.first == t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Create second page with a match
     try s.nextSlice("\r\n");
-    try testing.expect(t.screen.pages.pages.first != t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
     try s.nextSlice("Page2Test");
 
     var search: PageListSearch = try .init(
         alloc,
         "Test",
-        &t.screen.pages,
-        t.screen.pages.pages.last.?,
+        &t.screens.active.pages,
+        t.screens.active.pages.pages.last.?,
     );
     defer search.deinit();
 
@@ -308,23 +308,23 @@ test "feed with match spanning page boundary" {
     var s = t.vtStream();
     defer s.deinit();
 
-    const first_page_rows = t.screen.pages.pages.first.?.data.capacity.rows;
+    const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
 
     // Fill first page ending with "Te"
     for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    for (0..t.screen.pages.cols - 2) |_| try s.nextSlice("x");
+    for (0..t.screens.active.pages.cols - 2) |_| try s.nextSlice("x");
     try s.nextSlice("Te");
-    try testing.expect(t.screen.pages.pages.first == t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Second page starts with "st"
     try s.nextSlice("st");
-    try testing.expect(t.screen.pages.pages.first != t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
 
     var search: PageListSearch = try .init(
         alloc,
         "Test",
-        &t.screen.pages,
-        t.screen.pages.pages.last.?,
+        &t.screens.active.pages,
+        t.screens.active.pages.pages.last.?,
     );
     defer search.deinit();
 
@@ -338,7 +338,7 @@ test "feed with match spanning page boundary" {
     const sel = search.next().?;
     try testing.expect(sel.start().node != sel.end().node);
     {
-        const str = try t.screen.selectionString(
+        const str = try t.screens.active.selectionString(
             alloc,
             .{ .sel = sel },
         );
@@ -361,24 +361,24 @@ test "feed with match spanning page boundary with newline" {
     var s = t.vtStream();
     defer s.deinit();
 
-    const first_page_rows = t.screen.pages.pages.first.?.data.capacity.rows;
+    const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
 
     // Fill first page ending with "Te"
     for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    for (0..t.screen.pages.cols - 2) |_| try s.nextSlice("x");
+    for (0..t.screens.active.pages.cols - 2) |_| try s.nextSlice("x");
     try s.nextSlice("Te");
-    try testing.expect(t.screen.pages.pages.first == t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Second page starts with "st"
     try s.nextSlice("\r\n");
-    try testing.expect(t.screen.pages.pages.first != t.screen.pages.pages.last);
+    try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
     try s.nextSlice("st");
 
     var search: PageListSearch = try .init(
         alloc,
         "Test",
-        &t.screen.pages,
-        t.screen.pages.pages.last.?,
+        &t.screens.active.pages,
+        t.screens.active.pages.pages.last.?,
     );
     defer search.deinit();
 

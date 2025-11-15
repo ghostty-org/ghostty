@@ -398,7 +398,7 @@ test "matchset" {
     const alloc = testing.allocator;
 
     // Initialize our screen
-    var s = try Screen.init(alloc, 5, 5, 0);
+    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);
@@ -456,7 +456,7 @@ test "matchset hover links" {
     const alloc = testing.allocator;
 
     // Initialize our screen
-    var s = try Screen.init(alloc, 5, 5, 0);
+    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);
@@ -549,7 +549,7 @@ test "matchset mods no match" {
     const alloc = testing.allocator;
 
     // Initialize our screen
-    var s = try Screen.init(alloc, 5, 5, 0);
+    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);
@@ -609,12 +609,12 @@ test "matchset osc8" {
     // Initialize our terminal
     var t = try Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
-    const s = &t.screen;
+    const s: *terminal.Screen = t.screens.active;
 
     try t.printString("ABC");
-    try t.screen.startHyperlink("http://example.com", null);
+    try t.screens.active.startHyperlink("http://example.com", null);
     try t.printString("123");
-    t.screen.endHyperlink();
+    t.screens.active.endHyperlink();
 
     // Get a set
     var set = try Set.fromConfig(alloc, &.{});
@@ -624,7 +624,7 @@ test "matchset osc8" {
     {
         var match = try set.matchSet(
             alloc,
-            &t.screen,
+            t.screens.active,
             .{ .x = 2, .y = 0 },
             inputpkg.ctrlOrSuper(.{}),
         );
@@ -635,7 +635,7 @@ test "matchset osc8" {
     // Match over link
     var match = try set.matchSet(
         alloc,
-        &t.screen,
+        t.screens.active,
         .{ .x = 3, .y = 0 },
         inputpkg.ctrlOrSuper(.{}),
     );

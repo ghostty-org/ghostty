@@ -246,19 +246,18 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     errdefer term.deinit(alloc);
 
     // Set the image size limits
-    try term.screen.kitty_images.setLimit(
-        alloc,
-        &term.screen,
-        opts.config.image_storage_limit,
-    );
-    try term.secondary_screen.kitty_images.setLimit(
-        alloc,
-        &term.secondary_screen,
-        opts.config.image_storage_limit,
-    );
+    var it = term.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *terminalpkg.Screen = entry.value.*;
+        try screen.kitty_images.setLimit(
+            alloc,
+            screen,
+            opts.config.image_storage_limit,
+        );
+    }
 
     // Set our default cursor style
-    term.screen.cursor.cursor_style = opts.config.cursor_style;
+    term.screens.active.cursor.cursor_style = opts.config.cursor_style;
 
     // Setup our terminal size in pixels for certain requests.
     term.width_px = term.cols * opts.size.cell.width;
@@ -451,16 +450,15 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     };
 
     // Set the image size limits
-    try self.terminal.screen.kitty_images.setLimit(
-        self.alloc,
-        &self.terminal.screen,
-        config.image_storage_limit,
-    );
-    try self.terminal.secondary_screen.kitty_images.setLimit(
-        self.alloc,
-        &self.terminal.secondary_screen,
-        config.image_storage_limit,
-    );
+    var it = self.terminal.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *terminalpkg.Screen = entry.value.*;
+        try screen.kitty_images.setLimit(
+            self.alloc,
+            screen,
+            config.image_storage_limit,
+        );
+    }
 }
 
 /// Resize the terminal.
@@ -578,20 +576,20 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         // emulator-level screen clear, this messes up the running programs
         // knowledge of where the cursor is and causes rendering issues. So,
         // for alt screen, we do nothing.
-        if (self.terminal.active_screen == .alternate) return;
+        if (self.terminal.screens.active_key == .alternate) return;
 
         // Clear our selection
-        self.terminal.screen.clearSelection();
+        self.terminal.screens.active.clearSelection();
 
         // Clear our scrollback
         if (history) self.terminal.eraseDisplay(.scrollback, false);
 
         // If we're not at a prompt, we just delete above the cursor.
         if (!self.terminal.cursorIsAtPrompt()) {
-            if (self.terminal.screen.cursor.y > 0) {
-                self.terminal.screen.eraseRows(
+            if (self.terminal.screens.active.cursor.y > 0) {
+                self.terminal.screens.active.eraseRows(
                     .{ .active = .{ .y = 0 } },
-                    .{ .active = .{ .y = self.terminal.screen.cursor.y - 1 } },
+                    .{ .active = .{ .y = self.terminal.screens.active.cursor.y - 1 } },
                 );
             }
 
@@ -601,8 +599,8 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
             // graphics that are placed baove the cursor or if it deletes
             // all of them. We delete all of them for now but if this behavior
             // isn't fully correct we should fix this later.
-            self.terminal.screen.kitty_images.delete(
-                self.terminal.screen.alloc,
+            self.terminal.screens.active.kitty_images.delete(
+                self.terminal.screens.active.alloc,
                 &self.terminal,
                 .{ .all = true },
             );
@@ -635,7 +633,7 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        self.terminal.screen.scroll(.{ .delta_prompt = delta });
+        self.terminal.screens.active.scroll(.{ .delta_prompt = delta });
     }
 
     try self.renderer_wakeup.notify();

@@ -451,7 +451,7 @@ pub fn adjust(
 
 test "Selection: adjust right" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A1234\nB5678\nC1234\nD5678");
 
@@ -518,7 +518,7 @@ test "Selection: adjust right" {
 
 test "Selection: adjust left" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A1234\nB5678\nC1234\nD5678");
 
@@ -567,7 +567,7 @@ test "Selection: adjust left" {
 
 test "Selection: adjust left skips blanks" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A1234\nB5678\nC12\nD56");
 
@@ -616,7 +616,7 @@ test "Selection: adjust left skips blanks" {
 
 test "Selection: adjust up" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A\nB\nC\nD\nE");
 
@@ -663,7 +663,7 @@ test "Selection: adjust up" {
 
 test "Selection: adjust down" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A\nB\nC\nD\nE");
 
@@ -710,7 +710,7 @@ test "Selection: adjust down" {
 
 test "Selection: adjust down with not full screen" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A\nB\nC");
 
@@ -738,7 +738,7 @@ test "Selection: adjust down with not full screen" {
 
 test "Selection: adjust home" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A\nB\nC");
 
@@ -766,7 +766,7 @@ test "Selection: adjust home" {
 
 test "Selection: adjust end with not full screen" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A\nB\nC");
 
@@ -794,7 +794,7 @@ test "Selection: adjust end with not full screen" {
 
 test "Selection: adjust beginning of line" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 8, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 8, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A12 B34\nC12 D34");
 
@@ -864,7 +864,7 @@ test "Selection: adjust beginning of line" {
 
 test "Selection: adjust end of line" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 8, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 8, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("A12 B34\nC12 D34");
 
@@ -934,7 +934,7 @@ test "Selection: order, standard" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try Screen.init(alloc, 100, 100, 1);
+    var s = try Screen.init(alloc, .{ .cols = 100, .rows = 100, .max_scrollback = 1 });
     defer s.deinit();
 
     {
@@ -998,7 +998,7 @@ test "Selection: order, rectangle" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try Screen.init(alloc, 100, 100, 1);
+    var s = try Screen.init(alloc, .{ .cols = 100, .rows = 100, .max_scrollback = 1 });
     defer s.deinit();
 
     // Conventions:
@@ -1110,7 +1110,7 @@ test "Selection: order, rectangle" {
 test "topLeft" {
     const testing = std.testing;
 
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     {
         // forward
@@ -1173,7 +1173,7 @@ test "topLeft" {
 test "bottomRight" {
     const testing = std.testing;
 
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     {
         // forward
@@ -1236,7 +1236,7 @@ test "bottomRight" {
 test "ordered" {
     const testing = std.testing;
 
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     {
         // forward
@@ -1317,7 +1317,7 @@ test "ordered" {
 test "Selection: contains" {
     const testing = std.testing;
 
-    var s = try Screen.init(testing.allocator, 10, 10, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
     defer s.deinit();
     {
         const sel = Selection.init(
@@ -1363,7 +1363,7 @@ test "Selection: contains" {
 test "Selection: contains, rectangle" {
     const testing = std.testing;
 
-    var s = try Screen.init(testing.allocator, 15, 15, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 15, .rows = 15, .max_scrollback = 0 });
     defer s.deinit();
     {
         const sel = Selection.init(
@@ -1425,7 +1425,7 @@ test "Selection: contains, rectangle" {
 
 test "Selection: containedRow" {
     const testing = std.testing;
-    var s = try Screen.init(testing.allocator, 10, 5, 0);
+    var s = try Screen.init(testing.allocator, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
 
     {

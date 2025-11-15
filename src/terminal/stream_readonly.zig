@@ -63,15 +63,15 @@ pub const Handler = struct {
             .cursor_left => self.terminal.cursorLeft(value.value),
             .cursor_right => self.terminal.cursorRight(value.value),
             .cursor_pos => self.terminal.setCursorPos(value.row, value.col),
-            .cursor_col => self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, value.value),
-            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screen.cursor.x + 1),
+            .cursor_col => self.terminal.setCursorPos(self.terminal.screens.active.cursor.y + 1, value.value),
+            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screens.active.cursor.x + 1),
             .cursor_col_relative => self.terminal.setCursorPos(
-                self.terminal.screen.cursor.y + 1,
-                self.terminal.screen.cursor.x + 1 +| value.value,
+                self.terminal.screens.active.cursor.y + 1,
+                self.terminal.screens.active.cursor.x + 1 +| value.value,
             ),
             .cursor_row_relative => self.terminal.setCursorPos(
-                self.terminal.screen.cursor.y + 1 +| value.value,
-                self.terminal.screen.cursor.x + 1,
+                self.terminal.screens.active.cursor.y + 1 +| value.value,
+                self.terminal.screens.active.cursor.x + 1,
             ),
             .cursor_style => {
                 const blink = switch (value) {
@@ -84,7 +84,7 @@ pub const Handler = struct {
                     .blinking_underline, .steady_underline => .underline,
                 };
                 self.terminal.modes.set(.cursor_blinking, blink);
-                self.terminal.screen.cursor.cursor_style = style;
+                self.terminal.screens.active.cursor.cursor_style = style;
             },
             .erase_display_below => self.terminal.eraseDisplay(.below, value),
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
@@ -136,11 +136,11 @@ pub const Handler = struct {
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
             .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
-            .kitty_keyboard_push => self.terminal.screen.kitty_keyboard.push(value.flags),
-            .kitty_keyboard_pop => self.terminal.screen.kitty_keyboard.pop(@intCast(value)),
-            .kitty_keyboard_set => self.terminal.screen.kitty_keyboard.set(.set, value.flags),
-            .kitty_keyboard_set_or => self.terminal.screen.kitty_keyboard.set(.@"or", value.flags),
-            .kitty_keyboard_set_not => self.terminal.screen.kitty_keyboard.set(.not, value.flags),
+            .kitty_keyboard_push => self.terminal.screens.active.kitty_keyboard.push(value.flags),
+            .kitty_keyboard_pop => self.terminal.screens.active.kitty_keyboard.pop(@intCast(value)),
+            .kitty_keyboard_set => self.terminal.screens.active.kitty_keyboard.set(.set, value.flags),
+            .kitty_keyboard_set_or => self.terminal.screens.active.kitty_keyboard.set(.@"or", value.flags),
+            .kitty_keyboard_set_not => self.terminal.screens.active.kitty_keyboard.set(.not, value.flags),
             .modify_key_format => {
                 self.terminal.flags.modify_other_keys_2 = false;
                 switch (value) {
@@ -151,16 +151,16 @@ pub const Handler = struct {
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.terminal.decaln(),
             .full_reset => self.terminal.fullReset(),
-            .start_hyperlink => try self.terminal.screen.startHyperlink(value.uri, value.id),
-            .end_hyperlink => self.terminal.screen.endHyperlink(),
+            .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
+            .end_hyperlink => self.terminal.screens.active.endHyperlink(),
             .prompt_start => {
-                self.terminal.screen.cursor.page_row.semantic_prompt = .prompt;
+                self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
                 self.terminal.flags.shell_redraws_prompt = value.redraw;
             },
-            .prompt_continuation => self.terminal.screen.cursor.page_row.semantic_prompt = .prompt_continuation,
+            .prompt_continuation => self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation,
             .prompt_end => self.terminal.markSemanticPrompt(.input),
             .end_of_input => self.terminal.markSemanticPrompt(.command),
-            .end_of_command => self.terminal.screen.cursor.page_row.semantic_prompt = .input,
+            .end_of_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
             .mouse_shape => self.terminal.mouse_shape = value,
             .color_operation => try self.colorOperation(value.op, &value.requests),
             .kitty_color_report => try self.kittyColorOperation(value),
@@ -202,17 +202,17 @@ pub const Handler = struct {
 
     inline fn horizontalTab(self: *Handler, count: u16) !void {
         for (0..count) |_| {
-            const x = self.terminal.screen.cursor.x;
+            const x = self.terminal.screens.active.cursor.x;
             try self.terminal.horizontalTab();
-            if (x == self.terminal.screen.cursor.x) break;
+            if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
     inline fn horizontalTabBack(self: *Handler, count: u16) !void {
         for (0..count) |_| {
-            const x = self.terminal.screen.cursor.x;
+            const x = self.terminal.screens.active.cursor.x;
             try self.terminal.horizontalTabBack();
-            if (x == self.terminal.screen.cursor.x) break;
+            if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
@@ -233,9 +233,9 @@ pub const Handler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
-            .alt_screen_legacy => self.terminal.switchScreenMode(.@"47", enabled),
-            .alt_screen => self.terminal.switchScreenMode(.@"1047", enabled),
-            .alt_screen_save_cursor_clear_enter => self.terminal.switchScreenMode(.@"1049", enabled),
+            .alt_screen_legacy => try self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => try self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => try self.terminal.switchScreenMode(.@"1049", enabled),
 
             .save_cursor => if (enabled) {
                 self.terminal.saveCursor();
@@ -246,7 +246,7 @@ pub const Handler = struct {
             .enable_mode_3 => {},
 
             .@"132_column" => try self.terminal.deccolm(
-                self.terminal.screen.alloc,
+                self.terminal.screens.active.alloc,
                 if (enabled) .@"132_cols" else .@"80_cols",
             ),
 
@@ -410,8 +410,8 @@ test "basic print" {
     defer s.deinit();
 
     try s.nextSlice("Hello");
-    try testing.expectEqual(@as(usize, 5), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 5), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
@@ -427,13 +427,13 @@ test "cursor movement" {
 
     // Move cursor using escape sequences
     try s.nextSlice("Hello\x1B[1;1H");
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     // Move to position 2,3
     try s.nextSlice("\x1B[2;3H");
-    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
 }
 
 test "erase operations" {
@@ -445,8 +445,8 @@ test "erase operations" {
 
     // Print some text
     try s.nextSlice("Hello World");
-    try testing.expectEqual(@as(usize, 11), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 11), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     // Move cursor to position 1,6 and erase from cursor to end of line
     try s.nextSlice("\x1B[1;6H");
@@ -465,7 +465,7 @@ test "tabs" {
     defer s.deinit();
 
     try s.nextSlice("A\tB");
-    try testing.expectEqual(@as(usize, 9), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.x);
 
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
@@ -527,18 +527,18 @@ test "alt screen" {
 
     // Write to primary screen
     try s.nextSlice("Primary");
-    try testing.expectEqual(Terminal.ScreenType.primary, t.active_screen);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Switch to alt screen
     try s.nextSlice("\x1B[?1049h");
-    try testing.expectEqual(Terminal.ScreenType.alternate, t.active_screen);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Write to alt screen
     try s.nextSlice("Alt");
 
     // Switch back to primary
     try s.nextSlice("\x1B[?1049l");
-    try testing.expectEqual(Terminal.ScreenType.primary, t.active_screen);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
@@ -554,21 +554,21 @@ test "cursor save and restore" {
 
     // Move cursor to 10,15
     try s.nextSlice("\x1B[10;15H");
-    try testing.expectEqual(@as(usize, 14), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 14), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.y);
 
     // Save cursor
     try s.nextSlice("\x1B7");
 
     // Move cursor elsewhere
     try s.nextSlice("\x1B[1;1H");
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     // Restore cursor
     try s.nextSlice("\x1B8");
-    try testing.expectEqual(@as(usize, 14), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 14), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.y);
 }
 
 test "attributes" {
@@ -603,8 +603,8 @@ test "DECALN screen alignment" {
     try testing.expectEqualStrings("EEEEEEEEEE\nEEEEEEEEEE\nEEEEEEEEEE", str);
 
     // Cursor should be at 1,1
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 }
 
 test "full reset" {
@@ -624,8 +624,8 @@ test "full reset" {
     try s.nextSlice("\x1Bc");
 
     // Verify reset state
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 0), t.scrolling_region.top);
     try testing.expectEqual(@as(usize, 23), t.scrolling_region.bottom);
     try testing.expect(t.modes.get(.wraparound));

@@ -64,7 +64,7 @@ pub const VTEvent = struct {
         return .{
             .kind = kind,
             .str = str,
-            .cursor = t.screen.cursor,
+            .cursor = t.screens.active.cursor,
             .scrolling_region = t.scrolling_region,
             .metadata = md.unmanaged,
         };

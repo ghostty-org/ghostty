@@ -1558,7 +1558,7 @@ pub const CAPI = struct {
         defer core_surface.renderer_state.mutex.unlock();
 
         // If we don't have a selection, do nothing.
-        const core_sel = core_surface.io.terminal.screen.selection orelse return false;
+        const core_sel = core_surface.io.terminal.screens.active.selection orelse return false;
 
         // Read the text from the selection.
         return readTextLocked(surface, core_sel, result);
@@ -1578,7 +1578,7 @@ pub const CAPI = struct {
         defer surface.core_surface.renderer_state.mutex.unlock();
 
         const core_sel = sel.core(
-            &surface.core_surface.renderer_state.terminal.screen,
+            surface.core_surface.renderer_state.terminal.screens.active,
         ) orelse return false;
 
         return readTextLocked(surface, core_sel, result);
@@ -2137,7 +2137,7 @@ pub const CAPI = struct {
 
             // Get our word selection
             const sel = sel: {
-                const screen = &surface.renderer_state.terminal.screen;
+                const screen: *terminal.Screen = surface.renderer_state.terminal.screens.active;
                 const pos = try ptr.getCursorPos();
                 const pt_viewport = surface.posToViewport(pos.x, pos.y);
                 const pin = screen.pages.pin(.{
@@ -2149,7 +2149,7 @@ pub const CAPI = struct {
                     if (comptime std.debug.runtime_safety) unreachable;
                     return false;
                 };
-                break :sel surface.io.terminal.screen.selectWord(pin) orelse return false;
+                break :sel surface.io.terminal.screens.active.selectWord(pin) orelse return false;
             };
 
             // Read the selection

@@ -1066,7 +1066,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 bg: terminal.color.RGB,
                 fg: terminal.color.RGB,
                 screen: terminal.Screen,
-                screen_type: terminal.ScreenType,
+                screen_type: terminal.ScreenSet.Key,
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
                 cursor_color: ?terminal.color.RGB,
@@ -1102,7 +1102,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // naturally limits the number of calls to this method (it
                 // can be expensive) and also makes it so we don't need another
                 // cross-thread mailbox message within the IO path.
-                const scrollbar = state.terminal.screen.pages.scrollbar();
+                const scrollbar = state.terminal.screens.active.pages.scrollbar();
 
                 // Get our bg/fg, swap them if reversed.
                 const RGB = terminal.color.RGB;
@@ -1116,12 +1116,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 // Get the viewport pin so that we can compare it to the current.
-                const viewport_pin = state.terminal.screen.pages.pin(.{ .viewport = .{} }).?;
+                const viewport_pin = state.terminal.screens.active.pages.pin(.{ .viewport = .{} }).?;
 
                 // We used to share terminal state, but we've since learned through
                 // analysis that it is faster to copy the terminal state than to
                 // hold the lock while rebuilding GPU cells.
-                var screen_copy = try state.terminal.screen.clone(
+                var screen_copy = try state.terminal.screens.active.clone(
                     self.alloc,
                     .{ .viewport = .{} },
                     null,
@@ -1153,7 +1153,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we have any virtual references, we must also rebuild our
                 // kitty state on every frame because any cell change can move
                 // an image.
-                if (state.terminal.screen.kitty_images.dirty or
+                if (state.terminal.screens.active.kitty_images.dirty or
                     self.image_virtual)
                 {
                     try self.prepKittyGraphics(state.terminal);
@@ -1169,7 +1169,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     }
                     {
                         const Int = @typeInfo(terminal.Screen.Dirty).@"struct".backing_integer.?;
-                        const v: Int = @bitCast(state.terminal.screen.dirty);
+                        const v: Int = @bitCast(state.terminal.screens.active.dirty);
                         if (v > 0) break :rebuild true;
                     }
 
@@ -1187,9 +1187,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // success and reset while we hold the lock. This is much easier
                 // than coordinating row by row or as changes are persisted.
                 state.terminal.flags.dirty = .{};
-                state.terminal.screen.dirty = .{};
+                state.terminal.screens.active.dirty = .{};
                 {
-                    var it = state.terminal.screen.pages.pageIterator(
+                    var it = state.terminal.screens.active.pages.pageIterator(
                         .right_down,
                         .{ .screen = .{} },
                         null,
@@ -1207,7 +1207,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .bg = bg,
                     .fg = fg,
                     .screen = screen_copy,
-                    .screen_type = state.terminal.active_screen,
+                    .screen_type = state.terminal.screens.active_key,
                     .mouse = state.mouse,
                     .preedit = preedit,
                     .cursor_color = state.terminal.colors.cursor.get(),
@@ -1633,7 +1633,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
 
-            const storage = &t.screen.kitty_images;
+            const storage = &t.screens.active.kitty_images;
             defer storage.dirty = false;
 
             // We always clear our previous placements no matter what because
@@ -1657,10 +1657,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // The top-left and bottom-right corners of our viewport in screen
             // points. This lets us determine offsets and containment of placements.
-            const top = t.screen.pages.getTopLeft(.viewport);
-            const bot = t.screen.pages.getBottomRight(.viewport).?;
-            const top_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
-            const bot_y = t.screen.pages.pointFromPin(.screen, bot).?.screen.y;
+            const top = t.screens.active.pages.getTopLeft(.viewport);
+            const bot = t.screens.active.pages.getBottomRight(.viewport).?;
+            const top_y = t.screens.active.pages.pointFromPin(.screen, top).?.screen.y;
+            const bot_y = t.screens.active.pages.pointFromPin(.screen, bot).?.screen.y;
 
             // Go through the placements and ensure the image is
             // on the GPU or else is ready to be sent to the GPU.
@@ -1751,7 +1751,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             t: *terminal.Terminal,
             p: *const terminal.kitty.graphics.unicode.Placement,
         ) !void {
-            const storage = &t.screen.kitty_images;
+            const storage = &t.screens.active.kitty_images;
             const image = storage.imageById(p.image_id) orelse {
                 log.warn(
                     "missing image for virtual placement, ignoring image_id={}",
@@ -1773,7 +1773,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // If our placement is zero sized then we don't do anything.
             if (rp.dest_width == 0 or rp.dest_height == 0) return;
 
-            const viewport: terminal.point.Point = t.screen.pages.pointFromPin(
+            const viewport: terminal.point.Point = t.screens.active.pages.pointFromPin(
                 .viewport,
                 rp.top_left,
             ) orelse {
@@ -1817,8 +1817,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const rect = p.rect(image.*, t) orelse return;
 
             // This is expensive but necessary.
-            const img_top_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-            const img_bot_y = t.screen.pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
+            const img_top_y = t.screens.active.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
+            const img_bot_y = t.screens.active.pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
 
             // If the selection isn't within our viewport then skip it.
             if (img_top_y > bot_y) return;
@@ -2317,7 +2317,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             wants_rebuild: bool,
             screen: *terminal.Screen,
-            screen_type: terminal.ScreenType,
+            screen_type: terminal.ScreenSet.Key,
             mouse: renderer.State.Mouse,
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,

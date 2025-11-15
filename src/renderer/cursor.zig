@@ -41,7 +41,7 @@ pub fn style(
     // at the bottom, we never render the cursor. The cursor x/y is by
     // viewport so if we are above the viewport, we'll end up rendering
     // the cursor in some random part of the screen.
-    if (!state.terminal.screen.viewportIsBottom()) return null;
+    if (!state.terminal.screens.active.viewportIsBottom()) return null;
 
     // If we are in preedit, then we always show the block cursor. We do
     // this even if the cursor is explicitly not visible because it shows
@@ -62,7 +62,7 @@ pub fn style(
     }
 
     // Otherwise, we use whatever style the terminal wants.
-    return .fromTerminal(state.terminal.screen.cursor.cursor_style);
+    return .fromTerminal(state.terminal.screens.active.cursor.cursor_style);
 }
 
 test "cursor: default uses configured style" {
@@ -71,7 +71,7 @@ test "cursor: default uses configured style" {
     var term = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
     defer term.deinit(alloc);
 
-    term.screen.cursor.cursor_style = .bar;
+    term.screens.active.cursor.cursor_style = .bar;
     term.modes.set(.cursor_blinking, true);
 
     var state: State = .{
@@ -92,7 +92,7 @@ test "cursor: blinking disabled" {
     var term = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
     defer term.deinit(alloc);
 
-    term.screen.cursor.cursor_style = .bar;
+    term.screens.active.cursor.cursor_style = .bar;
     term.modes.set(.cursor_blinking, false);
 
     var state: State = .{
@@ -113,7 +113,7 @@ test "cursor: explicitly not visible" {
     var term = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
     defer term.deinit(alloc);
 
-    term.screen.cursor.cursor_style = .bar;
+    term.screens.active.cursor.cursor_style = .bar;
     term.modes.set(.cursor_visible, false);
     term.modes.set(.cursor_blinking, false);
 

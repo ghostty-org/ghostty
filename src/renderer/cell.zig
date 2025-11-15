@@ -524,7 +524,7 @@ test "Cell constraint widths" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try terminal.Screen.init(alloc, 4, 1, 0);
+    var s = try terminal.Screen.init(alloc, .{ .cols = 4, .rows = 1, .max_scrollback = 0 });
     defer s.deinit();
 
     // for each case, the numbers in the comment denote expected

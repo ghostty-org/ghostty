@@ -304,7 +304,7 @@ fn renderScreenWindow(self: *Inspector) void {
     )) return;
 
     const t = self.surface.renderer_state.terminal;
-    const screen = &t.screen;
+    const screen: *terminal.Screen = t.screens.active;
 
     {
         _ = cimgui.c.igBeginTable(
@@ -324,7 +324,7 @@ fn renderScreenWindow(self: *Inspector) void {
             }
             {
                 _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText("%s", @tagName(t.active_screen).ptr);
+                cimgui.c.igText("%s", @tagName(t.screens.active_key).ptr);
             }
         }
     }
@@ -774,7 +774,7 @@ fn renderSizeWindow(self: *Inspector) void {
         {
             const hover_point: terminal.point.Coordinate = pt: {
                 const p = self.mouse.last_point orelse break :pt .{};
-                const pt = t.screen.pages.pointFromPin(
+                const pt = t.screens.active.pages.pointFromPin(
                     .active,
                     p,
                 ) orelse break :pt .{};
@@ -861,7 +861,7 @@ fn renderSizeWindow(self: *Inspector) void {
         {
             const left_click_point: terminal.point.Coordinate = pt: {
                 const p = mouse.left_click_pin orelse break :pt .{};
-                const pt = t.screen.pages.pointFromPin(
+                const pt = t.screens.active.pages.pointFromPin(
                     .active,
                     p.*,
                 ) orelse break :pt .{};

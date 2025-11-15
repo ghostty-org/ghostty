@@ -181,15 +181,15 @@ pub const StreamHandler = struct {
             .cursor_left => self.terminal.cursorLeft(value.value),
             .cursor_right => self.terminal.cursorRight(value.value),
             .cursor_pos => self.terminal.setCursorPos(value.row, value.col),
-            .cursor_col => self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, value.value),
-            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screen.cursor.x + 1),
+            .cursor_col => self.terminal.setCursorPos(self.terminal.screens.active.cursor.y + 1, value.value),
+            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screens.active.cursor.x + 1),
             .cursor_col_relative => self.terminal.setCursorPos(
-                self.terminal.screen.cursor.y + 1,
-                self.terminal.screen.cursor.x + 1 +| value.value,
+                self.terminal.screens.active.cursor.y + 1,
+                self.terminal.screens.active.cursor.x + 1 +| value.value,
             ),
             .cursor_row_relative => self.terminal.setCursorPos(
-                self.terminal.screen.cursor.y + 1 +| value.value,
-                self.terminal.screen.cursor.x + 1,
+                self.terminal.screens.active.cursor.y + 1 +| value.value,
+                self.terminal.screens.active.cursor.x + 1,
             ),
             .cursor_style => try self.setCursorStyle(value),
             .erase_display_below => self.terminal.eraseDisplay(.below, value),
@@ -254,23 +254,23 @@ pub const StreamHandler = struct {
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
             .kitty_keyboard_push => {
                 log.debug("pushing kitty keyboard mode: {}", .{value.flags});
-                self.terminal.screen.kitty_keyboard.push(value.flags);
+                self.terminal.screens.active.kitty_keyboard.push(value.flags);
             },
             .kitty_keyboard_pop => {
                 log.debug("popping kitty keyboard mode n={}", .{value});
-                self.terminal.screen.kitty_keyboard.pop(@intCast(value));
+                self.terminal.screens.active.kitty_keyboard.pop(@intCast(value));
             },
             .kitty_keyboard_set => {
                 log.debug("setting kitty keyboard mode: set {}", .{value.flags});
-                self.terminal.screen.kitty_keyboard.set(.set, value.flags);
+                self.terminal.screens.active.kitty_keyboard.set(.set, value.flags);
             },
             .kitty_keyboard_set_or => {
                 log.debug("setting kitty keyboard mode: or {}", .{value.flags});
-                self.terminal.screen.kitty_keyboard.set(.@"or", value.flags);
+                self.terminal.screens.active.kitty_keyboard.set(.@"or", value.flags);
             },
             .kitty_keyboard_set_not => {
                 log.debug("setting kitty keyboard mode: not {}", .{value.flags});
-                self.terminal.screen.kitty_keyboard.set(.not, value.flags);
+                self.terminal.screens.active.kitty_keyboard.set(.not, value.flags);
             },
             .kitty_color_report => try self.kittyColorReport(value),
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
@@ -371,7 +371,7 @@ pub const StreamHandler = struct {
 
                     .decscusr => {
                         const blink = self.terminal.modes.get(.cursor_blinking);
-                        const style: u8 = switch (self.terminal.screen.cursor.cursor_style) {
+                        const style: u8 = switch (self.terminal.screens.active.cursor.cursor_style) {
                             .block => if (blink) 1 else 2,
                             .underline => if (blink) 3 else 4,
                             .bar => if (blink) 5 else 6,
@@ -443,17 +443,17 @@ pub const StreamHandler = struct {
 
     inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
-            const x = self.terminal.screen.cursor.x;
+            const x = self.terminal.screens.active.cursor.x;
             try self.terminal.horizontalTab();
-            if (x == self.terminal.screen.cursor.x) break;
+            if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
     inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
-            const x = self.terminal.screen.cursor.x;
+            const x = self.terminal.screens.active.cursor.x;
             try self.terminal.horizontalTabBack();
-            if (x == self.terminal.screen.cursor.x) break;
+            if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
@@ -583,15 +583,15 @@ pub const StreamHandler = struct {
             },
 
             .alt_screen_legacy => {
-                self.terminal.switchScreenMode(.@"47", enabled);
+                try self.terminal.switchScreenMode(.@"47", enabled);
             },
 
             .alt_screen => {
-                self.terminal.switchScreenMode(.@"1047", enabled);
+                try self.terminal.switchScreenMode(.@"1047", enabled);
             },
 
             .alt_screen_save_cursor_clear_enter => {
-                self.terminal.switchScreenMode(.@"1049", enabled);
+                try self.terminal.switchScreenMode(.@"1049", enabled);
             },
 
             // Mode 1048 is xterm's conditional save cursor depending
@@ -688,11 +688,11 @@ pub const StreamHandler = struct {
     }
 
     inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
-        try self.terminal.screen.startHyperlink(uri, id);
+        try self.terminal.screens.active.startHyperlink(uri, id);
     }
 
     pub inline fn endHyperlink(self: *StreamHandler) !void {
-        self.terminal.screen.endHyperlink();
+        self.terminal.screens.active.endHyperlink();
     }
 
     pub fn deviceAttributes(
@@ -732,11 +732,11 @@ pub const StreamHandler = struct {
                     x: usize,
                     y: usize,
                 } = if (self.terminal.modes.get(.origin)) .{
-                    .x = self.terminal.screen.cursor.x -| self.terminal.scrolling_region.left,
-                    .y = self.terminal.screen.cursor.y -| self.terminal.scrolling_region.top,
+                    .x = self.terminal.screens.active.cursor.x -| self.terminal.scrolling_region.left,
+                    .y = self.terminal.screens.active.cursor.y -| self.terminal.scrolling_region.top,
                 } else .{
-                    .x = self.terminal.screen.cursor.x,
-                    .y = self.terminal.screen.cursor.y,
+                    .x = self.terminal.screens.active.cursor.x,
+                    .y = self.terminal.screens.active.cursor.y,
                 };
 
                 // Response always is at least 4 chars, so this leaves the
@@ -766,7 +766,7 @@ pub const StreamHandler = struct {
         switch (style) {
             .default => {
                 self.default_cursor = true;
-                self.terminal.screen.cursor.cursor_style = self.default_cursor_style;
+                self.terminal.screens.active.cursor.cursor_style = self.default_cursor_style;
                 self.terminal.modes.set(
                     .cursor_blinking,
                     self.default_cursor_blink orelse true,
@@ -774,32 +774,32 @@ pub const StreamHandler = struct {
             },
 
             .blinking_block => {
-                self.terminal.screen.cursor.cursor_style = .block;
+                self.terminal.screens.active.cursor.cursor_style = .block;
                 self.terminal.modes.set(.cursor_blinking, true);
             },
 
             .steady_block => {
-                self.terminal.screen.cursor.cursor_style = .block;
+                self.terminal.screens.active.cursor.cursor_style = .block;
                 self.terminal.modes.set(.cursor_blinking, false);
             },
 
             .blinking_underline => {
-                self.terminal.screen.cursor.cursor_style = .underline;
+                self.terminal.screens.active.cursor.cursor_style = .underline;
                 self.terminal.modes.set(.cursor_blinking, true);
             },
 
             .steady_underline => {
-                self.terminal.screen.cursor.cursor_style = .underline;
+                self.terminal.screens.active.cursor.cursor_style = .underline;
                 self.terminal.modes.set(.cursor_blinking, false);
             },
 
             .blinking_bar => {
-                self.terminal.screen.cursor.cursor_style = .bar;
+                self.terminal.screens.active.cursor.cursor_style = .bar;
                 self.terminal.modes.set(.cursor_blinking, true);
             },
 
             .steady_bar => {
-                self.terminal.screen.cursor.cursor_style = .bar;
+                self.terminal.screens.active.cursor.cursor_style = .bar;
                 self.terminal.modes.set(.cursor_blinking, false);
             },
         }
@@ -844,7 +844,7 @@ pub const StreamHandler = struct {
         log.debug("querying kitty keyboard mode", .{});
         var data: termio.Message.WriteReq.Small.Array = undefined;
         const resp = try std.fmt.bufPrint(&data, "\x1b[?{}u", .{
-            self.terminal.screen.kitty_keyboard.current().int(),
+            self.terminal.screens.active.kitty_keyboard.current().int(),
         });
 
         self.messageWriter(.{

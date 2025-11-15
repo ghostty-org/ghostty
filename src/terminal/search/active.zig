@@ -112,29 +112,29 @@ test "simple search" {
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
-    _ = try search.update(&t.screen.pages);
+    _ = try search.update(&t.screens.active.pages);
 
     {
         const sel = search.next().?;
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
     }
     {
         const sel = search.next().?;
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 2,
-        } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
     }
     try testing.expect(search.next() == null);
 }
@@ -150,23 +150,23 @@ test "clear screen and search" {
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
-    _ = try search.update(&t.screen.pages);
+    _ = try search.update(&t.screens.active.pages);
 
     try s.nextSlice("\x1b[2J"); // Clear screen
     try s.nextSlice("\x1b[H"); // Move cursor home
     try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
-    _ = try search.update(&t.screen.pages);
+    _ = try search.update(&t.screens.active.pages);
 
     {
         const sel = search.next().?;
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 1,
-        } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 1,
-        } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
     }
     try testing.expect(search.next() == null);
 }

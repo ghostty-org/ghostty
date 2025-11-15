@@ -893,7 +893,7 @@ test "unicode placement: none" {
     try t.printString("hello\nworld\n1\n2");
 
     // No placements
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
     var it = placementIterator(pin, null);
     try testing.expect(it.next() == null);
 }
@@ -908,7 +908,7 @@ test "unicode placement: single row/col" {
     try t.printString("\u{10EEEE}\u{0305}\u{0305}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -933,7 +933,7 @@ test "unicode placement: continuation break" {
     try t.printString("\u{10EEEE}\u{0305}\u{030E}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -968,7 +968,7 @@ test "unicode placement: continuation with diacritics set" {
     try t.printString("\u{10EEEE}\u{0305}\u{030E}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -995,7 +995,7 @@ test "unicode placement: continuation with no col" {
     try t.printString("\u{10EEEE}\u{0305}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1022,7 +1022,7 @@ test "unicode placement: continuation with no diacritics" {
     try t.printString("\u{10EEEE}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1049,7 +1049,7 @@ test "unicode placement: run ending" {
     try t.printString("ABC");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1076,7 +1076,7 @@ test "unicode placement: run starting in the middle" {
     try t.printString("\u{10EEEE}\u{0305}\u{030D}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1102,7 +1102,7 @@ test "unicode placement: specifying image id as palette" {
     try t.printString("\u{10EEEE}\u{0305}\u{0305}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1127,7 +1127,7 @@ test "unicode placement: specifying image id with high bits" {
     try t.printString("\u{10EEEE}\u{0305}\u{0305}\u{030E}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1153,7 +1153,7 @@ test "unicode placement: specifying placement id as palette" {
     try t.printString("\u{10EEEE}\u{0305}\u{0305}");
 
     // Get our top left pin
-    const pin = t.screen.pages.getTopLeft(.viewport);
+    const pin = t.screens.active.pages.getTopLeft(.viewport);
 
     // Should have exactly one placement
     var it = placementIterator(pin, null);
@@ -1180,7 +1180,7 @@ test "unicode render placement: dog 4x2" {
     var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t.screen);
+    defer s.deinit(alloc, t.screens.active);
 
     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
     try s.addImage(alloc, image);
@@ -1193,7 +1193,7 @@ test "unicode render placement: dog 4x2" {
     // Row 1
     {
         const p: Placement = .{
-            .pin = t.screen.cursor.page_pin.*,
+            .pin = t.screens.active.cursor.page_pin.*,
             .image_id = 1,
             .placement_id = 0,
             .col = 0,
@@ -1214,7 +1214,7 @@ test "unicode render placement: dog 4x2" {
     // Row 2
     {
         const p: Placement = .{
-            .pin = t.screen.cursor.page_pin.*,
+            .pin = t.screens.active.cursor.page_pin.*,
             .image_id = 1,
             .placement_id = 0,
             .col = 0,
@@ -1247,7 +1247,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
     var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t.screen);
+    defer s.deinit(alloc, t.screens.active);
 
     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
     try s.addImage(alloc, image);
@@ -1260,7 +1260,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
     // Row 1
     {
         const p: Placement = .{
-            .pin = t.screen.cursor.page_pin.*,
+            .pin = t.screens.active.cursor.page_pin.*,
             .image_id = 1,
             .placement_id = 0,
             .col = 0,
@@ -1281,7 +1281,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
     // Row 2
     {
         const p: Placement = .{
-            .pin = t.screen.cursor.page_pin.*,
+            .pin = t.screens.active.cursor.page_pin.*,
             .image_id = 1,
             .placement_id = 0,
             .col = 0,
@@ -1313,7 +1313,7 @@ test "unicode render placement: dog 1x1" {
     var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t.screen);
+    defer s.deinit(alloc, t.screens.active);
 
     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
     try s.addImage(alloc, image);
@@ -1326,7 +1326,7 @@ test "unicode render placement: dog 1x1" {
     // Row 1
     {
         const p: Placement = .{
-            .pin = t.screen.cursor.page_pin.*,
+            .pin = t.screens.active.cursor.page_pin.*,
             .image_id = 1,
             .placement_id = 0,
             .col = 0,

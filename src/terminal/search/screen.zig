@@ -391,7 +391,7 @@ test "simple search" {
     defer s.deinit();
     try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
     try search.searchAll();
     try testing.expectEqual(2, search.active_results.items.len);
@@ -407,22 +407,22 @@ test "simple search" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 2,
-        } }, t.screen.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 2,
-        } }, t.screen.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
     }
     {
         const sel = matches[1];
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -434,7 +434,7 @@ test "simple search with history" {
         .max_scrollback = std.math.maxInt(usize),
     });
     defer t.deinit(alloc);
-    const list: *PageList = &t.screen.pages;
+    const list: *PageList = &t.screens.active.pages;
 
     var s = t.vtStream();
     defer s.deinit();
@@ -444,7 +444,7 @@ test "simple search with history" {
     for (0..list.rows) |_| try s.nextSlice("\r\n");
     try s.nextSlice("hello.");
 
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
     try search.searchAll();
     try testing.expectEqual(0, search.active_results.items.len);
@@ -459,11 +459,11 @@ test "simple search with history" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 0,
-        } }, t.screen.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -475,14 +475,14 @@ test "reload active with history change" {
         .max_scrollback = std.math.maxInt(usize),
     });
     defer t.deinit(alloc);
-    const list: *PageList = &t.screen.pages;
+    const list: *PageList = &t.screens.active.pages;
 
     var s = t.vtStream();
     defer s.deinit();
     try s.nextSlice("Fizz\r\n");
 
     // Start up our search which will populate our initial active area.
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
     try search.searchAll();
     {
@@ -510,22 +510,22 @@ test "reload active with history change" {
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 0,
                 .y = 0,
-            } }, t.screen.pages.pointFromPin(.screen, sel.start()).?);
+            } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 3,
                 .y = 0,
-            } }, t.screen.pages.pointFromPin(.screen, sel.end()).?);
+            } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
         }
         {
             const sel = matches[0];
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 1,
                 .y = 1,
-            } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 4,
                 .y = 1,
-            } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
         }
     }
 
@@ -544,11 +544,11 @@ test "reload active with history change" {
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 2,
                 .y = 0,
-            } }, t.screen.pages.pointFromPin(.active, sel.start()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 5,
                 .y = 0,
-            } }, t.screen.pages.pointFromPin(.active, sel.end()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
         }
     }
 }
@@ -562,7 +562,7 @@ test "active change contents" {
     defer s.deinit();
     try s.nextSlice("Fuzz\r\nBuzz\r\nFizz\r\nBang");
 
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
     try search.searchAll();
     try testing.expectEqual(1, search.active_results.items.len);
@@ -585,10 +585,10 @@ test "active change contents" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 1,
-        } }, t.screen.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
-        } }, t.screen.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
     }
 }

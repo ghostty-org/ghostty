@@ -30,7 +30,7 @@ pub fn execute(
     // If storage is disabled then we disable the full protocol. This means
     // we don't even respond to queries so the terminal completely acts as
     // if this feature is not supported.
-    if (!terminal.screen.kitty_images.enabled()) {
+    if (!terminal.screens.active.kitty_images.enabled()) {
         log.debug("kitty graphics requested but disabled", .{});
         return null;
     }
@@ -55,7 +55,7 @@ pub fn execute(
             // The `q` setting inherits the value from the starting command
             // unless `q` is set >= 1 on this command. If it is, then we save
             // that as the new `q` setting.
-            const storage = &terminal.screen.kitty_images;
+            const storage = &terminal.screens.active.kitty_images;
             if (storage.loading) |loading| switch (cmd.quiet) {
                 // q=0 we use whatever the start command value is
                 .no => quiet = loading.quiet,
@@ -196,7 +196,7 @@ fn display(
     };
 
     // Verify the requested image exists if we have an ID
-    const storage = &terminal.screen.kitty_images;
+    const storage = &terminal.screens.active.kitty_images;
     const img_: ?Image = if (d.image_id != 0)
         storage.imageById(d.image_id)
     else
@@ -223,8 +223,8 @@ fn display(
 
         // Track a new pin for our cursor. The cursor is always tracked but we
         // don't want this one to move with the cursor.
-        const pin = terminal.screen.pages.trackPin(
-            terminal.screen.cursor.page_pin.*,
+        const pin = terminal.screens.active.pages.trackPin(
+            terminal.screens.active.cursor.page_pin.*,
         ) catch |err| {
             log.warn("failed to create pin for Kitty graphics err={}", .{err});
             result.message = "EINVAL: failed to prepare terminal state";
@@ -252,7 +252,7 @@ fn display(
         result.placement_id,
         p,
     ) catch |err| {
-        p.deinit(&terminal.screen);
+        p.deinit(terminal.screens.active);
         encodeError(&result, err);
         return result;
     };
@@ -271,7 +271,7 @@ fn display(
                 };
 
                 terminal.setCursorPos(
-                    terminal.screen.cursor.y,
+                    terminal.screens.active.cursor.y,
                     pin.x + size.cols + 1,
                 );
             },
@@ -287,7 +287,7 @@ fn delete(
     terminal: *Terminal,
     cmd: *const Command,
 ) Response {
-    const storage = &terminal.screen.kitty_images;
+    const storage = &terminal.screens.active.kitty_images;
     storage.delete(alloc, terminal, cmd.control.delete);
 
     // Delete never responds on success
@@ -304,7 +304,7 @@ fn loadAndAddImage(
     display: ?command.Display = null,
 } {
     const t = cmd.transmission().?;
-    const storage = &terminal.screen.kitty_images;
+    const storage = &terminal.screens.active.kitty_images;
 
     // Determine our image. This also handles chunking and early exit.
     var loading: LoadingImage = if (storage.loading) |loading| loading: {
@@ -496,7 +496,7 @@ test "kittygfx default format is rgba" {
     const resp = execute(alloc, &t, &cmd).?;
     try testing.expect(resp.ok());
 
-    const storage = &t.screen.kitty_images;
+    const storage = &t.screens.active.kitty_images;
     const img = storage.imageById(1).?;
     try testing.expectEqual(command.Transmission.Format.rgba, img.format);
 }

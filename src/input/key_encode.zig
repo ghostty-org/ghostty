@@ -57,7 +57,7 @@ pub const Options = struct {
             .keypad_key_application = t.modes.get(.keypad_keys),
             .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
             .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
-            .kitty_flags = t.screen.kitty_keyboard.current(),
+            .kitty_flags = t.screens.active.kitty_keyboard.current(),
 
             // These can't be known from the terminal state.
             .macos_option_as_alt = .false,
