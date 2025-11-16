@@ -589,6 +589,7 @@ const Search = struct {
         // Check our total match data
         const total = screen_search.matchesLen();
         if (total != self.last_total) {
+            log.debug("notifying total matches={}", .{total});
             self.last_total = total;
             cb(.{ .total_matches = total }, ud);
         }
@@ -621,11 +622,13 @@ const Search = struct {
                 };
             }
 
+            log.debug("notifying viewport matches len={}", .{results.items.len});
             cb(.{ .viewport_matches = results.items }, ud);
         }
 
         // Send our complete notification if we just completed.
         if (!self.last_complete and self.isComplete()) {
+            log.debug("notifying search complete", .{});
             self.last_complete = true;
             cb(.complete, ud);
         }

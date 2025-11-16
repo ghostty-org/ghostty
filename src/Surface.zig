@@ -155,6 +155,9 @@ selection_scroll_active: bool = false,
 /// the wall clock time that has elapsed between timestamps.
 command_timer: ?std.time.Instant = null,
 
+/// Search state
+search: ?Search = null,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -172,6 +175,26 @@ pub const InputEffect = enum {
     /// the surface, runtime surface, etc. pointers may all be
     /// unsafe to use so exit immediately.
     closed,
+};
+
+/// The search state for the surface.
+const Search = struct {
+    state: terminal.search.Thread,
+    thread: std.Thread,
+
+    pub fn deinit(self: *Search) void {
+        // Notify the thread to stop
+        self.state.stop.notify() catch |err| log.err(
+            "error notifying search thread to stop, may stall err={}",
+            .{err},
+        );
+
+        // Wait for the OS thread to quit
+        self.thread.join();
+
+        // Now it is safe to deinit the state
+        self.state.deinit();
+    }
 };
 
 /// Mouse state for the surface.
@@ -728,6 +751,9 @@ pub fn init(
 }
 
 pub fn deinit(self: *Surface) void {
+    // Stop search thread
+    if (self.search) |*s| s.deinit();
+
     // Stop rendering thread
     {
         self.renderer_thread.stop.notify() catch |err|
@@ -1299,6 +1325,12 @@ fn reportColorScheme(self: *Surface, force: bool) void {
     };
 
     self.io.queueMessage(.{ .write_stable = output }, .unlocked);
+}
+
+fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
+    const self: *Surface = @ptrCast(@alignCast(ud.?));
+    _ = self;
+    _ = event;
 }
 
 /// Call this when modifiers change. This is safe to call even if modifiers
@@ -4768,6 +4800,49 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
             self.renderer_state.terminal.fullReset();
+        },
+
+        .search => |text| search: {
+            const s: *Search = if (self.search) |*s| s else init: {
+                // If we're stopping the search and we had no prior search,
+                // then there is nothing to do.
+                if (text.len == 0) break :search;
+
+                // We need to assign directly to self.search because we need
+                // a stable pointer back to the thread state.
+                self.search = .{
+                    .state = try .init(self.alloc, .{
+                        .mutex = self.renderer_state.mutex,
+                        .terminal = self.renderer_state.terminal,
+                        .event_cb = &searchCallback,
+                        .event_userdata = self,
+                    }),
+                    .thread = undefined,
+                };
+                const s: *Search = &self.search.?;
+                errdefer s.state.deinit();
+
+                s.thread = try .spawn(
+                    .{},
+                    terminal.search.Thread.threadMain,
+                    .{&s.state},
+                );
+                s.thread.setName("search") catch {};
+
+                break :init s;
+            };
+
+            // Zero-length text means stop searching.
+            if (text.len == 0) {
+                s.deinit();
+                self.search = null;
+                break :search;
+            }
+
+            _ = s.state.mailbox.push(
+                .{ .change_needle = text },
+                .forever,
+            );
         },
 
         .copy_to_clipboard => |format| {

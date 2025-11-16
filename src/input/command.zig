@@ -604,6 +604,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .csi,
         .esc,
         .cursor_key,
+        .search,
         .set_font_size,
         .scroll_to_row,
         .scroll_page_fractional,

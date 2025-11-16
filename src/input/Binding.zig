@@ -332,6 +332,10 @@ pub const Action = union(enum) {
     /// to 14.5 points.
     set_font_size: f32,
 
+    /// Start a search for the given text. If the text is empty, then
+    /// the search is canceled. If a previous search is active, it is replaced.
+    search: []const u8,
+
     /// Clear the screen and all scrollback.
     clear_screen,
 
@@ -1152,6 +1156,7 @@ pub const Action = union(enum) {
             .esc,
             .text,
             .cursor_key,
+            .search,
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,
