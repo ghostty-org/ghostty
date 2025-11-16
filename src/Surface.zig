@@ -447,9 +447,11 @@ pub fn init(
 
     // Determine our DPI configurations so we can properly configure
     // font points to pixels and handle other high-DPI scaling factors.
+    // We always load fonts at the base DPI and scale the resulting metrics
+    // to ensure exact proportional scaling across display scales.
     const content_scale = try rt_surface.getContentScale();
-    const x_dpi = content_scale.x * font.face.default_dpi;
-    const y_dpi = content_scale.y * font.face.default_dpi;
+    const x_dpi = font.face.default_dpi;
+    const y_dpi = font.face.default_dpi;
     log.debug("xscale={} yscale={} xdpi={} ydpi={}", .{
         content_scale.x,
         content_scale.y,
@@ -473,6 +475,14 @@ pub fn init(
 
     // Build our size struct which has all the sizes we need.
     const size: rendererpkg.Size = size: {
+        // Get base cell size and scale by content_scale to ensure exact
+        // proportional scaling across display scales.
+        const base_cell = font_grid.cellSize();
+        const scaled_cell = rendererpkg.CellSize{
+            .width = @intFromFloat(@round(@as(f64, @floatFromInt(base_cell.width)) * content_scale.x)),
+            .height = @intFromFloat(@round(@as(f64, @floatFromInt(base_cell.height)) * content_scale.y)),
+        };
+
         var size: rendererpkg.Size = .{
             .screen = screen: {
                 const surface_size = try rt_surface.getSize();
@@ -482,7 +492,7 @@ pub fn init(
                 };
             },
 
-            .cell = font_grid.cellSize(),
+            .cell = scaled_cell,
             .padding = .{},
         };
 
