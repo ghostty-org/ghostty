@@ -44,6 +44,15 @@ pub const Size = struct {
             self.grid(),
             self.cell,
         );
+
+        // The top/bottom padding is interesting. Subjectively, lots of padding
+        // at the top looks bad. So instead of always being equal (like left/right),
+        // we force the top padding to be at most equal to the maximum left padding,
+        // which is the balanced explicit horizontal padding plus half a cell width.
+        const max_padding_left = (explicit.left + explicit.right + self.cell.width) / 2;
+        const vshift = self.padding.top -| max_padding_left;
+        self.padding.top -= vshift;
+        self.padding.bottom += vshift;
     }
 };
 
@@ -258,16 +267,12 @@ pub const Padding = struct {
         const space_right = @as(f32, @floatFromInt(screen.width)) - grid_width;
         const space_bot = @as(f32, @floatFromInt(screen.height)) - grid_height;
 
-        // The left/right padding is just an equal split.
+        // The padding is split equally along both axes.
         const padding_right = @floor(space_right / 2);
         const padding_left = padding_right;
 
-        // The top/bottom padding is interesting. Subjectively, lots of padding
-        // at the top looks bad. So instead of always being equal (like left/right),
-        // we force the top padding to be at most equal to the left, and the bottom
-        // padding is the difference thereafter.
-        const padding_top = @min(padding_left, @floor(space_bot / 2));
-        const padding_bot = space_bot - padding_top;
+        const padding_bot = @floor(space_bot / 2);
+        const padding_top = padding_bot;
 
         const zero = @as(f32, 0);
         return .{
