@@ -73,7 +73,7 @@ pub fn BlockingQueue(
         not_full_waiters: usize = 0,
 
         /// Allocate the blocking queue on the heap.
-        pub fn create(alloc: Allocator) !*Self {
+        pub fn create(alloc: Allocator) Allocator.Error!*Self {
             const ptr = try alloc.create(Self);
             errdefer alloc.destroy(ptr);
 

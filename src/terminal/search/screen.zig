@@ -78,17 +78,31 @@ pub const ScreenSearch = struct {
 
         /// Search is complete given the current terminal state.
         complete,
+
+        pub fn isComplete(self: State) bool {
+            return switch (self) {
+                .complete => true,
+                else => false,
+            };
+        }
+
+        pub fn needsFeed(self: State) bool {
+            return switch (self) {
+                .history_feed => true,
+                else => false,
+            };
+        }
     };
 
     // Initialize a screen search for the given screen and needle.
     pub fn init(
         alloc: Allocator,
         screen: *Screen,
-        needle: []const u8,
+        needle_unowned: []const u8,
     ) Allocator.Error!ScreenSearch {
         var result: ScreenSearch = .{
             .screen = screen,
-            .active = try .init(alloc, needle),
+            .active = try .init(alloc, needle_unowned),
             .history = null,
             .state = .active,
             .active_results = .empty,
@@ -114,10 +128,16 @@ pub const ScreenSearch = struct {
         return self.active.window.alloc;
     }
 
-    pub const TickError = Allocator.Error || error{
-        FeedRequired,
-        SearchComplete,
-    };
+    /// The needle that this search is using.
+    pub fn needle(self: *const ScreenSearch) []const u8 {
+        assert(self.active.window.direction == .forward);
+        return self.active.window.needle;
+    }
+
+    /// Returns the total number of matches found so far.
+    pub fn matchesLen(self: *const ScreenSearch) usize {
+        return self.active_results.items.len + self.history_results.items.len;
+    }
 
     /// Returns all matches as an owned slice (caller must free).
     /// The matches are ordered from most recent to oldest (e.g. bottom
@@ -166,6 +186,11 @@ pub const ScreenSearch = struct {
             };
         }
     }
+
+    pub const TickError = Allocator.Error || error{
+        FeedRequired,
+        SearchComplete,
+    };
 
     /// Make incremental progress on the search without accessing any
     /// screen state (so no lock is required).
@@ -291,12 +316,9 @@ pub const ScreenSearch = struct {
                 // No history search yet, but we now have history. So let's
                 // initialize.
 
-                // Our usage of needle below depends on this
-                assert(self.active.window.direction == .forward);
-
                 var search: PageListSearch = try .init(
                     self.allocator(),
-                    self.active.window.needle,
+                    self.needle(),
                     list,
                     history_node,
                 );
@@ -328,7 +350,7 @@ pub const ScreenSearch = struct {
             var window: SlidingWindow = try .init(
                 alloc,
                 .forward,
-                self.active.window.needle,
+                self.needle(),
             );
             defer window.deinit();
             while (true) {

@@ -143,19 +143,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // We only want to setup the observer once
         guard tabBarObserver == nil else { return }
 
-        // Find our tab bar. If it doesn't exist we don't do anything.
-        //
-        // In normal window, `NSTabBar` typically appears as a subview of `NSTitlebarView` within `NSThemeFrame`.
-        // In fullscreen, the system creates a dedicated fullscreen window and the view hierarchy changes;
-        // in that case, the `titlebarView` is only accessible via a reference on `NSThemeFrame`.
-        // ref: https://github.com/mozilla-firefox/firefox/blob/054e2b072785984455b3b59acad9444ba1eeffb4/widget/cocoa/nsCocoaWindow.mm#L7205
-        guard let themeFrameView = contentView?.rootView else { return }
-        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
-            themeFrameView.value(forKey: "titlebarView") as? NSView
-        } else {
-            NSView?.none
-        }
-        guard let tabBar = titlebarView?.firstDescendant(withClassName: "NSTabBar") else { return }
+        guard
+            let titlebarView = findTitlebarView(),
+            let tabBar = findTabBar()
+        else { return }
 
         // View model updates must happen on their own ticks.
         DispatchQueue.main.async { [weak self] in
@@ -165,7 +156,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Find our clip view
         guard let clipView = tabBar.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
-        guard let titlebarView else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
         
         // Make sure tabBar's height won't be stretched

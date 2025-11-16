@@ -1740,7 +1740,13 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         } else {
             ghostty_surface_ime_point(surface, &x, &y, &width, &height)
         }
-
+        if range.length == 0, width > 0 {
+            // This fixes #8493 while speaking
+            // My guess is that positive width doesn't make sense
+            // for the dictation microphone indicator
+            width = 0
+            x += cellSize.width * Double(range.location + range.length)
+        }
         // Ghostty coordinates are in top-left (0, 0) so we have to convert to
         // bottom-left since that is what UIKit expects
         // when there's is no characters selected,
