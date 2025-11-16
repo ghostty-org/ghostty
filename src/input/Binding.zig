@@ -521,6 +521,9 @@ pub const Action = union(enum) {
     /// (`previous` and `next`).
     goto_split: SplitFocusDirection,
 
+    /// Focus on either the previous window or the next one ('previous', 'next')
+    goto_window: GotoWindow,
+
     /// Zoom in or out of the current split.
     ///
     /// When a split is zoomed into, it will take up the entire space in
@@ -893,6 +896,11 @@ pub const Action = union(enum) {
         right,
     };
 
+    pub const GotoWindow = enum {
+        previous,
+        next,
+    };
+
     pub const SplitResizeParameter = struct {
         SplitResizeDirection,
         u16,
@@ -1206,6 +1214,7 @@ pub const Action = union(enum) {
             .toggle_tab_overview,
             .new_split,
             .goto_split,
+            .goto_window,
             .toggle_split_zoom,
             .resize_split,
             .equalize_splits,
