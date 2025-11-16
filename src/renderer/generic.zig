@@ -709,6 +709,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .current_cursor_color = @splat(0),
                     .previous_cursor_color = @splat(0),
                     .cursor_change_time = 0,
+                    // Color Scheme information - initialized to zeros, will be populated per frame
+                    .palette = @splat(@splat(0)),
+                    .background_color = @splat(0),
+                    .foreground_color = @splat(0),
+                    .cursor_color = @splat(0),
                 },
                 .bg_image_buffer = undefined,
 
@@ -1260,6 +1265,45 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     critical.bg.b,
                     @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
+
+                // Update custom shader color uniforms if we have custom shaders
+                if (self.has_custom_shaders) {
+                    // Background color
+                    self.custom_shader_uniforms.background_color = .{
+                        @as(f32, @floatFromInt(critical.bg.r)) / 255.0,
+                        @as(f32, @floatFromInt(critical.bg.g)) / 255.0,
+                        @as(f32, @floatFromInt(critical.bg.b)) / 255.0,
+                        1.0,
+                    };
+
+                    // Foreground color
+                    self.custom_shader_uniforms.foreground_color = .{
+                        @as(f32, @floatFromInt(critical.fg.r)) / 255.0,
+                        @as(f32, @floatFromInt(critical.fg.g)) / 255.0,
+                        @as(f32, @floatFromInt(critical.fg.b)) / 255.0,
+                        1.0,
+                    };
+
+                    // Pure cursor color (before opacity application)
+                    if (critical.cursor_color) |cursor_pure| {
+                        self.custom_shader_uniforms.cursor_color = .{
+                            @as(f32, @floatFromInt(cursor_pure.r)) / 255.0,
+                            @as(f32, @floatFromInt(cursor_pure.g)) / 255.0,
+                            @as(f32, @floatFromInt(cursor_pure.b)) / 255.0,
+                            1.0,
+                        };
+                    }
+
+                    // 256-color palette
+                    for (critical.color_palette, 0..) |color, i| {
+                        self.custom_shader_uniforms.palette[i] = .{
+                            @as(f32, @floatFromInt(color.r)) / 255.0,
+                            @as(f32, @floatFromInt(color.g)) / 255.0,
+                            @as(f32, @floatFromInt(color.b)) / 255.0,
+                            1.0,
+                        };
+                    }
+                }
             }
         }
 
