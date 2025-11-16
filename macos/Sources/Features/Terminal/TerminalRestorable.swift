@@ -1,21 +1,15 @@
 import Cocoa
 
-/// The state stored for terminal window restoration.
-class TerminalRestorableState: Codable {
-    static let selfKey = "state"
-    static let versionKey = "version"
-    static let version: Int = 5
+protocol TerminalRestorable: Codable {
+    static var selfKey: String { get }
+    static var versionKey: String { get }
+    static var version: Int { get }
+    init(copy other: Self)
+}
 
-    let focusedSurface: String?
-    let surfaceTree: SplitTree<Ghostty.SurfaceView>
-    let effectiveFullscreenMode: FullscreenMode?
-
-    init(from controller: TerminalController) {
-        self.focusedSurface = controller.focusedSurface?.id.uuidString
-        self.surfaceTree = controller.surfaceTree
-        self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
-    }
-
+extension TerminalRestorable {
+    static var selfKey: String { "state" }
+    static var versionKey: String { "version" }
     init?(coder aDecoder: NSCoder) {
         // If the version doesn't match then we can't decode. In the future we can perform
         // version upgrading or something but for now we only have one version so we
@@ -28,14 +22,33 @@ class TerminalRestorableState: Codable {
             return nil
         }
 
-        self.surfaceTree = v.value.surfaceTree
-        self.focusedSurface = v.value.focusedSurface
-        self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
+        self.init(copy: v.value)
     }
 
     func encode(with coder: NSCoder) {
         coder.encode(Self.version, forKey: Self.versionKey)
         coder.encode(CodableBridge(self), forKey: Self.selfKey)
+    }
+}
+
+/// The state stored for terminal window restoration.
+class TerminalRestorableState: TerminalRestorable {
+    class var version: Int { 5 }
+
+    let focusedSurface: String?
+    let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let effectiveFullscreenMode: FullscreenMode?
+
+    init(from controller: TerminalController) {
+        self.focusedSurface = controller.focusedSurface?.id.uuidString
+        self.surfaceTree = controller.surfaceTree
+        self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
+    }
+
+    required init(copy other: TerminalRestorableState) {
+        self.surfaceTree = other.surfaceTree
+        self.focusedSurface = other.focusedSurface
+        self.effectiveFullscreenMode = other.effectiveFullscreenMode
     }
 }
 
@@ -156,5 +169,26 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
                 viewWindow.orderFront(nil)
             }
         }
+    }
+}
+
+// MARK: - QuickTerminal
+
+struct QuickTerminalRestorableState: TerminalRestorable {
+    static var version: Int { 1 }
+
+    let focusedSurface: String?
+    let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let screenStateEntries: QuickTerminalScreenStateCache.Entries
+
+    init(from controller: QuickTerminalController) {
+        controller.saveScreenState(exitFullscreen: true)
+        self.focusedSurface = controller.focusedSurface?.id.uuidString
+        self.surfaceTree = controller.surfaceTree
+        self.screenStateEntries = controller.screenStateCache.stateByDisplay
+    }
+
+    init(copy other: QuickTerminalRestorableState) {
+        self = other
     }
 }
