@@ -8,6 +8,8 @@ const opentype = @import("opentype.zig");
 const options = @import("main.zig").options;
 const Collection = @import("main.zig").Collection;
 const DeferredFace = @import("main.zig").DeferredFace;
+const Face = @import("main.zig").Face;
+const Library = @import("main.zig").Library;
 const Variation = @import("main.zig").face.Variation;
 
 const log = std.log.scoped(.discovery);
@@ -372,6 +374,7 @@ pub const CoreText = struct {
             .alloc = alloc,
             .list = zig_list,
             .variations = desc.variations,
+            .charset_restriction = true,
             .i = 0,
         };
     }
@@ -409,6 +412,7 @@ pub const CoreText = struct {
                 .alloc = alloc,
                 .list = list,
                 .variations = desc.variations,
+                .charset_restriction = false,
                 .i = 0,
             };
         }
@@ -433,6 +437,7 @@ pub const CoreText = struct {
                 .alloc = alloc,
                 .list = list,
                 .variations = desc.variations,
+                .charset_restriction = false,
                 .i = 0,
             };
         }
@@ -828,6 +833,8 @@ pub const CoreText = struct {
         alloc: Allocator,
         list: []const *macos.text.FontDescriptor,
         variations: []const Variation,
+        // We used a charset restriction to filter, and need to remove it
+        charset_restriction: bool,
         i: usize,
 
         pub fn deinit(self: *DiscoverIterator) void {
@@ -848,6 +855,11 @@ pub const CoreText = struct {
             //const desc = self.list.getValueAtIndex(macos.text.FontDescriptor, self.i);
             const desc = desc: {
                 const original = self.list[self.i];
+
+                if (!self.charset_restriction) {
+                    original.retain();
+                    break :desc original;
+                }
 
                 // For some reason simply copying the attributes and recreating
                 // the descriptor removes the charset restriction. This is tested.
@@ -1042,4 +1054,78 @@ test "coretext sorting" {
         const name = try res.name(&buf);
         try testing.expectEqualStrings("SF Pro Bold Italic", name);
     }
+}
+
+test "coretext discoverFallback system font latin codepoint" {
+    if (options.backend != .coretext and options.backend != .coretext_freetype)
+        return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var ct = CoreText.init();
+    defer ct.deinit();
+
+    var collection = Collection.init();
+    collection.load_options = .{
+        .library = try Library.init(alloc),
+    };
+    defer collection.deinit(alloc);
+
+    var disco_it = try ct.discover(alloc, .{ .family = ".AppleSystemUIFontMonospaced", .size = 12 });
+    defer disco_it.deinit();
+
+    const deferred_face = (try disco_it.next()).?;
+    _ = try collection.addDeferred(alloc, deferred_face, .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    // Test Latin codepoint (A)
+    var it = try ct.discoverFallback(alloc, &collection, .{
+        .codepoint = 'A',
+        .size = 12,
+    });
+    defer it.deinit();
+
+    const face = (try it.next()).?;
+    try testing.expect(face.hasCodepoint('A', null));
+}
+
+test "coretext discoverFallback system font CJK codepoint" {
+    if (options.backend != .coretext and options.backend != .coretext_freetype)
+        return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var ct = CoreText.init();
+    defer ct.deinit();
+
+    var collection = Collection.init();
+    collection.load_options = .{
+        .library = try Library.init(alloc),
+    };
+    defer collection.deinit(alloc);
+
+    var disco_it = try ct.discover(alloc, .{ .family = ".AppleSystemUIFontMonospaced", .size = 12 });
+    defer disco_it.deinit();
+
+    const deferred_face = (try disco_it.next()).?;
+    _ = try collection.addDeferred(alloc, deferred_face, .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    // Test CJK codepoint (中)
+    var it = try ct.discoverFallback(alloc, &collection, .{
+        .codepoint = 0x4E2D,
+        .size = 12,
+    });
+    defer it.deinit();
+
+    const face = (try it.next()).?;
+    try testing.expect(face.hasCodepoint(0x4E2D, null));
 }
