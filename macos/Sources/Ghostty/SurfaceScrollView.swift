@@ -32,7 +32,7 @@ class SurfaceScrollView: NSView {
         scrollView = NSScrollView()
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = false
+        scrollView.autohidesScrollers = !(surfaceView.scrollbar?.active ?? true)
         scrollView.usesPredominantAxisScrolling = true
         // hide default background to show blur effect properly
         scrollView.drawsBackground = false
@@ -215,7 +215,9 @@ class SurfaceScrollView: NSView {
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 // Invert coordinate system: terminal offset is from top, AppKit position from bottom
                 let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                    scrollbar.active
+                    ? CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                    : 0
                 scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
 
                 // Track the current row position to avoid redundant movements when we
@@ -286,8 +288,16 @@ class SurfaceScrollView: NSView {
         guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
             return
         }
+        let wasActive = surfaceView.scrollbar?.active ?? true
         surfaceView.scrollbar = scrollbar
+        scrollView.autohidesScrollers = !scrollbar.active
         synchronizeScrollView()
+        if scrollbar.active != wasActive {
+            scrollView.needsLayout = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                self.synchronizeCoreSurface()
+            }
+        }
     }
 
     /// Handles a change in the frame of NSScrollPocket styling overlays
@@ -337,7 +347,7 @@ class SurfaceScrollView: NSView {
     private func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let cellHeight = surfaceView.cellSize.height
-        if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
+        if cellHeight > 0, let scrollbar = surfaceView.scrollbar, scrollbar.active {
             // The document view must have the same vertical padding around the
             // scrollback grid as the content view has around the terminal grid
             // otherwise the content view loses alignment with the surface.
