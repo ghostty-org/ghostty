@@ -148,12 +148,18 @@ focused: bool = true,
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
-/// Used to send notifications that long running commands have finished.
-/// Requires that shell integration be active. Should represent a nanosecond
-/// precision timestamp. It does not necessarily need to correspond to the
+/// Timestamp used to send notifications that long running commands have
+/// finished. Requires that the shell reports to Ghostty when a command stops
+/// and start. The timestamp does not necessarily need to correspond to the
 /// actual time, but we must be able to compare two subsequent timestamps to get
 /// the wall clock time that has elapsed between timestamps.
 command_timer: ?std.time.Instant = null,
+
+/// The command that is being executed, as reported by by the shell. If shell
+/// does not report the command line this will always be null. This will never
+/// be the `command` or `initial-command` that was used to start the shell.
+/// Ghostty's shell integration does not supply the command line being executed.
+command_line: ?[]const u8 = null,
 
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
@@ -757,6 +763,14 @@ pub fn deinit(self: *Surface) void {
         self.alloc.destroy(v);
     }
 
+    // If we're still storing a command line, deallocate it. This could happen
+    // if a shell sends a report that a command started containing a command
+    // line but doesn't send a report that the command finished before the shell
+    // exits.
+    if (self.command_line) |command_line| {
+        self.alloc.free(command_line);
+    }
+
     // Clean up our keyboard state
     for (self.keyboard.queued.items) |req| req.deinit();
     self.keyboard.queued.deinit(self.alloc);
@@ -1020,10 +1034,28 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             try self.selectionScrollTick();
         },
 
-        .start_command => {
+        // A command has started executing.
+        .start_command => |v| {
             self.command_timer = try .now();
+            if (v.commandLine()) |new_command_line| {
+                // Deallocate old command line if we are setting a new one. We
+                // don't deallocate the command line unconditionally because
+                // there are situations where the shell sends a bare command
+                // started report _after_ it has already sent a command started
+                // report with the command line but before it sends a command
+                // finished report.
+                if (self.command_line) |old_command_line| {
+                    self.alloc.free(old_command_line);
+                    self.command_line = null;
+                }
+                // Create our own copy of the command line, the copy that
+                // comes in the message will be deallocated once we are done
+                // processing the message.
+                self.command_line = try self.alloc.dupe(u8, new_command_line);
+            }
         },
 
+        // A command has finished executing.
         .stop_command => |v| timer: {
             const end: std.time.Instant = try .now();
             const start = self.command_timer orelse break :timer;
@@ -1036,12 +1068,19 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .{ .surface = self },
                 .command_finished,
                 .{
+                    .command_line = self.command_line,
                     .exit_code = v,
                     .duration = duration,
                 },
             ) catch |err| {
                 log.warn("apprt failed to notify command finish={}", .{err});
             };
+
+            // Free up memory as the command line should never be used again.
+            if (self.command_line) |old_command_line| {
+                self.alloc.free(old_command_line);
+                self.command_line = null;
+            }
         },
     }
 }

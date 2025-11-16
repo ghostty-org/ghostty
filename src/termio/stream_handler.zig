@@ -275,7 +275,7 @@ pub const StreamHandler = struct {
             .kitty_color_report => try self.kittyColorReport(value),
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
             .prompt_end => try self.promptEnd(),
-            .end_of_input => try self.endOfInput(),
+            .end_of_input => self.endOfInput(value.command_line),
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
@@ -963,13 +963,40 @@ pub const StreamHandler = struct {
         self.terminal.markSemanticPrompt(.input);
     }
 
-    pub inline fn endOfInput(self: *StreamHandler) !void {
+    /// The shell has reached the end of user input and has begun executing the
+    /// command. The shell may report the command line being executed.
+    inline fn endOfInput(self: *StreamHandler, command_line_: ?[]const u8) void {
         self.terminal.markSemanticPrompt(.command);
-        self.surfaceMessageWriter(.start_command);
+        var message: apprt.surface.Message = .{
+            .start_command = undefined,
+        };
+        if (command_line_) |command_line| command_line: {
+            const len = @min(command_line.len, message.start_command.buf.len);
+            if (len == 0) {
+                message.start_command.len = null;
+                break :command_line;
+            }
+            // Copy the command line into our buffer, truncating it if
+            // necessary. The command line passed to us points to an internal
+            // buffer in the OSC parser that will be reused after we return.
+            @memcpy(message.start_command.buf[0..len], command_line[0..len]);
+            message.start_command.buf[len] = 0;
+            message.start_command.len = len;
+        } else {
+            message.start_command.len = null;
+        }
+
+        self.surfaceMessageWriter(message);
     }
 
+    /// The user's command has finished executing. We may receive an exit code
+    /// which indicates the final status of the command.
     inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) void {
-        self.surfaceMessageWriter(.{ .stop_command = exit_code });
+        self.surfaceMessageWriter(
+            .{
+                .stop_command = exit_code,
+            },
+        );
     }
 
     fn reportPwd(self: *StreamHandler, url: []const u8) !void {
