@@ -1189,9 +1189,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 state.terminal.flags.dirty = .{};
                 state.terminal.screens.active.dirty = .{};
                 {
+                    // Set our viewport as not dirty
                     var it = state.terminal.screens.active.pages.pageIterator(
                         .right_down,
-                        .{ .screen = .{} },
+                        .{ .viewport = .{} },
                         null,
                     );
                     while (it.next()) |chunk| {
