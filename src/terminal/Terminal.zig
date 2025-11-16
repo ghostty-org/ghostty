@@ -112,6 +112,16 @@ flags: packed struct {
     /// True if the terminal should perform selection scrolling.
     selection_scroll: bool = false,
 
+    /// Dirty flag used only by the search thread. The renderer is expected
+    /// to set this to true if the viewport was dirty as it was rendering.
+    /// This is used by the search thread to more efficiently re-search the
+    /// viewport and active area.
+    ///
+    /// Since the renderer is going to inspect the viewport/active area ANYWAYS,
+    /// this lets our search thread do less work and hold the lock less time,
+    /// resulting in more throughput for everything.
+    search_viewport_dirty: bool = false,
+
     /// Dirty flags for the renderer.
     dirty: Dirty = .{},
 } = .{},

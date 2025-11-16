@@ -417,6 +417,10 @@ const Search = struct {
         var vp: ViewportSearch = try .init(alloc, needle);
         errdefer vp.deinit();
 
+        // We use dirty tracking for active area changes. Start with it
+        // dirty so the first change is re-searched.
+        vp.active_dirty = true;
+
         return .{
             .viewport = vp,
             .screens = .init(.{}),
@@ -549,6 +553,15 @@ const Search = struct {
                     },
                 });
             }
+        }
+
+        // See the `search_viewport_dirty` flag on the terminal to know
+        // what exactly this is for. But, if this is set, we know the renderer
+        // found the viewport/active area dirty, so we should mark it as
+        // dirty in our viewport searcher so it forces a re-search.
+        if (t.flags.search_viewport_dirty) {
+            self.viewport.active_dirty = true;
+            t.flags.search_viewport_dirty = false;
         }
 
         // Check our viewport for changes.

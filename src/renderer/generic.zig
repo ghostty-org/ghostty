@@ -1197,7 +1197,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     );
                     while (it.next()) |chunk| {
                         var dirty_set = chunk.node.data.dirtyBitSet();
-                        dirty_set.unsetAll();
+                        if (dirty_set.findFirstSet() != null) {
+                            state.terminal.flags.search_viewport_dirty = true;
+                            dirty_set.unsetAll();
+                        }
                     }
                 }
 

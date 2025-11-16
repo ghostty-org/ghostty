@@ -124,6 +124,10 @@ pub const ViewportSearch = struct {
             self.fingerprint = null;
         }
 
+        // If our active area was set as dirty, we always unset it here
+        // because we're re-searching now.
+        if (self.active_dirty) |*v| v.* = false;
+
         // Clear our previous sliding window
         self.window.clearAndRetainCapacity();
 
