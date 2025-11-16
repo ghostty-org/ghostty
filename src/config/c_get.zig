@@ -18,14 +18,14 @@ pub fn get(config: *const Config, k: Key, ptr_raw: *anyopaque) bool {
     switch (k) {
         inline else => |tag| {
             const value = fieldByKey(config, tag);
-            return getValue(ptr_raw, value);
+            return getValue(k, ptr_raw, value);
         },
     }
 }
 
 /// Get the value anytype and put it into the pointer. Returns false if
 /// the type is not supported by the C API yet or the value is null.
-fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
+fn getValue(k: Key, ptr_raw: *anyopaque, value: anytype) bool {
     switch (@TypeOf(value)) {
         ?[:0]const u8 => {
             const ptr: *?[*:0]const u8 = @ptrCast(@alignCast(ptr_raw));
@@ -56,7 +56,7 @@ fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
             .optional => {
                 // If an optional has no value we return false.
                 const unwrapped = value orelse return false;
-                return getValue(ptr_raw, unwrapped);
+                return getValue(k, ptr_raw, unwrapped);
             },
 
             .@"enum" => {
@@ -209,4 +209,24 @@ test "c_get: background-blur" {
         try testing.expect(get(&c, .@"background-blur", @ptrCast(&cval)));
         try testing.expectEqual(42, cval);
     }
+}
+
+test "c_get: font-family" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c = try Config.default(alloc);
+    defer c.deinit();
+
+    // Add some font families
+    try c.@"font-family".parseCLI(c.arenaAlloc(), "Arial");
+    try c.@"font-family".parseCLI(c.arenaAlloc(), "Helvetica");
+
+    var cval: Config.RepeatableItemList = undefined;
+    try testing.expect(get(&c, .@"font-family", @ptrCast(&cval)));
+    try testing.expectEqual(@as(usize, 2), cval.len);
+    try testing.expectEqualStrings("", std.mem.span(cval.items[0].key));
+    try testing.expectEqualStrings("Arial", std.mem.span(cval.items[0].value));
+    try testing.expectEqualStrings("", std.mem.span(cval.items[1].key));
+    try testing.expectEqualStrings("Helvetica", std.mem.span(cval.items[1].value));
 }

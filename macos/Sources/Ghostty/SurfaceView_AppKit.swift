@@ -188,12 +188,15 @@ extension Ghostty {
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
+        /// flag for settings window to disable input events
+        var isEnabled = true
         // We need to support being a first responder so that we can get input events
-        override var acceptsFirstResponder: Bool { return true }
+        override var acceptsFirstResponder: Bool { isEnabled }
 
-        init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
+        init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil, isFocused: Bool = true) {
             self.markedText = NSMutableAttributedString()
             self.id = uuid ?? .init()
+            self.focused = isFocused
 
             // Our initial config always is our application wide config.
             if let appDelegate = NSApplication.shared.delegate as? AppDelegate {

@@ -145,5 +145,16 @@ extension Ghostty {
             let buffer = UnsafeBufferPointer(start: ptr, count: count)
             return Array(buffer).map { Command(cValue: $0) }.filter { $0.isSupported }
         }
+
+        /// Theme options for this surface.
+        @MainActor
+        func themeOptions() throws -> [ThemeOption] {
+            var theme_list = ghostty_surface_theme_list_s()
+            guard ghostty_surface_get_themes(surface, &theme_list) else {
+                throw Error.apiFailed
+            }
+            let buffer = UnsafeBufferPointer(start: theme_list.themes, count: theme_list.len)
+            return buffer.compactMap(Ghostty.ThemeOption.init(_:))
+        }
     }
 }

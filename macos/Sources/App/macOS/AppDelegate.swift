@@ -87,7 +87,7 @@ class AppDelegate: NSObject,
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
     /// The ghostty global state. Only one per process.
-    let ghostty: Ghostty.App = Ghostty.App()
+    let ghostty: Ghostty.App
 
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
@@ -122,6 +122,13 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil
 
     override init() {
+        let settingsConfigPath = Ghostty.ConfigFile.defaultConfigFile().path
+        let configPath: String? = FileManager.default.fileExists(atPath: settingsConfigPath) ? settingsConfigPath : nil
+#if DEBUG
+        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? configPath)
+#else
+        ghostty = Ghostty.App(configPath: configPath)
+#endif
         super.init()
 
         ghostty.delegate = self
@@ -1035,7 +1042,7 @@ class AppDelegate: NSObject,
     //MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Ghostty.App.openConfig()
+        Ghostty.App.openConfigWindow()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
@@ -1061,6 +1068,7 @@ class AppDelegate: NSObject,
     @IBAction func closeAllWindows(_ sender: Any?) {
         TerminalController.closeAllWindows()
         AboutController.shared.hide()
+        SettingsController.shared?.close()
     }
 
     @IBAction func showAbout(_ sender: Any?) {
@@ -1201,6 +1209,13 @@ extension AppDelegate {
 
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard NSApp.mainWindow?.identifier?.rawValue != "SettingsWindow" else {
+            // when settings window is main,
+            // we only want to enable `close(:_)`, `closeAllWindows(:_)` and other system defaults,
+            // system will validate `close(:_)` and others based on responder chain,
+            // so we only need to check `closeAllWindows(:_)` here
+            return [#selector(closeAllWindows(_:))].contains(item.action)
+        }
         switch item.action {
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
