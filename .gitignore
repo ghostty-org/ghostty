@@ -11,6 +11,7 @@ zig-cache/
 .zig-cache/
 zig-out/
 /result*
+/.nixos-test-history
 example/*.wasm
 test/ghostty
 test/cases/**/*.actual.png
