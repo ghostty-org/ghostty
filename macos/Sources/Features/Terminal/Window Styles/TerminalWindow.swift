@@ -419,6 +419,7 @@ class TerminalWindow: NSWindow {
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
         guard isVisible else { return }
+        defer { updateColorSchemeForSurfaceTree() }
 
         // Basic properties
         appearance = surfaceConfig.windowAppearance
@@ -479,6 +480,10 @@ class TerminalWindow: NSWindow {
 
         let alpha = derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
+    }
+
+    func updateColorSchemeForSurfaceTree() {
+        terminalController?.updateColorSchemeForSurfaceTree()
     }
 
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
