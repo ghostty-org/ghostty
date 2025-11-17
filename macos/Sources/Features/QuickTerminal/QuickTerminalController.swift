@@ -76,6 +76,11 @@ class QuickTerminalController: BaseTerminalController {
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(onDuplicateTab),
+            name: Ghostty.Notification.ghosttyDuplicateTab,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(windowDidResize(_:)),
             name: NSWindow.didResizeNotification,
             object: nil)
@@ -605,6 +610,10 @@ class QuickTerminalController: BaseTerminalController {
     @IBAction func newTab(_ sender: Any?) {
         showNoNewTabAlert()
     }
+    
+    @IBAction func duplicateTab(_ sender: Any?) {
+        showNoNewTabAlert()
+    }
 
     @IBAction func toggleGhosttyFullScreen(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
@@ -670,6 +679,14 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     @objc private func onNewTab(notification: SwiftUI.Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard let window = surfaceView.window else { return }
+        guard window.windowController is QuickTerminalController else { return }
+        // Tabs aren't supported with Quick Terminals or derivatives
+        showNoNewTabAlert()
+    }
+    
+    @objc private func onDuplicateTab(notification: SwiftUI.Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
         guard let window = surfaceView.window else { return }
         guard window.windowController is QuickTerminalController else { return }
