@@ -6425,6 +6425,12 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_right }, .mods = .{ .alt = true } },
                 .{ .esc = "f" },
             );
+            // Toggle option-as-alt similar to Terminal.app.
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'o' }, .mods = .{ .super = true, .alt = true } },
+                .toggle_macos_option_as_alt,
+            );
         }
     }
 
