@@ -32,6 +32,7 @@ pub fn style(
     state: *State,
     focused: bool,
     blink_visible: bool,
+    unfocused_style: terminal.CursorStyle,
 ) ?Style {
     // Note the order of conditionals below is important. It represents
     // a priority system of how we determine what state overrides cursor
@@ -52,8 +53,8 @@ pub fn style(
     if (!state.terminal.modes.get(.cursor_visible)) return null;
 
     // If we're not focused, our cursor is always visible so that
-    // we can show the hollow box.
-    if (!focused) return .block_hollow;
+    // we can show the configured unfocused cursor style.
+    if (!focused) return Style.fromTerminal(unfocused_style);
 
     // If the cursor is blinking and our blink state is not visible,
     // then we don't show the cursor.
