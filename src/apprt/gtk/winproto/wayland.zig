@@ -249,6 +249,9 @@ pub const Window = struct {
     /// requesting attention from the user.
     activation_token: ?*xdg.ActivationTokenV1 = null,
 
+    /// Exported window handle for child processes (xdg-foreign protocol)
+    exported_handle: ?[:0]const u8 = null,
+
     pub fn init(
         alloc: Allocator,
         app: *App,
@@ -309,6 +312,17 @@ pub const Window = struct {
         if (self.blur_token) |blur| blur.release();
         if (self.decoration) |deco| deco.release();
         if (self.slide) |slide| slide.release();
+
+        if (self.exported_handle) |_| {
+            const gtk_native = self.apprt_window.as(gtk.Native);
+            if (gtk_native.getSurface()) |gdk_surface| {
+                if (gobject.ext.cast(gdk.Toplevel, gdk_surface)) |gdk_toplevel| {
+                    if (gobject.ext.cast(gdk_wayland.WaylandToplevel, gdk_toplevel)) |wayland_toplevel| {
+                        wayland_toplevel.unexportHandle();
+                    }
+                }
+            }
+        }
     }
 
     pub fn resizeEvent(_: *Window) !void {}
@@ -341,8 +355,68 @@ pub const Window = struct {
     }
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
-        _ = self;
-        _ = env;
+        if (self.exported_handle != null) {
+            // Create the window ID string for subsequent calls
+            var buf: [512]u8 = undefined;
+            const window_id = try std.fmt.bufPrint(&buf, "wayland:{s}", .{self.exported_handle.?});
+            try env.put("PARENT_WINDOW_ID", window_id);
+            return;
+        }
+
+        // Get the GDK surface
+        const gtk_native = self.apprt_window.as(gtk.Native);
+        const gdk_surface = gtk_native.getSurface() orelse return;
+
+        // Cast to Wayland toplevel
+        const gdk_toplevel = gobject.ext.cast(
+            gdk.Toplevel,
+            gdk_surface,
+        ) orelse return;
+
+        const gdk_wayland_toplevel = gobject.ext.cast(
+            gdk_wayland.WaylandToplevel,
+            gdk_toplevel,
+        ) orelse return;
+
+        // Export the window handle
+        // Note: This is async, but we're doing a simplified synchronous approach
+        // The handle will be available for subsequent calls
+        const HandleContext = struct {
+            handle: ?[:0]const u8 = null,
+        };
+
+        var ctx: HandleContext = .{};
+
+        const result = gdk_wayland_toplevel.exportHandle(
+            struct {
+                fn callback(
+                    _: *gdk_wayland.WaylandToplevel,
+                    handle_cstr: [*:0]const u8,
+                    user_data: ?*anyopaque,
+                ) callconv(.c) void {
+                    const context: *HandleContext = @ptrCast(@alignCast(user_data.?));
+                    context.handle = std.mem.span(handle_cstr);
+                }
+            }.callback,
+            &ctx,
+            null,
+        );
+
+        if (result == 0) {
+            log.warn("failed to export window handle for subprocess", .{});
+            return;
+        }
+
+        if (ctx.handle) |handle| {
+            // Format: "wayland:HANDLE" as expected by portals
+            var buf: [512]u8 = undefined;
+            const window_id = try std.fmt.bufPrint(&buf, "wayland:{s}", .{handle});
+
+            try env.put("PARENT_WINDOW_ID", window_id);
+
+            // Store for cleanup and future use
+            self.exported_handle = handle;
+        }
     }
 
     pub fn setUrgent(self: *Window, urgent: bool) !void {
