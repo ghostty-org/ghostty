@@ -289,7 +289,7 @@ pub const Wasm = struct {
         while (rowIter.next()) |row| {
             defer y += 1;
 
-            var iter = self.runIterator(group, row, null, null);
+            var iter = self.runIterator(group, row, true, null, null);
             while (try iter.next(alloc)) |run| {
                 const cells = try self.shape(run);
                 log.info("y={} run={d} shape={any} idx={}", .{

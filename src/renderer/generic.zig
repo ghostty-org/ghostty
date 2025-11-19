@@ -1060,6 +1060,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             state: *renderer.State,
             cursor_blink_visible: bool,
+            text_blink_visible: bool,
         ) !void {
             // Data we extract out of the critical area.
             const Critical = struct {
@@ -1073,6 +1074,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 cursor_style: ?renderer.CursorStyle,
                 color_palette: terminal.color.Palette,
                 scrollbar: terminal.Scrollbar,
+                text_blink_visible: bool,
 
                 /// If true, rebuild the full screen.
                 full_rebuild: bool,
@@ -1213,6 +1215,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_style = cursor_style,
                     .color_palette = state.terminal.colors.palette.current,
                     .scrollbar = scrollbar,
+                    .text_blink_visible = text_blink_visible,
                     .full_rebuild = full_rebuild,
                 };
             };
@@ -1233,6 +1236,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 critical.bg,
                 critical.fg,
                 critical.cursor_color,
+                critical.text_blink_visible,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -2324,6 +2328,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             background: terminal.color.RGB,
             foreground: terminal.color.RGB,
             terminal_cursor_color: ?terminal.color.RGB,
+            text_blink_visible: bool,
         ) !void {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
@@ -2415,6 +2420,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 screen.pages.rows,
                 self.cells.size.rows,
             );
+
             while (row_it.next()) |row| {
                 // The viewport may have more rows than our cell contents,
                 // so we need to break from the loop early if we hit y = 0.
@@ -2422,10 +2428,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 y -= 1;
 
-                if (!rebuild) {
-                    // Only rebuild if we are doing a full rebuild or this row is dirty.
-                    if (!row.isDirty()) continue;
+                const row_cells_all = row.cells(.all);
+                var has_blink = false;
 
+                for (row_cells_all) |x| {
+                    const style = row.style(&x);
+                    if (style.flags.blink) {
+                        has_blink = true;
+                        break;
+                    }
+                }
+
+                if (!rebuild) {
+                    // Only rebuild if we are doing a full rebuild or this row is dirty
+                    // or any of the cells has blink
+                    if (!has_blink and !row.isDirty()) continue;
                     // Clear the cells if the row is dirty
                     self.cells.clear(y);
                 }
@@ -2474,14 +2491,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .row = row,
                     .selection = row_selection,
                     .cursor_x = if (shape_cursor) screen.cursor.x else null,
+                    .text_blink_visible = text_blink_visible,
                 };
                 run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
                 var run_iter = self.font_shaper.runIterator(run_iter_opts);
                 var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
                 var shaper_cells: ?[]const font.shape.Cell = null;
                 var shaper_cells_i: usize = 0;
-
-                const row_cells_all = row.cells(.all);
 
                 // If our viewport is wider than our cell contents buffer,
                 // we still only process cells up to the width of the buffer.
@@ -2699,10 +2715,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // emulators, e.g. Alacritty, still render text decorations
                     // and only make the text itself invisible. The decision
                     // has been made here to match xterm's behavior for this.
-                    if (style.flags.invisible) {
+                    if (style.flags.invisible or (style.flags.blink and !text_blink_visible)) {
                         continue;
                     }
-
                     // Give links a single underline, unless they already have
                     // an underline, in which case use a double underline to
                     // distinguish them.
@@ -2858,7 +2873,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 screen.cursor.page_cell,
                                 color_palette,
                             ) orelse background;
-
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
                                 .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
