@@ -207,6 +207,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Our shader pipelines.
         shaders: Shaders,
 
+        /// Captured dirty for reference after updateFrame() clears the flag
+        /// To be used for shader uniforms.
+        ///
+        /// Initialized to true because we need to get the correct palette even on
+        /// a new Surface. Otherwise we end up with it initialized to 0's
+        palette_dirty: bool = true,
+
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
         /// the previous frame is still being processed on the GPU.
@@ -709,6 +716,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .current_cursor_color = @splat(0),
                     .previous_cursor_color = @splat(0),
                     .cursor_change_time = 0,
+                    .palette = @splat(@splat(0)),
+                    .background_color = @splat(0),
+                    .foreground_color = @splat(0),
+                    .cursor_color = @splat(0),
+                    .cursor_text = @splat(0),
+                    .selection_background_color = @splat(0),
+                    .selection_foreground_color = @splat(0),
                 },
                 .bg_image_buffer = undefined,
 
@@ -1182,6 +1196,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     break :rebuild false;
                 };
 
+                self.palette_dirty |= state.terminal.flags.dirty.palette;
                 // Reset the dirty flags in the terminal and screen. We assume
                 // that our rebuild will be successful since so we optimize for
                 // success and reset while we hold the lock. This is much easier
@@ -2235,6 +2250,89 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 1,
                 0,
             };
+
+            // Renderer state required for getting the colors
+            const state: *renderer.State = &self.surface_mailbox.surface.renderer_state;
+
+            // (Updates on OSC sequence changes and configuration changes)
+            if (self.palette_dirty) {
+
+                // 256-color palette
+                for (state.terminal.colors.palette.current, 0..) |color, i| {
+                    self.custom_shader_uniforms.palette[i] = .{
+                        @as(f32, @floatFromInt(color.r)) / 255.0,
+                        @as(f32, @floatFromInt(color.g)) / 255.0,
+                        @as(f32, @floatFromInt(color.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                // Background color
+                if (state.terminal.colors.background.get()) |bg| {
+                    self.custom_shader_uniforms.background_color = .{
+                        @as(f32, @floatFromInt(bg.r)) / 255.0,
+                        @as(f32, @floatFromInt(bg.g)) / 255.0,
+                        @as(f32, @floatFromInt(bg.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                // Foreground color
+                if (state.terminal.colors.foreground.get()) |fg| {
+                    self.custom_shader_uniforms.foreground_color = .{
+                        @as(f32, @floatFromInt(fg.r)) / 255.0,
+                        @as(f32, @floatFromInt(fg.g)) / 255.0,
+                        @as(f32, @floatFromInt(fg.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                // Cursor color
+                if (state.terminal.colors.cursor.get()) |cursor_color| {
+                    self.custom_shader_uniforms.cursor_color = .{
+                        @as(f32, @floatFromInt(cursor_color.r)) / 255.0,
+                        @as(f32, @floatFromInt(cursor_color.g)) / 255.0,
+                        @as(f32, @floatFromInt(cursor_color.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                // NOTE: the following could be optimized to follow a change in
+                // config for a slight optimization however this is only 12 bytes
+                // each being updated and likely isn't a cause for concern
+
+                // Cursor text color
+                if (self.config.cursor_text) |cursor_text| {
+                    self.custom_shader_uniforms.cursor_text = .{
+                        @as(f32, @floatFromInt(cursor_text.color.r)) / 255.0,
+                        @as(f32, @floatFromInt(cursor_text.color.g)) / 255.0,
+                        @as(f32, @floatFromInt(cursor_text.color.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                // Selection background color
+                if (self.config.selection_background) |seletion_bg| {
+                    self.custom_shader_uniforms.selection_background_color = .{
+                        @as(f32, @floatFromInt(seletion_bg.color.r)) / 255.0,
+                        @as(f32, @floatFromInt(seletion_bg.color.g)) / 255.0,
+                        @as(f32, @floatFromInt(seletion_bg.color.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                // Selection foreground color
+                if (self.config.selection_foreground) |selection_fg| {
+                    self.custom_shader_uniforms.selection_foreground_color = .{
+                        @as(f32, @floatFromInt(selection_fg.color.r)) / 255.0,
+                        @as(f32, @floatFromInt(selection_fg.color.g)) / 255.0,
+                        @as(f32, @floatFromInt(selection_fg.color.b)) / 255.0,
+                        1.0,
+                    };
+                }
+
+                self.palette_dirty = false;
+            }
 
             // Update custom cursor uniforms, if we have a cursor.
             if (self.cells.getCursorGlyph()) |cursor| {
