@@ -42,9 +42,15 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
         ).step);
     }
 
+    // Create the update step (xgettext + msgmerge) BEFORE finalizing
+    // so we can make msgfmt depend on it. This ensures .po files are
+    // fully merged with schema strings prior to compiling .mo catalogs.
+    const upd = try createUpdateStep(b);
+    for (steps.items) |s| s.dependOn(upd);
+
     return .{
         .owner = b,
-        .update_step = try createUpdateStep(b),
+        .update_step = upd,
         .steps = try steps.toOwnedSlice(b.allocator),
     };
 }
@@ -149,16 +155,42 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         }
     }
 
+    // Extract schema strings and join with main extraction
+    // Write main xgettext output to a temp file first
+    const wf = b.addWriteFiles();
+    const pot_temp = wf.addCopyFile(xgettext.captureStdOut(), "temp.pot");
+
+    // Run xgettext for GSettings with --join-existing
+    const xgettext_gsettings = b.addSystemCommand(&.{
+        "xgettext",
+        "--language=GSettings",
+        "--from-code=UTF-8",
+        "--add-comments=Translators",
+        "--keyword=_",
+        "--keyword=C_:1c,2",
+        "--join-existing",
+        "-o",
+    });
+    xgettext_gsettings.has_side_effects = true;
+    xgettext_gsettings.addFileArg(pot_temp);
+    xgettext_gsettings.addArg("data/ghostty.gschema.xml.in");
+    xgettext_gsettings.addFileInput(b.path("data/ghostty.gschema.xml.in"));
+
+    // Read the updated file back
+    const cat_pot = b.addSystemCommand(&.{"cat"});
+    cat_pot.addFileArg(pot_temp);
+    cat_pot.step.dependOn(&xgettext_gsettings.step);
+
     const usf = b.addUpdateSourceFiles();
     usf.addCopyFileToSource(
-        xgettext.captureStdOut(),
+        cat_pot.captureStdOut(),
         "po/" ++ domain ++ ".pot",
     );
 
     inline for (locales) |locale| {
         const msgmerge = b.addSystemCommand(&.{ "msgmerge", "--quiet", "--no-fuzzy-matching" });
         msgmerge.addFileArg(b.path("po/" ++ locale ++ ".po"));
-        msgmerge.addFileArg(xgettext.captureStdOut());
+        msgmerge.addFileArg(cat_pot.captureStdOut());
         usf.addCopyFileToSource(msgmerge.captureStdOut(), "po/" ++ locale ++ ".po");
     }
 
