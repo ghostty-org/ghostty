@@ -5086,6 +5086,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
+        .goto_window => |direction| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_window,
+            switch (direction) {
+                .previous => .previous,
+                .next => .next,
+            },
+        ),
+
         .resize_split => |value| return try self.rt_app.performAction(
             .{ .surface = self },
             .resize_split,
