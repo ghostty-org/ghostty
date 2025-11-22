@@ -88,3 +88,17 @@ if [[ -n $GHOSTTY_RESOURCES_DIR ]]; then
   source "$GHOSTTY_RESOURCES_DIR"/shell-integration/zsh/ghostty-integration
 fi
 ```
+
+### Nushell
+
+For `nushell` Ghostty prepends to the `XDG_DATA_DIRS` directory. Nushell automatically
+loads configuration files in `<XDG_DATA_DIRS>/nushell/vendor/autoload/*.nu` on startup. These
+directories are represented in `Nu` by `$nu.vendor-autoload-dirs`. For more details see
+
+[Nushell documentation](https://www.nushell.sh/book/configuration.html#configuration-overview)
+
+> [!NOTE]
+>
+> Ghostty only prepends to `XDG_DATA_DIRS` in the case where the `ssh-*` features are enabled.
+> Nushell supports most features out of the box, so other shell integration features are not
+> necessary.
