@@ -714,6 +714,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .current_cursor_color = @splat(0),
                     .previous_cursor_color = @splat(0),
                     .cursor_change_time = 0,
+                    .previous_cursor_change_time = 0,
                 },
                 .bg_image_buffer = undefined,
 
@@ -2259,6 +2260,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     uniforms.previous_cursor_color = uniforms.current_cursor_color;
                     uniforms.current_cursor = new_cursor;
                     uniforms.current_cursor_color = cursor_color;
+                    uniforms.previous_cursor_change_time = uniforms.cursor_change_time;
                     uniforms.cursor_change_time = uniforms.time;
                 }
             }
