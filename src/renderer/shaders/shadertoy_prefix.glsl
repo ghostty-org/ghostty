@@ -15,8 +15,18 @@ layout(binding = 1, std140) uniform Globals {
     uniform vec4  iPreviousCursor;
     uniform vec4  iCurrentCursorColor;
     uniform vec4  iPreviousCursorColor;
+    uniform int   iCurrentCursorStyle;
+    uniform int   iPreviousCursorStyle;
+    uniform int   iCurrentCursorVisible;
+    uniform int   iPreviousCursorVisible;
     uniform float iTimeCursorChange;
 };
+
+#define CURSORSTYLE_BLOCK        0
+#define CURSORSTYLE_BLOCK_HOLLOW 1
+#define CURSORSTYLE_BAR          2
+#define CURSORSTYLE_UNDERLINE    3
+#define CURSORSTYLE_LOCK         4
 
 layout(binding = 0) uniform sampler2D iChannel0;
 

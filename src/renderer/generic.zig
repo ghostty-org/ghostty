@@ -94,6 +94,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         const shaderpkg = GraphicsAPI.shaders;
         const Shaders = shaderpkg.Shaders;
 
+        /// Cursor state for shader uniforms - tracks style and visibility independently
+        const CursorState = struct {
+            style: renderer.CursorStyle, // Always has a style (not optional)
+            visible: bool,
+            glyph: ?shaderpkg.CellText, // Cached glyph info
+
+            fn init() CursorState {
+                return .{
+                    .style = .block, // Sensible default
+                    .visible = false,
+                    .glyph = null,
+                };
+            }
+        };
+
         /// Allocator that can be used
         alloc: std.mem.Allocator,
 
@@ -137,6 +152,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Custom shader uniform values.
         custom_shader_uniforms: shadertoy.Uniforms,
+
+        /// The current cursor state for shader uniforms.
+        cursor_state: CursorState = CursorState.init(),
 
         /// Timestamp we rendered out first frame.
         ///
@@ -713,6 +731,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .previous_cursor = @splat(0),
                     .current_cursor_color = @splat(0),
                     .previous_cursor_color = @splat(0),
+                    .current_cursor_style = 0,
+                    .previous_cursor_style = 0,
+                    .current_cursor_visible = 0,
+                    .previous_cursor_visible = 0,
                     .cursor_change_time = 0,
                 },
                 .bg_image_buffer = undefined,
@@ -1123,14 +1145,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
 
                 // Whether to draw our cursor or not.
-                const cursor_style = if (state.terminal.flags.password_input)
-                    .lock
-                else
-                    renderer.cursorStyle(
-                        state,
-                        self.focused,
-                        cursor_blink_visible,
-                    );
+                const cursor_style = renderer.cursorStyle(
+                    state,
+                    self.focused,
+                    cursor_blink_visible,
+                );
+
+                // Update our cursor state for uniform usage
+                // If we get a style, update both style and visibility
+                if (cursor_style) |style| {
+                    self.cursor_state.style = style;
+                    self.cursor_state.visible = true;
+                } else {
+                    // Cursor is invisible - preserve style, just mark invisible
+                    self.cursor_state.visible = false;
+                }
 
                 // Get our preedit state
                 const preedit: ?renderer.State.Preedit = preedit: {
@@ -2167,6 +2196,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // We only need to do this if we have custom shaders.
             if (!self.has_custom_shaders) return;
 
+            const uniforms = &self.custom_shader_uniforms;
+
             const now = try std.time.Instant.now();
             defer self.last_frame_time = now;
             const first_frame_time = self.first_frame_time orelse t: {
@@ -2176,99 +2207,132 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const last_frame_time = self.last_frame_time orelse now;
 
             const since_ns: f32 = @floatFromInt(now.since(first_frame_time));
-            self.custom_shader_uniforms.time = since_ns / std.time.ns_per_s;
+            uniforms.time = since_ns / std.time.ns_per_s;
 
             const delta_ns: f32 = @floatFromInt(now.since(last_frame_time));
-            self.custom_shader_uniforms.time_delta = delta_ns / std.time.ns_per_s;
+            uniforms.time_delta = delta_ns / std.time.ns_per_s;
 
-            self.custom_shader_uniforms.frame += 1;
+            uniforms.frame += 1;
 
             const screen = self.size.screen;
             const padding = self.size.padding;
             const cell = self.size.cell;
 
-            self.custom_shader_uniforms.resolution = .{
+            uniforms.resolution = .{
                 @floatFromInt(screen.width),
                 @floatFromInt(screen.height),
                 1,
             };
-            self.custom_shader_uniforms.channel_resolution[0] = .{
+            uniforms.channel_resolution[0] = .{
                 @floatFromInt(screen.width),
                 @floatFromInt(screen.height),
                 1,
                 0,
             };
 
-            // Update custom cursor uniforms, if we have a cursor.
-            if (self.cells.getCursorGlyph()) |cursor| {
-                const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);
-                const cursor_height: f32 = @floatFromInt(cursor.glyph_size[1]);
+            // Update custom cursor uniforms
 
-                // Left edge of the cell the cursor is in.
-                var pixel_x: f32 = @floatFromInt(
-                    cursor.grid_pos[0] * cell.width + padding.left,
-                );
-                // Top edge, relative to the top of the
-                // screen, of the cell the cursor is in.
-                var pixel_y: f32 = @floatFromInt(
-                    cursor.grid_pos[1] * cell.height + padding.top,
-                );
+            const state: *renderer.State = &self.surface_mailbox.surface.renderer_state;
+            const thread: *renderer.Thread = &self.surface_mailbox.surface.renderer_thread;
 
-                // If +Y is up in our shaders, we need to flip the coordinate
-                // so that it's instead the top edge of the cell relative to
-                // the *bottom* of the screen.
-                if (!GraphicsAPI.custom_shader_y_is_down) {
-                    pixel_y = @as(f32, @floatFromInt(screen.height)) - pixel_y;
-                }
+            const cursor_style = renderer.cursorStyle(state, self.focused, thread.flags.cursor_blink_visible);
 
-                // Add the X bearing to get the -X (left) edge of the cursor.
-                pixel_x += @floatFromInt(cursor.bearings[0]);
+            // Always check the visibility
+            const current_cursor_visible: bool = cursor_style != null;
 
-                // How we deal with the Y bearing depends on which direction
-                // is "up", since we want our final `pixel_y` value to be the
-                // +Y edge of the cursor.
-                if (GraphicsAPI.custom_shader_y_is_down) {
-                    // As a reminder, the Y bearing is the distance from the
-                    // bottom of the cell to the top of the glyph, so to get
-                    // the +Y edge we need to add the cell height, subtract
-                    // the Y bearing, and add the glyph height to get the +Y
-                    // (bottom) edge of the cursor.
-                    pixel_y += @floatFromInt(cell.height);
-                    pixel_y -= @floatFromInt(cursor.bearings[1]);
-                    pixel_y += @floatFromInt(cursor.glyph_size[1]);
-                } else {
-                    // If the Y direction is reversed though, we instead want
-                    // the *top* edge of the cursor, which means we just need
-                    // to subtract the cell height and add the Y bearing.
-                    pixel_y -= @floatFromInt(cell.height);
-                    pixel_y += @floatFromInt(cursor.bearings[1]);
-                }
+            // Always update the visibility.
+            // If we check for a change then the current and previous uniforms
+            // will always be the opposite of one another
+            //
+            // This allows for cases where the use might want to know the exact frame
+            // where the visibility changes
+            uniforms.previous_cursor_visible = uniforms.current_cursor_visible;
+            uniforms.current_cursor_visible = @intFromBool(current_cursor_visible);
 
-                const new_cursor: [4]f32 = .{
-                    pixel_x,
-                    pixel_y,
-                    cursor_width,
-                    cursor_height,
-                };
-                const cursor_color: [4]f32 = .{
-                    @as(f32, @floatFromInt(cursor.color[0])) / 255.0,
-                    @as(f32, @floatFromInt(cursor.color[1])) / 255.0,
-                    @as(f32, @floatFromInt(cursor.color[2])) / 255.0,
-                    @as(f32, @floatFromInt(cursor.color[3])) / 255.0,
-                };
+            if (current_cursor_visible) {
 
-                const uniforms = &self.custom_shader_uniforms;
+                // If we have a cursor in the fg cells.
+                //
+                // * Similar check to see if the cursor does in fact exist
+                if (self.cells.getCursorGlyph()) |cursor| {
+                    const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);
+                    const cursor_height: f32 = @floatFromInt(cursor.glyph_size[1]);
 
-                const cursor_changed: bool =
-                    !std.meta.eql(new_cursor, uniforms.current_cursor) or
-                    !std.meta.eql(cursor_color, uniforms.current_cursor_color);
+                    // Left edge of the cell the cursor is in.
+                    var pixel_x: f32 = @floatFromInt(
+                        cursor.grid_pos[0] * cell.width + padding.left,
+                    );
+                    // Top edge, relative to the top of the
+                    // screen, of the cell the cursor is in.
+                    var pixel_y: f32 = @floatFromInt(
+                        cursor.grid_pos[1] * cell.height + padding.top,
+                    );
 
-                if (cursor_changed) {
-                    uniforms.previous_cursor = uniforms.current_cursor;
-                    uniforms.previous_cursor_color = uniforms.current_cursor_color;
-                    uniforms.current_cursor = new_cursor;
-                    uniforms.current_cursor_color = cursor_color;
-                    uniforms.cursor_change_time = uniforms.time;
+                    // If +Y is up in our shaders, we need to flip the coordinate
+                    // so that it's instead the top edge of the cell relative to
+                    // the *bottom* of the screen.
+                    if (!GraphicsAPI.custom_shader_y_is_down) {
+                        pixel_y = @as(f32, @floatFromInt(screen.height)) - pixel_y;
+                    }
+
+                    // Add the X bearing to get the -X (left) edge of the cursor.
+                    pixel_x += @floatFromInt(cursor.bearings[0]);
+
+                    // How we deal with the Y bearing depends on which direction
+                    // is "up", since we want our final `pixel_y` value to be the
+                    // +Y edge of the cursor.
+                    if (GraphicsAPI.custom_shader_y_is_down) {
+                        // As a reminder, the Y bearing is the distance from the
+                        // bottom of the cell to the top of the glyph, so to get
+                        // the +Y edge we need to add the cell height, subtract
+                        // the Y bearing, and add the glyph height to get the +Y
+                        // (bottom) edge of the cursor.
+                        pixel_y += @floatFromInt(cell.height);
+                        pixel_y -= @floatFromInt(cursor.bearings[1]);
+                        pixel_y += @floatFromInt(cursor.glyph_size[1]);
+                    } else {
+                        // If the Y direction is reversed though, we instead want
+                        // the *top* edge of the cursor, which means we just need
+                        // to subtract the cell height and add the Y bearing.
+                        pixel_y -= @floatFromInt(cell.height);
+                        pixel_y += @floatFromInt(cursor.bearings[1]);
+                    }
+
+                    const new_cursor: [4]f32 = .{
+                        pixel_x,
+                        pixel_y,
+                        cursor_width,
+                        cursor_height,
+                    };
+                    const cursor_color: [4]f32 = .{
+                        @as(f32, @floatFromInt(cursor.color[0])) / 255.0,
+                        @as(f32, @floatFromInt(cursor.color[1])) / 255.0,
+                        @as(f32, @floatFromInt(cursor.color[2])) / 255.0,
+                        @as(f32, @floatFromInt(cursor.color[3])) / 255.0,
+                    };
+
+                    const current_cursor_style = if (cursor_style) |style| @as(i32, @intFromEnum(style)) else null;
+
+                    const cursor_changed: bool =
+                        !std.meta.eql(new_cursor, uniforms.current_cursor) or
+                        !std.meta.eql(cursor_color, uniforms.current_cursor_color) or
+                        current_cursor_style != uniforms.current_cursor_style;
+
+                    if (cursor_changed) {
+                        uniforms.previous_cursor = uniforms.current_cursor;
+                        uniforms.previous_cursor_color = uniforms.current_cursor_color;
+                        uniforms.current_cursor = new_cursor;
+                        uniforms.current_cursor_color = cursor_color;
+
+                        // Shouldn't get here;
+                        // Don't update it if it's not visible
+                        if (current_cursor_style) |style| {
+                            uniforms.previous_cursor_style = uniforms.current_cursor_style;
+                            uniforms.current_cursor_style = style;
+                        }
+
+                        uniforms.cursor_change_time = uniforms.time;
+                    }
                 }
             }
         }

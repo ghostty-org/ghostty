@@ -37,6 +37,9 @@ pub fn style(
     // a priority system of how we determine what state overrides cursor
     // visibility and style.
 
+    // Password is coming from the user.
+    if (state.terminal.flags.password_input) return .lock;
+
     // The cursor is only at the bottom of the viewport. If we aren't
     // at the bottom, we never render the cursor. The cursor x/y is by
     // viewport so if we are above the viewport, we'll end up rendering

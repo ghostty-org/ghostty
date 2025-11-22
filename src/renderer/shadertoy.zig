@@ -25,6 +25,10 @@ pub const Uniforms = extern struct {
     previous_cursor: [4]f32 align(16),
     current_cursor_color: [4]f32 align(16),
     previous_cursor_color: [4]f32 align(16),
+    current_cursor_style: i32 align(4),
+    previous_cursor_style: i32 align(4),
+    current_cursor_visible: i32 align(4),
+    previous_cursor_visible: i32 align(4),
     cursor_change_time: f32 align(4),
 };
 
