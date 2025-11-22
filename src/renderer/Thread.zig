@@ -612,15 +612,23 @@ fn renderCallback(
 /// This is used to avoid unnecessary renderer wakeups when the cursor blink
 /// timer fires but the blink state wouldn't actually affect rendering.
 /// See: https://github.com/ghostty-org/ghostty/issues/8003
-fn isCursorBlinkable(self: *const Thread, state: *const rendererpkg.State) bool {
+fn isCursorBlinkable(self: *const Thread) bool {
     if (!self.flags.focused) return false;
 
-    if (!state.terminal.modes.get(.cursor_visible)) return false;
-    if (!state.terminal.modes.get(.cursor_blinking)) return false;
+    const ts = &self.renderer.terminal_state;
 
-    if (!state.terminal.screens.active.viewportIsBottom()) return false;
+    if (!ts.cursor_visible) return false;
+    if (!ts.cursor_blinking) return false;
 
-    if (state.preedit != null) return false;
+    if (!ts.viewport_is_bottom) return false;
+
+    // Preedit state is not in terminal.RenderState and can be modified by
+    // other threads, so we need to check it with a lock.
+    {
+        self.state.mutex.lock();
+        defer self.state.mutex.unlock();
+        if (self.state.preedit != null) return false;
+    }
 
     return true;
 }
@@ -653,15 +661,8 @@ fn cursorTimerCallback(
     // affect the rendered output. This avoids unnecessary full frame updates
     // when cursor blinking is disabled, or when other conditions prevent the
     // cursor from being rendered.
-    {
-        t.state.mutex.lock();
-        defer t.state.mutex.unlock();
-
-        if (t.isCursorBlinkable(t.state)) {
-            t.wakeup.notify() catch {};
-        } else {
-            log.debug("cursor blink timer: skipping wakeup (cursor not blinkable)", .{});
-        }
+    if (t.isCursorBlinkable()) {
+        t.wakeup.notify() catch {};
     }
 
     t.cursor_h.run(
