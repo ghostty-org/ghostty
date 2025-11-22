@@ -71,7 +71,17 @@ struct TerminalCommandPaletteView: View {
         } catch {
             return options
         }
-        
+
+        if surfaceView.canSeparatePane {
+            options.append(CommandOption(
+                title: "Separate Pane into New Tab",
+                description: "Move the focused pane into its own tab"
+            ) {
+                isPresented = false
+                surfaceView.separateIntoNewTab()
+            })
+        }
+
         return options
     }
 
