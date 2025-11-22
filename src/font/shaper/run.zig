@@ -45,7 +45,10 @@ pub const RunIterator = struct {
     i: usize = 0,
 
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
-        const cells = self.opts.row.cells(.all);
+        const slice = &self.opts.cells;
+        const cells: []const terminal.page.Cell = slice.items(.raw);
+        const graphemes: []const []const u21 = slice.items(.grapheme);
+        const styles: []const terminal.Style = slice.items(.style);
 
         // Trim the right side of a row that might be empty
         const max: usize = max: {
@@ -60,10 +63,8 @@ pub const RunIterator = struct {
         // Invisible cells don't have any glyphs rendered,
         // so we explicitly skip them in the shaping process.
         while (self.i < max and
-            self.opts.row.style(&cells[self.i]).flags.invisible)
-        {
-            self.i += 1;
-        }
+            (cells[self.i].hasStyling() and
+                styles[self.i].flags.invisible)) self.i += 1;
 
         // We're over at the max
         if (self.i >= max) return null;
@@ -78,7 +79,7 @@ pub const RunIterator = struct {
         var hasher = Hasher.init(0);
 
         // Let's get our style that we'll expect for the run.
-        const style = self.opts.row.style(&cells[self.i]);
+        const style: terminal.Style = if (cells[self.i].hasStyling()) styles[self.i] else .{};
 
         // Go through cell by cell and accumulate while we build our run.
         var j: usize = self.i;
@@ -88,21 +89,14 @@ pub const RunIterator = struct {
             // with identical content but different starting positions in the
             // row produce the same hash, enabling cache reuse.
             const cluster = j - self.i;
-            const cell = &cells[j];
+            const cell: *const terminal.page.Cell = &cells[j];
 
             // If we have a selection and we're at a boundary point, then
             // we break the run here.
-            if (self.opts.selection) |unordered_sel| {
+            if (self.opts.selection) |bounds| {
                 if (j > self.i) {
-                    const sel = unordered_sel.ordered(self.opts.screen, .forward);
-                    const start_x = sel.start().x;
-                    const end_x = sel.end().x;
-
-                    if (start_x > 0 and
-                        j == start_x) break;
-
-                    if (end_x > 0 and
-                        j == end_x + 1) break;
+                    if (bounds[0] > 0 and j == bounds[0]) break;
+                    if (bounds[1] > 0 and j == bounds[1] + 1) break;
                 }
             }
 
@@ -148,7 +142,7 @@ pub const RunIterator = struct {
                 // The style is different. We allow differing background
                 // styles but any other change results in a new run.
                 const c1 = comparableStyle(style);
-                const c2 = comparableStyle(self.opts.row.style(&cells[j]));
+                const c2 = comparableStyle(if (cell.hasStyling()) styles[j] else .{});
                 if (!c1.eql(c2)) break;
             }
 
@@ -168,7 +162,7 @@ pub const RunIterator = struct {
             const presentation: ?font.Presentation = if (cell.hasGrapheme()) p: {
                 // We only check the FIRST codepoint because I believe the
                 // presentation format must be directly adjacent to the codepoint.
-                const cps = self.opts.row.grapheme(cell) orelse break :p null;
+                const cps = graphemes[j];
                 assert(cps.len > 0);
                 if (cps[0] == 0xFE0E) break :p .text;
                 if (cps[0] == 0xFE0F) break :p .emoji;
@@ -227,6 +221,7 @@ pub const RunIterator = struct {
                 if (try self.indexForCell(
                     alloc,
                     cell,
+                    graphemes[j],
                     font_style,
                     presentation,
                 )) |idx| break :font_info .{ .idx = idx };
@@ -279,8 +274,7 @@ pub const RunIterator = struct {
                 @intCast(cluster),
             );
             if (cell.hasGrapheme()) {
-                const cps = self.opts.row.grapheme(cell).?;
-                for (cps) |cp| {
+                for (graphemes[j]) |cp| {
                     // Do not send presentation modifiers
                     if (cp == 0xFE0E or cp == 0xFE0F) continue;
                     try self.addCodepoint(&hasher, cp, @intCast(cluster));
@@ -300,7 +294,7 @@ pub const RunIterator = struct {
         // Move our cursor. Must defer since we use self.i below.
         defer self.i = j;
 
-        return TextRun{
+        return .{
             .hash = hasher.final(),
             .offset = @intCast(self.i),
             .cells = @intCast(j - self.i),
@@ -324,7 +318,8 @@ pub const RunIterator = struct {
     fn indexForCell(
         self: *RunIterator,
         alloc: Allocator,
-        cell: *terminal.Cell,
+        cell: *const terminal.Cell,
+        graphemes: []const u21,
         style: font.Style,
         presentation: ?font.Presentation,
     ) !?font.Collection.Index {
@@ -355,12 +350,14 @@ pub const RunIterator = struct {
 
         // If this is a grapheme, we need to find a font that supports
         // all of the codepoints in the grapheme.
-        const cps = self.opts.row.grapheme(cell) orelse return primary;
-        var candidates: std.ArrayList(font.Collection.Index) = try .initCapacity(alloc, cps.len + 1);
+        var candidates: std.ArrayList(font.Collection.Index) = try .initCapacity(
+            alloc,
+            graphemes.len + 1,
+        );
         defer candidates.deinit(alloc);
         candidates.appendAssumeCapacity(primary);
 
-        for (cps) |cp| {
+        for (graphemes) |cp| {
             // Ignore Emoji ZWJs
             if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
 
@@ -383,7 +380,7 @@ pub const RunIterator = struct {
         // We need to find a candidate that has ALL of our codepoints
         for (candidates.items) |idx| {
             if (!self.opts.grid.hasCodepoint(idx, primary_cp, presentation)) continue;
-            for (cps) |cp| {
+            for (graphemes) |cp| {
                 // Ignore Emoji ZWJs
                 if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
                 if (!self.opts.grid.hasCodepoint(idx, cp, null)) break;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const oni = @import("oniguruma");
 const configpkg = @import("../config.zig");
@@ -54,354 +55,105 @@ pub const Set = struct {
         alloc.free(self.links);
     }
 
-    /// Returns the matchset for the viewport state. The matchset is the
-    /// full set of matching links for the visible viewport. A link
-    /// only matches if it is also in the correct state (i.e. hovered
-    /// if necessary).
-    ///
-    /// This is not a particularly efficient operation. This should be
-    /// called sparingly.
-    pub fn matchSet(
-        self: *const Set,
-        alloc: Allocator,
-        screen: *Screen,
-        mouse_vp_pt: point.Coordinate,
-        mouse_mods: inputpkg.Mods,
-    ) !MatchSet {
-        // Convert the viewport point to a screen point.
-        const mouse_pin = screen.pages.pin(.{
-            .viewport = mouse_vp_pt,
-        }) orelse return .{};
-
-        // This contains our list of matches. The matches are stored
-        // as selections which contain the start and end points of
-        // the match. There is no way to map these back to the link
-        // configuration right now because we don't need to.
-        var matches: std.ArrayList(terminal.Selection) = .empty;
-        defer matches.deinit(alloc);
-
-        // If our mouse is over an OSC8 link, then we can skip the regex
-        // matches below since OSC8 takes priority.
-        try self.matchSetFromOSC8(
-            alloc,
-            &matches,
-            screen,
-            mouse_pin,
-            mouse_mods,
-        );
-
-        // If we have no matches then we can try the regex matches.
-        if (matches.items.len == 0) {
-            try self.matchSetFromLinks(
-                alloc,
-                &matches,
-                screen,
-                mouse_pin,
-                mouse_mods,
-            );
-        }
-
-        return .{ .matches = try matches.toOwnedSlice(alloc) };
-    }
-
-    fn matchSetFromOSC8(
-        self: *const Set,
-        alloc: Allocator,
-        matches: *std.ArrayList(terminal.Selection),
-        screen: *Screen,
-        mouse_pin: terminal.Pin,
-        mouse_mods: inputpkg.Mods,
-    ) !void {
-        // If the right mods aren't pressed, then we can't match.
-        if (!mouse_mods.equal(inputpkg.ctrlOrSuper(.{}))) return;
-
-        // Check if the cell the mouse is over is an OSC8 hyperlink
-        const mouse_cell = mouse_pin.rowAndCell().cell;
-        if (!mouse_cell.hyperlink) return;
-
-        // Get our hyperlink entry
-        const page: *terminal.Page = &mouse_pin.node.data;
-        const link_id = page.lookupHyperlink(mouse_cell) orelse {
-            log.warn("failed to find hyperlink for cell", .{});
-            return;
-        };
-        const link = page.hyperlink_set.get(page.memory, link_id);
-
-        // If our link has an implicit ID (no ID set explicitly via OSC8)
-        // then we use an alternate matching technique that iterates forward
-        // and backward until it finds boundaries.
-        if (link.id == .implicit) {
-            const uri = link.uri.slice(page.memory);
-            return try self.matchSetFromOSC8Implicit(
-                alloc,
-                matches,
-                mouse_pin,
-                uri,
-            );
-        }
-
-        // Go through every row and find matching hyperlinks for the given ID.
-        // Note the link ID is not the same as the OSC8 ID parameter. But
-        // we hash hyperlinks by their contents which should achieve the same
-        // thing so we can use the ID as a key.
-        var current: ?terminal.Selection = null;
-        var row_it = screen.pages.getTopLeft(.viewport).rowIterator(.right_down, null);
-        while (row_it.next()) |row_pin| {
-            const row = row_pin.rowAndCell().row;
-
-            // If the row doesn't have any hyperlinks then we're done
-            // building our matching selection.
-            if (!row.hyperlink) {
-                if (current) |sel| {
-                    try matches.append(alloc, sel);
-                    current = null;
-                }
-
-                continue;
-            }
-
-            // We have hyperlinks, look for our own matching hyperlink.
-            for (row_pin.cells(.right), 0..) |*cell, x| {
-                const match = match: {
-                    if (cell.hyperlink) {
-                        if (row_pin.node.data.lookupHyperlink(cell)) |cell_link_id| {
-                            break :match cell_link_id == link_id;
-                        }
-                    }
-                    break :match false;
-                };
-
-                // If we have a match, extend our selection or start a new
-                // selection.
-                if (match) {
-                    const cell_pin = row_pin.right(x);
-                    if (current) |*sel| {
-                        sel.endPtr().* = cell_pin;
-                    } else {
-                        current = .init(
-                            cell_pin,
-                            cell_pin,
-                            false,
-                        );
-                    }
-
-                    continue;
-                }
-
-                // No match, if we have a current selection then complete it.
-                if (current) |sel| {
-                    try matches.append(alloc, sel);
-                    current = null;
-                }
-            }
-        }
-    }
-
-    /// Match OSC8 links around the mouse pin for an OSC8 link with an
-    /// implicit ID. This only matches cells with the same URI directly
-    /// around the mouse pin.
-    fn matchSetFromOSC8Implicit(
-        self: *const Set,
-        alloc: Allocator,
-        matches: *std.ArrayList(terminal.Selection),
-        mouse_pin: terminal.Pin,
-        uri: []const u8,
-    ) !void {
-        _ = self;
-
-        // Our selection starts with just our pin.
-        var sel = terminal.Selection.init(mouse_pin, mouse_pin, false);
-
-        // Expand it to the left.
-        var it = mouse_pin.cellIterator(.left_up, null);
-        while (it.next()) |cell_pin| {
-            const page: *terminal.Page = &cell_pin.node.data;
-            const rac = cell_pin.rowAndCell();
-            const cell = rac.cell;
-
-            // If this cell isn't a hyperlink then we've found a boundary
-            if (!cell.hyperlink) break;
-
-            const link_id = page.lookupHyperlink(cell) orelse {
-                log.warn("failed to find hyperlink for cell", .{});
-                break;
-            };
-            const link = page.hyperlink_set.get(page.memory, link_id);
-
-            // If this link has an explicit ID then we found a boundary
-            if (link.id != .implicit) break;
-
-            // If this link has a different URI then we found a boundary
-            const cell_uri = link.uri.slice(page.memory);
-            if (!std.mem.eql(u8, uri, cell_uri)) break;
-
-            sel.startPtr().* = cell_pin;
-        }
-
-        // Expand it to the right
-        it = mouse_pin.cellIterator(.right_down, null);
-        while (it.next()) |cell_pin| {
-            const page: *terminal.Page = &cell_pin.node.data;
-            const rac = cell_pin.rowAndCell();
-            const cell = rac.cell;
-
-            // If this cell isn't a hyperlink then we've found a boundary
-            if (!cell.hyperlink) break;
-
-            const link_id = page.lookupHyperlink(cell) orelse {
-                log.warn("failed to find hyperlink for cell", .{});
-                break;
-            };
-            const link = page.hyperlink_set.get(page.memory, link_id);
-
-            // If this link has an explicit ID then we found a boundary
-            if (link.id != .implicit) break;
-
-            // If this link has a different URI then we found a boundary
-            const cell_uri = link.uri.slice(page.memory);
-            if (!std.mem.eql(u8, uri, cell_uri)) break;
-
-            sel.endPtr().* = cell_pin;
-        }
-
-        try matches.append(alloc, sel);
-    }
-
     /// Fills matches with the matches from regex link matches.
-    fn matchSetFromLinks(
+    pub fn renderCellMap(
         self: *const Set,
         alloc: Allocator,
-        matches: *std.ArrayList(terminal.Selection),
-        screen: *Screen,
-        mouse_pin: terminal.Pin,
+        result: *terminal.RenderState.CellSet,
+        render_state: *const terminal.RenderState,
+        mouse_viewport: ?point.Coordinate,
         mouse_mods: inputpkg.Mods,
     ) !void {
-        // Iterate over all the visible lines.
-        var lineIter = screen.lineIterator(screen.pages.pin(.{
-            .viewport = .{},
-        }) orelse return);
-        while (lineIter.next()) |line_sel| {
-            const strmap: terminal.StringMap = strmap: {
-                var strmap: terminal.StringMap = undefined;
-                const str = screen.selectionString(alloc, .{
-                    .sel = line_sel,
-                    .trim = false,
-                    .map = &strmap,
-                }) catch |err| {
-                    log.warn(
-                        "failed to build string map for link checking err={}",
-                        .{err},
-                    );
-                    continue;
-                };
-                alloc.free(str);
-                break :strmap strmap;
-            };
-            defer strmap.deinit(alloc);
+        // Fast path, not very likely since we have default links.
+        if (self.links.len == 0) return;
 
-            // Go through each link and see if we have any matches.
-            for (self.links) |link| {
-                // Determine if our highlight conditions are met. We use a
-                // switch here instead of an if so that we can get a compile
-                // error if any other conditions are added.
+        // Convert our render state to a string + byte map.
+        var builder: std.Io.Writer.Allocating = .init(alloc);
+        defer builder.deinit();
+        var map: terminal.RenderState.StringMap = .empty;
+        defer map.deinit(alloc);
+        try render_state.string(&builder.writer, .{
+            .alloc = alloc,
+            .map = &map,
+        });
+
+        const str = builder.writer.buffered();
+
+        // Go through each link and see if we have any matches.
+        for (self.links) |*link| {
+            // Determine if our highlight conditions are met. We use a
+            // switch here instead of an if so that we can get a compile
+            // error if any other conditions are added.
+            switch (link.highlight) {
+                .always => {},
+                .always_mods => |v| if (!mouse_mods.equal(v)) continue,
+
+                // We check the hover points later.
+                .hover => if (mouse_viewport == null) continue,
+                .hover_mods => |v| {
+                    if (mouse_viewport == null) continue;
+                    if (!mouse_mods.equal(v)) continue;
+                },
+            }
+
+            var offset: usize = 0;
+            while (offset < str.len) {
+                var region = link.regex.search(
+                    str[offset..],
+                    .{},
+                ) catch |err| switch (err) {
+                    error.Mismatch => break,
+                    else => return err,
+                };
+                defer region.deinit();
+
+                // We have a match!
+                const offset_start: usize = @intCast(region.starts()[0]);
+                const offset_end: usize = @intCast(region.ends()[0]);
+                const start = offset + offset_start;
+                const end = offset + offset_end;
+
+                // Increment our offset by the number of bytes in the match.
+                // We defer this so that we can return the match before
+                // modifying the offset.
+                defer offset = end;
+
                 switch (link.highlight) {
-                    .always => {},
-                    .always_mods => |v| if (!mouse_mods.equal(v)) continue,
-                    inline .hover, .hover_mods => |v, tag| {
-                        if (!line_sel.contains(screen, mouse_pin)) continue;
-                        if (comptime tag == .hover_mods) {
-                            if (!mouse_mods.equal(v)) continue;
-                        }
-                    },
+                    .always, .always_mods => {},
+                    .hover, .hover_mods => if (mouse_viewport) |vp| {
+                        for (map.items[start..end]) |pt| {
+                            if (pt.eql(vp)) break;
+                        } else continue;
+                    } else continue,
                 }
 
-                var it = strmap.searchIterator(link.regex);
-                while (true) {
-                    const match_ = it.next() catch |err| {
-                        log.warn("failed to search for link err={}", .{err});
-                        break;
-                    };
-                    var match = match_ orelse break;
-                    defer match.deinit();
-                    const sel = match.selection();
-
-                    // If this is a highlight link then we only want to
-                    // include matches that include our hover point.
-                    switch (link.highlight) {
-                        .always, .always_mods => {},
-                        .hover,
-                        .hover_mods,
-                        => if (!sel.contains(screen, mouse_pin)) continue,
-                    }
-
-                    try matches.append(alloc, sel);
+                // Record the match
+                for (map.items[start..end]) |pt| {
+                    try result.put(alloc, pt, {});
                 }
             }
         }
     }
 };
 
-/// MatchSet is the result of matching links against a screen. This contains
-/// all the matching links and operations on them such as whether a specific
-/// cell is part of a matched link.
-pub const MatchSet = struct {
-    /// The matches.
-    ///
-    /// Important: this must be in left-to-right top-to-bottom order.
-    matches: []const terminal.Selection = &.{},
-    i: usize = 0,
-
-    pub fn deinit(self: *MatchSet, alloc: Allocator) void {
-        alloc.free(self.matches);
-    }
-
-    /// Checks if the matchset contains the given pin. This is slower than
-    /// orderedContains but is stateless and more flexible since it doesn't
-    /// require the points to be in order.
-    pub fn contains(
-        self: *MatchSet,
-        screen: *const Screen,
-        pin: terminal.Pin,
-    ) bool {
-        for (self.matches) |sel| {
-            if (sel.contains(screen, pin)) return true;
-        }
-
-        return false;
-    }
-
-    /// Checks if the matchset contains the given pt. The points must be
-    /// given in left-to-right top-to-bottom order. This is a stateful
-    /// operation and giving a point out of order can cause invalid
-    /// results.
-    pub fn orderedContains(
-        self: *MatchSet,
-        screen: *const Screen,
-        pin: terminal.Pin,
-    ) bool {
-        // If we're beyond the end of our possible matches, we're done.
-        if (self.i >= self.matches.len) return false;
-
-        // If our selection ends before the point, then no point will ever
-        // again match this selection so we move on to the next one.
-        while (self.matches[self.i].end().before(pin)) {
-            self.i += 1;
-            if (self.i >= self.matches.len) return false;
-        }
-
-        return self.matches[self.i].contains(screen, pin);
-    }
-};
-
-test "matchset" {
+test "renderCellMap" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Initialize our screen
-    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    var t: terminal.Terminal = try .init(alloc, .{
+        .cols = 5,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
     defer s.deinit();
-    const str = "1ABCD2EFGH\n3IJKL";
-    try s.testWriteString(str);
+    const str = "1ABCD2EFGH\r\n3IJKL";
+    try s.nextSlice(str);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
 
     // Get a set
     var set = try Set.fromConfig(alloc, &.{
@@ -420,46 +172,41 @@ test "matchset" {
     defer set.deinit(alloc);
 
     // Get our matches
-    var match = try set.matchSet(alloc, &s, .{}, .{});
-    defer match.deinit(alloc);
-    try testing.expectEqual(@as(usize, 2), match.matches.len);
-
-    // Test our matches
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 0,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 1,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 2,
-        .y = 0,
-    } }).?));
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 3,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 1,
-        .y = 1,
-    } }).?));
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 1,
-        .y = 2,
-    } }).?));
+    var result: terminal.RenderState.CellSet = .empty;
+    defer result.deinit(alloc);
+    try set.renderCellMap(
+        alloc,
+        &result,
+        &state,
+        null,
+        .{},
+    );
+    try testing.expect(!result.contains(.{ .x = 0, .y = 0 }));
+    try testing.expect(result.contains(.{ .x = 1, .y = 0 }));
+    try testing.expect(result.contains(.{ .x = 2, .y = 0 }));
+    try testing.expect(!result.contains(.{ .x = 3, .y = 0 }));
+    try testing.expect(result.contains(.{ .x = 1, .y = 1 }));
+    try testing.expect(!result.contains(.{ .x = 1, .y = 2 }));
 }
 
-test "matchset hover links" {
+test "renderCellMap hover links" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Initialize our screen
-    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    var t: terminal.Terminal = try .init(alloc, .{
+        .cols = 5,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
     defer s.deinit();
-    const str = "1ABCD2EFGH\n3IJKL";
-    try s.testWriteString(str);
+    const str = "1ABCD2EFGH\r\n3IJKL";
+    try s.nextSlice(str);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
 
     // Get a set
     var set = try Set.fromConfig(alloc, &.{
@@ -479,80 +226,65 @@ test "matchset hover links" {
 
     // Not hovering over the first link
     {
-        var match = try set.matchSet(alloc, &s, .{}, .{});
-        defer match.deinit(alloc);
-        try testing.expectEqual(@as(usize, 1), match.matches.len);
+        var result: terminal.RenderState.CellSet = .empty;
+        defer result.deinit(alloc);
+        try set.renderCellMap(
+            alloc,
+            &result,
+            &state,
+            null,
+            .{},
+        );
 
         // Test our matches
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 0,
-            .y = 0,
-        } }).?));
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 1,
-            .y = 0,
-        } }).?));
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 2,
-            .y = 0,
-        } }).?));
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 3,
-            .y = 0,
-        } }).?));
-        try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 1,
-            .y = 1,
-        } }).?));
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 1,
-            .y = 2,
-        } }).?));
+        try testing.expect(!result.contains(.{ .x = 0, .y = 0 }));
+        try testing.expect(!result.contains(.{ .x = 1, .y = 0 }));
+        try testing.expect(!result.contains(.{ .x = 2, .y = 0 }));
+        try testing.expect(!result.contains(.{ .x = 3, .y = 0 }));
+        try testing.expect(result.contains(.{ .x = 1, .y = 1 }));
+        try testing.expect(!result.contains(.{ .x = 1, .y = 2 }));
     }
 
     // Hovering over the first link
     {
-        var match = try set.matchSet(alloc, &s, .{ .x = 1, .y = 0 }, .{});
-        defer match.deinit(alloc);
-        try testing.expectEqual(@as(usize, 2), match.matches.len);
+        var result: terminal.RenderState.CellSet = .empty;
+        defer result.deinit(alloc);
+        try set.renderCellMap(
+            alloc,
+            &result,
+            &state,
+            .{ .x = 1, .y = 0 },
+            .{},
+        );
 
         // Test our matches
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 0,
-            .y = 0,
-        } }).?));
-        try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 1,
-            .y = 0,
-        } }).?));
-        try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 2,
-            .y = 0,
-        } }).?));
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 3,
-            .y = 0,
-        } }).?));
-        try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 1,
-            .y = 1,
-        } }).?));
-        try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-            .x = 1,
-            .y = 2,
-        } }).?));
+        try testing.expect(!result.contains(.{ .x = 0, .y = 0 }));
+        try testing.expect(result.contains(.{ .x = 1, .y = 0 }));
+        try testing.expect(result.contains(.{ .x = 2, .y = 0 }));
+        try testing.expect(!result.contains(.{ .x = 3, .y = 0 }));
+        try testing.expect(result.contains(.{ .x = 1, .y = 1 }));
+        try testing.expect(!result.contains(.{ .x = 1, .y = 2 }));
     }
 }
 
-test "matchset mods no match" {
+test "renderCellMap mods no match" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Initialize our screen
-    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    var t: terminal.Terminal = try .init(alloc, .{
+        .cols = 5,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
     defer s.deinit();
-    const str = "1ABCD2EFGH\n3IJKL";
-    try s.testWriteString(str);
+    const str = "1ABCD2EFGH\r\n3IJKL";
+    try s.nextSlice(str);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
 
     // Get a set
     var set = try Set.fromConfig(alloc, &.{
@@ -571,96 +303,21 @@ test "matchset mods no match" {
     defer set.deinit(alloc);
 
     // Get our matches
-    var match = try set.matchSet(alloc, &s, .{}, .{});
-    defer match.deinit(alloc);
-    try testing.expectEqual(@as(usize, 1), match.matches.len);
-
-    // Test our matches
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 0,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 1,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 2,
-        .y = 0,
-    } }).?));
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 3,
-        .y = 0,
-    } }).?));
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 1,
-        .y = 1,
-    } }).?));
-    try testing.expect(!match.orderedContains(&s, s.pages.pin(.{ .screen = .{
-        .x = 1,
-        .y = 2,
-    } }).?));
-}
-
-test "matchset osc8" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    // Initialize our terminal
-    var t = try Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
-    defer t.deinit(alloc);
-    const s: *terminal.Screen = t.screens.active;
-
-    try t.printString("ABC");
-    try t.screens.active.startHyperlink("http://example.com", null);
-    try t.printString("123");
-    t.screens.active.endHyperlink();
-
-    // Get a set
-    var set = try Set.fromConfig(alloc, &.{});
-    defer set.deinit(alloc);
-
-    // No matches over the non-link
-    {
-        var match = try set.matchSet(
-            alloc,
-            t.screens.active,
-            .{ .x = 2, .y = 0 },
-            inputpkg.ctrlOrSuper(.{}),
-        );
-        defer match.deinit(alloc);
-        try testing.expectEqual(@as(usize, 0), match.matches.len);
-    }
-
-    // Match over link
-    var match = try set.matchSet(
+    var result: terminal.RenderState.CellSet = .empty;
+    defer result.deinit(alloc);
+    try set.renderCellMap(
         alloc,
-        t.screens.active,
-        .{ .x = 3, .y = 0 },
-        inputpkg.ctrlOrSuper(.{}),
+        &result,
+        &state,
+        null,
+        .{},
     );
-    defer match.deinit(alloc);
-    try testing.expectEqual(@as(usize, 1), match.matches.len);
 
     // Test our matches
-    try testing.expect(!match.orderedContains(s, s.pages.pin(.{ .screen = .{
-        .x = 2,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(s, s.pages.pin(.{ .screen = .{
-        .x = 3,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(s, s.pages.pin(.{ .screen = .{
-        .x = 4,
-        .y = 0,
-    } }).?));
-    try testing.expect(match.orderedContains(s, s.pages.pin(.{ .screen = .{
-        .x = 5,
-        .y = 0,
-    } }).?));
-    try testing.expect(!match.orderedContains(s, s.pages.pin(.{ .screen = .{
-        .x = 6,
-        .y = 0,
-    } }).?));
+    try testing.expect(!result.contains(.{ .x = 0, .y = 0 }));
+    try testing.expect(result.contains(.{ .x = 1, .y = 0 }));
+    try testing.expect(result.contains(.{ .x = 2, .y = 0 }));
+    try testing.expect(!result.contains(.{ .x = 3, .y = 0 }));
+    try testing.expect(!result.contains(.{ .x = 1, .y = 1 }));
+    try testing.expect(!result.contains(.{ .x = 1, .y = 2 }));
 }

@@ -280,23 +280,60 @@ pub fn contains(self: Selection, s: *const Screen, pin: Pin) bool {
 
 /// Get a selection for a single row in the screen. This will return null
 /// if the row is not included in the selection.
+///
+/// This is a very expensive operation. It has to traverse the linked list
+/// of pages for the top-left, bottom-right, and the given pin to find
+/// the coordinates. If you are calling this repeatedly, prefer
+/// `containedRowCached`.
 pub fn containedRow(self: Selection, s: *const Screen, pin: Pin) ?Selection {
     const tl_pin = self.topLeft(s);
     const br_pin = self.bottomRight(s);
 
     // This is definitely not very efficient. Low-hanging fruit to
-    // improve this.
+    // improve this. Callers should prefer containedRowCached if they
+    // can swing it.
     const tl = s.pages.pointFromPin(.screen, tl_pin).?.screen;
     const br = s.pages.pointFromPin(.screen, br_pin).?.screen;
     const p = s.pages.pointFromPin(.screen, pin).?.screen;
 
+    return self.containedRowCached(
+        s,
+        tl_pin,
+        br_pin,
+        pin,
+        tl,
+        br,
+        p,
+    );
+}
+
+/// Same as containedRow but useful if you're calling it repeatedly
+/// so that the pins can be cached across calls. Advanced.
+pub fn containedRowCached(
+    self: Selection,
+    s: *const Screen,
+    tl_pin: Pin,
+    br_pin: Pin,
+    pin: Pin,
+    tl: point.Coordinate,
+    br: point.Coordinate,
+    p: point.Coordinate,
+) ?Selection {
     if (p.y < tl.y or p.y > br.y) return null;
 
     // Rectangle case: we can return early as the x range will always be the
     // same. We've already validated that the row is in the selection.
     if (self.rectangle) return init(
-        s.pages.pin(.{ .screen = .{ .y = p.y, .x = tl.x } }).?,
-        s.pages.pin(.{ .screen = .{ .y = p.y, .x = br.x } }).?,
+        start: {
+            var copy: Pin = pin;
+            copy.x = tl.x;
+            break :start copy;
+        },
+        end: {
+            var copy: Pin = pin;
+            copy.x = br.x;
+            break :end copy;
+        },
         true,
     );
 
@@ -309,7 +346,11 @@ pub fn containedRow(self: Selection, s: *const Screen, pin: Pin) ?Selection {
         // Selection top-left line matches only.
         return init(
             tl_pin,
-            s.pages.pin(.{ .screen = .{ .y = p.y, .x = s.pages.cols - 1 } }).?,
+            end: {
+                var copy: Pin = pin;
+                copy.x = s.pages.cols - 1;
+                break :end copy;
+            },
             false,
         );
     }
@@ -320,7 +361,11 @@ pub fn containedRow(self: Selection, s: *const Screen, pin: Pin) ?Selection {
     if (p.y == br.y) {
         assert(p.y != tl.y);
         return init(
-            s.pages.pin(.{ .screen = .{ .y = p.y, .x = 0 } }).?,
+            start: {
+                var copy: Pin = pin;
+                copy.x = 0;
+                break :start copy;
+            },
             br_pin,
             false,
         );
@@ -328,8 +373,16 @@ pub fn containedRow(self: Selection, s: *const Screen, pin: Pin) ?Selection {
 
     // Row is somewhere between our selection lines so we return the full line.
     return init(
-        s.pages.pin(.{ .screen = .{ .y = p.y, .x = 0 } }).?,
-        s.pages.pin(.{ .screen = .{ .y = p.y, .x = s.pages.cols - 1 } }).?,
+        start: {
+            var copy: Pin = pin;
+            copy.x = 0;
+            break :start copy;
+        },
+        end: {
+            var copy: Pin = pin;
+            copy.x = s.pages.cols - 1;
+            break :end copy;
+        },
         false,
     );
 }

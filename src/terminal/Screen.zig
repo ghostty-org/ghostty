@@ -88,7 +88,7 @@ pub const Dirty = packed struct {
 
 /// The cursor position and style.
 pub const Cursor = struct {
-    // The x/y position within the viewport.
+    // The x/y position within the active area.
     x: size.CellCountInt = 0,
     y: size.CellCountInt = 0,
 

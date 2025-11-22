@@ -255,8 +255,12 @@ pub fn isSymbol(cp: u21) bool {
 
 /// Returns the appropriate `constraint_width` for
 /// the provided cell when rendering its glyph(s).
-pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
-    const cell = cell_pin.rowAndCell().cell;
+pub fn constraintWidth(
+    raw_slice: []const terminal.page.Cell,
+    x: usize,
+    cols: usize,
+) u2 {
+    const cell = raw_slice[x];
     const cp = cell.codepoint();
 
     const grid_width = cell.gridWidth();
@@ -271,20 +275,14 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     if (!isSymbol(cp)) return grid_width;
 
     // If we are at the end of the screen it must be constrained to one cell.
-    if (cell_pin.x == cell_pin.node.data.size.cols - 1) return 1;
+    if (x == cols - 1) return 1;
 
     // If we have a previous cell and it was a symbol then we need
     // to also constrain. This is so that multiple PUA glyphs align.
     // This does not apply if the previous symbol is a graphics
     // element such as a block element or Powerline glyph.
-    if (cell_pin.x > 0) {
-        const prev_cp = prev_cp: {
-            var copy = cell_pin;
-            copy.x -= 1;
-            const prev_cell = copy.rowAndCell().cell;
-            break :prev_cp prev_cell.codepoint();
-        };
-
+    if (x > 0) {
+        const prev_cp = raw_slice[x - 1].codepoint();
         if (isSymbol(prev_cp) and !isGraphicsElement(prev_cp)) {
             return 1;
         }
@@ -292,15 +290,8 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
 
     // If the next cell is whitespace, then we
     // allow the glyph to be up to two cells wide.
-    const next_cp = next_cp: {
-        var copy = cell_pin;
-        copy.x += 1;
-        const next_cell = copy.rowAndCell().cell;
-        break :next_cp next_cell.codepoint();
-    };
-    if (next_cp == 0 or isSpace(next_cp)) {
-        return 2;
-    }
+    const next_cp = raw_slice[x + 1].codepoint();
+    if (next_cp == 0 or isSpace(next_cp)) return 2;
 
     // Otherwise, this has to be 1 cell wide.
     return 1;
@@ -524,108 +515,171 @@ test "Cell constraint widths" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try terminal.Screen.init(alloc, .{ .cols = 4, .rows = 1, .max_scrollback = 0 });
+    var t: terminal.Terminal = try .init(alloc, .{
+        .cols = 4,
+        .rows = 1,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
     defer s.deinit();
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
 
     // for each case, the numbers in the comment denote expected
     // constraint widths for the symbol-containing cells
 
     // symbol->nothing: 2
     {
-        try s.testWriteString("");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
 
     // symbol->character: 1
     {
-        try s.testWriteString("z");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(1, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("z");
+        try state.update(alloc, &t);
+        try testing.expectEqual(1, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
 
     // symbol->space: 2
     {
-        try s.testWriteString(" z");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice(" z");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
     // symbol->no-break space: 1
     {
-        try s.testWriteString("\u{00a0}z");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(1, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("\u{00a0}z");
+        try state.update(alloc, &t);
+        try testing.expectEqual(1, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
 
     // symbol->end of row: 1
     {
-        try s.testWriteString("   ");
-        const p3 = s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?;
-        try testing.expectEqual(1, constraintWidth(p3));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("   ");
+        try state.update(alloc, &t);
+        try testing.expectEqual(1, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            3,
+            state.cols,
+        ));
     }
 
     // character->symbol: 2
     {
-        try s.testWriteString("z");
-        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p1));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("z");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            1,
+            state.cols,
+        ));
     }
 
     // symbol->symbol: 1,1
     {
-        try s.testWriteString("");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
-        try testing.expectEqual(1, constraintWidth(p0));
-        try testing.expectEqual(1, constraintWidth(p1));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("");
+        try state.update(alloc, &t);
+        try testing.expectEqual(1, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
+        try testing.expectEqual(1, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            1,
+            state.cols,
+        ));
     }
 
     // symbol->space->symbol: 2,2
     {
-        try s.testWriteString(" ");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        const p2 = s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p0));
-        try testing.expectEqual(2, constraintWidth(p2));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice(" ");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            2,
+            state.cols,
+        ));
     }
 
     // symbol->powerline: 1  (dedicated test because powerline is special-cased in cellpkg)
     {
-        try s.testWriteString("");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(1, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("");
+        try state.update(alloc, &t);
+        try testing.expectEqual(1, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
 
     // powerline->symbol: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
-        try s.testWriteString("");
-        const p1 = s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p1));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            1,
+            state.cols,
+        ));
     }
 
     // powerline->nothing: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
-        try s.testWriteString("");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice("");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
 
     // powerline->space: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
-        try s.testWriteString(" z");
-        const p0 = s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(2, constraintWidth(p0));
-        s.reset();
+        t.fullReset();
+        try s.nextSlice(" z");
+        try state.update(alloc, &t);
+        try testing.expectEqual(2, constraintWidth(
+            state.row_data.get(0).cells.items(.raw),
+            0,
+            state.cols,
+        ));
     }
 }

@@ -45,6 +45,9 @@ pub const Mode = enum {
 
     /// Full clone
     clone,
+
+    /// RenderState rather than a screen clone.
+    render,
 };
 
 pub fn create(
@@ -75,6 +78,7 @@ pub fn benchmark(self: *ScreenClone) Benchmark {
         .stepFn = switch (self.opts.mode) {
             .noop => stepNoop,
             .clone => stepClone,
+            .render => stepRender,
         },
         .setupFn = setup,
         .teardownFn = teardown,
@@ -86,6 +90,13 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 
     // Always reset our terminal state
     self.terminal.fullReset();
+
+    // Force a style on every single row, which
+    var s = self.terminal.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[48;2;20;40;60m") catch unreachable;
+    for (0..self.terminal.rows - 1) |_| s.nextSlice("hello\r\n") catch unreachable;
+    s.nextSlice("hello") catch unreachable;
 
     // Setup our terminal state
     const data_f: std.fs.File = (options.dataFile(
@@ -148,6 +159,36 @@ fn stepClone(ptr: *anyopaque) Benchmark.Error!void {
             return error.BenchmarkFailed;
         };
         std.mem.doNotOptimizeAway(copy);
+
+        // Note: we purposely do not free memory because we don't want
+        // to benchmark that. We'll free when the benchmark exits.
+    }
+}
+
+fn stepRender(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // We do this once out of the loop because a significant slowdown
+    // on the first run is allocation. After that first run, even with
+    // a full rebuild, it is much faster. Let's ignore that first run
+    // slowdown.
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..1000) |_| {
+        // Forces a full rebuild because it thinks our screen changed
+        state.screen = .alternate;
+        state.update(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(state);
 
         // Note: we purposely do not free memory because we don't want
         // to benchmark that. We'll free when the benchmark exits.

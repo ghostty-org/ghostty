@@ -5,6 +5,7 @@ const wuffs = @import("wuffs");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
+const inputpkg = @import("../input.zig");
 const os = @import("../os/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
@@ -15,6 +16,7 @@ const cellpkg = @import("cell.zig");
 const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
+const rowNeverExtendBg = @import("row.zig").neverExtendBg;
 const imagepkg = @import("image.zig");
 const Image = imagepkg.Image;
 const ImageMap = imagepkg.ImageMap;
@@ -125,12 +127,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// cells goes into a separate shader.
         cells: cellpkg.Contents,
 
-        /// The last viewport that we based our rebuild off of. If this changes,
-        /// then we do a full rebuild of the cells. The pointer values in this pin
-        /// are NOT SAFE to read because they may be modified, freed, etc from the
-        /// termio thread. We treat the pointers as integers for comparison only.
-        cells_viewport: ?terminal.Pin = null,
-
         /// Set to true after rebuildCells is called. This can be used
         /// to determine if any possible changes have been made to the
         /// cells for the draw call.
@@ -206,6 +202,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Our shader pipelines.
         shaders: Shaders,
+
+        /// The render state we update per loop.
+        terminal_state: terminal.RenderState = .empty,
+
+        /// The number of frames since the last terminal state reset.
+        /// We reset the terminal state after ~100,000 frames (about 10 to
+        /// 15 minutes at 120Hz) to prevent wasted memory buildup from
+        /// a large screen.
+        terminal_state_frame_count: usize = 0,
 
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
@@ -738,6 +743,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            self.terminal_state.deinit(self.alloc);
+
             self.swap_chain.deinit();
 
             if (DisplayLink != void) {
@@ -935,8 +942,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         /// Mark the full screen as dirty so that we redraw everything.
-        pub fn markDirty(self: *Self) void {
-            self.cells_viewport = null;
+        pub inline fn markDirty(self: *Self) void {
+            self.terminal_state.dirty = .full;
         }
 
         /// Called when we get an updated display ID for our display link.
@@ -1042,7 +1049,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Force a full rebuild, because cached rows may still reference
             // an outdated atlas from the old grid and this can cause garbage
             // to be rendered.
-            self.cells_viewport = null;
+            self.markDirty();
         }
 
         /// Update uniforms that are based on the font grid.
@@ -1061,21 +1068,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) !void {
+            // We fully deinit and reset the terminal state every so often
+            // so that a particularly large terminal state doesn't cause
+            // the renderer to hold on to retained memory.
+            //
+            // Frame count is ~12 minutes at 120Hz.
+            const max_terminal_state_frame_count = 100_000;
+            if (self.terminal_state_frame_count >= max_terminal_state_frame_count) {
+                self.terminal_state.deinit(self.alloc);
+                self.terminal_state = .empty;
+            }
+            self.terminal_state_frame_count += 1;
+
+            // Create an arena for all our temporary allocations while rebuilding
+            var arena = ArenaAllocator.init(self.alloc);
+            defer arena.deinit();
+            const arena_alloc = arena.allocator();
+
             // Data we extract out of the critical area.
             const Critical = struct {
-                bg: terminal.color.RGB,
-                fg: terminal.color.RGB,
-                screen: terminal.Screen,
-                screen_type: terminal.ScreenSet.Key,
+                links: terminal.RenderState.CellSet,
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
-                cursor_color: ?terminal.color.RGB,
                 cursor_style: ?renderer.CursorStyle,
-                color_palette: terminal.color.Palette,
                 scrollbar: terminal.Scrollbar,
-
-                /// If true, rebuild the full screen.
-                full_rebuild: bool,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1096,36 +1112,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     return;
                 }
 
+                // Update our terminal state
+                try self.terminal_state.update(self.alloc, state.terminal);
+
                 // Get our scrollbar out of the terminal. We synchronize
                 // the scrollbar read with frame data updates because this
                 // naturally limits the number of calls to this method (it
                 // can be expensive) and also makes it so we don't need another
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
-
-                // Get our bg/fg, swap them if reversed.
-                const RGB = terminal.color.RGB;
-                const bg: RGB, const fg: RGB = colors: {
-                    const bg = state.terminal.colors.background.get().?;
-                    const fg = state.terminal.colors.foreground.get().?;
-                    break :colors if (state.terminal.modes.get(.reverse_colors))
-                        .{ fg, bg }
-                    else
-                        .{ bg, fg };
-                };
-
-                // Get the viewport pin so that we can compare it to the current.
-                const viewport_pin = state.terminal.screens.active.pages.pin(.{ .viewport = .{} }).?;
-
-                // We used to share terminal state, but we've since learned through
-                // analysis that it is faster to copy the terminal state than to
-                // hold the lock while rebuilding GPU cells.
-                var screen_copy = try state.terminal.screens.active.clone(
-                    self.alloc,
-                    .{ .viewport = .{} },
-                    null,
-                );
-                errdefer screen_copy.deinit();
 
                 // Whether to draw our cursor or not.
                 const cursor_style = if (state.terminal.flags.password_input)
@@ -1141,9 +1136,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const preedit: ?renderer.State.Preedit = preedit: {
                     if (cursor_style == null) break :preedit null;
                     const p = state.preedit orelse break :preedit null;
-                    break :preedit try p.clone(self.alloc);
+                    break :preedit try p.clone(arena_alloc);
                 };
-                errdefer if (preedit) |p| p.deinit(self.alloc);
 
                 // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
                 // We only do this if the Kitty image state is dirty meaning only if
@@ -1158,83 +1152,51 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     try self.prepKittyGraphics(state.terminal);
                 }
 
-                // If we have any terminal dirty flags set then we need to rebuild
-                // the entire screen. This can be optimized in the future.
-                const full_rebuild: bool = rebuild: {
-                    {
-                        const Int = @typeInfo(terminal.Terminal.Dirty).@"struct".backing_integer.?;
-                        const v: Int = @bitCast(state.terminal.flags.dirty);
-                        if (v > 0) break :rebuild true;
-                    }
-                    {
-                        const Int = @typeInfo(terminal.Screen.Dirty).@"struct".backing_integer.?;
-                        const v: Int = @bitCast(state.terminal.screens.active.dirty);
-                        if (v > 0) break :rebuild true;
-                    }
+                // Get our OSC8 links we're hovering if we have a mouse.
+                // This requires terminal state because of URLs.
+                const links: terminal.RenderState.CellSet = osc8: {
+                    // If our mouse isn't hovering, we have no links.
+                    const vp = state.mouse.point orelse break :osc8 .empty;
 
-                    // If our viewport changed then we need to rebuild the entire
-                    // screen because it means we scrolled. If we have no previous
-                    // viewport then we must rebuild.
-                    const prev_viewport = self.cells_viewport orelse break :rebuild true;
-                    if (!prev_viewport.eql(viewport_pin)) break :rebuild true;
+                    // If the right mods aren't pressed, then we can't match.
+                    if (!state.mouse.mods.equal(inputpkg.ctrlOrSuper(.{})))
+                        break :osc8 .empty;
 
-                    break :rebuild false;
+                    break :osc8 self.terminal_state.linkCells(
+                        arena_alloc,
+                        vp,
+                    ) catch |err| {
+                        log.warn("error searching for OSC8 links err={}", .{err});
+                        break :osc8 .empty;
+                    };
                 };
-
-                // Reset the dirty flags in the terminal and screen. We assume
-                // that our rebuild will be successful since so we optimize for
-                // success and reset while we hold the lock. This is much easier
-                // than coordinating row by row or as changes are persisted.
-                state.terminal.flags.dirty = .{};
-                state.terminal.screens.active.dirty = .{};
-                {
-                    var it = state.terminal.screens.active.pages.pageIterator(
-                        .right_down,
-                        .{ .viewport = .{} },
-                        null,
-                    );
-                    while (it.next()) |chunk| {
-                        chunk.node.data.dirty = false;
-                        for (chunk.rows()) |*row| {
-                            row.dirty = false;
-                        }
-                    }
-                }
-
-                // Update our viewport pin
-                self.cells_viewport = viewport_pin;
 
                 break :critical .{
-                    .bg = bg,
-                    .fg = fg,
-                    .screen = screen_copy,
-                    .screen_type = state.terminal.screens.active_key,
+                    .links = links,
                     .mouse = state.mouse,
                     .preedit = preedit,
-                    .cursor_color = state.terminal.colors.cursor.get(),
                     .cursor_style = cursor_style,
-                    .color_palette = state.terminal.colors.palette.current,
                     .scrollbar = scrollbar,
-                    .full_rebuild = full_rebuild,
                 };
             };
-            defer {
-                critical.screen.deinit();
-                if (critical.preedit) |p| p.deinit(self.alloc);
-            }
+
+            // Outside the critical area we can update our links to contain
+            // our regex results.
+            self.config.links.renderCellMap(
+                arena_alloc,
+                &critical.links,
+                &self.terminal_state,
+                state.mouse.point,
+                state.mouse.mods,
+            ) catch |err| {
+                log.warn("error searching for regex links err={}", .{err});
+            };
 
             // Build our GPU cells
             try self.rebuildCells(
-                critical.full_rebuild,
-                &critical.screen,
-                critical.screen_type,
-                critical.mouse,
                 critical.preedit,
                 critical.cursor_style,
-                &critical.color_palette,
-                critical.bg,
-                critical.fg,
-                critical.cursor_color,
+                &critical.links,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -1256,9 +1218,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Update our background color
                 self.uniforms.bg_color = .{
-                    critical.bg.r,
-                    critical.bg.g,
-                    critical.bg.b,
+                    self.terminal_state.colors.background.r,
+                    self.terminal_state.colors.background.g,
+                    self.terminal_state.colors.background.b,
                     @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
             }
@@ -2090,7 +2052,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (bg_image_config_changed) self.updateBgImageBuffer();
 
             // Reset our viewport to force a rebuild, in case of a font change.
-            self.cells_viewport = null;
+            self.markDirty();
 
             const blending_changed = old_blending != config.blending;
 
@@ -2316,17 +2278,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// memory and doesn't touch the GPU.
         fn rebuildCells(
             self: *Self,
-            wants_rebuild: bool,
-            screen: *terminal.Screen,
-            screen_type: terminal.ScreenSet.Key,
-            mouse: renderer.State.Mouse,
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
-            color_palette: *const terminal.color.Palette,
-            background: terminal.color.RGB,
-            foreground: terminal.color.RGB,
-            terminal_cursor_color: ?terminal.color.RGB,
+            links: *const terminal.RenderState.CellSet,
         ) !void {
+            const state: *terminal.RenderState = &self.terminal_state;
+            defer state.dirty = .false;
+
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
 
@@ -2338,21 +2296,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             //     std.log.warn("[rebuildCells time] {}\t{}", .{start_micro, end.since(start) / std.time.ns_per_us});
             // }
 
-            _ = screen_type; // we might use this again later so not deleting it yet
-
-            // Create an arena for all our temporary allocations while rebuilding
-            var arena = ArenaAllocator.init(self.alloc);
-            defer arena.deinit();
-            const arena_alloc = arena.allocator();
-
-            // Create our match set for the links.
-            var link_match_set: link.MatchSet = if (mouse.point) |mouse_pt| try self.config.links.matchSet(
-                arena_alloc,
-                screen,
-                mouse_pt,
-                mouse.mods,
-            ) else .{};
-
             // Determine our x/y range for preedit. We don't want to render anything
             // here because we will render the preedit separately.
             const preedit_range: ?struct {
@@ -2360,22 +2303,31 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 x: [2]terminal.size.CellCountInt,
                 cp_offset: usize,
             } = if (preedit) |preedit_v| preedit: {
-                const range = preedit_v.range(screen.cursor.x, screen.pages.cols - 1);
+                // We base the preedit on the position of the cursor in the
+                // viewport. If the cursor isn't visible in the viewport we
+                // don't show it.
+                const cursor_vp = state.cursor.viewport orelse
+                    break :preedit null;
+
+                const range = preedit_v.range(
+                    cursor_vp.x,
+                    state.cols - 1,
+                );
                 break :preedit .{
-                    .y = screen.cursor.y,
+                    .y = @intCast(cursor_vp.y),
                     .x = .{ range.start, range.end },
                     .cp_offset = range.cp_offset,
                 };
             } else null;
 
             const grid_size_diff =
-                self.cells.size.rows != screen.pages.rows or
-                self.cells.size.columns != screen.pages.cols;
+                self.cells.size.rows != state.rows or
+                self.cells.size.columns != state.cols;
 
             if (grid_size_diff) {
                 var new_size = self.cells.size;
-                new_size.rows = screen.pages.rows;
-                new_size.columns = screen.pages.cols;
+                new_size.rows = state.rows;
+                new_size.columns = state.cols;
                 try self.cells.resize(self.alloc, new_size);
 
                 // Update our uniforms accordingly, otherwise
@@ -2383,8 +2335,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.uniforms.grid_size = .{ new_size.columns, new_size.rows };
             }
 
-            const rebuild = wants_rebuild or grid_size_diff;
-
+            const rebuild = state.dirty == .full or grid_size_diff;
             if (rebuild) {
                 // If we are doing a full rebuild, then we clear the entire cell buffer.
                 self.cells.reset();
@@ -2406,45 +2357,47 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
-            // We rebuild the cells row-by-row because we
-            // do font shaping and dirty tracking by row.
-            var row_it = screen.pages.rowIterator(.left_up, .{ .viewport = .{} }, null);
+            // Get our row data from our state
+            const row_data = state.row_data.slice();
+            const row_raws = row_data.items(.raw);
+            const row_cells = row_data.items(.cells);
+            const row_dirty = row_data.items(.dirty);
+            const row_selection = row_data.items(.selection);
+
             // If our cell contents buffer is shorter than the screen viewport,
             // we render the rows that fit, starting from the bottom. If instead
             // the viewport is shorter than the cell contents buffer, we align
             // the top of the viewport with the top of the contents buffer.
-            var y: terminal.size.CellCountInt = @min(
-                screen.pages.rows,
+            const row_len: usize = @min(
+                state.rows,
                 self.cells.size.rows,
             );
-            while (row_it.next()) |row| {
-                // The viewport may have more rows than our cell contents,
-                // so we need to break from the loop early if we hit y = 0.
-                if (y == 0) break;
-
-                y -= 1;
+            for (
+                0..,
+                row_raws[0..row_len],
+                row_cells[0..row_len],
+                row_dirty[0..row_len],
+                row_selection[0..row_len],
+            ) |y_usize, row, *cells, *dirty, selection| {
+                const y: terminal.size.CellCountInt = @intCast(y_usize);
 
                 if (!rebuild) {
                     // Only rebuild if we are doing a full rebuild or this row is dirty.
-                    if (!row.isDirty()) continue;
+                    if (!dirty.*) continue;
 
                     // Clear the cells if the row is dirty
                     self.cells.clear(y);
                 }
 
-                // True if we want to do font shaping around the cursor.
-                // We want to do font shaping as long as the cursor is enabled.
-                const shape_cursor = screen.viewportIsBottom() and
-                    y == screen.cursor.y;
+                // Unmark the dirty state in our render state.
+                dirty.* = false;
 
-                // We need to get this row's selection, if
-                // there is one, for proper run splitting.
-                const row_selection = sel: {
-                    const sel = screen.selection orelse break :sel null;
-                    const pin = screen.pages.pin(.{ .viewport = .{ .y = y } }) orelse
-                        break :sel null;
-                    break :sel sel.containedRow(screen, pin) orelse null;
-                };
+                // If our viewport is wider than our cell contents buffer,
+                // we still only process cells up to the width of the buffer.
+                const cells_slice = cells.slice();
+                const cells_len = @min(cells_slice.len, self.cells.size.columns);
+                const cells_raw = cells_slice.items(.raw);
+                const cells_style = cells_slice.items(.style);
 
                 // On primary screen, we still apply vertical padding
                 // extension under certain conditions we feel are safe.
@@ -2457,14 +2410,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Apply heuristics for padding extension.
                     .extend => if (y == 0) {
-                        self.uniforms.padding_extend.up = !row.neverExtendBg(
-                            color_palette,
-                            background,
+                        self.uniforms.padding_extend.up = !rowNeverExtendBg(
+                            row,
+                            cells_raw,
+                            cells_style,
+                            &state.colors.palette,
+                            state.colors.background,
                         );
                     } else if (y == self.cells.size.rows - 1) {
-                        self.uniforms.padding_extend.down = !row.neverExtendBg(
-                            color_palette,
-                            background,
+                        self.uniforms.padding_extend.down = !rowNeverExtendBg(
+                            row,
+                            cells_raw,
+                            cells_style,
+                            &state.colors.palette,
+                            state.colors.background,
                         );
                     },
                 }
@@ -2472,10 +2431,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Iterator of runs for shaping.
                 var run_iter_opts: font.shape.RunOptions = .{
                     .grid = self.font_grid,
-                    .screen = screen,
-                    .row = row,
-                    .selection = row_selection,
-                    .cursor_x = if (shape_cursor) screen.cursor.x else null,
+                    .cells = cells_slice,
+                    .selection = if (selection) |s| s else null,
+
+                    // We want to do font shaping as long as the cursor is
+                    // visible on this viewport.
+                    .cursor_x = cursor_x: {
+                        const vp = state.cursor.viewport orelse break :cursor_x null;
+                        if (vp.y != y) break :cursor_x null;
+                        break :cursor_x vp.x;
+                    },
                 };
                 run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
                 var run_iter = self.font_shaper.runIterator(run_iter_opts);
@@ -2483,13 +2448,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 var shaper_cells: ?[]const font.shape.Cell = null;
                 var shaper_cells_i: usize = 0;
 
-                const row_cells_all = row.cells(.all);
-
-                // If our viewport is wider than our cell contents buffer,
-                // we still only process cells up to the width of the buffer.
-                const row_cells = row_cells_all[0..@min(row_cells_all.len, self.cells.size.columns)];
-
-                for (row_cells, 0..) |*cell, x| {
+                for (
+                    0..,
+                    cells_raw[0..cells_len],
+                    cells_style[0..cells_len],
+                ) |x, *cell, *managed_style| {
                     // If this cell falls within our preedit range then we
                     // skip this because preedits are setup separately.
                     if (preedit_range) |range| preedit: {
@@ -2522,7 +2485,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             self.font_shaper_cache.get(run) orelse
                             cache: {
                                 // Otherwise we have to shape them.
-                                const cells = try self.font_shaper.shape(run);
+                                const new_cells = try self.font_shaper.shape(run);
 
                                 // Try to cache them. If caching fails for any reason we
                                 // continue because it is just a performance optimization,
@@ -2530,7 +2493,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 self.font_shaper_cache.put(
                                     self.alloc,
                                     run,
-                                    cells,
+                                    new_cells,
                                 ) catch |err| {
                                     log.warn(
                                         "error caching font shaping results err={}",
@@ -2541,52 +2504,45 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 // The cells we get from direct shaping are always owned
                                 // by the shaper and valid until the next shaping call so
                                 // we can safely use them.
-                                break :cache cells;
+                                break :cache new_cells;
                             };
-
-                        const cells = shaper_cells.?;
 
                         // Advance our index until we reach or pass
                         // our current x position in the shaper cells.
-                        while (run.offset + cells[shaper_cells_i].x < x) {
+                        const shaper_cells_unwrapped = shaper_cells.?;
+                        while (run.offset + shaper_cells_unwrapped[shaper_cells_i].x < x) {
                             shaper_cells_i += 1;
                         }
                     }
 
                     const wide = cell.wide;
-
-                    const style = row.style(cell);
-
-                    const cell_pin: terminal.Pin = cell: {
-                        var copy = row;
-                        copy.x = @intCast(x);
-                        break :cell copy;
-                    };
+                    const style: terminal.Style = if (cell.hasStyling())
+                        managed_style.*
+                    else
+                        .{};
 
                     // True if this cell is selected
-                    const selected: bool = if (screen.selection) |sel|
-                        sel.contains(screen, .{
-                            .node = row.node,
-                            .y = row.y,
-                            .x = @intCast(
-                                // Spacer tails should show the selection
-                                // state of the wide cell they belong to.
-                                if (wide == .spacer_tail)
-                                    x -| 1
-                                else
-                                    x,
-                            ),
-                        })
-                    else
-                        false;
+                    const selected: bool = selected: {
+                        const sel = selection orelse break :selected false;
+                        const x_compare = if (wide == .spacer_tail)
+                            x -| 1
+                        else
+                            x;
+
+                        break :selected x_compare >= sel[0] and
+                            x_compare <= sel[1];
+                    };
 
                     // The `_style` suffixed values are the colors based on
                     // the cell style (SGR), before applying any additional
                     // configuration, inversions, selections, etc.
-                    const bg_style = style.bg(cell, color_palette);
+                    const bg_style = style.bg(
+                        cell,
+                        &state.colors.palette,
+                    );
                     const fg_style = style.fg(.{
-                        .default = foreground,
-                        .palette = color_palette,
+                        .default = state.colors.foreground,
+                        .palette = &state.colors.palette,
                         .bold = self.config.bold_color,
                     });
 
@@ -2605,7 +2561,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                             // If no configuration, then our selection background
                             // is our foreground color.
-                            break :bg foreground;
+                            break :bg state.colors.foreground;
                         }
 
                         // Not selected
@@ -2627,7 +2583,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     const fg = fg: {
                         // Our happy-path non-selection background color
                         // is our style or our configured defaults.
-                        const final_bg = bg_style orelse background;
+                        const final_bg = bg_style orelse state.colors.background;
 
                         // Whether we need to use the bg color as our fg color:
                         // - Cell is selected, inverted, and set to cell-foreground
@@ -2643,7 +2599,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 };
                             }
 
-                            break :fg background;
+                            break :fg state.colors.background;
                         }
 
                         break :fg if (style.flags.inverse)
@@ -2657,7 +2613,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Set the cell's background color.
                     {
-                        const rgb = bg orelse background;
+                        const rgb = bg orelse state.colors.background;
 
                         // Determine our background alpha. If we have transparency configured
                         // then this is dynamic depending on some situations. This is all
@@ -2708,13 +2664,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // Give links a single underline, unless they already have
                     // an underline, in which case use a double underline to
                     // distinguish them.
-                    const underline: terminal.Attribute.Underline = if (link_match_set.contains(screen, cell_pin))
-                        if (style.flags.underline == .single)
-                            .double
-                        else
-                            .single
-                    else
-                        style.flags.underline;
+                    const underline: terminal.Attribute.Underline = underline: {
+                        if (links.contains(.{
+                            .x = @intCast(x),
+                            .y = @intCast(y),
+                        })) {
+                            break :underline if (style.flags.underline == .single)
+                                .double
+                            else
+                                .single;
+                        }
+                        break :underline style.flags.underline;
+                    };
 
                     // We draw underlines first so that they layer underneath text.
                     // This improves readability when a colored underline is used
@@ -2723,7 +2684,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         @intCast(x),
                         @intCast(y),
                         underline,
-                        style.underlineColor(color_palette) orelse fg,
+                        style.underlineColor(&state.colors.palette) orelse fg,
                         alpha,
                     ) catch |err| {
                         log.warn(
@@ -2754,7 +2715,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             self.font_shaper_cache.get(run) orelse
                             cache: {
                                 // Otherwise we have to shape them.
-                                const cells = try self.font_shaper.shape(run);
+                                const new_cells = try self.font_shaper.shape(run);
 
                                 // Try to cache them. If caching fails for any reason we
                                 // continue because it is just a performance optimization,
@@ -2762,7 +2723,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 self.font_shaper_cache.put(
                                     self.alloc,
                                     run,
-                                    cells,
+                                    new_cells,
                                 ) catch |err| {
                                     log.warn(
                                         "error caching font shaping results err={}",
@@ -2773,32 +2734,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 // The cells we get from direct shaping are always owned
                                 // by the shaper and valid until the next shaping call so
                                 // we can safely use them.
-                                break :cache cells;
+                                break :cache new_cells;
                             };
 
-                        const cells = shaper_cells orelse break :glyphs;
+                        const shaped_cells = shaper_cells orelse break :glyphs;
 
                         // If there are no shaper cells for this run, ignore it.
                         // This can occur for runs of empty cells, and is fine.
-                        if (cells.len == 0) break :glyphs;
+                        if (shaped_cells.len == 0) break :glyphs;
 
                         // If we encounter a shaper cell to the left of the current
                         // cell then we have some problems. This logic relies on x
                         // position monotonically increasing.
-                        assert(run.offset + cells[shaper_cells_i].x >= x);
+                        assert(run.offset + shaped_cells[shaper_cells_i].x >= x);
 
                         // NOTE: An assumption is made here that a single cell will never
                         // be present in more than one shaper run. If that assumption is
                         // violated, this logic breaks.
 
-                        while (shaper_cells_i < cells.len and run.offset + cells[shaper_cells_i].x == x) : ({
+                        while (shaper_cells_i < shaped_cells.len and
+                            run.offset + shaped_cells[shaper_cells_i].x == x) : ({
                             shaper_cells_i += 1;
                         }) {
                             self.addGlyph(
                                 @intCast(x),
                                 @intCast(y),
-                                cell_pin,
-                                cells[shaper_cells_i],
+                                state.cols,
+                                cells_raw,
+                                shaped_cells[shaper_cells_i],
                                 shaper_run.?,
                                 fg,
                                 alpha,
@@ -2842,7 +2805,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const style = cursor_style_ orelse break :cursor;
                 const cursor_color = cursor_color: {
                     // If an explicit cursor color was set by OSC 12, use that.
-                    if (terminal_cursor_color) |v| break :cursor_color v;
+                    if (state.colors.cursor) |v| break :cursor_color v;
 
                     // Use our configured color if specified
                     if (self.config.cursor_color) |v| switch (v) {
@@ -2850,16 +2813,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         inline .@"cell-foreground",
                         .@"cell-background",
                         => |_, tag| {
-                            const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
+                            const sty: terminal.Style = state.cursor.style;
                             const fg_style = sty.fg(.{
-                                .default = foreground,
-                                .palette = color_palette,
+                                .default = state.colors.foreground,
+                                .palette = &state.colors.palette,
                                 .bold = self.config.bold_color,
                             });
                             const bg_style = sty.bg(
-                                screen.cursor.page_cell,
-                                color_palette,
-                            ) orelse background;
+                                &state.cursor.cell,
+                                &state.colors.palette,
+                            ) orelse state.colors.background;
 
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
@@ -2869,24 +2832,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         },
                     };
 
-                    break :cursor_color foreground;
+                    break :cursor_color state.colors.foreground;
                 };
 
-                self.addCursor(screen, style, cursor_color);
+                self.addCursor(
+                    &state.cursor,
+                    style,
+                    cursor_color,
+                );
 
                 // If the cursor is visible then we set our uniforms.
-                if (style == .block and screen.viewportIsBottom()) {
-                    const wide = screen.cursor.page_cell.wide;
+                if (style == .block) cursor_uniforms: {
+                    const cursor_vp = state.cursor.viewport orelse
+                        break :cursor_uniforms;
+                    const wide = state.cursor.cell.wide;
 
                     self.uniforms.cursor_pos = .{
                         // If we are a spacer tail of a wide cell, our cursor needs
                         // to move back one cell. The saturate is to ensure we don't
                         // overflow but this shouldn't happen with well-formed input.
                         switch (wide) {
-                            .narrow, .spacer_head, .wide => screen.cursor.x,
-                            .spacer_tail => screen.cursor.x -| 1,
+                            .narrow, .spacer_head, .wide => cursor_vp.x,
+                            .spacer_tail => cursor_vp.x -| 1,
                         },
-                        screen.cursor.y,
+                        @intCast(cursor_vp.y),
                     };
 
                     self.uniforms.bools.cursor_wide = switch (wide) {
@@ -2902,16 +2871,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             break :blk txt.color.toTerminalRGB();
                         }
 
-                        const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
+                        const sty = state.cursor.style;
                         const fg_style = sty.fg(.{
-                            .default = foreground,
-                            .palette = color_palette,
+                            .default = state.colors.foreground,
+                            .palette = &state.colors.palette,
                             .bold = self.config.bold_color,
                         });
                         const bg_style = sty.bg(
-                            screen.cursor.page_cell,
-                            color_palette,
-                        ) orelse background;
+                            &state.cursor.cell,
+                            &state.colors.palette,
+                        ) orelse state.colors.background;
 
                         break :blk switch (txt) {
                             // If the cell is reversed, use the opposite cell color instead.
@@ -2919,7 +2888,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
                             else => unreachable,
                         };
-                    } else background;
+                    } else state.colors.background;
 
                     self.uniforms.cursor_color = .{
                         uniform_color.r,
@@ -2938,8 +2907,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
-                        background,
-                        foreground,
+                        state.colors.background,
+                        state.colors.foreground,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
                             x,
@@ -3069,15 +3038,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             x: terminal.size.CellCountInt,
             y: terminal.size.CellCountInt,
-            cell_pin: terminal.Pin,
+            cols: usize,
+            cell_raws: []const terminal.page.Cell,
             shaper_cell: font.shape.Cell,
             shaper_run: font.shape.TextRun,
             color: terminal.color.RGB,
             alpha: u8,
         ) !void {
-            const rac = cell_pin.rowAndCell();
-            const cell = rac.cell;
-
+            const cell = cell_raws[x];
             const cp = cell.codepoint();
 
             // Render
@@ -3097,7 +3065,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         if (cellpkg.isSymbol(cp)) .{
                             .size = .fit,
                         } else .none,
-                    .constraint_width = constraintWidth(cell_pin),
+                    .constraint_width = constraintWidth(
+                        cell_raws,
+                        x,
+                        cols,
+                    ),
                 },
             );
 
@@ -3126,22 +3098,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         fn addCursor(
             self: *Self,
-            screen: *terminal.Screen,
+            cursor_state: *const terminal.RenderState.Cursor,
             cursor_style: renderer.CursorStyle,
             cursor_color: terminal.color.RGB,
         ) void {
+            const cursor_vp = cursor_state.viewport orelse return;
+
             // Add the cursor. We render the cursor over the wide character if
             // we're on the wide character tail.
             const wide, const x = cell: {
                 // The cursor goes over the screen cursor position.
-                const cell = screen.cursor.page_cell;
-                if (cell.wide != .spacer_tail or screen.cursor.x == 0)
-                    break :cell .{ cell.wide == .wide, screen.cursor.x };
+                if (!cursor_vp.wide_tail) break :cell .{
+                    cursor_state.cell.wide == .wide,
+                    cursor_vp.x,
+                };
 
-                // If we're part of a wide character, we move the cursor back to
-                // the actual character.
-                const prev_cell = screen.cursorCellLeft(1);
-                break :cell .{ prev_cell.wide == .wide, screen.cursor.x - 1 };
+                // If we're part of a wide character, we move the cursor back
+                // to the actual character.
+                break :cell .{ true, cursor_vp.x - 1 };
             };
 
             const alpha: u8 = if (!self.focused) 255 else alpha: {
@@ -3200,7 +3174,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.cells.setCursor(.{
                 .atlas = .grayscale,
                 .bools = .{ .is_cursor_glyph = true },
-                .grid_pos = .{ x, screen.cursor.y },
+                .grid_pos = .{ x, cursor_vp.y },
                 .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },

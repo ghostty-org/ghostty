@@ -47,6 +47,7 @@ pub const PageList = terminal.PageList;
 pub const Parser = terminal.Parser;
 pub const Pin = PageList.Pin;
 pub const Point = point.Point;
+pub const RenderState = terminal.RenderState;
 pub const Screen = terminal.Screen;
 pub const ScreenSet = terminal.ScreenSet;
 pub const Selection = terminal.Selection;

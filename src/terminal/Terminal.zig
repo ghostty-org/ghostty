@@ -1417,10 +1417,10 @@ pub fn scrollUp(self: *Terminal, count: usize) void {
 /// Options for scrolling the viewport of the terminal grid.
 pub const ScrollViewport = union(enum) {
     /// Scroll to the top of the scrollback
-    top: void,
+    top,
 
     /// Scroll to the bottom, i.e. the top of the active area
-    bottom: void,
+    bottom,
 
     /// Scroll by some delta amount, up is negative.
     delta: isize,
