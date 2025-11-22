@@ -92,11 +92,24 @@ class AppDelegate: NSObject,
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
+    /// Temporary restoration state used before `QuickTerminalController` is initialized.
+    /// This state is passed to the controller on first access and then cleared.
+    private var quickTerminalState: QuickTerminalRestorableState?
+    /// Used to check Quick Terminal restorability without instantiating the controller.
+    private var _quickController: QuickTerminalController? = nil
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
-    private(set) lazy var quickController = QuickTerminalController(
-        ghostty,
-        position: derivedConfig.quickTerminalPosition
-    )
+    var quickController: QuickTerminalController {
+        if _quickController == nil {
+            _quickController = QuickTerminalController(
+                ghostty,
+                position: derivedConfig.quickTerminalPosition,
+                restorationState: quickTerminalState
+            )
+            // copied to QuickTerminalController
+            quickTerminalState = nil
+        }
+        return _quickController!
+    }
 
     /// Manages updates
     let updateController = UpdateController()
@@ -983,10 +996,17 @@ class AppDelegate: NSObject,
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will save window state")
+        if ghostty.config.windowSaveState != "never", let _quickController, _quickController.restorable {
+            let data = QuickTerminalRestorableState(from: _quickController)
+            data.encode(with: coder)
+        }
     }
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
+        if ghostty.config.windowSaveState != "never", let state = QuickTerminalRestorableState(coder: coder) {
+            quickTerminalState = state
+        }
     }
 
     //MARK: - UNUserNotificationCenterDelegate
