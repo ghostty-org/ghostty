@@ -60,6 +60,12 @@ pub const RenderState = struct {
     /// area and scrolling with new output.
     viewport_is_bottom: bool,
 
+    /// Terminal mode flags that affect rendering behavior.
+    /// These are here to avoid needing to lock the terminal state
+    /// to check them (like during cursor blink timer callbacks).
+    cursor_visible: bool,
+    cursor_blinking: bool,
+
     /// The color state for the terminal.
     colors: Colors,
 
@@ -97,6 +103,8 @@ pub const RenderState = struct {
         .rows = 0,
         .cols = 0,
         .viewport_is_bottom = false,
+        .cursor_visible = true,
+        .cursor_blinking = true,
         .colors = .{
             .background = .{},
             .foreground = .{},
@@ -284,6 +292,10 @@ pub const RenderState = struct {
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
         self.cursor.cell = s.cursor.page_cell.*;
         self.cursor.style = s.cursor.style;
+
+        // Copy cursor-related mode flags
+        self.cursor_visible = t.modes.get(.cursor_visible);
+        self.cursor_blinking = t.modes.get(.cursor_blinking);
 
         // Always reset the cursor viewport position. In the future we can
         // probably cache this by comparing the cursor pin and viewport pin

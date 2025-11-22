@@ -601,6 +601,38 @@ fn renderCallback(
     return .disarm;
 }
 
+/// Checks if the cursor is in a state where blinking changes would be
+/// visually meaningful. Returns true only if:
+/// - The window is focused
+/// - The cursor is visible (cursor_visible mode is enabled)
+/// - Blinking is enabled (cursor_blinking mode is enabled)
+/// - The viewport is at the bottom (cursor is within visible area)
+/// - We're not in preedit mode (which always shows a block cursor)
+///
+/// This is used to avoid unnecessary renderer wakeups when the cursor blink
+/// timer fires but the blink state wouldn't actually affect rendering.
+/// See: https://github.com/ghostty-org/ghostty/issues/8003
+fn isCursorBlinkable(self: *const Thread) bool {
+    if (!self.flags.focused) return false;
+
+    const ts = &self.renderer.terminal_state;
+
+    if (!ts.cursor_visible) return false;
+    if (!ts.cursor_blinking) return false;
+
+    if (!ts.viewport_is_bottom) return false;
+
+    // Preedit state is not in terminal.RenderState and can be modified by
+    // other threads, so we need to check it with a lock.
+    {
+        self.state.mutex.lock();
+        defer self.state.mutex.unlock();
+        if (self.state.preedit != null) return false;
+    }
+
+    return true;
+}
+
 fn cursorTimerCallback(
     self_: ?*Thread,
     _: *xev.Loop,
@@ -624,7 +656,14 @@ fn cursorTimerCallback(
     };
 
     t.flags.cursor_blink_visible = !t.flags.cursor_blink_visible;
-    t.wakeup.notify() catch {};
+
+    // Only wake up the renderer if the cursor blink state change will actually
+    // affect the rendered output. This avoids unnecessary full frame updates
+    // when cursor blinking is disabled, or when other conditions prevent the
+    // cursor from being rendered.
+    if (t.isCursorBlinkable()) {
+        t.wakeup.notify() catch {};
+    }
 
     t.cursor_h.run(
         &t.loop,
@@ -682,16 +721,5 @@ fn stopCallback(
 
 /// Returns the interval for the blinking cursor in milliseconds.
 fn cursorBlinkInterval() u64 {
-    if (std.valgrind.runningOnValgrind() > 0) {
-        // If we're running under Valgrind, the cursor blink adds enough
-        // churn that it makes some stalls annoying unless you're on a
-        // super powerful computer, so we delay it.
-        //
-        // This is a hack, we should change some of our cursor timer
-        // logic to be more efficient:
-        // https://github.com/ghostty-org/ghostty/issues/8003
-        return CURSOR_BLINK_INTERVAL * 5;
-    }
-
     return CURSOR_BLINK_INTERVAL;
 }
