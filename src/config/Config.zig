@@ -4891,6 +4891,42 @@ pub const LinkPreviews = enum {
     osc8,
 };
 
+// ghostty_config_repeatable_item_s
+pub const RepeatableItem = extern struct {
+    key: [*:0]const u8,
+    value: [*:0]const u8,
+};
+
+fn deepCloneRepeatableItems(
+    self: std.ArrayListUnmanaged(RepeatableItem),
+    alloc: Allocator,
+) Allocator.Error!std.ArrayListUnmanaged(RepeatableItem) {
+    var cloned = try std.ArrayListUnmanaged(RepeatableItem).initCapacity(
+        alloc,
+        self.items.len,
+    );
+    errdefer {
+        for (cloned.items) |item| {
+            alloc.free(std.mem.span(item.key));
+            alloc.free(std.mem.span(item.value));
+        }
+        cloned.deinit(alloc);
+    }
+    for (self.items) |item| {
+        cloned.appendAssumeCapacity(.{
+            .key = try alloc.dupeZ(u8, std.mem.span(item.key)),
+            .value = try alloc.dupeZ(u8, std.mem.span(item.value)),
+        });
+    }
+    return cloned;
+}
+
+// ghostty_config_repeatable_item_list_s
+pub const RepeatableItemList = extern struct {
+    items: [*]RepeatableItem,
+    len: usize,
+};
+
 /// Color represents a color using RGB.
 ///
 /// This is a packed struct so that the C API to read color values just
@@ -5455,6 +5491,8 @@ pub const RepeatableString = struct {
 
     // Allocator for the list is the arena for the parent config.
     list: std.ArrayListUnmanaged([:0]const u8) = .{},
+    // C-compatible list of RepeatableItem structs (key is set dynamically in repeatableCval).
+    list_c: std.ArrayListUnmanaged(RepeatableItem) = .{},
 
     // If true, then the next value will clear the list and start over
     // rather than append. This is a bit of a hack but is here to make
@@ -5467,22 +5505,32 @@ pub const RepeatableString = struct {
         // Empty value resets the list
         if (value.len == 0) {
             self.list.clearRetainingCapacity();
+            self.list_c.clearRetainingCapacity();
             return;
         }
 
         // If we're overwriting then we clear before appending
         if (self.overwrite_next) {
             self.list.clearRetainingCapacity();
+            self.list_c.clearRetainingCapacity();
             self.overwrite_next = false;
         }
 
         const copy = try alloc.dupeZ(u8, value);
         try self.list.append(alloc, copy);
+        try self.list_c.append(alloc, .{
+            .key = "",
+            .value = try std.fmt.allocPrintSentinel(
+                alloc,
+                "{s}",
+                .{copy},
+                0,
+            ),
+        });
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        // Copy the list and all the strings in the list.
         var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
             alloc,
             self.list.items.len,
@@ -5495,8 +5543,10 @@ pub const RepeatableString = struct {
             const copy = try alloc.dupeZ(u8, item);
             list.appendAssumeCapacity(copy);
         }
-
-        return .{ .list = list };
+        return .{
+            .list = list,
+            .list_c = try deepCloneRepeatableItems(self.list_c, alloc),
+        };
     }
 
     /// The number of items in the list
@@ -5527,6 +5577,14 @@ pub const RepeatableString = struct {
         }
     }
 
+    /// Returns a C-compatible representation of the list.
+    pub fn cval(self: RepeatableString) RepeatableItemList {
+        return .{
+            .items = self.list_c.items.ptr,
+            .len = self.list_c.items.len,
+        };
+    }
+
     test "parseCLI" {
         const testing = std.testing;
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5537,9 +5595,15 @@ pub const RepeatableString = struct {
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "B");
         try testing.expectEqual(@as(usize, 2), list.list.items.len);
+        try testing.expectEqual(@as(usize, 2), list.list_c.items.len);
+        try testing.expectEqualStrings("", std.mem.span(list.list_c.items[0].key));
+        try testing.expectEqualStrings("A", std.mem.span(list.list_c.items[0].value));
+        try testing.expectEqualStrings("", std.mem.span(list.list_c.items[1].key));
+        try testing.expectEqualStrings("B", std.mem.span(list.list_c.items[1].value));
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(@as(usize, 0), list.list.items.len);
+        try testing.expectEqual(@as(usize, 0), list.list_c.items.len);
     }
 
     test "parseCLI overwrite" {
@@ -5556,8 +5620,10 @@ pub const RepeatableString = struct {
 
         try list.parseCLI(alloc, "B");
         try testing.expectEqual(@as(usize, 1), list.list.items.len);
+        try testing.expectEqual(@as(usize, 1), list.list_c.items.len);
         try list.parseCLI(alloc, "C");
         try testing.expectEqual(@as(usize, 2), list.list.items.len);
+        try testing.expectEqual(@as(usize, 2), list.list_c.items.len);
     }
 
     test "formatConfig empty" {
@@ -5600,6 +5666,24 @@ pub const RepeatableString = struct {
         try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.written());
     }
+
+    test "repeatableCval" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "A");
+        try list.parseCLI(alloc, "B");
+
+        const c_list = list.cval();
+        try testing.expectEqual(@as(usize, 2), c_list.len);
+        try testing.expectEqualStrings("", std.mem.span(c_list.items[0].key));
+        try testing.expectEqualStrings("A", std.mem.span(c_list.items[0].value));
+        try testing.expectEqualStrings("", std.mem.span(c_list.items[1].key));
+        try testing.expectEqualStrings("B", std.mem.span(c_list.items[1].value));
+    }
 };
 
 /// FontVariation is a repeatable configuration value that sets a single
@@ -5619,6 +5703,8 @@ pub const RepeatableFontVariation = struct {
 
     // Allocator for the list is the arena for the parent config.
     list: std.ArrayListUnmanaged(fontpkg.face.Variation) = .{},
+    // C-compatible list of RepeatableItem (key populated on parse).
+    list_c: std.ArrayListUnmanaged(RepeatableItem) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
@@ -5631,12 +5717,14 @@ pub const RepeatableFontVariation = struct {
             .id = fontpkg.face.Variation.Id.init(@ptrCast(key.ptr)),
             .value = std.fmt.parseFloat(f64, value) catch return error.InvalidValue,
         });
+        try self.list_c.append(alloc, .{ .key = "", .value = try std.fmt.allocPrintSentinel(alloc, "{s}={s}", .{ key, value }, 0) });
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         return .{
             .list = try self.list.clone(alloc),
+            .list_c = try deepCloneRepeatableItems(self.list_c, alloc),
         };
     }
 
@@ -5648,6 +5736,14 @@ pub const RepeatableFontVariation = struct {
         for (itemsA, itemsB) |a, b| {
             if (!std.meta.eql(a, b)) return false;
         } else return true;
+    }
+
+    /// Return a C-compatible repeatable item list.
+    pub fn cval(self: RepeatableFontVariation) RepeatableItemList {
+        return .{
+            .items = self.list_c.items.ptr,
+            .len = self.list_c.items.len,
+        };
     }
 
     /// Used by Formatter
@@ -6649,6 +6745,8 @@ pub const RepeatableCodepointMap = struct {
     const Self = @This();
 
     map: fontpkg.CodepointMap = .{},
+    // C-compatible list of RepeatableItem (key populated on parse).
+    list_c: std.ArrayListUnmanaged(RepeatableItem) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
@@ -6667,12 +6765,27 @@ pub const RepeatableCodepointMap = struct {
                     .monospace = false, // we allow any font
                 },
             });
+
+            // key: codepoint range
+            // value: family name
+            try self.list_c.append(alloc, .{
+                .key = try std.fmt.allocPrintSentinel(
+                    alloc,
+                    "U+{X:0>4}-U+{X:0>4}",
+                    .{ range[0], range[1] },
+                    0,
+                ),
+                .value = valueZ,
+            });
         }
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        return .{ .map = try self.map.clone(alloc) };
+        return .{
+            .map = try self.map.clone(alloc),
+            .list_c = try deepCloneRepeatableItems(self.list_c, alloc),
+        };
     }
 
     /// Compare if two of our value are equal. Required by Config.
@@ -6685,6 +6798,14 @@ pub const RepeatableCodepointMap = struct {
             const b = itemsB.get(i);
             if (!std.meta.eql(a, b)) return false;
         } else return true;
+    }
+
+    /// Return a C-compatible repeatable item list.
+    pub fn cval(self: RepeatableCodepointMap) RepeatableItemList {
+        return .{
+            .items = self.list_c.items.ptr,
+            .len = self.list_c.items.len,
+        };
     }
 
     /// Used by Formatter
@@ -8435,6 +8556,23 @@ pub const Theme = struct {
             self.dark,
         }) catch return error.OutOfMemory;
         try formatter.formatEntry([]const u8, str);
+    }
+
+    // ghostty_config_theme_s
+    pub const C = extern struct {
+        light: [*]const u8,
+        light_len: usize,
+        dark: [*]const u8,
+        dark_len: usize,
+    };
+
+    pub fn cval(self: Theme) C {
+        return .{
+            .light = self.light.ptr,
+            .light_len = self.light.len,
+            .dark = self.dark.ptr,
+            .dark_len = self.dark.len,
+        };
     }
 
     test "parse Theme" {

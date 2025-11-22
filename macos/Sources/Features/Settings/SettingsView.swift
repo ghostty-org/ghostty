@@ -1,31 +1,79 @@
 import SwiftUI
 
 struct SettingsView: View {
-    // We need access to our app delegate to know if we're quitting or not.
-    @EnvironmentObject private var appDelegate: AppDelegate
-
+    @State var currentCategory: SettingsCategory = .themes
+    @State var isPreviewVisible: Bool = false
+    @EnvironmentObject var config: Ghostty.ConfigFile
     var body: some View {
-        HStack {
-            Image("AppIconImage")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 128, height: 128)
-
-            VStack(alignment: .leading) {
-                Text("Coming Soon. 🚧").font(.title)
-                Text("You can't configure settings in the GUI yet. To modify settings, " +
-                     "edit the file at $HOME/.config/ghostty/config.ghostty and restart Ghostty.")
-                .multilineTextAlignment(.leading)
-                .lineLimit(nil)
+        NavigationSplitView {
+            List(SettingsCategory.allCases, selection: $currentCategory) { category in
+                NavigationLink(value: category) {
+                    Label(category.rawValue, systemImage: category.symbol)
+                }
+            }
+            .navigationSplitViewColumnWidth(200)
+        } detail: {
+            ZStack {
+                SurfacePreviewView()
+                    .opacity(isPreviewVisible ? 1 : 0)
+                    .disabled(!isPreviewVisible)
+                Group {
+                    switch currentCategory {
+                    case .general:
+                        GeneralContentView()
+                    case .themes:
+                        ThemeContentView()
+                    case .fonts:
+                        FontsContentView()
+                    }
+                }
+                .navigationTitle(currentCategory.rawValue)
+                .opacity(isPreviewVisible ? 0 : 1)
+                .disabled(isPreviewVisible)
             }
         }
-        .padding()
-        .frame(minWidth: 500, maxWidth: 500, minHeight: 156, maxHeight: 156)
+        .frame(minWidth: 500, minHeight: 500)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.smooth) {
+                        isPreviewVisible.toggle()
+                    }
+                } label: {
+                    Image(systemName: isPreviewVisible ? "eyes.inverse" : "eyes")
+                }
+                .help("Show Preview")
+            }
+            #if DEBUG
+            ToolbarItemGroup(placement: .secondaryAction) {
+                Button("Open Original Config") {
+                    Ghostty.App.openConfig()
+                }
+
+                Button("Open Settings Config") {
+                    NSWorkspace.shared.open(config.configFile)
+                }
+            }
+            #endif
+        }
     }
 }
 
-struct SettingsView_Previews: PreviewProvider {
-    static var previews: some View {
-        SettingsView()
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general = "General"
+    case themes = "Themes"
+    case fonts = "Fonts"
+
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .general:
+            return "gearshape"
+        case .themes:
+            return "paintbrush"
+        case .fonts:
+            return "character.magnify"
+        }
     }
 }

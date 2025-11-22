@@ -20,6 +20,8 @@ const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const list_themes = @import("../cli/list_themes.zig");
+const themepkg = @import("../config/theme.zig");
 
 const log = std.log.scoped(.embedded_window);
 
@@ -1332,6 +1334,21 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_surface_theme_s
+    const CThemeListElement = extern struct {
+        location: themepkg.Location,
+        theme: [*c]const u8,
+        theme_len: usize,
+        path: [*c]const u8,
+        path_len: usize,
+    };
+
+    // ghostty_surface_theme_list_s
+    const CThemeListArray = extern struct {
+        themes: [*c]const CThemeListElement,
+        len: usize,
+    };
+
     // Reference the conditional exports based on target platform
     // so they're included in the C API.
     comptime {
@@ -1621,6 +1638,34 @@ pub const CAPI = struct {
 
     export fn ghostty_surface_free_text(ptr: *Text) void {
         ptr.deinit();
+    }
+
+    export fn ghostty_surface_get_themes(surface: *Surface, result: *CThemeListArray) bool {
+        const themes = list_themes.get_theme_list(surface.app.core_app.alloc) catch |err| {
+            log.err("error getting themes err={}", .{err});
+            result.len = 0;
+            return false;
+        };
+
+        var arena = std.heap.ArenaAllocator.init(surface.app.core_app.alloc);
+        const alloc = arena.allocator();
+        const buf = alloc.alloc(CThemeListElement, themes.len) catch {
+            result.themes = null;
+            result.len = 0;
+            return false;
+        };
+        for (themes, 0..) |t, i| {
+            buf[i] = .{
+                .location = t.location,
+                .theme = t.theme.ptr,
+                .theme_len = t.theme.len,
+                .path = t.path.ptr,
+                .path_len = t.path.len,
+            };
+        }
+        result.themes = buf.ptr;
+        result.len = buf.len;
+        return true;
     }
 
     /// Tell the surface that it needs to schedule a render
