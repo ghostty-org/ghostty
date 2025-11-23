@@ -6,12 +6,19 @@ const Inspector = @import("../inspector/main.zig").Inspector;
 const terminalpkg = @import("../terminal/main.zig");
 const inputpkg = @import("../input.zig");
 const renderer = @import("../renderer.zig");
+const SpinnableLock = @import("../datastruct/spinnable_lock.zig").SpinnableLock;
 
 /// The mutex that must be held while reading any of the data in the
 /// members of this state. Note that the state itself is NOT protected
 /// by the mutex and is NOT thread-safe, only the members values of the
 /// state (i.e. the terminal, devmode, etc. values).
-mutex: *std.Thread.Mutex,
+///
+// We use an spin lock rather than a std Mutex or Futex-based lock since
+// the critical sections that this lock protects are all rather short
+// (with the possible exception of the io processing), so putting the
+// thread to sleep and waking it back up can actually end up having an
+// order of magnitude larger overhead than spinning does.
+mutex: *SpinnableLock(.spin_then_block),
 
 /// The terminal data.
 terminal: *terminalpkg.Terminal,

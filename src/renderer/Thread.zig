@@ -593,7 +593,7 @@ fn renderCallback(
         t.state,
         t.flags.cursor_blink_visible,
     ) catch |err|
-        log.warn("error rendering err={}", .{err});
+        log.warn("error updating frame err={}", .{err});
 
     // Draw
     t.drawFrame(false);

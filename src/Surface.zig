@@ -39,6 +39,7 @@ const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
+const SpinnableLock = @import("datastruct/spinnable_lock.zig").SpinnableLock;
 
 const log = std.log.scoped(.surface);
 
@@ -512,7 +513,7 @@ pub fn init(
     errdefer renderer_impl.deinit();
 
     // The mutex used to protect our renderer state.
-    const mutex = try alloc.create(std.Thread.Mutex);
+    const mutex = try alloc.create(SpinnableLock(.spin_then_block));
     mutex.* = .{};
     errdefer alloc.destroy(mutex);
 

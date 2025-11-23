@@ -60,10 +60,14 @@ pub const Mailbox = union(enum) {
     /// send would block, we'll unlock this mutex, resend the message, and
     /// lock it again. This handles an edge case where queues are full.
     /// This may not apply to all writer types.
+    ///
+    /// The reason the mutex is an `anytype` is so that it can support
+    /// custom lock implementations (`datastruct/spinnable_lock.zig`),
+    /// it will work with any type that has a `lock` and `unlock` fn.
     pub fn send(
         self: *Mailbox,
         msg: termio.Message,
-        mutex: ?*std.Thread.Mutex,
+        mutex: anytype,
     ) void {
         switch (self.*) {
             .spsc => |*mb| send: {
@@ -89,8 +93,16 @@ pub const Mailbox = union(enum) {
                 // are other messages in the writer queue (resize, focus) that
                 // could acquire the lock. This is why we have to release our lock
                 // here.
-                if (mutex) |m| m.unlock();
-                defer if (mutex) |m| m.lock();
+                if (comptime @typeInfo(@TypeOf(mutex)) == .optional) {
+                    if (mutex) |m| m.unlock();
+                } else {
+                    mutex.unlock();
+                }
+                defer if (comptime @typeInfo(@TypeOf(mutex)) == .optional) {
+                    if (mutex) |m| m.lock();
+                } else {
+                    mutex.lock();
+                };
                 _ = mb.queue.push(msg, .{ .forever = {} });
             },
         }
