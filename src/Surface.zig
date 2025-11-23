@@ -274,6 +274,7 @@ const DerivedConfig = struct {
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?input.OptionAsAlt,
+    macos_option_as_alt_original: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
@@ -349,6 +350,7 @@ const DerivedConfig = struct {
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
+            .macos_option_as_alt_original = config.@"macos-option-as-alt",
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
             .vt_kam_allowed = config.@"vt-kam-allowed",
@@ -5169,6 +5171,22 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle_command_palette,
             {},
         ),
+
+        .toggle_macos_option_as_alt => {
+            const current = self.config.macos_option_as_alt orelse .false;
+
+            switch (current) {
+                .false => {
+                    // Toggle ON the behavior by restoring from the saved state.
+                    self.config.macos_option_as_alt = self.config.macos_option_as_alt_original orelse .true;
+                },
+                .true, .left, .right => {
+                    // Toggle OFF and save the current value in the surface state.
+                    self.config.macos_option_as_alt_original = current;
+                    self.config.macos_option_as_alt = .false;
+                },
+            }
+        },
 
         .show_on_screen_keyboard => return try self.rt_app.performAction(
             .{ .surface = self },
