@@ -32,6 +32,8 @@ const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
 
 const FileType = @import("../file_type.zig").FileType;
 
+const SpinnableLock = @import("../datastruct/spinnable_lock.zig").SpinnableLock;
+
 const macos = switch (builtin.os.tag) {
     .macos => @import("macos"),
     else => void,
@@ -99,7 +101,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// This mutex must be held whenever any state used in `drawFrame` is
         /// being modified, and also when it's being accessed in `drawFrame`.
-        draw_mutex: std.Thread.Mutex = .{},
+        draw_mutex: SpinnableLock(.spin_then_block) = .{},
 
         /// The configuration we need derived from the main config.
         config: DerivedConfig,
