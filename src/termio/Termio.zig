@@ -669,6 +669,12 @@ pub fn processOutput(self: *Termio, buf: []const u8) void {
 /// Process output from readdata but the lock is already held.
 fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // Schedule a render. We can call this first because we have the lock.
+    //
+    // An assumption is made here that the time it takes to wake up the
+    // renderer thread will be roughly equivalent to the time it takes
+    // to process a chunk of output. At that point, the renderer thread
+    // will acquire the lock by spinning, so if we end up holding it
+    // for much longer than that it would actually be pretty wasteful.
     self.terminal_stream.handler.queueRender() catch unreachable;
 
     // Whenever a character is typed, we ensure the cursor is in the
