@@ -26,6 +26,11 @@ pub const Uniforms = extern struct {
     current_cursor_color: [4]f32 align(16),
     previous_cursor_color: [4]f32 align(16),
     cursor_change_time: f32 align(4),
+    // Color Scheme information
+    palette: [256][4]f32 align(16),
+    background_color: [4]f32 align(16),
+    foreground_color: [4]f32 align(16),
+    cursor_color: [4]f32 align(16),
 };
 
 /// The target to load shaders for.
@@ -411,5 +416,98 @@ test "shadertoy to glsl" {
     // log.warn("glsl={s}", .{glsl});
 }
 
+test "color uniforms compilation" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const src = try testGlslZ(alloc, test_color_uniforms);
+    defer alloc.free(src);
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try spirvFromGlsl(&buf.writer, null, src);
+
+    // Verify we can compile to both GLSL and MSL
+    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
+    defer spvlist.deinit(alloc);
+    try spvlist.appendSlice(alloc, buf.written());
+
+    const glsl = try glslFromSpv(alloc, spvlist.items);
+    defer alloc.free(glsl);
+
+    // Test that the generated GLSL contains our new uniforms
+    try testing.expect(std.mem.indexOf(u8, glsl, "iBackgroundColor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iForegroundColor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iCursorColor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iPalette") != null);
+
+    const msl = try mslFromSpv(alloc, spvlist.items);
+    defer alloc.free(msl);
+}
+
+test "palette array validation" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const src = try testGlslZ(alloc, test_palette_validation);
+    defer alloc.free(src);
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try spirvFromGlsl(&buf.writer, null, src);
+
+    // Verify we can compile and the shader uses array indexing correctly
+    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
+    defer spvlist.deinit(alloc);
+    try spvlist.appendSlice(alloc, buf.written());
+
+    const glsl = try glslFromSpv(alloc, spvlist.items);
+    defer alloc.free(glsl);
+
+    // Verify that array access patterns are preserved in generated code
+    try testing.expect(std.mem.indexOf(u8, glsl, "iPalette") != null);
+}
+
+test "comprehensive color scheme demo" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const src = try testGlslZ(alloc, test_comprehensive_demo);
+    defer alloc.free(src);
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try spirvFromGlsl(&buf.writer, null, src);
+
+    // Verify comprehensive shader compiles with all color uniform features
+    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
+    defer spvlist.deinit(alloc);
+    try spvlist.appendSlice(alloc, buf.written());
+
+    const glsl = try glslFromSpv(alloc, spvlist.items);
+    defer alloc.free(glsl);
+
+    // Verify all color uniforms are present in the compiled shader
+    try testing.expect(std.mem.indexOf(u8, glsl, "iBackgroundColor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iForegroundColor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iCursorColor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iPalette") != null);
+
+    // Verify existing uniforms still work
+    try testing.expect(std.mem.indexOf(u8, glsl, "iCurrentCursor") != null);
+    try testing.expect(std.mem.indexOf(u8, glsl, "iCurrentCursorColor") != null);
+
+    // Test MSL generation as well
+    const msl = try mslFromSpv(alloc, spvlist.items);
+    defer alloc.free(msl);
+
+    // MSL should also contain our uniforms (though possibly renamed by the compiler)
+    // Just verify it compiles successfully
+    try testing.expect(msl.len > 0);
+}
+
 const test_crt = @embedFile("shaders/test_shadertoy_crt.glsl");
 const test_invalid = @embedFile("shaders/test_shadertoy_invalid.glsl");
+const test_color_uniforms = @embedFile("shaders/test_color_uniforms.glsl");
+const test_palette_validation = @embedFile("shaders/test_palette_validation.glsl");
+const test_comprehensive_demo = @embedFile("shaders/test_comprehensive_demo.glsl");
