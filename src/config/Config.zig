@@ -6006,6 +6006,18 @@ pub const Keybinds = struct {
             .{ .key = .{ .unicode = '+' }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .increase_font_size = 1 },
         );
+        // This key-binding make the intuitive keybinding work for layouts that
+        // achieves plus by using the shift key (like UK)
+        //try self.set.put(
+        //    alloc,
+        //    .{ .key = .{ .unicode = '+' }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+        //    .{ .increase_font_size = 1 },
+        //);
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .equal }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+            .{ .increase_font_size = 1 },
+        );
 
         try self.set.put(
             alloc,
