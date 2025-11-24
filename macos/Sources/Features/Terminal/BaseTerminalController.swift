@@ -578,9 +578,17 @@ class BaseTerminalController: NSWindowController,
             return
         }
 
-        // Remove the zoomed state for this surface tree.
         if surfaceTree.zoomed != nil {
-            surfaceTree = .init(root: surfaceTree.root, zoomed: nil)
+            if derivedConfig.splitPreserveZoom.contains(.navigation) {
+                if let root = surfaceTree.root,
+                   let nextNode = root.node(view: nextSurface) {
+                    surfaceTree = SplitTree(root: root, zoomed: nextNode)
+                } else {
+                    surfaceTree = SplitTree(root: surfaceTree.root, zoomed: nil)
+                }
+            } else {
+                surfaceTree = SplitTree(root: surfaceTree.root, zoomed: nil)
+            }
         }
 
         // Move focus to the next surface
@@ -1122,17 +1130,20 @@ class BaseTerminalController: NSWindowController,
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
+        let splitPreserveZoom: Ghostty.Config.SplitPreserveZoom
 
         init() {
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
+            self.splitPreserveZoom = .init()
         }
 
         init(_ config: Ghostty.Config) {
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
+            self.splitPreserveZoom = config.splitPreserveZoom
         }
     }
 }

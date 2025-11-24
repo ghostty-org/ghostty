@@ -347,6 +347,30 @@ pub const SplitTree = extern struct {
         const surface = tree.nodes[target.idx()].leaf;
         surface.grabFocus();
 
+        var zoom_changed = false;
+        if (tree.zoomed != null) {
+            const app = Application.default();
+            const config_obj = app.getConfig();
+            defer config_obj.unref();
+            const config = config_obj.get();
+
+            if (config.@"split-preserve-zoom".navigation) {
+                if (tree.zoomed != target) {
+                    tree.zoom(target);
+                    zoom_changed = true;
+                }
+            } else {
+                tree.zoomed = null;
+                zoom_changed = true;
+            }
+        }
+
+        if (zoom_changed) {
+            const object = self.as(gobject.Object);
+            object.notifyByPspec(properties.tree.impl.param_spec);
+            object.notifyByPspec(properties.@"is-zoomed".impl.param_spec);
+        }
+
         return true;
     }
 
