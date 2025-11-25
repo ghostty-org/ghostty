@@ -2368,9 +2368,18 @@ pub const Surface = extern struct {
             const priv = self.private();
             const core_surface = priv.core_surface;
 
-            file_loop: {
-                var current: ?*glib.SList = list;
-                while (current) |item| : (current = item.f_next) {
+            // Show progress bar if image upload is enabled
+            var upload_enabled = false;
+            if (core_surface) |surface| {
+                if (surface.config.@"image-upload-enable") {
+                    upload_enabled = true;
+                    priv.progress_bar_overlay.as(gtk.Widget).setVisible(true);
+                    priv.progress_bar_overlay.pulse();
+                }
+            }
+
+            var current: ?*glib.SList = list;
+            file_loop: while (current) |item| : (current = item.f_next) {
                     const file: *gio.File = @ptrCast(@alignCast(item.f_data orelse continue));
                     const path = file.getPath() orelse continue;
                     defer glib.free(path);
@@ -2422,6 +2431,10 @@ pub const Surface = extern struct {
                         continue;
                     };
                 }
+
+            // Hide progress bar after all uploads complete
+            if (upload_enabled) {
+                priv.progress_bar_overlay.as(gtk.Widget).setVisible(false);
             }
 
             const string = stream.toOwnedSliceSentinel(0) catch |err| {
@@ -2443,6 +2456,10 @@ pub const Surface = extern struct {
             const priv = self.private();
             if (priv.core_surface) |surface| {
                 if (surface.config.@"image-upload-enable") {
+                    // Show progress overlay before upload
+                    priv.progress_bar_overlay.as(gtk.Widget).setVisible(true);
+                    priv.progress_bar_overlay.pulse();
+
                     var uploader = image_upload.Uploader{
                         .allocator = alloc,
                         .config = &surface.config,
@@ -2450,6 +2467,9 @@ pub const Surface = extern struct {
 
                     const result = uploader.upload(path_slice);
                     defer result.deinit(alloc);
+
+                    // Hide progress overlay after upload
+                    priv.progress_bar_overlay.as(gtk.Widget).setVisible(false);
 
                     switch (result) {
                         .success => |url| {

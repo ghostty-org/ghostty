@@ -27,6 +27,11 @@ pub fn get(config: *const Config, k: Key, ptr_raw: *anyopaque) bool {
 /// the type is not supported by the C API yet or the value is null.
 fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
     switch (@TypeOf(value)) {
+        [:0]const u8 => {
+            const ptr: *[*:0]const u8 = @ptrCast(@alignCast(ptr_raw));
+            ptr.* = @ptrCast(value.ptr);
+        },
+
         ?[:0]const u8 => {
             const ptr: *?[*:0]const u8 = @ptrCast(@alignCast(ptr_raw));
             ptr.* = if (value) |slice| @ptrCast(slice.ptr) else null;

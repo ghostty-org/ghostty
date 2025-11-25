@@ -1953,12 +1953,55 @@ extension Ghostty.SurfaceView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let pb = sender.draggingPasteboard
 
+        // Get image upload config from app delegate
+        let uploadConfig: Ghostty.ImageUploadConfig
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+            uploadConfig = Ghostty.ImageUploadConfig(appDelegate.ghostty.config)
+        } else {
+            uploadConfig = Ghostty.ImageUploadConfig()
+        }
+
         let content: String?
         if let url = pb.string(forType: .URL) {
             // URLs first, they get escaped as-is.
             content = Ghostty.Shell.escape(url)
         } else if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
+            // Check if we should try image upload
+            if uploadConfig.enable, urls.count == 1, let fileURL = urls.first {
+                let uploader = Ghostty.ImageUploader(config: uploadConfig)
+                if uploader.isImageFile(fileURL.path) {
+                    // Perform async upload
+                    Task {
+                        let result = await uploader.upload(filePath: fileURL.path)
+                        await MainActor.run {
+                            switch result {
+                            case .success(let uploadedURL):
+                                self.insertText(uploadedURL, replacementRange: NSMakeRange(0, 0))
+                            case .failure(let error):
+                                switch uploadConfig.fallback {
+                                case .path:
+                                    self.insertText(
+                                        Ghostty.Shell.escape(fileURL.path),
+                                        replacementRange: NSMakeRange(0, 0)
+                                    )
+                                case .error:
+                                    Ghostty.logger.error("Image upload failed: \(error)")
+                                case .empty:
+                                    break
+                                }
+                            case .fallback:
+                                self.insertText(
+                                    Ghostty.Shell.escape(fileURL.path),
+                                    replacementRange: NSMakeRange(0, 0)
+                                )
+                            }
+                        }
+                    }
+                    return true
+                }
+            }
+
             // File URLs next. They get escaped individually and then joined by a
             // space if there are multiple.
             content = urls

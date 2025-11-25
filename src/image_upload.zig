@@ -75,7 +75,11 @@ pub const Uploader = struct {
 
         const url = self.config.@"image-upload-url".?;
 
-        const response = self.uploadMultipart(url, file_path, contents) catch |err| {
+        const response = switch (self.config.@"image-upload-format") {
+            .multipart => self.uploadMultipart(url, file_path, contents),
+            .json => self.uploadJson(url, contents),
+            .binary => self.uploadBinary(url, contents),
+        } catch |err| {
             const err_msg = std.fmt.allocPrintZ(
                 self.allocator,
                 "upload failed: {s}",
@@ -173,6 +177,117 @@ pub const Uploader = struct {
             log.err("Upload exceeded timeout of {}s", .{self.config.@"image-upload-timeout"});
             return error.UploadTimeout;
         }
+
+        if (req.response.status != .ok) {
+            log.err("HTTP request failed with status: {}", .{req.response.status});
+            return error.HttpRequestFailed;
+        }
+
+        const response_body = try req.reader().readAllAlloc(self.allocator, 1024 * 1024);
+        return response_body;
+    }
+
+    fn uploadJson(
+        self: *Uploader,
+        url: [:0]const u8,
+        contents: []const u8,
+    ) ![]u8 {
+        const uri = try std.Uri.parse(url);
+
+        var client = std.http.Client{ .allocator = self.allocator };
+        defer client.deinit();
+
+        const field_name = self.config.@"image-upload-field";
+
+        // Base64 encode the image
+        const base64_encoder = std.base64.standard;
+        const encoded_len = base64_encoder.Encoder.calcSize(contents.len);
+        const encoded = try self.allocator.alloc(u8, encoded_len);
+        defer self.allocator.free(encoded);
+        _ = base64_encoder.Encoder.encode(encoded, contents);
+
+        // Build JSON body
+        var body_list = std.ArrayList(u8).init(self.allocator);
+        defer body_list.deinit();
+        const body_writer = body_list.writer();
+
+        try body_writer.print("{{\"{s}\":\"{s}\"}}", .{ field_name, encoded });
+
+        const body = try body_list.toOwnedSlice();
+        defer self.allocator.free(body);
+
+        var header_buf: [8192]u8 = undefined;
+        var req = try client.open(.POST, uri, .{
+            .server_header_buffer = &header_buf,
+            .headers = .{ .content_type = .{ .override = "application/json" } },
+        });
+        defer req.deinit();
+
+        // Add custom headers
+        if (self.config.@"image-upload-header".list.items.len > 0) {
+            for (self.config.@"image-upload-header".list.items) |header_z| {
+                const header = std.mem.span(header_z);
+                if (std.mem.indexOf(u8, header, ":")) |colon_pos| {
+                    const name = std.mem.trim(u8, header[0..colon_pos], " \t");
+                    const value = std.mem.trim(u8, header[colon_pos + 1 ..], " \t");
+                    if (name.len == 0 or value.len == 0) continue;
+                    try req.headers.append(name, value);
+                }
+            }
+        }
+
+        req.transfer_encoding = .{ .content_length = body.len };
+
+        try req.send();
+        try req.writeAll(body);
+        try req.finish();
+        try req.wait();
+
+        if (req.response.status != .ok) {
+            log.err("HTTP request failed with status: {}", .{req.response.status});
+            return error.HttpRequestFailed;
+        }
+
+        const response_body = try req.reader().readAllAlloc(self.allocator, 1024 * 1024);
+        return response_body;
+    }
+
+    fn uploadBinary(
+        self: *Uploader,
+        url: [:0]const u8,
+        contents: []const u8,
+    ) ![]u8 {
+        const uri = try std.Uri.parse(url);
+
+        var client = std.http.Client{ .allocator = self.allocator };
+        defer client.deinit();
+
+        var header_buf: [8192]u8 = undefined;
+        var req = try client.open(.POST, uri, .{
+            .server_header_buffer = &header_buf,
+            .headers = .{ .content_type = .{ .override = "application/octet-stream" } },
+        });
+        defer req.deinit();
+
+        // Add custom headers
+        if (self.config.@"image-upload-header".list.items.len > 0) {
+            for (self.config.@"image-upload-header".list.items) |header_z| {
+                const header = std.mem.span(header_z);
+                if (std.mem.indexOf(u8, header, ":")) |colon_pos| {
+                    const name = std.mem.trim(u8, header[0..colon_pos], " \t");
+                    const value = std.mem.trim(u8, header[colon_pos + 1 ..], " \t");
+                    if (name.len == 0 or value.len == 0) continue;
+                    try req.headers.append(name, value);
+                }
+            }
+        }
+
+        req.transfer_encoding = .{ .content_length = contents.len };
+
+        try req.send();
+        try req.writeAll(contents);
+        try req.finish();
+        try req.wait();
 
         if (req.response.status != .ok) {
             log.err("HTTP request failed with status: {}", .{req.response.status});
@@ -486,4 +601,4 @@ test "upload returns fallback when url is null" {
     defer result.deinit(allocator);
 
     try testing.expect(result == .fallback);
-};
+}

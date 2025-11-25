@@ -614,6 +614,90 @@ extension Ghostty {
             let str = String(cString: ptr)
             return Scrollbar(rawValue: str) ?? defaultValue
         }
+
+        // MARK: - Image Upload Configuration
+
+        var imageUploadEnable: Bool {
+            guard let config = self.config else { return false }
+            var v = false
+            let key = "image-upload-enable"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return v
+        }
+
+        var imageUploadUrl: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "image-upload-url"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return nil }
+            guard let ptr = v else { return nil }
+            return String(cString: ptr)
+        }
+
+        var imageUploadFormat: ImageUploadFormat {
+            let defaultValue = ImageUploadFormat.multipart
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "image-upload-format"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return ImageUploadFormat(rawValue: str) ?? defaultValue
+        }
+
+        var imageUploadField: String {
+            guard let config = self.config else { return "image" }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "image-upload-field"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return "image" }
+            guard let ptr = v else { return "image" }
+            return String(cString: ptr)
+        }
+
+        var imageUploadHeader: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "image-upload-header"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return nil }
+            guard let ptr = v else { return nil }
+            return String(cString: ptr)
+        }
+
+        var imageUploadResponsePath: String {
+            guard let config = self.config else { return "json:$.data.url" }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "image-upload-response-path"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return "json:$.data.url" }
+            guard let ptr = v else { return "json:$.data.url" }
+            return String(cString: ptr)
+        }
+
+        var imageUploadMaxSize: UInt32 {
+            guard let config = self.config else { return 10 }
+            var v: UInt32 = 10
+            let key = "image-upload-max-size"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return v
+        }
+
+        var imageUploadTimeout: UInt32 {
+            guard let config = self.config else { return 30 }
+            var v: UInt32 = 30
+            let key = "image-upload-timeout"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return v
+        }
+
+        var imageUploadFallback: ImageUploadFallback {
+            let defaultValue = ImageUploadFallback.path
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "image-upload-fallback"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return ImageUploadFallback(rawValue: str) ?? defaultValue
+        }
     }
 }
 
@@ -713,5 +797,17 @@ extension Ghostty.Config {
             case .none: return false
             }
         }
+    }
+
+    enum ImageUploadFormat: String {
+        case multipart
+        case json
+        case binary
+    }
+
+    enum ImageUploadFallback: String {
+        case path
+        case error
+        case empty
     }
 }
