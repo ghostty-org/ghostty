@@ -112,7 +112,7 @@ pub const Action = union(Key) {
     apc_end,
     apc_put: u8,
     prompt_end,
-    end_of_input,
+    end_of_input: EndOfInput,
     end_hyperlink,
     active_status_display: ansi.StatusDisplay,
     decaln,
@@ -415,6 +415,20 @@ pub const Action = union(Key) {
 
         pub fn cval(self: PromptContinuation) PromptContinuation.C {
             return .init(self.aid orelse "");
+        }
+    };
+
+    pub const EndOfInput = struct {
+        command_line: ?[]const u8,
+
+        pub const C = extern struct {
+            command_line: lib.String,
+        };
+
+        pub fn cval(self: EndOfInput) EndOfInput.C {
+            return .{
+                .command_line = .init(self.command_line orelse ""),
+            };
         }
     };
 
@@ -2044,7 +2058,9 @@ pub fn Stream(comptime Handler: type) type {
                     try self.handler.vt(.prompt_end, {});
                 },
 
-                .end_of_input => try self.handler.vt(.end_of_input, {}),
+                .end_of_input => |v| {
+                    try self.handler.vt(.end_of_input, .{ .command_line = v.command_line });
+                },
 
                 .end_of_command => |end| {
                     try self.handler.vt(.end_of_command, .{ .exit_code = end.exit_code });
