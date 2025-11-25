@@ -428,6 +428,33 @@ typedef struct {
   bool wait_after_command;
 } ghostty_surface_config_s;
 
+typedef enum {
+  // XDG config dir
+  GHOSTTY_SURFACE_THEME_LOCATION_USER,
+  // Ghostty resources dir
+  GHOSTTY_SURFACE_THEME_LOCATION_RESOURCES,
+} ghostty_surface_theme_location_e;
+
+typedef struct {
+  ghostty_surface_theme_location_e location;
+  const char* theme;
+  size_t theme_len;
+  const char* path;
+  size_t path_len;
+} ghostty_surface_theme_s;
+
+typedef struct {
+  const ghostty_surface_theme_s* themes;
+  size_t len;
+} ghostty_surface_theme_list_s;
+
+typedef struct {
+  const char* light;
+  size_t light_len;
+  const char* dark;
+  size_t dark_len;
+} ghostty_config_theme_s;
+
 typedef struct {
   uint16_t columns;
   uint16_t rows;
@@ -438,6 +465,18 @@ typedef struct {
 } ghostty_surface_size_s;
 
 // Config types
+
+// config.RepeatableItem
+typedef struct {
+  const char* key;
+  const char* value;
+} ghostty_config_repeatable_item_s;
+
+// config.RepeatableItemList
+typedef struct {
+  const ghostty_config_repeatable_item_s* items;
+  size_t len;
+} ghostty_config_repeatable_item_list_s;
 
 // config.Color
 typedef struct {
@@ -924,6 +963,7 @@ ghostty_config_t ghostty_config_new();
 void ghostty_config_free(ghostty_config_t);
 ghostty_config_t ghostty_config_clone(ghostty_config_t);
 void ghostty_config_load_cli_args(ghostty_config_t);
+void ghostty_config_load_file(ghostty_config_t, const char*);
 void ghostty_config_load_default_files(ghostty_config_t);
 void ghostty_config_load_recursive_files(ghostty_config_t);
 void ghostty_config_finalize(ghostty_config_t);
@@ -1011,6 +1051,7 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+bool ghostty_surface_get_themes(ghostty_surface_t, ghostty_surface_theme_list_s*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

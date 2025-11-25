@@ -29,6 +29,8 @@ extension Ghostty {
         /// configuration (i.e. font size) from the previously focused window. This would override this.
         @Published private(set) var config: Config
 
+        /// Preferred config file than the default ones
+        private var configPath: String?
         /// The ghostty app instance. We only have one of these for the entire app, although I guess
         /// in theory you can have multiple... I don't know why you would...
         @Published var app: ghostty_app_t? = nil {
@@ -44,9 +46,10 @@ extension Ghostty {
             return ghostty_app_needs_confirm_quit(app)
         }
 
-        init() {
+        init(configPath: String? = nil) {
+            self.configPath = configPath
             // Initialize the global configuration.
-            self.config = Config()
+            self.config = Config(at: configPath)
             if self.config.config == nil {
                 readiness = .error
                 return
@@ -115,6 +118,17 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
+        static func openConfigWindow() {
+            #if os(macOS)
+            guard let ghosttyApp = (NSApp.delegate as? AppDelegate)?.ghostty.app else {
+                return
+            }
+            SettingsController.controller(for: ghosttyApp).show(sender: self)
+            #else
+            fatalError("Unsupported platform for opening config file")
+            #endif
+        }
+
         static func openConfig() {
             let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
@@ -133,7 +147,7 @@ extension Ghostty {
         }
 
         /// Reload the configuration.
-        func reloadConfig(soft: Bool = false) {
+        func reloadConfig(soft: Bool = false, configPath: String? = nil) {
             guard let app = self.app else { return }
 
             // Soft updates just call with our existing config
@@ -143,12 +157,12 @@ extension Ghostty {
             }
 
             // Hard or full updates have to reload the full configuration
-            let newConfig = Config()
+            let newConfig = Config(at: configPath ?? self.configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
             }
-
+            self.configPath = configPath ?? self.configPath
             ghostty_app_update_config(app, newConfig.config!)
             /// applied config will be updated in ``Self.configChange(_:target:v:)``
         }
@@ -163,7 +177,7 @@ extension Ghostty {
             // Hard or full updates have to reload the full configuration.
             // NOTE: We never set this on self.config because this is a surface-only
             // config. We free it after the call.
-            let newConfig = Config()
+            let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -529,7 +543,7 @@ extension Ghostty {
                 pwdChanged(app, target: target, v: action.action.pwd)
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
-                openConfig()
+                openConfigWindow()
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
                 toggleFloatWindow(app, target: target, mode: action.action.float_window)
