@@ -252,9 +252,13 @@ pub const RenderMode = enum(c_uint) {
     sdf = c.FT_RENDER_MODE_SDF,
 };
 
-/// A list of bit field constants for FT_Load_Glyph to indicate what kind of
-/// operations to perform during glyph loading.
-pub const LoadFlags = packed struct {
+/// A collection of flags for FT_Load_Glyph that indicate
+/// what kind of operations to perform during glyph loading.
+///
+/// Some of these flags are not included in the official FreeType
+/// documentation, but are nevertheless present and named in the
+/// header, so the names have been copied from there.
+pub const LoadFlags = packed struct(c_int) {
     no_scale: bool = false,
     no_hinting: bool = false,
     render: bool = false,
@@ -263,39 +267,97 @@ pub const LoadFlags = packed struct {
     force_autohint: bool = false,
     crop_bitmap: bool = false,
     pedantic: bool = false,
-    ignore_global_advance_with: bool = false,
+    advance_only: bool = false,
+    ignore_global_advance_width: bool = false,
     no_recurse: bool = false,
     ignore_transform: bool = false,
     monochrome: bool = false,
     linear_design: bool = false,
+    sbits_only: bool = false,
     no_autohint: bool = false,
-    _padding1: u1 = 0,
-    target_normal: bool = false,
-    target_light: bool = false,
-    target_mono: bool = false,
-    target_lcd: bool = false,
-    target_lcd_v: bool = false,
+    target: Target = .normal,
     color: bool = false,
     compute_metrics: bool = false,
     bitmap_metrics_only: bool = false,
-    _padding2: u1 = 0,
+    svg_only: bool = false,
     no_svg: bool = false,
-    _padding3: u7 = 0,
+    _padding: u7 = 0,
 
-    test {
-        // This must always be an i32 size so we can bitcast directly.
-        const testing = std.testing;
-        try testing.expectEqual(@sizeOf(i32), @sizeOf(LoadFlags));
-    }
+    pub const Target = enum(u4) {
+        normal = 0,
+        light = 1,
+        mono = 2,
+        lcd = 3,
+        lcd_v = 4,
+    };
 
     test "bitcast" {
         const testing = std.testing;
+
         const cval: i32 = c.FT_LOAD_RENDER | c.FT_LOAD_PEDANTIC | c.FT_LOAD_COLOR;
         const flags = @as(LoadFlags, @bitCast(cval));
         try testing.expect(!flags.no_hinting);
         try testing.expect(flags.render);
         try testing.expect(flags.pedantic);
         try testing.expect(flags.color);
+
+        // Verify bit alignment (for bit 9)
+        const cval2: i32 = c.FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
+        const flags2 = @as(LoadFlags, @bitCast(cval2));
+        try testing.expect(flags2.ignore_global_advance_width);
+        try testing.expect(!flags2.no_recurse);
+    }
+
+    test "all flags individually" {
+        const testing = std.testing;
+
+        try testing.expectEqual(
+            c.FT_LOAD_DEFAULT,
+            @as(c_int, @bitCast(LoadFlags{})),
+        );
+
+        inline for ([_]struct { c_int, []const u8 }{
+            .{ c.FT_LOAD_NO_SCALE, "no_scale" },
+            .{ c.FT_LOAD_NO_HINTING, "no_hinting" },
+            .{ c.FT_LOAD_RENDER, "render" },
+            .{ c.FT_LOAD_NO_BITMAP, "no_bitmap" },
+            .{ c.FT_LOAD_VERTICAL_LAYOUT, "vertical_layout" },
+            .{ c.FT_LOAD_FORCE_AUTOHINT, "force_autohint" },
+            .{ c.FT_LOAD_CROP_BITMAP, "crop_bitmap" },
+            .{ c.FT_LOAD_PEDANTIC, "pedantic" },
+            .{ c.FT_LOAD_ADVANCE_ONLY, "advance_only" },
+            .{ c.FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, "ignore_global_advance_width" },
+            .{ c.FT_LOAD_NO_RECURSE, "no_recurse" },
+            .{ c.FT_LOAD_IGNORE_TRANSFORM, "ignore_transform" },
+            .{ c.FT_LOAD_MONOCHROME, "monochrome" },
+            .{ c.FT_LOAD_LINEAR_DESIGN, "linear_design" },
+            .{ c.FT_LOAD_SBITS_ONLY, "sbits_only" },
+            .{ c.FT_LOAD_NO_AUTOHINT, "no_autohint" },
+            .{ c.FT_LOAD_COLOR, "color" },
+            .{ c.FT_LOAD_COMPUTE_METRICS, "compute_metrics" },
+            .{ c.FT_LOAD_BITMAP_METRICS_ONLY, "bitmap_metrics_only" },
+            .{ c.FT_LOAD_SVG_ONLY, "svg_only" },
+            .{ c.FT_LOAD_NO_SVG, "no_svg" },
+        }) |pair| {
+            var flags: LoadFlags = .{};
+            @field(flags, pair[1]) = true;
+            try testing.expectEqual(pair[0], @as(c_int, @bitCast(flags)));
+        }
+    }
+
+    test "all load targets" {
+        const testing = std.testing;
+
+        inline for ([_]struct { c_int, Target }{
+            .{ c.FT_LOAD_TARGET_NORMAL, .normal },
+            .{ c.FT_LOAD_TARGET_LIGHT, .light },
+            .{ c.FT_LOAD_TARGET_MONO, .mono },
+            .{ c.FT_LOAD_TARGET_LCD, .lcd },
+            .{ c.FT_LOAD_TARGET_LCD_V, .lcd_v },
+        }) |pair| {
+            const flags: LoadFlags = .{ .target = pair[1] };
+            try testing.expectEqual(pair[0], @as(c_int, @bitCast(flags)));
+        }
     }
 };
 

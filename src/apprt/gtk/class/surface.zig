@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const adw = @import("adw");
 const gdk = @import("gdk");
@@ -1466,6 +1466,10 @@ pub const Surface = extern struct {
         // EnvMap is a bit annoying so I'm punting it.
         if (ext.getAncestor(Window, self.as(gtk.Widget))) |window| {
             try window.winproto().addSubprocessEnv(&env);
+
+            if (window.isQuickTerminal()) {
+                try env.put("GHOSTTY_QUICK_TERMINAL", "1");
+            }
         }
 
         return env;

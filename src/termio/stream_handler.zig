@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
@@ -165,22 +165,47 @@ pub const StreamHandler = struct {
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
     ) !void {
+        // The branch hints here are based on real world data
+        // which indicates that the most common actions are:
+        //
+        // 1. print
+        // 2. set_attribute
+        // 3. carriage_return
+        // 4. line_feed
+        // 5. cursor_pos
+        //
+        // Together, these 5 actions make up nearly 98% of
+        // all actions encountered in real world scenarios.
+        //
+        // ref: https://github.com/qwerasd205/asciinema-stats
         switch (action) {
-            .print => try self.terminal.print(value.cp),
+            .print => {
+                @branchHint(.likely);
+                try self.terminal.print(value.cp);
+            },
             .print_repeat => try self.terminal.printRepeat(value),
             .bell => self.bell(),
             .backspace => self.terminal.backspace(),
             .horizontal_tab => try self.horizontalTab(value),
             .horizontal_tab_back => try self.horizontalTabBack(value),
-            .linefeed => try self.linefeed(),
-            .carriage_return => self.terminal.carriageReturn(),
+            .linefeed => {
+                @branchHint(.likely);
+                try self.linefeed();
+            },
+            .carriage_return => {
+                @branchHint(.likely);
+                self.terminal.carriageReturn();
+            },
             .enquiry => try self.enquiry(),
             .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
             .cursor_up => self.terminal.cursorUp(value.value),
             .cursor_down => self.terminal.cursorDown(value.value),
             .cursor_left => self.terminal.cursorLeft(value.value),
             .cursor_right => self.terminal.cursorRight(value.value),
-            .cursor_pos => self.terminal.setCursorPos(value.row, value.col),
+            .cursor_pos => {
+                @branchHint(.likely);
+                self.terminal.setCursorPos(value.row, value.col);
+            },
             .cursor_col => self.terminal.setCursorPos(self.terminal.screens.active.cursor.y + 1, value.value),
             .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screens.active.cursor.x + 1),
             .cursor_col_relative => self.terminal.setCursorPos(
@@ -290,10 +315,23 @@ pub const StreamHandler = struct {
             .end_of_command => self.endOfCommand(value.exit_code),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
-            .set_attribute => switch (value) {
-                .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
-                else => self.terminal.setAttribute(value) catch |err|
-                    log.warn("error setting attribute {}: {}", .{ value, err }),
+            .set_attribute => {
+                @branchHint(.likely);
+                switch (value) {
+                    .unknown => |unk| {
+                        // We optimize for the happy path scenario here, since
+                        // unknown/invalid SGRs aren't that common in the wild.
+                        @branchHint(.unlikely);
+                        log.warn("unimplemented or unknown SGR attribute: {any}", .{unk});
+                    },
+                    else => {
+                        @branchHint(.likely);
+                        self.terminal.setAttribute(value) catch |err| {
+                            @branchHint(.cold);
+                            log.warn("error setting attribute {}: {}", .{ value, err });
+                        };
+                    },
+                }
             },
             .dcs_hook => try self.dcsHook(value),
             .dcs_put => try self.dcsPut(value),

@@ -1,10 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const terminal = @import("../main.zig");
 const point = terminal.point;
+const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const Page = terminal.Page;
 const PageList = terminal.PageList;
 const Pin = PageList.Pin;
@@ -97,7 +98,7 @@ pub const PageListSearch = struct {
     ///
     /// This does NOT access the PageList, so it can be called without
     /// a lock held.
-    pub fn next(self: *PageListSearch) ?Selection {
+    pub fn next(self: *PageListSearch) ?FlattenedHighlight {
         return self.window.next();
     }
 
@@ -149,26 +150,28 @@ test "simple search" {
     defer search.deinit();
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 
@@ -335,12 +338,13 @@ test "feed with match spanning page boundary" {
     try testing.expect(try search.feed());
 
     // Should find the spanning match
-    const sel = search.next().?;
-    try testing.expect(sel.start().node != sel.end().node);
+    const h = search.next().?;
+    const sel = h.untracked();
+    try testing.expect(sel.start.node != sel.end.node);
     {
         const str = try t.screens.active.selectionString(
             alloc,
-            .{ .sel = sel },
+            .{ .sel = .init(sel.start, sel.end, false) },
         );
         defer alloc.free(str);
         try testing.expectEqualStrings(str, "Test");

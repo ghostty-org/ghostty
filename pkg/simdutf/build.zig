@@ -24,7 +24,13 @@ pub fn build(b: *std.Build) !void {
     defer flags.deinit(b.allocator);
     // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
     // (See root Ghostty build.zig on why we do this)
-    try flags.appendSlice(b.allocator, &.{"-DSIMDUTF_IMPLEMENTATION_ICELAKE=0"});
+    try flags.appendSlice(b.allocator, &.{
+        "-DSIMDUTF_IMPLEMENTATION_ICELAKE=0",
+
+        // Fixes linker issues for release builds missing ubsanitizer symbols
+        "-fno-sanitize=undefined",
+        "-fno-sanitize-trap=undefined",
+    });
 
     lib.addCSourceFiles(.{
         .flags = flags.items,

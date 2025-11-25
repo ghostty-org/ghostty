@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const configpkg = @import("../config.zig");
 const color = @import("color.zig");
 const sgr = @import("sgr.zig");
@@ -54,6 +54,15 @@ pub const Style = struct {
             rgb,
         };
 
+        /// True if the color is equal to another color.
+        pub fn eql(self: Color, other: Color) bool {
+            return @as(Tag, self) == @as(Tag, other) and switch (self) {
+                .none => true,
+                .palette => self.palette == other.palette,
+                .rgb => self.rgb == other.rgb,
+            };
+        }
+
         /// Formatting to make debug logs easier to read
         /// by only including non-default attributes.
         pub fn format(
@@ -79,28 +88,16 @@ pub const Style = struct {
     };
 
     /// True if the style is the default style.
-    pub fn default(self: Style) bool {
+    pub inline fn default(self: Style) bool {
         return self.eql(.{});
     }
 
     /// True if the style is equal to another style.
-    /// For performance do direct comparisons first.
     pub fn eql(self: Style, other: Style) bool {
-        inline for (comptime std.meta.fields(Style)) |field| {
-            if (comptime std.meta.hasUniqueRepresentation(field.type)) {
-                if (@field(self, field.name) != @field(other, field.name)) {
-                    return false;
-                }
-            }
-        }
-        inline for (comptime std.meta.fields(Style)) |field| {
-            if (comptime !std.meta.hasUniqueRepresentation(field.type)) {
-                if (!std.meta.eql(@field(self, field.name), @field(other, field.name))) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return self.flags == other.flags and
+            self.fg_color.eql(other.fg_color) and
+            self.bg_color.eql(other.bg_color) and
+            self.underline_color.eql(other.underline_color);
     }
 
     /// Returns the bg color for a cell with this style given the cell
@@ -509,12 +506,12 @@ pub const Style = struct {
             }
         };
 
-        fn fromStyle(style: Style) PackedStyle {
+        inline fn fromStyle(style: Style) PackedStyle {
             return .{
                 .tags = .{
-                    .fg = std.meta.activeTag(style.fg_color),
-                    .bg = std.meta.activeTag(style.bg_color),
-                    .underline = std.meta.activeTag(style.underline_color),
+                    .fg = @as(Color.Tag, style.fg_color),
+                    .bg = @as(Color.Tag, style.bg_color),
+                    .underline = @as(Color.Tag, style.underline_color),
                 },
                 .data = .{
                     .fg = .fromColor(style.fg_color),
@@ -527,8 +524,11 @@ pub const Style = struct {
     };
 
     pub fn hash(self: *const Style) u64 {
-        const packed_style = PackedStyle.fromStyle(self.*);
-        return std.hash.XxHash3.hash(0, std.mem.asBytes(&packed_style));
+        // We pack the style in to 128 bits, fold it to 64 bits,
+        // then use std.hash.int to make it sufficiently uniform.
+        const packed_style: PackedStyle = .fromStyle(self.*);
+        const wide: [2]u64 = @bitCast(packed_style);
+        return @call(.always_inline, std.hash.int, .{wide[0] ^ wide[1]});
     }
 
     comptime {

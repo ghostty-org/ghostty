@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const RGB = @import("color.zig").RGB;
 
 /// The map of all available X11 colors.

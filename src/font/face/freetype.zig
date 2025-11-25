@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 const freetype = @import("freetype");
 const harfbuzz = @import("harfbuzz");
 const stb = @import("../../stb/main.zig");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
@@ -376,11 +376,15 @@ pub const Face = struct {
             // If we're gonna be rendering this glyph in monochrome,
             // then we should use the monochrome hinter as well, or
             // else it won't look very good at all.
-            .target_mono = self.load_flags.monochrome,
-
-            // Otherwise we select hinter based on the `light` flag.
-            .target_normal = !self.load_flags.light and !self.load_flags.monochrome,
-            .target_light = self.load_flags.light and !self.load_flags.monochrome,
+            //
+            // Otherwise if the user asked for light hinting we
+            // use that, otherwise we just use the normal target.
+            .target = if (self.load_flags.monochrome)
+                .mono
+            else if (self.load_flags.light)
+                .light
+            else
+                .normal,
 
             // NO_SVG set to true because we don't currently support rendering
             // SVG glyphs under FreeType, since that requires bundling another

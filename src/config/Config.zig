@@ -13,7 +13,7 @@ const Config = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const global_state = &@import("../global.zig").state;
@@ -978,6 +978,20 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
+/// The foreground and background color for search matches. This only applies
+/// to non-focused search matches, also known as candidate matches.
+///
+/// Valid values:
+///
+///   - Hex (`#RRGGBB` or `RRGGBB`)
+///   - Named X11 color
+///   - "cell-foreground" to match the cell foreground color
+///   - "cell-background" to match the cell background color
+///
+/// The default value is
+@"search-foreground": TerminalColor = .{ .color = .{ .r = 0, .g = 0, .b = 0 } },
+@"search-background": TerminalColor = .{ .color = .{ .r = 0xFF, .g = 0xE0, .b = 0x82 } },
+
 /// The command to run, usually a shell. If this is not an absolute path, it'll
 /// be looked up in the `PATH`. If this is not set, a default will be looked up
 /// from your system. The rules for the default lookup are:
@@ -1765,7 +1779,7 @@ keybind: Keybinds = .{},
 /// Note: any font available on the system may be used, this font is not
 /// required to be a fixed-width font.
 ///
-/// Available since: 1.1.0 (on GTK)
+/// Available since: 1.0.0 on macOS, 1.1.0 on GTK
 @"window-title-font-family": ?[:0]const u8 = null,
 
 /// The text that will be displayed in the subtitle of the window. Valid values:
@@ -5254,6 +5268,7 @@ pub const ColorList = struct {
     ) Allocator.Error!Self {
         return .{
             .colors = try self.colors.clone(alloc),
+            .colors_c = try self.colors_c.clone(alloc),
         };
     }
 
@@ -5331,6 +5346,26 @@ pub const ColorList = struct {
         try p.parseCLI(alloc, "black,white");
         try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.written());
+    }
+
+    test "clone" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var source: Self = .{};
+        try source.parseCLI(alloc, "#ff0000,#00ff00,#0000ff");
+
+        const cloned = try source.clone(alloc);
+
+        try testing.expect(source.equal(cloned));
+        try testing.expectEqual(source.colors_c.items.len, cloned.colors_c.items.len);
+        for (source.colors_c.items, cloned.colors_c.items) |src_c, clone_c| {
+            try testing.expectEqual(src_c.r, clone_c.r);
+            try testing.expectEqual(src_c.g, clone_c.g);
+            try testing.expectEqual(src_c.b, clone_c.b);
+        }
     }
 };
 

@@ -6,7 +6,7 @@ const Terminal = @This();
 const std = @import("std");
 const build_options = @import("terminal_options");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const unicode = @import("../unicode/main.zig");
@@ -111,6 +111,16 @@ flags: packed struct {
 
     /// True if the terminal should perform selection scrolling.
     selection_scroll: bool = false,
+
+    /// Dirty flag used only by the search thread. The renderer is expected
+    /// to set this to true if the viewport was dirty as it was rendering.
+    /// This is used by the search thread to more efficiently re-search the
+    /// viewport and active area.
+    ///
+    /// Since the renderer is going to inspect the viewport/active area ANYWAYS,
+    /// this lets our search thread do less work and hold the lock less time,
+    /// resulting in more throughput for everything.
+    search_viewport_dirty: bool = false,
 
     /// Dirty flags for the renderer.
     dirty: Dirty = .{},
@@ -293,7 +303,10 @@ pub fn print(self: *Terminal, c: u21) !void {
     // log.debug("print={x} y={} x={}", .{ c, self.screens.active.cursor.y, self.screens.active.cursor.x });
 
     // If we're not on the main display, do nothing for now
-    if (self.status_display != .main) return;
+    if (self.status_display != .main) {
+        @branchHint(.cold);
+        return;
+    }
 
     // After doing any printing, wrapping, scrolling, etc. we want to ensure
     // that our screen remains in a consistent state.
@@ -313,6 +326,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         self.modes.get(.grapheme_cluster) and
         self.screens.active.cursor.x > 0)
     grapheme: {
+        @branchHint(.unlikely);
         // We need the previous cell to determine if we're at a grapheme
         // break or not. If we are NOT, then we are still combining the
         // same grapheme. Otherwise, we can stay in this cell.
@@ -370,20 +384,10 @@ pub fn print(self: *Terminal, c: u21) !void {
             // the cell width accordingly. VS16 makes the character wide and
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
-                // This check below isn't robust enough to be correct.
-                // But it is correct enough (the emoji check alone served us
-                // well through Ghostty 1.2.3!) and we can fix it up later.
-
-                // Emoji always allow VS15/16
                 const prev_props = unicode.table.get(prev.cell.content.codepoint);
-                const emoji = prev_props.grapheme_boundary_class.isExtendedPictographic();
-                if (!emoji) valid_check: {
-                    // If not an emoji, check if it is a defined variation
-                    // sequence in emoji-variation-sequences.txt
-                    if (c == 0xFE0F and prev_props.emoji_vs_emoji) break :valid_check;
-                    if (c == 0xFE0E and prev_props.emoji_vs_text) break :valid_check;
-                    return;
-                }
+                // Check if it is a valid variation sequence in
+                // emoji-variation-sequences.txt, and if not, ignore the char.
+                if (!prev_props.emoji_vs_base) return;
 
                 switch (c) {
                     0xFE0F => wide: {
@@ -478,6 +482,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // Attach zero-width characters to our cell as grapheme data.
     if (width == 0) {
+        @branchHint(.unlikely);
         // If we have grapheme clustering enabled, we don't blindly attach
         // any zero width character to our cells and we instead just ignore
         // it.
@@ -535,6 +540,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     switch (width) {
         // Single cell is very easy: just write in the cell
         1 => {
+            @branchHint(.likely);
             self.screens.active.cursorMarkDirty();
             @call(.always_inline, printCell, .{ self, c, .narrow });
         },
@@ -602,10 +608,14 @@ fn printCell(
             self.screens.active.charset.single_shift = null;
             break :blk key_once;
         } else self.screens.active.charset.gl;
+
         const set = self.screens.active.charset.charsets.get(key);
 
         // UTF-8 or ASCII is used as-is
-        if (set == .utf8 or set == .ascii) break :c unmapped_c;
+        if (set == .utf8 or set == .ascii) {
+            @branchHint(.likely);
+            break :c unmapped_c;
+        }
 
         // If we're outside of ASCII range this is an invalid value in
         // this table so we just return space.
@@ -673,10 +683,9 @@ fn printCell(
 
     // If the prior value had graphemes, clear those
     if (cell.hasGrapheme()) {
-        self.screens.active.cursor.page_pin.node.data.clearGrapheme(
-            self.screens.active.cursor.page_row,
-            cell,
-        );
+        const page = &self.screens.active.cursor.page_pin.node.data;
+        page.clearGrapheme(cell);
+        page.updateRowGraphemeFlag(self.screens.active.cursor.page_row);
     }
 
     // We don't need to update the style refs unless the
@@ -718,6 +727,7 @@ fn printCell(
     // row so that the renderer can lookup rows with these much faster.
     if (comptime build_options.kitty_graphics) {
         if (c == kitty.graphics.unicode.placeholder) {
+            @branchHint(.unlikely);
             self.screens.active.cursor.page_row.kitty_virtual_placeholder = true;
         }
     }
@@ -727,13 +737,15 @@ fn printCell(
     // overwriting the same hyperlink.
     if (self.screens.active.cursor.hyperlink_id > 0) {
         self.screens.active.cursorSetHyperlink() catch |err| {
+            @branchHint(.unlikely);
             log.warn("error reallocating for more hyperlink space, ignoring hyperlink err={}", .{err});
             assert(!cell.hyperlink);
         };
     } else if (had_hyperlink) {
         // If the previous cell had a hyperlink then we need to clear it.
         var page = &self.screens.active.cursor.page_pin.node.data;
-        page.clearHyperlink(self.screens.active.cursor.page_row, cell);
+        page.clearHyperlink(cell);
+        page.updateRowHyperlinkFlag(self.screens.active.cursor.page_row);
     }
 }
 
@@ -1405,10 +1417,10 @@ pub fn scrollUp(self: *Terminal, count: usize) void {
 /// Options for scrolling the viewport of the terminal grid.
 pub const ScrollViewport = union(enum) {
     /// Scroll to the top of the scrollback
-    top: void,
+    top,
 
     /// Scroll to the bottom, i.e. the top of the active area
-    bottom: void,
+    bottom,
 
     /// Scroll by some delta amount, up is negative.
     delta: isize,
@@ -1462,7 +1474,8 @@ fn rowWillBeShifted(
     if (left_cell.wide == .spacer_tail) {
         const wide_cell: *Cell = &cells[self.scrolling_region.left - 1];
         if (wide_cell.hasGrapheme()) {
-            page.clearGrapheme(row, wide_cell);
+            page.clearGrapheme(wide_cell);
+            page.updateRowGraphemeFlag(row);
         }
         wide_cell.content.codepoint = 0;
         wide_cell.wide = .narrow;
@@ -1472,7 +1485,8 @@ fn rowWillBeShifted(
     if (right_cell.wide == .wide) {
         const tail_cell: *Cell = &cells[self.scrolling_region.right + 1];
         if (right_cell.hasGrapheme()) {
-            page.clearGrapheme(row, right_cell);
+            page.clearGrapheme(right_cell);
+            page.updateRowGraphemeFlag(row);
         }
         right_cell.content.codepoint = 0;
         right_cell.wide = .narrow;
@@ -1659,6 +1673,9 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     const dst = dst_row.*;
                     dst_row.* = src_row.*;
                     src_row.* = dst;
+
+                    // Make sure the row is marked as dirty though.
+                    dst_row.dirty = true;
 
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
@@ -1854,6 +1871,9 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     const dst = dst_row.*;
                     dst_row.* = src_row.*;
                     src_row.* = dst;
+
+                    // Make sure the row is marked as dirty though.
+                    dst_row.dirty = true;
 
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
@@ -3268,7 +3288,7 @@ test "Terminal: print invalid VS16 non-grapheme" {
     try t.print('x');
     try t.print(0xFE0F);
 
-    // We should have 2 cells taken up. It is one character but "wide".
+    // We should have 1 narrow cell.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
 
@@ -3581,6 +3601,71 @@ test "Terminal: VS15 on already narrow emoji" {
     }
 }
 
+test "Terminal: print invalid VS15 following emoji is wide" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print('\u{1F9E0}'); // 🧠
+    try t.print(0xFE0E); // not valid with U+1F9E0 as base
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '\u{1F9E0}'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: print invalid VS15 in emoji ZWJ sequence" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print('\u{1F469}'); // 👩
+    try t.print(0xFE0E); // not valid with U+1F469 as base
+    try t.print('\u{200D}'); // ZWJ
+    try t.print('\u{1F466}'); // 👦
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '\u{1F469}'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ '\u{200D}', '\u{1F466}' }, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
 test "Terminal: VS15 to make narrow character with pending wrap" {
     var t = try init(testing.allocator, .{ .rows = 5, .cols = 2 });
     defer t.deinit(testing.allocator);
@@ -3703,9 +3788,9 @@ test "Terminal: print invalid VS16 grapheme" {
 
     // https://github.com/mitchellh/ghostty/issues/1482
     try t.print('x');
-    try t.print(0xFE0F);
+    try t.print(0xFE0F); // invalid VS16
 
-    // We should have 2 cells taken up. It is one character but "wide".
+    // We should have 1 cells taken up, and narrow.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
 
@@ -3738,7 +3823,7 @@ test "Terminal: print invalid VS16 with second char" {
     try t.print(0xFE0F);
     try t.print('y');
 
-    // We should have 2 cells taken up. It is one character but "wide".
+    // We should have 2 cells taken up, from two separate narrow characters.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
 
@@ -3757,6 +3842,40 @@ test "Terminal: print invalid VS16 with second char" {
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 'y'), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: print invalid VS16 with second char (combining)" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // https://github.com/mitchellh/ghostty/issues/1482
+    try t.print('n');
+    try t.print(0xFE0F); // invalid VS16
+    try t.print(0x0303); // combining tilde
+
+    // We should have 1 cells taken up, and narrow.
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'n'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{'\u{0303}'}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }

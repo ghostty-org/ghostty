@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
 
@@ -604,6 +604,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .csi,
         .esc,
         .cursor_key,
+        .search,
         .set_font_size,
         .scroll_to_row,
         .scroll_page_fractional,

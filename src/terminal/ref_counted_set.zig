@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 
 const size = @import("size.zig");
 const Offset = size.Offset;
@@ -256,6 +256,7 @@ pub fn RefCountedSet(
             // we may end up with a PSL of `len` which would exceed the bounds.
             // In such a case, we claim to be out of memory.
             if (self.psl_stats[self.psl_stats.len - 1] > 0) {
+                @branchHint(.cold);
                 return AddError.OutOfMemory;
             }
 
@@ -308,6 +309,7 @@ pub fn RefCountedSet(
                 if (items[id].meta.ref == 0) {
                     // See comment in `addContext` for details.
                     if (self.psl_stats[self.psl_stats.len - 1] > 0) {
+                        @branchHint(.cold);
                         return AddError.OutOfMemory;
                     }
 
@@ -513,14 +515,11 @@ pub fn RefCountedSet(
                     return null;
                 }
 
-                // We don't bother checking dead items.
-                if (item.meta.ref == 0) {
-                    continue;
-                }
-
                 // If the item is a part of the same probe sequence,
-                // we check if it matches the value we're looking for.
+                // we make sure it's not dead and then check to see
+                // if it matches the value we're looking for.
                 if (item.meta.psl == i and
+                    item.meta.ref > 0 and
                     ctx.eql(value, item.value))
                 {
                     return id;
@@ -549,9 +548,12 @@ pub fn RefCountedSet(
         }
 
         /// Insert the given value into the hash table with the given ID.
-        /// asserts that the value is not already present in the table.
+        ///
+        /// If runtime safety is enabled, asserts that
+        /// the value is not already present in the table.
         fn insert(self: *Self, base: anytype, value: T, new_id: Id, ctx: Context) Id {
-            assert(self.lookupContext(base, value, ctx) == null);
+            if (comptime std.debug.runtime_safety)
+                assert(self.lookupContext(base, value, ctx) == null);
 
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
@@ -589,6 +591,11 @@ pub fn RefCountedSet(
                 // unless its ID is greater than the one we're
                 // given (i.e. prefer smaller IDs).
                 if (item.meta.ref == 0) {
+                    // Dead items aren't super common relative
+                    // to other places to insert/swap the held
+                    // item in to the set.
+                    @branchHint(.unlikely);
+
                     if (comptime @hasDecl(Context, "deleted")) {
                         // Inform the context struct that we're
                         // deleting the dead item's value for good.

@@ -1,6 +1,5 @@
 const std = @import("std");
 const terminal = @import("../terminal/main.zig");
-const State = @import("State.zig");
 
 /// Available cursor styles for drawing that renderers must support.
 /// This is a superset of terminal cursor styles since the renderer supports
@@ -26,64 +25,65 @@ pub const Style = enum {
     }
 };
 
+pub const StyleOptions = struct {
+    preedit: bool = false,
+    focused: bool = false,
+    blink_visible: bool = false,
+};
+
 /// Returns the cursor style to use for the current render state or null
 /// if a cursor should not be rendered at all.
 pub fn style(
-    state: *State,
-    focused: bool,
-    blink_visible: bool,
+    state: *const terminal.RenderState,
+    opts: StyleOptions,
 ) ?Style {
     // Note the order of conditionals below is important. It represents
     // a priority system of how we determine what state overrides cursor
     // visibility and style.
 
-    // The cursor is only at the bottom of the viewport. If we aren't
-    // at the bottom, we never render the cursor. The cursor x/y is by
-    // viewport so if we are above the viewport, we'll end up rendering
-    // the cursor in some random part of the screen.
-    if (!state.terminal.screens.active.viewportIsBottom()) return null;
+    // The cursor must be visible in the viewport to be rendered.
+    if (state.cursor.viewport == null) return null;
 
     // If we are in preedit, then we always show the block cursor. We do
     // this even if the cursor is explicitly not visible because it shows
     // an important editing state to the user.
-    if (state.preedit != null) return .block;
+    if (opts.preedit) return .block;
+
+    // If we're at a password input its always a lock.
+    if (state.cursor.password_input) return .lock;
 
     // If the cursor is explicitly not visible by terminal mode, we don't render.
-    if (!state.terminal.modes.get(.cursor_visible)) return null;
+    if (!state.cursor.visible) return null;
 
     // If we're not focused, our cursor is always visible so that
     // we can show the hollow box.
-    if (!focused) return .block_hollow;
+    if (!opts.focused) return .block_hollow;
 
     // If the cursor is blinking and our blink state is not visible,
     // then we don't show the cursor.
-    if (state.terminal.modes.get(.cursor_blinking) and !blink_visible) {
-        return null;
-    }
+    if (state.cursor.blinking and !opts.blink_visible) return null;
 
     // Otherwise, we use whatever style the terminal wants.
-    return .fromTerminal(state.terminal.screens.active.cursor.cursor_style);
+    return .fromTerminal(state.cursor.visual_style);
 }
 
 test "cursor: default uses configured style" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var term = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
+    var term: terminal.Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
     defer term.deinit(alloc);
 
     term.screens.active.cursor.cursor_style = .bar;
     term.modes.set(.cursor_blinking, true);
 
-    var state: State = .{
-        .mutex = undefined,
-        .terminal = &term,
-        .preedit = null,
-    };
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
 
-    try testing.expect(style(&state, true, true) == .bar);
-    try testing.expect(style(&state, false, true) == .block_hollow);
-    try testing.expect(style(&state, false, false) == .block_hollow);
-    try testing.expect(style(&state, true, false) == null);
+    try testing.expect(style(&state, .{ .preedit = false, .focused = true, .blink_visible = true }) == .bar);
+    try testing.expect(style(&state, .{ .preedit = false, .focused = false, .blink_visible = true }) == .block_hollow);
+    try testing.expect(style(&state, .{ .preedit = false, .focused = false, .blink_visible = false }) == .block_hollow);
+    try testing.expect(style(&state, .{ .preedit = false, .focused = true, .blink_visible = false }) == null);
 }
 
 test "cursor: blinking disabled" {
@@ -95,16 +95,14 @@ test "cursor: blinking disabled" {
     term.screens.active.cursor.cursor_style = .bar;
     term.modes.set(.cursor_blinking, false);
 
-    var state: State = .{
-        .mutex = undefined,
-        .terminal = &term,
-        .preedit = null,
-    };
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
 
-    try testing.expect(style(&state, true, true) == .bar);
-    try testing.expect(style(&state, true, false) == .bar);
-    try testing.expect(style(&state, false, true) == .block_hollow);
-    try testing.expect(style(&state, false, false) == .block_hollow);
+    try testing.expect(style(&state, .{ .focused = true, .blink_visible = true }) == .bar);
+    try testing.expect(style(&state, .{ .focused = true, .blink_visible = false }) == .bar);
+    try testing.expect(style(&state, .{ .focused = false, .blink_visible = true }) == .block_hollow);
+    try testing.expect(style(&state, .{ .focused = false, .blink_visible = false }) == .block_hollow);
 }
 
 test "cursor: explicitly not visible" {
@@ -117,16 +115,14 @@ test "cursor: explicitly not visible" {
     term.modes.set(.cursor_visible, false);
     term.modes.set(.cursor_blinking, false);
 
-    var state: State = .{
-        .mutex = undefined,
-        .terminal = &term,
-        .preedit = null,
-    };
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
 
-    try testing.expect(style(&state, true, true) == null);
-    try testing.expect(style(&state, true, false) == null);
-    try testing.expect(style(&state, false, true) == null);
-    try testing.expect(style(&state, false, false) == null);
+    try testing.expect(style(&state, .{ .focused = true, .blink_visible = true }) == null);
+    try testing.expect(style(&state, .{ .focused = true, .blink_visible = false }) == null);
+    try testing.expect(style(&state, .{ .focused = false, .blink_visible = true }) == null);
+    try testing.expect(style(&state, .{ .focused = false, .blink_visible = false }) == null);
 }
 
 test "cursor: always block with preedit" {
@@ -135,25 +131,24 @@ test "cursor: always block with preedit" {
     var term = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
     defer term.deinit(alloc);
 
-    var state: State = .{
-        .mutex = undefined,
-        .terminal = &term,
-        .preedit = .{},
-    };
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
 
     // In any bool state
-    try testing.expect(style(&state, false, false) == .block);
-    try testing.expect(style(&state, true, false) == .block);
-    try testing.expect(style(&state, true, true) == .block);
-    try testing.expect(style(&state, false, true) == .block);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = false, .blink_visible = false }) == .block);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = true, .blink_visible = false }) == .block);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = true, .blink_visible = true }) == .block);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = false, .blink_visible = true }) == .block);
 
     // If we're scrolled though, then we don't show the cursor.
     for (0..100) |_| try term.index();
     try term.scrollViewport(.{ .top = {} });
+    try state.update(alloc, &term);
 
     // In any bool state
-    try testing.expect(style(&state, false, false) == null);
-    try testing.expect(style(&state, true, false) == null);
-    try testing.expect(style(&state, true, true) == null);
-    try testing.expect(style(&state, false, true) == null);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = false, .blink_visible = false }) == null);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = true, .blink_visible = false }) == null);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = true, .blink_visible = true }) == null);
+    try testing.expect(style(&state, .{ .preedit = true, .focused = false, .blink_visible = true }) == null);
 }

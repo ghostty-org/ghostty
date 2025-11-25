@@ -1,7 +1,7 @@
 const streampkg = @This();
 const std = @import("std");
 const build_options = @import("terminal_options");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const simd = @import("../simd/main.zig");
@@ -645,6 +645,11 @@ pub fn Stream(comptime Handler: type) type {
                 try self.handleCodepoint(codepoint);
             }
             if (!consumed) {
+                // We optimize for the scenario where the text being
+                // printed in the terminal ISN'T full of ill-formed
+                // UTF-8 sequences.
+                @branchHint(.unlikely);
+
                 const retry = self.utf8decoder.next(c);
                 // It should be impossible for the decoder
                 // to not consume the byte twice in a row.
@@ -660,12 +665,21 @@ pub fn Stream(comptime Handler: type) type {
         /// This function is abstracted this way to handle the case where
         /// the decoder emits a 0x1B after rejecting an ill-formed sequence.
         inline fn handleCodepoint(self: *Self, c: u21) !void {
+            // We need to increase the eval branch limit because a lot of
+            // tests end up running almost completely at comptime due to
+            // a chain of inline functions.
+            @setEvalBranchQuota(100_000);
+
+            // C0 control
             if (c <= 0xF) {
+                @branchHint(.unlikely);
                 try self.execute(@intCast(c));
                 return;
             }
+            // ESC
             if (c == 0x1B) {
-                try self.nextNonUtf8(@intCast(c));
+                self.parser.state = .escape;
+                self.parser.clear();
                 return;
             }
             try self.print(@intCast(c));
@@ -676,14 +690,8 @@ pub fn Stream(comptime Handler: type) type {
         /// This assumes that we're not in the UTF-8 decoding state. If
         /// we may be in the UTF-8 decoding state call nextSlice or next.
         fn nextNonUtf8(self: *Self, c: u8) !void {
-            assert(self.parser.state != .ground or c == 0x1B);
+            assert(self.parser.state != .ground);
 
-            // Fast path for ESC
-            if (self.parser.state == .ground and c == 0x1B) {
-                self.parser.state = .escape;
-                self.parser.clear();
-                return;
-            }
             // Fast path for CSI entry.
             if (self.parser.state == .escape and c == '[') {
                 self.parser.state = .csi_entry;
@@ -691,6 +699,11 @@ pub fn Stream(comptime Handler: type) type {
             }
             // Fast path for CSI params.
             if (self.parser.state == .csi_param) csi_param: {
+                // csi_param is the most common parser state
+                // other than ground by a fairly wide margin.
+                //
+                // ref: https://github.com/qwerasd205/asciinema-stats
+                @branchHint(.likely);
                 switch (c) {
                     // A C0 escape (yes, this is valid):
                     0x00...0x0F => try self.execute(c),
@@ -777,6 +790,18 @@ pub fn Stream(comptime Handler: type) type {
         }
 
         pub inline fn execute(self: *Self, c: u8) !void {
+            // If the character is > 0x7F, it's a C1 (8-bit) control,
+            // which is strictly equivalent to `ESC` plus `c - 0x40`.
+            if (c > 0x7F) {
+                @branchHint(.unlikely);
+                log.info("executing C1 0x{x} as ESC {c}", .{ c, c - 0x40 });
+                try self.escDispatch(.{
+                    .intermediates = &.{},
+                    .final = c - 0x40,
+                });
+                return;
+            }
+
             const c0: ansi.C0 = @enumFromInt(c);
             if (comptime debug) log.info("execute: {f}", .{c0});
             switch (c0) {
@@ -797,24 +822,52 @@ pub fn Stream(comptime Handler: type) type {
         }
 
         inline fn csiDispatch(self: *Self, input: Parser.Action.CSI) !void {
+            // The branch hints here are based on real world data
+            // which indicates that the most common CSI finals are:
+            //
+            // 1. m
+            // 2. H
+            // 3. K
+            // 4. A
+            // 5. C
+            // 6. X
+            // 7. l
+            // 8. h
+            // 9. r
+            //
+            // Together, these 9 finals make up about 96% of all
+            // CSI sequences encountered in real world scenarios.
+            //
+            // Additionally, within the prongs, unlikely branch
+            // hints have been added to branches that deal with
+            // invalid sequences/commands, this is in order to
+            // optimize for the happy path where we're getting
+            // valid data from the program we're running.
+            //
+            // ref: https://github.com/qwerasd205/asciinema-stats
+
             switch (input.final) {
                 // CUU - Cursor Up
-                'A', 'k' => switch (input.intermediates.len) {
-                    0 => try self.handler.vt(.cursor_up, .{
-                        .value = switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid cursor up command: {f}", .{input});
-                                return;
+                'A', 'k' => {
+                    @branchHint(.likely);
+                    switch (input.intermediates.len) {
+                        0 => try self.handler.vt(.cursor_up, .{
+                            .value = switch (input.params.len) {
+                                0 => 1,
+                                1 => input.params[0],
+                                else => {
+                                    @branchHint(.unlikely);
+                                    log.warn("invalid cursor up command: {f}", .{input});
+                                    return;
+                                },
                             },
-                        },
-                    }),
+                        }),
 
-                    else => log.warn(
-                        "ignoring unimplemented CSI A with intermediates: {s}",
-                        .{input.intermediates},
-                    ),
+                        else => log.warn(
+                            "ignoring unimplemented CSI A with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
+                    }
                 },
 
                 // CUD - Cursor Down
@@ -824,6 +877,7 @@ pub fn Stream(comptime Handler: type) type {
                             0 => 1,
                             1 => input.params[0],
                             else => {
+                                @branchHint(.unlikely);
                                 log.warn("invalid cursor down command: {f}", .{input});
                                 return;
                             },
@@ -837,22 +891,26 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // CUF - Cursor Right
-                'C' => switch (input.intermediates.len) {
-                    0 => try self.handler.vt(.cursor_right, .{
-                        .value = switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid cursor right command: {f}", .{input});
-                                return;
+                'C' => {
+                    @branchHint(.likely);
+                    switch (input.intermediates.len) {
+                        0 => try self.handler.vt(.cursor_right, .{
+                            .value = switch (input.params.len) {
+                                0 => 1,
+                                1 => input.params[0],
+                                else => {
+                                    @branchHint(.unlikely);
+                                    log.warn("invalid cursor right command: {f}", .{input});
+                                    return;
+                                },
                             },
-                        },
-                    }),
+                        }),
 
-                    else => log.warn(
-                        "ignoring unimplemented CSI C with intermediates: {s}",
-                        .{input.intermediates},
-                    ),
+                        else => log.warn(
+                            "ignoring unimplemented CSI C with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
+                    }
                 },
 
                 // CUB - Cursor Left
@@ -862,6 +920,7 @@ pub fn Stream(comptime Handler: type) type {
                             0 => 1,
                             1 => input.params[0],
                             else => {
+                                @branchHint(.unlikely);
                                 log.warn("invalid cursor left command: {f}", .{input});
                                 return;
                             },
@@ -882,6 +941,7 @@ pub fn Stream(comptime Handler: type) type {
                                 0 => 1,
                                 1 => input.params[0],
                                 else => {
+                                    @branchHint(.unlikely);
                                     log.warn("invalid cursor up command: {f}", .{input});
                                     return;
                                 },
@@ -904,6 +964,7 @@ pub fn Stream(comptime Handler: type) type {
                                 0 => 1,
                                 1 => input.params[0],
                                 else => {
+                                    @branchHint(.unlikely);
                                     log.warn("invalid cursor down command: {f}", .{input});
                                     return;
                                 },
@@ -926,6 +987,7 @@ pub fn Stream(comptime Handler: type) type {
                             0 => 1,
                             1 => input.params[0],
                             else => {
+                                @branchHint(.unlikely);
                                 log.warn("invalid HPA command: {f}", .{input});
                                 return;
                             },
@@ -940,24 +1002,28 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CUP - Set Cursor Position.
                 // TODO: test
-                'H', 'f' => switch (input.intermediates.len) {
-                    0 => {
-                        const pos: streampkg.Action.CursorPos = switch (input.params.len) {
-                            0 => .{ .row = 1, .col = 1 },
-                            1 => .{ .row = input.params[0], .col = 1 },
-                            2 => .{ .row = input.params[0], .col = input.params[1] },
-                            else => {
-                                log.warn("invalid CUP command: {f}", .{input});
-                                return;
-                            },
-                        };
-                        try self.handler.vt(.cursor_pos, pos);
-                    },
+                'H', 'f' => {
+                    @branchHint(.likely);
+                    switch (input.intermediates.len) {
+                        0 => {
+                            const pos: streampkg.Action.CursorPos = switch (input.params.len) {
+                                0 => .{ .row = 1, .col = 1 },
+                                1 => .{ .row = input.params[0], .col = 1 },
+                                2 => .{ .row = input.params[0], .col = input.params[1] },
+                                else => {
+                                    @branchHint(.unlikely);
+                                    log.warn("invalid CUP command: {f}", .{input});
+                                    return;
+                                },
+                            };
+                            try self.handler.vt(.cursor_pos, pos);
+                        },
 
-                    else => log.warn(
-                        "ignoring unimplemented CSI H with intermediates: {s}",
-                        .{input.intermediates},
-                    ),
+                        else => log.warn(
+                            "ignoring unimplemented CSI H with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
+                    }
                 },
 
                 // CHT - Cursor Horizontal Tabulation
@@ -1012,6 +1078,7 @@ pub fn Stream(comptime Handler: type) type {
 
                 // Erase Line
                 'K' => {
+                    @branchHint(.likely);
                     const protected_: ?bool = switch (input.intermediates.len) {
                         0 => false,
                         1 => if (input.intermediates[0] == '?') true else null,
@@ -1019,6 +1086,7 @@ pub fn Stream(comptime Handler: type) type {
                     };
 
                     const protected = protected_ orelse {
+                        @branchHint(.unlikely);
                         log.warn("invalid erase line command: {f}", .{input});
                         return;
                     };
@@ -1030,6 +1098,7 @@ pub fn Stream(comptime Handler: type) type {
                     };
 
                     const mode = mode_ orelse {
+                        @branchHint(.unlikely);
                         log.warn("invalid erase line command: {f}", .{input});
                         return;
                     };
@@ -1039,7 +1108,10 @@ pub fn Stream(comptime Handler: type) type {
                         .left => try self.handler.vt(.erase_line_left, protected),
                         .complete => try self.handler.vt(.erase_line_complete, protected),
                         .right_unless_pending_wrap => try self.handler.vt(.erase_line_right_unless_pending_wrap, protected),
-                        _ => log.warn("invalid erase line mode: {}", .{mode}),
+                        _ => {
+                            @branchHint(.unlikely);
+                            log.warn("invalid erase line mode: {}", .{mode});
+                        },
                     }
                 },
 
@@ -1172,20 +1244,24 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // Erase Characters (ECH)
-                'X' => switch (input.intermediates.len) {
-                    0 => try self.handler.vt(.erase_chars, switch (input.params.len) {
-                        0 => 1,
-                        1 => input.params[0],
-                        else => {
-                            log.warn("invalid erase characters command: {f}", .{input});
-                            return;
-                        },
-                    }),
+                'X' => {
+                    @branchHint(.likely);
+                    switch (input.intermediates.len) {
+                        0 => try self.handler.vt(.erase_chars, switch (input.params.len) {
+                            0 => 1,
+                            1 => input.params[0],
+                            else => {
+                                @branchHint(.unlikely);
+                                log.warn("invalid erase characters command: {f}", .{input});
+                                return;
+                            },
+                        }),
 
-                    else => log.warn(
-                        "ignoring unimplemented CSI X with intermediates: {s}",
-                        .{input.intermediates},
-                    ),
+                        else => log.warn(
+                            "ignoring unimplemented CSI X with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
+                    }
                 },
 
                 // CHT - Cursor Horizontal Tabulation Back
@@ -1325,6 +1401,7 @@ pub fn Stream(comptime Handler: type) type {
 
                 // SM - Set Mode
                 'h' => mode: {
+                    @branchHint(.likely);
                     const ansi_mode = ansi: {
                         if (input.intermediates.len == 0) break :ansi true;
                         if (input.intermediates.len == 1 and
@@ -1345,6 +1422,7 @@ pub fn Stream(comptime Handler: type) type {
 
                 // RM - Reset Mode
                 'l' => mode: {
+                    @branchHint(.likely);
                     const ansi_mode = ansi: {
                         if (input.intermediates.len == 0) break :ansi true;
                         if (input.intermediates.len == 1 and
@@ -1364,81 +1442,86 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // SGR - Select Graphic Rendition
-                'm' => switch (input.intermediates.len) {
-                    0 => {
-                        // log.info("parse SGR params={any}", .{input.params});
-                        var p: sgr.Parser = .{
-                            .params = input.params,
-                            .params_sep = input.params_sep,
-                        };
-                        while (p.next()) |attr| {
-                            // log.info("SGR attribute: {}", .{attr});
-                            try self.handler.vt(.set_attribute, attr);
-                        }
-                    },
-
-                    1 => switch (input.intermediates[0]) {
-                        '>' => blk: {
-                            if (input.params.len == 0) {
-                                // Reset
-                                try self.handler.vt(.modify_key_format, .legacy);
-                                break :blk;
-                            }
-
-                            var format: ansi.ModifyKeyFormat = switch (input.params[0]) {
-                                0 => .legacy,
-                                1 => .cursor_keys,
-                                2 => .function_keys,
-                                4 => .other_keys_none,
-                                else => {
-                                    log.warn("invalid setModifyKeyFormat: {f}", .{input});
-                                    break :blk;
-                                },
+                'm' => {
+                    @branchHint(.likely);
+                    switch (input.intermediates.len) {
+                        0 => {
+                            // This is the most common case.
+                            @branchHint(.likely);
+                            // log.info("parse SGR params={any}", .{input.params});
+                            var p: sgr.Parser = .{
+                                .params = input.params,
+                                .params_sep = input.params_sep,
                             };
-
-                            if (input.params.len > 2) {
-                                log.warn("invalid setModifyKeyFormat: {f}", .{input});
-                                break :blk;
+                            while (p.next()) |attr| {
+                                // log.info("SGR attribute: {}", .{attr});
+                                try self.handler.vt(.set_attribute, attr);
                             }
-
-                            if (input.params.len == 2) {
-                                switch (format) {
-                                    // We don't support any of the subparams yet for these.
-                                    .legacy => {},
-                                    .cursor_keys => {},
-                                    .function_keys => {},
-
-                                    // We only support the numeric form.
-                                    .other_keys_none => switch (input.params[1]) {
-                                        2 => format = .other_keys_numeric,
-                                        else => {},
-                                    },
-                                    .other_keys_numeric_except => {},
-                                    .other_keys_numeric => {},
-                                }
-                            }
-
-                            try self.handler.vt(.modify_key_format, format);
                         },
 
-                        else => log.warn(
-                            "unknown CSI m with intermediate: {}",
-                            .{input.intermediates[0]},
-                        ),
-                    },
+                        1 => switch (input.intermediates[0]) {
+                            '>' => blk: {
+                                if (input.params.len == 0) {
+                                    // Reset
+                                    try self.handler.vt(.modify_key_format, .legacy);
+                                    break :blk;
+                                }
 
-                    else => {
-                        // Nothing, but I wanted a place to put this comment:
-                        // there are others forms of CSI m that have intermediates.
-                        // `vim --clean` uses `CSI ? 4 m` and I don't know what
-                        // that means. And there is also `CSI > m` which is used
-                        // to control modifier key reporting formats that we don't
-                        // support yet.
-                        log.warn(
-                            "ignoring unimplemented CSI m with intermediates: {s}",
-                            .{input.intermediates},
-                        );
-                    },
+                                var format: ansi.ModifyKeyFormat = switch (input.params[0]) {
+                                    0 => .legacy,
+                                    1 => .cursor_keys,
+                                    2 => .function_keys,
+                                    4 => .other_keys_none,
+                                    else => {
+                                        @branchHint(.unlikely);
+                                        log.warn("invalid setModifyKeyFormat: {f}", .{input});
+                                        break :blk;
+                                    },
+                                };
+
+                                if (input.params.len > 2) {
+                                    @branchHint(.unlikely);
+                                    log.warn("invalid setModifyKeyFormat: {f}", .{input});
+                                    break :blk;
+                                }
+
+                                if (input.params.len == 2) {
+                                    switch (format) {
+                                        // We don't support any of the subparams yet for these.
+                                        .legacy => {},
+                                        .cursor_keys => {},
+                                        .function_keys => {},
+
+                                        // We only support the numeric form.
+                                        .other_keys_none => switch (input.params[1]) {
+                                            2 => format = .other_keys_numeric,
+                                            else => {},
+                                        },
+                                        .other_keys_numeric_except => {},
+                                        .other_keys_numeric => {},
+                                    }
+                                }
+
+                                try self.handler.vt(.modify_key_format, format);
+                            },
+
+                            else => log.warn(
+                                "unknown CSI m with intermediate: {}",
+                                .{input.intermediates[0]},
+                            ),
+                        },
+
+                        else => {
+                            // Nothing, but I wanted a place to put this comment:
+                            // there are others forms of CSI m that have intermediates.
+                            // `vim --clean` uses `CSI ? 4 m` and I don't know what
+                            // that means.
+                            log.warn(
+                                "ignoring unimplemented CSI m with intermediates: {s}",
+                                .{input.intermediates},
+                            );
+                        },
+                    }
                 },
 
                 // TODO: test
@@ -1605,40 +1688,46 @@ pub fn Stream(comptime Handler: type) type {
                     ),
                 },
 
-                'r' => switch (input.intermediates.len) {
-                    // DECSTBM - Set Top and Bottom Margins
-                    0 => switch (input.params.len) {
-                        0 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = 0, .bottom_right = 0 }),
-                        1 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = input.params[0], .bottom_right = 0 }),
-                        2 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = input.params[0], .bottom_right = input.params[1] }),
-                        else => log.warn("invalid DECSTBM command: {f}", .{input}),
-                    },
+                'r' => {
+                    @branchHint(.likely);
+                    switch (input.intermediates.len) {
+                        // DECSTBM - Set Top and Bottom Margins
+                        0 => switch (input.params.len) {
+                            0 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = 0, .bottom_right = 0 }),
+                            1 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = input.params[0], .bottom_right = 0 }),
+                            2 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = input.params[0], .bottom_right = input.params[1] }),
+                            else => {
+                                @branchHint(.unlikely);
+                                log.warn("invalid DECSTBM command: {f}", .{input});
+                            },
+                        },
 
-                    1 => switch (input.intermediates[0]) {
-                        // Restore Mode
-                        '?' => {
-                            for (input.params) |mode_int| {
-                                if (modes.modeFromInt(mode_int, false)) |mode| {
-                                    try self.handler.vt(.restore_mode, .{ .mode = mode });
-                                } else {
-                                    log.warn(
-                                        "unimplemented restore mode: {}",
-                                        .{mode_int},
-                                    );
+                        1 => switch (input.intermediates[0]) {
+                            // Restore Mode
+                            '?' => {
+                                for (input.params) |mode_int| {
+                                    if (modes.modeFromInt(mode_int, false)) |mode| {
+                                        try self.handler.vt(.restore_mode, .{ .mode = mode });
+                                    } else {
+                                        log.warn(
+                                            "unimplemented restore mode: {}",
+                                            .{mode_int},
+                                        );
+                                    }
                                 }
-                            }
+                            },
+
+                            else => log.warn(
+                                "unknown CSI s with intermediate: {f}",
+                                .{input},
+                            ),
                         },
 
                         else => log.warn(
-                            "unknown CSI s with intermediate: {f}",
+                            "ignoring unimplemented CSI s with intermediates: {f}",
                             .{input},
                         ),
-                    },
-
-                    else => log.warn(
-                        "ignoring unimplemented CSI s with intermediates: {f}",
-                        .{input},
-                    ),
+                    }
                 },
 
                 's' => switch (input.intermediates.len) {
@@ -1849,6 +1938,7 @@ pub fn Stream(comptime Handler: type) type {
                         0 => 1,
                         1 => input.params[0],
                         else => {
+                            @branchHint(.unlikely);
                             log.warn("invalid ICH command: {f}", .{input});
                             return;
                         },
@@ -1889,9 +1979,34 @@ pub fn Stream(comptime Handler: type) type {
         }
 
         inline fn oscDispatch(self: *Self, cmd: osc.Command) !void {
+            // The branch hints here are based on real world data
+            // which indicates that the most common OSC commands are:
+            //
+            // 1. hyperlink_end
+            // 2. change_window_title
+            // 3. change_window_icon
+            // 4. hyperlink_start
+            // 5. report_pwd
+            // 6. color_operation
+            // 7. prompt_start
+            // 8. prompt_end
+            //
+            // Together, these 8 commands make up about 96% of all
+            // OSC commands encountered in real world scenarios.
+            //
+            // Additionally, within the prongs, unlikely branch
+            // hints have been added to branches that deal with
+            // invalid sequences/commands, this is in order to
+            // optimize for the happy path where we're getting
+            // valid data from the program we're running.
+            //
+            // ref: https://github.com/qwerasd205/asciinema-stats
+
             switch (cmd) {
                 .change_window_title => |title| {
+                    @branchHint(.likely);
                     if (!std.unicode.utf8ValidateSlice(title)) {
+                        @branchHint(.unlikely);
                         log.warn("change title request: invalid utf-8, ignoring request", .{});
                         return;
                     }
@@ -1900,6 +2015,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .change_window_icon => |icon| {
+                    @branchHint(.likely);
                     log.info("OSC 1 (change icon) received and ignored icon={s}", .{icon});
                 },
 
@@ -1911,6 +2027,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .prompt_start => |v| {
+                    @branchHint(.likely);
                     switch (v.kind) {
                         .primary, .right => try self.handler.vt(.prompt_start, .{
                             .aid = v.aid,
@@ -1922,7 +2039,10 @@ pub fn Stream(comptime Handler: type) type {
                     }
                 },
 
-                .prompt_end => try self.handler.vt(.prompt_end, {}),
+                .prompt_end => {
+                    @branchHint(.likely);
+                    try self.handler.vt(.prompt_end, {});
+                },
 
                 .end_of_input => try self.handler.vt(.end_of_input, {}),
 
@@ -1931,11 +2051,13 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .report_pwd => |v| {
+                    @branchHint(.likely);
                     try self.handler.vt(.report_pwd, .{ .url = v.value });
                 },
 
                 .mouse_shape => |v| {
                     const shape = MouseShape.fromString(v.value) orelse {
+                        @branchHint(.unlikely);
                         log.warn("unknown cursor shape: {s}", .{v.value});
                         return;
                     };
@@ -1944,6 +2066,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .color_operation => |v| {
+                    @branchHint(.likely);
                     try self.handler.vt(.color_operation, .{
                         .op = v.op,
                         .requests = v.requests,
@@ -1963,6 +2086,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .hyperlink_start => |v| {
+                    @branchHint(.likely);
                     try self.handler.vt(.start_hyperlink, .{
                         .uri = v.uri,
                         .id = v.id,
@@ -1970,6 +2094,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .hyperlink_end => {
+                    @branchHint(.likely);
                     try self.handler.vt(.end_hyperlink, {});
                 },
 
@@ -1987,6 +2112,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .invalid => {
+                    @branchHint(.cold);
                     // This is an invalid internal state, not an invalid OSC
                     // string being parsed. We shouldn't see this.
                     log.warn("invalid OSC, should never happen", .{});
@@ -2012,6 +2138,7 @@ pub fn Stream(comptime Handler: type) type {
                 '*' => .G2,
                 '+' => .G3,
                 else => {
+                    @branchHint(.unlikely);
                     log.warn("invalid charset intermediate: {any}", .{intermediates});
                     return;
                 },
@@ -2027,22 +2154,56 @@ pub fn Stream(comptime Handler: type) type {
             self: *Self,
             action: Parser.Action.ESC,
         ) !void {
+            // The branch hints here are based on real world data
+            // which indicates that the most common ESC finals are:
+            //
+            // 1. B
+            // 2. \
+            // 3. 0
+            // 4. M
+            // 5. 8
+            // 6. 7
+            // 7. >
+            // 8. =
+            //
+            // Together, these 8 finals make up nearly 99% of all
+            // ESC sequences encountered in real world scenarios.
+            //
+            // Additionally, within the prongs, unlikely branch
+            // hints have been added to branches that deal with
+            // invalid sequences/commands, this is in order to
+            // optimize for the happy path where we're getting
+            // valid data from the program we're running.
+            //
+            // ref: https://github.com/qwerasd205/asciinema-stats
+
             switch (action.final) {
                 // Charsets
-                'B' => try self.configureCharset(action.intermediates, .ascii),
+                'B' => {
+                    @branchHint(.likely);
+                    try self.configureCharset(action.intermediates, .ascii);
+                },
                 'A' => try self.configureCharset(action.intermediates, .british),
-                '0' => try self.configureCharset(action.intermediates, .dec_special),
+                '0' => {
+                    @branchHint(.likely);
+                    try self.configureCharset(action.intermediates, .dec_special);
+                },
 
                 // DECSC - Save Cursor
-                '7' => switch (action.intermediates.len) {
-                    0 => try self.handler.vt(.save_cursor, {}),
-                    else => {
-                        log.warn("invalid command: {f}", .{action});
-                        return;
-                    },
+                '7' => {
+                    @branchHint(.likely);
+                    switch (action.intermediates.len) {
+                        0 => try self.handler.vt(.save_cursor, {}),
+                        else => {
+                            @branchHint(.unlikely);
+                            log.warn("invalid command: {f}", .{action});
+                            return;
+                        },
+                    }
                 },
 
                 '8' => blk: {
+                    @branchHint(.likely);
                     switch (action.intermediates.len) {
                         // DECRC - Restore Cursor
                         0 => {
@@ -2070,6 +2231,7 @@ pub fn Stream(comptime Handler: type) type {
                 'D' => switch (action.intermediates.len) {
                     0 => try self.handler.vt(.index, {}),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid index command: {f}", .{action});
                         return;
                     },
@@ -2079,6 +2241,7 @@ pub fn Stream(comptime Handler: type) type {
                 'E' => switch (action.intermediates.len) {
                     0 => try self.handler.vt(.next_line, {}),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid next line command: {f}", .{action});
                         return;
                     },
@@ -2088,18 +2251,23 @@ pub fn Stream(comptime Handler: type) type {
                 'H' => switch (action.intermediates.len) {
                     0 => try self.handler.vt(.tab_set, {}),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid tab set command: {f}", .{action});
                         return;
                     },
                 },
 
                 // RI - Reverse Index
-                'M' => switch (action.intermediates.len) {
-                    0 => try self.handler.vt(.reverse_index, {}),
-                    else => {
-                        log.warn("invalid reverse index command: {f}", .{action});
-                        return;
-                    },
+                'M' => {
+                    @branchHint(.likely);
+                    switch (action.intermediates.len) {
+                        0 => try self.handler.vt(.reverse_index, {}),
+                        else => {
+                            @branchHint(.unlikely);
+                            log.warn("invalid reverse index command: {f}", .{action});
+                            return;
+                        },
+                    }
                 },
 
                 // SS2 - Single Shift 2
@@ -2110,6 +2278,7 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = true,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid single shift 2 command: {f}", .{action});
                         return;
                     },
@@ -2123,6 +2292,7 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = true,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid single shift 3 command: {f}", .{action});
                         return;
                     },
@@ -2162,6 +2332,7 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = false,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid single shift 2 command: {f}", .{action});
                         return;
                     },
@@ -2175,6 +2346,7 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = false,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid single shift 3 command: {f}", .{action});
                         return;
                     },
@@ -2188,6 +2360,7 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = false,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid locking shift 1 right command: {f}", .{action});
                         return;
                     },
@@ -2201,6 +2374,7 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = false,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid locking shift 2 right command: {f}", .{action});
                         return;
                     },
@@ -2214,26 +2388,35 @@ pub fn Stream(comptime Handler: type) type {
                         .locking = false,
                     }),
                     else => {
+                        @branchHint(.unlikely);
                         log.warn("invalid locking shift 3 right command: {f}", .{action});
                         return;
                     },
                 },
 
                 // Set application keypad mode
-                '=' => switch (action.intermediates.len) {
-                    0 => try self.handler.vt(.set_mode, .{ .mode = .keypad_keys }),
-                    else => log.warn("unimplemented setMode: {f}", .{action}),
+                '=' => {
+                    @branchHint(.likely);
+                    switch (action.intermediates.len) {
+                        0 => try self.handler.vt(.set_mode, .{ .mode = .keypad_keys }),
+                        else => log.warn("unimplemented setMode: {f}", .{action}),
+                    }
                 },
 
                 // Reset application keypad mode
-                '>' => switch (action.intermediates.len) {
-                    0 => try self.handler.vt(.reset_mode, .{ .mode = .keypad_keys }),
-                    else => log.warn("unimplemented setMode: {f}", .{action}),
+                '>' => {
+                    @branchHint(.likely);
+                    switch (action.intermediates.len) {
+                        0 => try self.handler.vt(.reset_mode, .{ .mode = .keypad_keys }),
+                        else => log.warn("unimplemented setMode: {f}", .{action}),
+                    }
                 },
 
                 // Sets ST (string terminator). We don't have to do anything
                 // because our parser always accepts ST.
-                '\\' => {},
+                '\\' => {
+                    @branchHint(.likely);
+                },
 
                 else => log.warn("unimplemented ESC action: {f}", .{action}),
             }

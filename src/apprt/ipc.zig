@@ -2,7 +2,7 @@
 //! process.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 
 pub const Errors = error{
     /// The IPC failed. If a function returns this error, it's expected that

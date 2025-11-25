@@ -32,7 +32,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const autoHash = std.hash.autoHash;
 const math = std.math;
 const mem = std.mem;

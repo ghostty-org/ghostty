@@ -9,7 +9,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("terminal_options");
 const mem = std.mem;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = mem.Allocator;
 const LibEnum = @import("../lib/enum.zig").Enum;
 const RGB = @import("color.zig").RGB;
@@ -524,6 +524,7 @@ pub const Parser = struct {
         // We always keep space for 1 byte at the end to null-terminate
         // values.
         if (self.buf_idx >= self.buf.len - 1) {
+            @branchHint(.cold);
             if (self.state != .invalid) {
                 log.warn(
                     "OSC sequence too long (> {d}), ignoring. state={}",
@@ -1048,6 +1049,7 @@ pub const Parser = struct {
                 ';' => {
                     const ext = self.buf[self.buf_start .. self.buf_idx - 1];
                     if (!std.mem.eql(u8, ext, "notify")) {
+                        @branchHint(.cold);
                         log.warn("unknown rxvt extension: {s}", .{ext});
                         self.state = .invalid;
                         return;
@@ -1601,11 +1603,13 @@ pub const Parser = struct {
 
     fn endKittyColorProtocolOption(self: *Parser, kind: enum { key_only, key_and_value }, final: bool) void {
         if (self.temp_state.key.len == 0) {
+            @branchHint(.cold);
             log.warn("zero length key in kitty color protocol", .{});
             return;
         }
 
         const key = kitty_color.Kind.parse(self.temp_state.key) orelse {
+            @branchHint(.cold);
             log.warn("unknown key in kitty color protocol: {s}", .{self.temp_state.key});
             return;
         };
@@ -1620,6 +1624,7 @@ pub const Parser = struct {
             .kitty_color_protocol => |*v| {
                 // Cap our allocation amount for our list.
                 if (v.list.items.len >= @as(usize, kitty_color.Kind.max) * 2) {
+                    @branchHint(.cold);
                     self.state = .invalid;
                     log.warn("exceeded limit for number of keys in kitty color protocol, ignoring", .{});
                     return;
@@ -1631,11 +1636,13 @@ pub const Parser = struct {
 
                 if (kind == .key_only or value.len == 0) {
                     v.list.append(alloc, .{ .reset = key }) catch |err| {
+                        @branchHint(.cold);
                         log.warn("unable to append kitty color protocol option: {}", .{err});
                         return;
                     };
                 } else if (mem.eql(u8, "?", value)) {
                     v.list.append(alloc, .{ .query = key }) catch |err| {
+                        @branchHint(.cold);
                         log.warn("unable to append kitty color protocol option: {}", .{err});
                         return;
                     };
@@ -1651,6 +1658,7 @@ pub const Parser = struct {
                             },
                         },
                     }) catch |err| {
+                        @branchHint(.cold);
                         log.warn("unable to append kitty color protocol option: {}", .{err});
                         return;
                     };
@@ -1681,6 +1689,7 @@ pub const Parser = struct {
         const alloc = self.alloc.?;
         const list = self.buf_dynamic.?;
         list.append(alloc, 0) catch {
+            @branchHint(.cold);
             log.warn("allocation failed on allocable string termination", .{});
             self.temp_state.str.* = "";
             return;

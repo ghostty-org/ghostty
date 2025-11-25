@@ -1,8 +1,9 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
+const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const PageList = @import("../PageList.zig");
 const Pin = PageList.Pin;
 const Screen = @import("../Screen.zig");
@@ -44,8 +45,8 @@ pub const ScreenSearch = struct {
     /// is mostly immutable once found, while active area results may
     /// change. This lets us easily reset the active area results for a
     /// re-search scenario.
-    history_results: std.ArrayList(Selection),
-    active_results: std.ArrayList(Selection),
+    history_results: std.ArrayList(FlattenedHighlight),
+    active_results: std.ArrayList(FlattenedHighlight),
 
     /// History search state.
     const HistorySearch = struct {
@@ -120,7 +121,9 @@ pub const ScreenSearch = struct {
         const alloc = self.allocator();
         self.active.deinit();
         if (self.history) |*h| h.deinit(self.screen);
+        for (self.active_results.items) |*hl| hl.deinit(alloc);
         self.active_results.deinit(alloc);
+        for (self.history_results.items) |*hl| hl.deinit(alloc);
         self.history_results.deinit(alloc);
     }
 
@@ -145,11 +148,11 @@ pub const ScreenSearch = struct {
     pub fn matches(
         self: *ScreenSearch,
         alloc: Allocator,
-    ) Allocator.Error![]Selection {
+    ) Allocator.Error![]FlattenedHighlight {
         const active_results = self.active_results.items;
         const history_results = self.history_results.items;
         const results = try alloc.alloc(
-            Selection,
+            FlattenedHighlight,
             active_results.len + history_results.len,
         );
         errdefer alloc.free(results);
@@ -162,7 +165,7 @@ pub const ScreenSearch = struct {
             results[0..active_results.len],
             active_results,
         );
-        std.mem.reverse(Selection, results[0..active_results.len]);
+        std.mem.reverse(FlattenedHighlight, results[0..active_results.len]);
 
         // History does a backward search, so we can just append them
         // after.
@@ -247,13 +250,15 @@ pub const ScreenSearch = struct {
         // For the active area, we consume the entire search in one go
         // because the active area is generally small.
         const alloc = self.allocator();
-        while (self.active.next()) |sel| {
+        while (self.active.next()) |hl| {
             // If this fails, then we miss a result since `active.next()`
             // moves forward and prunes data. In the future, we may want
             // to have some more robust error handling but the only
             // scenario this would fail is OOM and we're probably in
             // deeper trouble at that point anyways.
-            try self.active_results.append(alloc, sel);
+            var hl_cloned = try hl.clone(alloc);
+            errdefer hl_cloned.deinit(alloc);
+            try self.active_results.append(alloc, hl_cloned);
         }
 
         // We've consumed the entire active area, move to history.
@@ -270,13 +275,15 @@ pub const ScreenSearch = struct {
         // Try to consume all the loaded matches in one go, because
         // the search is generally fast for loaded data.
         const alloc = self.allocator();
-        while (history.searcher.next()) |sel| {
+        while (history.searcher.next()) |hl| {
             // Ignore selections that are found within the starting
             // node since those are covered by the active area search.
-            if (sel.start().node == history.start_pin.node) continue;
+            if (hl.chunks.items(.node)[0] == history.start_pin.node) continue;
 
             // Same note as tickActive for error handling.
-            try self.history_results.append(alloc, sel);
+            var hl_cloned = try hl.clone(alloc);
+            errdefer hl_cloned.deinit(alloc);
+            try self.history_results.append(alloc, hl_cloned);
         }
 
         // We need to be fed more data.
@@ -291,6 +298,7 @@ pub const ScreenSearch = struct {
     ///
     /// The caller must hold the necessary locks to access the screen state.
     pub fn reloadActive(self: *ScreenSearch) Allocator.Error!void {
+        const alloc = self.allocator();
         const list: *PageList = &self.screen.pages;
         if (try self.active.update(list)) |history_node| history: {
             // We need to account for any active area growth that would
@@ -305,6 +313,7 @@ pub const ScreenSearch = struct {
                 if (h.start_pin.garbage) {
                     h.deinit(self.screen);
                     self.history = null;
+                    for (self.history_results.items) |*hl| hl.deinit(alloc);
                     self.history_results.clearRetainingCapacity();
                     break :state null;
                 }
@@ -317,7 +326,7 @@ pub const ScreenSearch = struct {
                 // initialize.
 
                 var search: PageListSearch = try .init(
-                    self.allocator(),
+                    alloc,
                     self.needle(),
                     list,
                     history_node,
@@ -346,7 +355,6 @@ pub const ScreenSearch = struct {
             // collect all the results into a new list. We ASSUME that
             // reloadActive is being called frequently enough that there isn't
             // a massive amount of history to search here.
-            const alloc = self.allocator();
             var window: SlidingWindow = try .init(
                 alloc,
                 .forward,
@@ -361,17 +369,17 @@ pub const ScreenSearch = struct {
             }
             assert(history.start_pin.node == history_node);
 
-            var results: std.ArrayList(Selection) = try .initCapacity(
+            var results: std.ArrayList(FlattenedHighlight) = try .initCapacity(
                 alloc,
                 self.history_results.items.len,
             );
             errdefer results.deinit(alloc);
-            while (window.next()) |sel| {
-                if (sel.start().node == history_node) continue;
-                try results.append(
-                    alloc,
-                    sel,
-                );
+            while (window.next()) |hl| {
+                if (hl.chunks.items(.node)[0] == history_node) continue;
+
+                var hl_cloned = try hl.clone(alloc);
+                errdefer hl_cloned.deinit(alloc);
+                try results.append(alloc, hl_cloned);
             }
 
             // If we have no matches then there is nothing to change
@@ -380,13 +388,14 @@ pub const ScreenSearch = struct {
 
             // Matches! Reverse our list then append all the remaining
             // history items that didn't start on our original node.
-            std.mem.reverse(Selection, results.items);
+            std.mem.reverse(FlattenedHighlight, results.items);
             try results.appendSlice(alloc, self.history_results.items);
             self.history_results.deinit(alloc);
             self.history_results = results;
         }
 
         // Reset our active search results and search again.
+        for (self.active_results.items) |*hl| hl.deinit(alloc);
         self.active_results.clearRetainingCapacity();
         switch (self.state) {
             // If we're in the active state we run a normal tick so
@@ -425,26 +434,26 @@ test "simple search" {
     try testing.expectEqual(2, matches.len);
 
     {
-        const sel = matches[0];
+        const sel = matches[0].untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
     {
-        const sel = matches[1];
+        const sel = matches[1].untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }
 
@@ -477,15 +486,15 @@ test "simple search with history" {
     try testing.expectEqual(1, matches.len);
 
     {
-        const sel = matches[0];
+        const sel = matches[0].untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }
 
@@ -528,26 +537,26 @@ test "reload active with history change" {
         defer alloc.free(matches);
         try testing.expectEqual(2, matches.len);
         {
-            const sel = matches[1];
+            const sel = matches[1].untracked();
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 0,
                 .y = 0,
-            } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+            } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 3,
                 .y = 0,
-            } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+            } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
         }
         {
-            const sel = matches[0];
+            const sel = matches[0].untracked();
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 1,
                 .y = 1,
-            } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 4,
                 .y = 1,
-            } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
         }
     }
 
@@ -562,15 +571,15 @@ test "reload active with history change" {
         defer alloc.free(matches);
         try testing.expectEqual(1, matches.len);
         {
-            const sel = matches[0];
+            const sel = matches[0].untracked();
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 2,
                 .y = 0,
-            } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
             try testing.expectEqual(point.Point{ .active = .{
                 .x = 5,
                 .y = 0,
-            } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+            } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
         }
     }
 }
@@ -603,14 +612,14 @@ test "active change contents" {
     try testing.expectEqual(1, matches.len);
 
     {
-        const sel = matches[0];
+        const sel = matches[0].untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }

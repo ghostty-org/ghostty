@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const run = @import("shaper/run.zig");
@@ -72,17 +73,11 @@ pub const RunOptions = struct {
     /// cached values may be updated during shaping.
     grid: *SharedGrid,
 
-    /// The terminal screen to shape.
-    screen: *const terminal.Screen,
+    /// The cells for the row to shape.
+    cells: std.MultiArrayList(terminal.RenderState.Cell).Slice = .empty,
 
-    /// The row within the screen to shape. This row must exist within
-    /// screen; it is not validated.
-    row: terminal.Pin,
-
-    /// The selection boundaries. This is used to break shaping on
-    /// selection boundaries. This can be disabled by setting this to
-    /// null.
-    selection: ?terminal.Selection = null,
+    /// The x boundaries of the selection in this row.
+    selection: ?[2]u16 = null,
 
     /// The cursor position within this row. This is used to break shaping
     /// on cursor boundaries. This can be disabled by setting this to

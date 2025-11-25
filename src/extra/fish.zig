@@ -3,6 +3,7 @@ const std = @import("std");
 
 const Config = @import("../config/Config.zig");
 const Action = @import("../cli.zig").ghostty.Action;
+const help_strings = @import("help_strings");
 
 /// A fish completions configuration that contains all the available commands
 /// and options.
@@ -81,6 +82,15 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
                 else => {},
             }
         }
+
+        if (@hasDecl(help_strings.Config, field.name)) {
+            const help = @field(help_strings.Config, field.name);
+            const desc = getDescription(help);
+            try writer.writeAll(" -d \"");
+            try writer.writeAll(desc);
+            try writer.writeAll("\"");
+        }
+
         try writer.writeAll("\n");
     }
 
@@ -141,5 +151,56 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
             }
             try writer.writeAll("\n");
         }
+    }
+}
+
+fn getDescription(comptime help: []const u8) []const u8 {
+    var out: [help.len * 2]u8 = undefined;
+    var len: usize = 0;
+    var prev_was_space = false;
+
+    for (help, 0..) |c, i| {
+        switch (c) {
+            '.' => {
+                out[len] = '.';
+                len += 1;
+
+                if (i + 1 >= help.len) break;
+                const next = help[i + 1];
+                if (next == ' ' or next == '\n') break;
+            },
+            '\n' => {
+                if (!prev_was_space and len > 0) {
+                    out[len] = ' ';
+                    len += 1;
+                    prev_was_space = true;
+                }
+            },
+            '"' => {
+                out[len] = '\\';
+                out[len + 1] = '"';
+                len += 2;
+                prev_was_space = false;
+            },
+            else => {
+                out[len] = c;
+                len += 1;
+                prev_was_space = (c == ' ');
+            },
+        }
+    }
+
+    return out[0..len];
+}
+
+test "getDescription" {
+    const testing = std.testing;
+
+    const input = "First sentence with \"quotes\"\nand newlines. Second sentence.";
+    const expected = "First sentence with \\\"quotes\\\" and newlines.";
+
+    comptime {
+        const result = getDescription(input);
+        try testing.expectEqualStrings(expected, result);
     }
 }

@@ -668,7 +668,7 @@ vertex CellTextVertexOut cell_text_vertex(
     out.color = load_color(
       uniforms.cursor_color,
       uniforms.use_display_p3,
-      false
+      true
     );
   }
 

@@ -2,7 +2,7 @@
 //! Kitty graphics protocol unicode placeholder, virtual placement feature.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const terminal = @import("../main.zig");
 const kitty_gfx = terminal.kitty.graphics;

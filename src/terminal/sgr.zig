@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const build_options = @import("terminal_options");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const lib = @import("../lib/main.zig");
 const color = @import("color.zig");
@@ -32,7 +32,6 @@ pub const Attribute = union(Tag) {
 
     /// Underline the text
     underline: Underline,
-    reset_underline,
     underline_color: color.RGB,
     @"256_underline_color": u8,
     reset_underline_color,
@@ -92,7 +91,6 @@ pub const Attribute = union(Tag) {
             "reset_italic",
             "faint",
             "underline",
-            "reset_underline",
             "underline_color",
             "256_underline_color",
             "reset_underline_color",
@@ -186,19 +184,25 @@ pub const Parser = struct {
     /// Next returns the next attribute or null if there are no more attributes.
     pub fn next(self: *Parser) ?Attribute {
         if (self.idx >= self.params.len) {
-            // If we're at index zero it means we must have an empty
-            // list and an empty list implicitly means unset.
-            if (self.idx == 0) {
-                // Add one to ensure we don't loop on unset
-                self.idx += 1;
-                return .unset;
-            }
+            // We're more likely to not be done than to be done.
+            @branchHint(.unlikely);
 
-            return null;
+            // Add one to ensure we don't loop on unset
+            defer self.idx += 1;
+
+            // If we're at index zero it means we must have an empty list
+            // and an empty list implicitly means unset, otherwise we're
+            // done and return null.
+            return if (self.idx == 0) .unset else null;
         }
 
         const slice = self.params[self.idx..self.params.len];
-        const colon = self.params_sep.isSet(self.idx);
+        // Call inlined for performance reasons.
+        const colon = @call(
+            .always_inline,
+            SepList.isSet,
+            .{ self.params_sep, self.idx },
+        );
         self.idx += 1;
 
         // Our last one will have an idx be the last value.
@@ -206,20 +210,30 @@ pub const Parser = struct {
 
         // If we have a colon separator then we need to ensure we're
         // parsing a value that allows it.
-        if (colon) switch (slice[0]) {
-            4, 38, 48, 58 => {},
+        if (colon) {
+            // Colons are fairly rare in the wild.
+            @branchHint(.unlikely);
 
-            else => {
-                // Consume all the colon separated values.
-                const start = self.idx;
-                while (self.params_sep.isSet(self.idx)) self.idx += 1;
-                self.idx += 1;
-                return .{ .unknown = .{
-                    .full = self.params,
-                    .partial = slice[0..@min(self.idx - start + 1, slice.len)],
-                } };
-            },
-        };
+            switch (slice[0]) {
+                4, 38, 48, 58 => {},
+
+                else => {
+                    // In real world use it's very rare
+                    // that we receive an invalid sequence.
+                    @branchHint(.cold);
+
+                    // Consume all the colon separated
+                    // values and return them as unknown.
+                    const start = self.idx;
+                    while (self.params_sep.isSet(self.idx)) self.idx += 1;
+                    self.idx += 1;
+                    return .{ .unknown = .{
+                        .full = self.params,
+                        .partial = slice[0..@min(self.idx - start + 1, slice.len)],
+                    } };
+                },
+            }
+        }
 
         switch (slice[0]) {
             0 => return .unset,
@@ -232,25 +246,37 @@ pub const Parser = struct {
 
             4 => underline: {
                 if (colon) {
+                    // Colons are fairly rare in the wild.
+                    @branchHint(.unlikely);
+
                     assert(slice.len >= 2);
                     if (self.isColon()) {
+                        // Invalid/unknown SGRs are just not very likely.
+                        @branchHint(.cold);
+
                         self.consumeUnknownColon();
                         break :underline;
                     }
 
                     self.idx += 1;
-                    switch (slice[1]) {
-                        0 => return .reset_underline,
-                        1 => return .{ .underline = .single },
-                        2 => return .{ .underline = .double },
-                        3 => return .{ .underline = .curly },
-                        4 => return .{ .underline = .dotted },
-                        5 => return .{ .underline = .dashed },
+                    return .{
+                        .underline = switch (slice[1]) {
+                            0 => .none,
+                            1 => .single,
+                            2 => .double,
+                            3 => .curly,
+                            4 => .dotted,
+                            5 => .dashed,
 
-                        // For unknown underline styles, just render
-                        // a single underline.
-                        else => return .{ .underline = .single },
-                    }
+                            // For unknown underline styles,
+                            // just render a single underline.
+                            else => single: {
+                                // This is quite a rare condition.
+                                @branchHint(.cold);
+                                break :single .single;
+                            },
+                        },
+                    };
                 }
 
                 return .{ .underline = .single };
@@ -272,7 +298,7 @@ pub const Parser = struct {
 
             23 => return .reset_italic,
 
-            24 => return .reset_underline,
+            24 => return .{ .underline = .none },
 
             25 => return .reset_blink,
 
@@ -286,23 +312,32 @@ pub const Parser = struct {
                 .@"8_fg" = @enumFromInt(slice[0] - 30),
             },
 
-            38 => if (slice.len >= 2) switch (slice[1]) {
-                // `2` indicates direct-color (r, g, b).
-                // We need at least 3 more params for this to make sense.
-                2 => if (self.parseDirectColor(
-                    .direct_color_fg,
-                    slice,
-                    colon,
-                )) |v| return v,
+            38 => if (slice.len >= 2) {
+                // We are very likely to have enough parameters.
+                @branchHint(.likely);
 
-                // `5` indicates indexed color.
-                5 => if (slice.len >= 3) {
-                    self.idx += 2;
-                    return .{
-                        .@"256_fg" = @truncate(slice[2]),
-                    };
-                },
-                else => {},
+                switch (slice[1]) {
+                    // `2` indicates direct-color (r, g, b).
+                    // We need at least 3 more params for this to make sense.
+                    2 => if (self.parseDirectColor(
+                        .direct_color_fg,
+                        slice,
+                        colon,
+                    )) |v| return v,
+
+                    // `5` indicates indexed color.
+                    5 => if (slice.len >= 3) {
+                        // We are very likely to have enough parameters.
+                        @branchHint(.likely);
+
+                        self.idx += 2;
+                        return .{
+                            .@"256_fg" = @truncate(slice[2]),
+                        };
+                    },
+
+                    else => {},
+                }
             },
 
             39 => return .reset_fg,
@@ -311,23 +346,32 @@ pub const Parser = struct {
                 .@"8_bg" = @enumFromInt(slice[0] - 40),
             },
 
-            48 => if (slice.len >= 2) switch (slice[1]) {
-                // `2` indicates direct-color (r, g, b).
-                // We need at least 3 more params for this to make sense.
-                2 => if (self.parseDirectColor(
-                    .direct_color_bg,
-                    slice,
-                    colon,
-                )) |v| return v,
+            48 => if (slice.len >= 2) {
+                // We are very likely to have enough parameters.
+                @branchHint(.likely);
 
-                // `5` indicates indexed color.
-                5 => if (slice.len >= 3) {
-                    self.idx += 2;
-                    return .{
-                        .@"256_bg" = @truncate(slice[2]),
-                    };
-                },
-                else => {},
+                switch (slice[1]) {
+                    // `2` indicates direct-color (r, g, b).
+                    // We need at least 3 more params for this to make sense.
+                    2 => if (self.parseDirectColor(
+                        .direct_color_bg,
+                        slice,
+                        colon,
+                    )) |v| return v,
+
+                    // `5` indicates indexed color.
+                    5 => if (slice.len >= 3) {
+                        // We are very likely to have enough parameters.
+                        @branchHint(.likely);
+
+                        self.idx += 2;
+                        return .{
+                            .@"256_bg" = @truncate(slice[2]),
+                        };
+                    },
+
+                    else => {},
+                }
             },
 
             49 => return .reset_bg,
@@ -335,23 +379,31 @@ pub const Parser = struct {
             53 => return .overline,
             55 => return .reset_overline,
 
-            58 => if (slice.len >= 2) switch (slice[1]) {
-                // `2` indicates direct-color (r, g, b).
-                // We need at least 3 more params for this to make sense.
-                2 => if (self.parseDirectColor(
-                    .underline_color,
-                    slice,
-                    colon,
-                )) |v| return v,
+            58 => if (slice.len >= 2) {
+                // We are very likely to have enough parameters.
+                @branchHint(.likely);
 
-                // `5` indicates indexed color.
-                5 => if (slice.len >= 3) {
-                    self.idx += 2;
-                    return .{
-                        .@"256_underline_color" = @truncate(slice[2]),
-                    };
-                },
-                else => {},
+                switch (slice[1]) {
+                    // `2` indicates direct-color (r, g, b).
+                    // We need at least 3 more params for this to make sense.
+                    2 => if (self.parseDirectColor(
+                        .underline_color,
+                        slice,
+                        colon,
+                    )) |v| return v,
+
+                    // `5` indicates indexed color.
+                    5 => if (slice.len >= 3) {
+                        // We are very likely to have enough parameters.
+                        @branchHint(.likely);
+
+                        self.idx += 2;
+                        return .{
+                            .@"256_underline_color" = @truncate(slice[2]),
+                        };
+                    },
+                    else => {},
+                }
             },
 
             59 => return .reset_underline_color,
@@ -389,6 +441,9 @@ pub const Parser = struct {
         // If we don't have a colon, then we expect exactly 3 semicolon
         // separated values.
         if (!colon) {
+            // Semicolons are much more common than colons.
+            @branchHint(.likely);
+
             self.idx += 4;
             return @unionInit(Attribute, @tagName(tag), .{
                 .r = @truncate(slice[2]),
@@ -402,6 +457,9 @@ pub const Parser = struct {
         const count = self.countColon();
         switch (count) {
             3 => {
+                // This is the much more common case in the wild.
+                @branchHint(.likely);
+
                 self.idx += 4;
                 return @unionInit(Attribute, @tagName(tag), .{
                     .r = @truncate(slice[2]),
@@ -420,6 +478,9 @@ pub const Parser = struct {
             },
 
             else => {
+                // Invalid/unknown SGRs just don't happen very often at all.
+                @branchHint(.cold);
+
                 self.consumeUnknownColon();
                 return null;
             },
@@ -429,10 +490,13 @@ pub const Parser = struct {
     /// Returns true if the present position has a colon separator.
     /// This always returns false for the last value since it has no
     /// separator.
-    fn isColon(self: *Parser) bool {
-        // The `- 1` here is because the last value has no separator.
-        if (self.idx >= self.params.len - 1) return false;
-        return self.params_sep.isSet(self.idx);
+    inline fn isColon(self: *Parser) bool {
+        // Call inlined for performance reasons.
+        return @call(
+            .always_inline,
+            SepList.isSet,
+            .{ self.params_sep, self.idx },
+        );
     }
 
     fn countColon(self: *Parser) usize {
@@ -458,7 +522,9 @@ fn testParse(params: []const u16) Attribute {
 }
 
 fn testParseColon(params: []const u16) Attribute {
-    var p: Parser = .{ .params = params, .params_sep = .initFull() };
+    var p: Parser = .{ .params = params };
+    // Mark all parameters except the last as having a colon after.
+    for (0..params.len - 1) |i| p.params_sep.set(i);
     return p.next().?;
 }
 
@@ -560,7 +626,8 @@ test "sgr: underline" {
 
     {
         const v = testParse(&[_]u16{24});
-        try testing.expect(v == .reset_underline);
+        try testing.expect(v == .underline);
+        try testing.expect(v.underline == .none);
     }
 }
 
@@ -573,7 +640,8 @@ test "sgr: underline styles" {
 
     {
         const v = testParseColon(&[_]u16{ 4, 0 });
-        try testing.expect(v == .reset_underline);
+        try testing.expect(v == .underline);
+        try testing.expect(v.underline == .none);
     }
 
     {

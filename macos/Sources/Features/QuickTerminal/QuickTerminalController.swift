@@ -342,7 +342,10 @@ class QuickTerminalController: BaseTerminalController {
         // animate out.
         if surfaceTree.isEmpty,
            let ghostty_app = ghostty.app {
-            let view = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
+            var config = Ghostty.SurfaceConfiguration()
+            config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
+
+            let view = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
             surfaceTree = SplitTree(view: view)
             focusedSurface = view
         }

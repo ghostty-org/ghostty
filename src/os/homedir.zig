@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const passwd = @import("passwd.zig");
 const posix = std.posix;
 const objc = @import("objc");

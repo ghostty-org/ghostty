@@ -16,15 +16,13 @@ pub const Properties = packed struct {
     grapheme_boundary_class: GraphemeBoundaryClass = .invalid,
 
     /// Emoji VS compatibility
-    emoji_vs_text: bool = false,
-    emoji_vs_emoji: bool = false,
+    emoji_vs_base: bool = false,
 
     // Needed for lut.Generator
     pub fn eql(a: Properties, b: Properties) bool {
         return a.width == b.width and
             a.grapheme_boundary_class == b.grapheme_boundary_class and
-            a.emoji_vs_text == b.emoji_vs_text and
-            a.emoji_vs_emoji == b.emoji_vs_emoji;
+            a.emoji_vs_base == b.emoji_vs_base;
     }
 
     // Needed for lut.Generator
@@ -36,14 +34,12 @@ pub const Properties = packed struct {
             \\.{{
             \\    .width= {},
             \\    .grapheme_boundary_class= .{s},
-            \\    .emoji_vs_text= {},
-            \\    .emoji_vs_emoji= {},
+            \\    .emoji_vs_base= {},
             \\}}
         , .{
             self.width,
             @tagName(self.grapheme_boundary_class),
-            self.emoji_vs_text,
-            self.emoji_vs_emoji,
+            self.emoji_vs_base,
         });
     }
 };

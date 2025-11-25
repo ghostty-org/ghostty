@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Terminal = @import("../terminal/Terminal.zig");
 
 pub const Options = struct {

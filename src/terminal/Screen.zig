@@ -3,7 +3,7 @@ const Screen = @This();
 const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const ansi = @import("ansi.zig");
 const charsets = @import("charsets.zig");
 const fastmem = @import("../fastmem.zig");
@@ -88,7 +88,7 @@ pub const Dirty = packed struct {
 
 /// The cursor position and style.
 pub const Cursor = struct {
-    // The x/y position within the viewport.
+    // The x/y position within the active area.
     x: size.CellCountInt = 0,
     y: size.CellCountInt = 0,
 
@@ -161,7 +161,7 @@ pub const SavedCursor = struct {
 /// State required for all charset operations.
 pub const CharsetState = struct {
     /// The list of graphical charsets by slot
-    charsets: CharsetArray = .initFill(charsets.Charset.utf8),
+    charsets: CharsetArray = .{},
 
     /// GL is the slot to use when using a 7-bit printable char (up to 127)
     /// GR used for 8-bit printable chars.
@@ -172,7 +172,41 @@ pub const CharsetState = struct {
     single_shift: ?charsets.Slots = null,
 
     /// An array to map a charset slot to a lookup table.
-    const CharsetArray = std.EnumArray(charsets.Slots, charsets.Charset);
+    ///
+    /// We use this bespoke struct instead of `std.EnumArray` because
+    /// accessing these slots is very performance critical since it's
+    /// done for every single print. This benchmarks faster.
+    const CharsetArray = struct {
+        g0: charsets.Charset = .utf8,
+        g1: charsets.Charset = .utf8,
+        g2: charsets.Charset = .utf8,
+        g3: charsets.Charset = .utf8,
+
+        pub inline fn get(
+            self: *const CharsetArray,
+            slot: charsets.Slots,
+        ) charsets.Charset {
+            return switch (slot) {
+                .G0 => self.g0,
+                .G1 => self.g1,
+                .G2 => self.g2,
+                .G3 => self.g3,
+            };
+        }
+
+        pub inline fn set(
+            self: *CharsetArray,
+            slot: charsets.Slots,
+            charset: charsets.Charset,
+        ) void {
+            switch (slot) {
+                .G0 => self.g0 = charset,
+                .G1 => self.g1 = charset,
+                .G2 => self.g2 = charset,
+                .G3 => self.g3 = charset,
+            }
+        }
+    };
 };
 
 pub const Options = struct {
@@ -752,10 +786,13 @@ pub fn cursorDownScroll(self: *Screen) !void {
                 self.cursor.page_row,
                 page.getCells(self.cursor.page_row),
             );
-
-            var dirty = page.dirtyBitSet();
-            dirty.set(0);
+            self.cursorMarkDirty();
         } else {
+            // The call to `eraseRow` will move the tracked cursor pin up by one
+            // row, but we don't actually want that, so we keep the old pin and
+            // put it back after calling `eraseRow`.
+            const old_pin = self.cursor.page_pin.*;
+
             // eraseRow will shift everything below it up.
             try self.pages.eraseRow(.{ .active = .{} });
 
@@ -763,26 +800,15 @@ pub fn cursorDownScroll(self: *Screen) !void {
             // because eraseRow will mark all the rotated rows as dirty
             // in the entire page.
 
-            // We need to move our cursor down one because eraseRows will
-            // preserve our pin directly and we're erasing one row.
-            const page_pin = self.cursor.page_pin.down(1).?;
-            self.cursorChangePin(page_pin);
-            const page_rac = page_pin.rowAndCell();
+            // We don't use `cursorChangePin` here because we aren't
+            // actually changing the pin, we're keeping it the same.
+            self.cursor.page_pin.* = old_pin;
+
+            // We do, however, need to refresh the cached page row
+            // and cell, because `eraseRow` will have moved the row.
+            const page_rac = self.cursor.page_pin.rowAndCell();
             self.cursor.page_row = page_rac.row;
             self.cursor.page_cell = page_rac.cell;
-
-            // The above may clear our cursor so we need to update that
-            // again. If this fails (highly unlikely) we just reset
-            // the cursor.
-            self.manualStyleUpdate() catch |err| {
-                // This failure should not happen because manualStyleUpdate
-                // handles page splitting, overflow, and more. This should only
-                // happen if we're out of RAM. In this case, we'll just degrade
-                // gracefully back to the default style.
-                log.err("failed to update style on cursor scroll err={}", .{err});
-                self.cursor.style = .{};
-                self.cursor.style_id = 0;
-            };
         }
     } else {
         const old_pin = self.cursor.page_pin.*;
@@ -852,7 +878,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
     // the cursor always changes page rows inside this function, and
     // when that happens it can mean the text in the old row needs to
     // be re-shaped because the cursor splits runs to break ligatures.
-    self.cursor.page_pin.markDirty();
+    self.cursorMarkDirty();
 
     // If the cursor is on the bottom of the screen, its faster to use
     // our specialized function for that case.
@@ -897,9 +923,11 @@ pub fn cursorScrollAbove(self: *Screen) !void {
             var rows = page.rows.ptr(page.memory.ptr);
             fastmem.rotateOnceR(Row, rows[pin.y..page.size.rows]);
 
-            // Mark all our rotated rows as dirty.
-            var dirty = page.dirtyBitSet();
-            dirty.setRangeValue(.{ .start = pin.y, .end = page.size.rows }, true);
+            // Mark the whole page as dirty.
+            //
+            // Technically we only need to mark from the cursor row to the
+            // end but this is a hot function, so we want to minimize work.
+            page.dirty = true;
 
             // Setup our cursor caches after the rotation so it points to the
             // correct data
@@ -964,9 +992,8 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
             &prev_rows[prev_page.size.rows - 1],
         );
 
-        // All rows we rotated are dirty
-        var dirty = cur_page.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = cur_page.size.rows }, true);
+        // Mark dirty on the page, since we are dirtying all rows with this.
+        cur_page.dirty = true;
     }
 
     // Our current is our cursor page, we need to rotate down from
@@ -981,12 +1008,11 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
         cur_page.getCells(&cur_rows[self.cursor.page_pin.y]),
     );
 
-    // Set all the rows we rotated and cleared dirty
-    var dirty = cur_page.dirtyBitSet();
-    dirty.setRangeValue(
-        .{ .start = self.cursor.page_pin.y, .end = cur_page.size.rows },
-        true,
-    );
+    // Mark the whole page as dirty.
+    //
+    // Technically we only need to mark from the cursor row to the
+    // end but this is a hot function, so we want to minimize work.
+    cur_page.dirty = true;
 
     // Setup cursor cache data after all the rotations so our
     // row is valid.
@@ -1050,9 +1076,9 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
         const other_page = &other.page_pin.node.data;
         const other_link = other_page.hyperlink_set.get(other_page.memory, other.hyperlink_id);
 
-        const uri = other_link.uri.offset.ptr(other_page.memory)[0..other_link.uri.len];
+        const uri = other_link.uri.slice(other_page.memory);
         const id_ = switch (other_link.id) {
-            .explicit => |id| id.offset.ptr(other_page.memory)[0..id.len],
+            .explicit => |id| id.slice(other_page.memory),
             .implicit => null,
         };
 
@@ -1077,7 +1103,7 @@ inline fn cursorChangePin(self: *Screen, new: Pin) void {
     // we must mark the old and new page dirty. We do this as long
     // as the pins are not equal
     if (!self.cursor.page_pin.eql(new)) {
-        self.cursor.page_pin.markDirty();
+        self.cursorMarkDirty();
         new.markDirty();
     }
 
@@ -1147,7 +1173,7 @@ inline fn cursorChangePin(self: *Screen, new: Pin) void {
 /// Mark the cursor position as dirty.
 /// TODO: test
 pub inline fn cursorMarkDirty(self: *Screen) void {
-    self.cursor.page_pin.markDirty();
+    self.cursor.page_row.dirty = true;
 }
 
 /// Reset the cursor row's soft-wrap state and the cursor's pending wrap.
@@ -1275,10 +1301,6 @@ pub fn clearRows(
 
     var it = self.pages.pageIterator(.right_down, tl, bl);
     while (it.next()) |chunk| {
-        // Mark everything in this chunk as dirty
-        var dirty = chunk.node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = chunk.start, .end = chunk.end }, true);
-
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
             const cells_multi: [*]Cell = row.cells.ptr(chunk.node.data.memory);
@@ -1294,12 +1316,15 @@ pub fn clearRows(
                 self.clearCells(&chunk.node.data, row, cells);
                 row.* = .{ .cells = cells_offset };
             }
+
+            row.dirty = true;
         }
     }
 }
 
-/// Clear the cells with the blank cell. This takes care to handle
-/// cleaning up graphemes and styles.
+/// Clear the cells with the blank cell.
+///
+/// This takes care to handle cleaning up graphemes and styles.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1326,30 +1351,54 @@ pub fn clearCells(
         assert(@intFromPtr(&cells[cells.len - 1]) <= @intFromPtr(&row_cells[row_cells.len - 1]));
     }
 
-    // If this row has graphemes, then we need go through a slow path
-    // and delete the cell graphemes.
+    // If we have managed memory (styles, graphemes, or hyperlinks)
+    // in this row then we go cell by cell and clear them if present.
     if (row.grapheme) {
         for (cells) |*cell| {
-            if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
+            if (cell.hasGrapheme())
+                page.clearGrapheme(cell);
+        }
+
+        // If we have no left/right scroll region we can be sure
+        // that we've cleared all the graphemes, so we clear the
+        // flag, otherwise we ask the page to update the flag.
+        if (cells.len == self.pages.cols) {
+            row.grapheme = false;
+        } else {
+            page.updateRowGraphemeFlag(row);
         }
     }
 
-    // If we have hyperlinks, we need to clear those.
     if (row.hyperlink) {
         for (cells) |*cell| {
-            if (cell.hyperlink) page.clearHyperlink(row, cell);
+            if (cell.hyperlink)
+                page.clearHyperlink(cell);
+        }
+
+        // If we have no left/right scroll region we can be sure
+        // that we've cleared all the hyperlinks, so we clear the
+        // flag, otherwise we ask the page to update the flag.
+        if (cells.len == self.pages.cols) {
+            row.hyperlink = false;
+        } else {
+            page.updateRowHyperlinkFlag(row);
         }
     }
 
     if (row.styled) {
         for (cells) |*cell| {
-            if (cell.style_id == style.default_id) continue;
-            page.styles.release(page.memory, cell.style_id);
+            if (cell.hasStyling())
+                page.styles.release(page.memory, cell.style_id);
         }
 
-        // If we have no left/right scroll region we can be sure that
-        // the row is no longer styled.
-        if (cells.len == self.pages.cols) row.styled = false;
+        // If we have no left/right scroll region we can be sure
+        // that we've cleared all the styles, so we clear the
+        // flag, otherwise we ask the page to update the flag.
+        if (cells.len == self.pages.cols) {
+            row.styled = false;
+        } else {
+            page.updateRowStyledFlag(row);
+        }
     }
 
     if (comptime build_options.kitty_graphics) {
@@ -1778,10 +1827,6 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
             self.cursor.style.flags.underline = v;
         },
 
-        .reset_underline => {
-            self.cursor.style.flags.underline = .none;
-        },
-
         .underline_color => |rgb| {
             self.cursor.style.underline_color = .{ .rgb = .{
                 .r = rgb.r,
@@ -2152,7 +2197,13 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
             );
 
             // Retry
-            return try self.cursorSetHyperlink();
+            //
+            // We check that the cursor hyperlink hasn't been destroyed
+            // by the capacity adjustment first though- since despite the
+            // terrible code above, that can still apparently happen ._.
+            if (self.cursor.hyperlink_id > 0) {
+                return try self.cursorSetHyperlink();
+            }
         },
     }
 }

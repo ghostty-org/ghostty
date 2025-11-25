@@ -1,6 +1,6 @@
 const std = @import("std");
 const build_options = @import("terminal_options");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const terminal = @import("main.zig");
 const DCS = terminal.DCS;

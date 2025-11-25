@@ -1,9 +1,10 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
 const size = @import("../size.zig");
+const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const PageList = @import("../PageList.zig");
 const Selection = @import("../Selection.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
@@ -26,6 +27,12 @@ pub const ViewportSearch = struct {
     window: SlidingWindow,
     fingerprint: ?Fingerprint,
 
+    /// If this is null, then active dirty tracking is disabled and if the
+    /// viewport overlaps the active area we always re-search. If this is
+    /// non-null, then we only re-search if the active area is dirty. Dirty
+    /// marking is up to the caller.
+    active_dirty: ?bool,
+
     pub fn init(
         alloc: Allocator,
         needle_unowned: []const u8,
@@ -35,7 +42,11 @@ pub const ViewportSearch = struct {
         // a small amount of work to reverse things.
         var window: SlidingWindow = try .init(alloc, .forward, needle_unowned);
         errdefer window.deinit();
-        return .{ .window = window, .fingerprint = null };
+        return .{
+            .window = window,
+            .fingerprint = null,
+            .active_dirty = null,
+        };
     }
 
     pub fn deinit(self: *ViewportSearch) void {
@@ -74,17 +85,29 @@ pub const ViewportSearch = struct {
         var fingerprint: Fingerprint = try .init(self.window.alloc, list);
         if (self.fingerprint) |*old| {
             if (old.eql(fingerprint)) match: {
-                // If our fingerprint contains the active area, then we always
-                // re-search since the active area is mutable.
-                const active_tl = list.getTopLeft(.active);
-                const active_br = list.getBottomRight(.active).?;
+                // Determine if we need to check if we overlap the active
+                // area. If we have dirty tracking on we also set it to
+                // false here.
+                const check_active: bool = active: {
+                    const dirty = self.active_dirty orelse break :active true;
+                    if (!dirty) break :active false;
+                    self.active_dirty = false;
+                    break :active true;
+                };
 
-                // If our viewport contains the start or end of the active area,
-                // we are in the active area. We purposely do this first
-                // because our viewport is always larger than the active area.
-                for (old.nodes) |node| {
-                    if (node == active_tl.node) break :match;
-                    if (node == active_br.node) break :match;
+                if (check_active) {
+                    // If our fingerprint contains the active area, then we always
+                    // re-search since the active area is mutable.
+                    const active_tl = list.getTopLeft(.active);
+                    const active_br = list.getBottomRight(.active).?;
+
+                    // If our viewport contains the start or end of the active area,
+                    // we are in the active area. We purposely do this first
+                    // because our viewport is always larger than the active area.
+                    for (old.nodes) |node| {
+                        if (node == active_tl.node) break :match;
+                        if (node == active_br.node) break :match;
+                    }
                 }
 
                 // No change
@@ -101,6 +124,10 @@ pub const ViewportSearch = struct {
             fingerprint.deinit(self.window.alloc);
             self.fingerprint = null;
         }
+
+        // If our active area was set as dirty, we always unset it here
+        // because we're re-searching now.
+        if (self.active_dirty) |*v| v.* = false;
 
         // Clear our previous sliding window
         self.window.clearAndRetainCapacity();
@@ -150,7 +177,7 @@ pub const ViewportSearch = struct {
 
     /// Find the next match for the needle in the active area. This returns
     /// null when there are no more matches.
-    pub fn next(self: *ViewportSearch) ?Selection {
+    pub fn next(self: *ViewportSearch) ?FlattenedHighlight {
         return self.window.next();
     }
 
@@ -207,26 +234,28 @@ test "simple search" {
     try testing.expect(try search.update(&t.screens.active.pages));
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 }
@@ -250,15 +279,63 @@ test "clear screen and search" {
     try testing.expect(try search.update(&t.screens.active.pages));
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
+    }
+    try testing.expect(search.next() == null);
+}
+
+test "clear screen and search dirty tracking" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+
+    var search: ViewportSearch = try .init(alloc, "Fizz");
+    defer search.deinit();
+
+    // Turn on dirty tracking
+    search.active_dirty = false;
+
+    // Should update since we've never searched before
+    try testing.expect(try search.update(&t.screens.active.pages));
+
+    // Should not update since nothing changed
+    try testing.expect(!try search.update(&t.screens.active.pages));
+
+    try s.nextSlice("\x1b[2J"); // Clear screen
+    try s.nextSlice("\x1b[H"); // Move cursor home
+    try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
+
+    // Should still not update since active area isn't dirty
+    try testing.expect(!try search.update(&t.screens.active.pages));
+
+    // Mark
+    search.active_dirty = true;
+    try testing.expect(try search.update(&t.screens.active.pages));
+
+    {
+        const h = search.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 3,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 }
@@ -289,15 +366,16 @@ test "history search, no active area" {
     try testing.expect(try search.update(&t.screens.active.pages));
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
     try testing.expect(search.next() == null);
 

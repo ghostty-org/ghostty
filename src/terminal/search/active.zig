@@ -3,6 +3,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
 const size = @import("../size.zig");
+const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const PageList = @import("../PageList.zig");
 const Selection = @import("../Selection.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
@@ -96,7 +97,7 @@ pub const ActiveSearch = struct {
 
     /// Find the next match for the needle in the active area. This returns
     /// null when there are no more matches.
-    pub fn next(self: *ActiveSearch) ?Selection {
+    pub fn next(self: *ActiveSearch) ?FlattenedHighlight {
         return self.window.next();
     }
 };
@@ -115,26 +116,28 @@ test "simple search" {
     _ = try search.update(&t.screens.active.pages);
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 }
@@ -158,15 +161,16 @@ test "clear screen and search" {
     _ = try search.update(&t.screens.active.pages);
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 }

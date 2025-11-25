@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const adw = @import("adw");
 const glib = @import("glib");
 const gobject = @import("gobject");

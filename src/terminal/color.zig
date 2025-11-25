@@ -1,7 +1,7 @@
 const colorpkg = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const x11_color = @import("x11_color.zig");
 
 /// The default palette.
@@ -356,8 +356,12 @@ pub const RGB = packed struct(u24) {
     ///
     /// The value should be between 0.0 and 1.0, inclusive.
     fn fromIntensity(value: []const u8) !u8 {
-        const i = std.fmt.parseFloat(f64, value) catch return error.InvalidFormat;
+        const i = std.fmt.parseFloat(f64, value) catch {
+            @branchHint(.cold);
+            return error.InvalidFormat;
+        };
         if (i < 0.0 or i > 1.0) {
+            @branchHint(.cold);
             return error.InvalidFormat;
         }
 
@@ -370,10 +374,15 @@ pub const RGB = packed struct(u24) {
     /// value scaled in 4, 8, 12, or 16 bits, respectively.
     fn fromHex(value: []const u8) !u8 {
         if (value.len == 0 or value.len > 4) {
+            @branchHint(.cold);
             return error.InvalidFormat;
         }
 
-        const color = std.fmt.parseUnsigned(u16, value, 16) catch return error.InvalidFormat;
+        const color = std.fmt.parseUnsigned(u16, value, 16) catch {
+            @branchHint(.cold);
+            return error.InvalidFormat;
+        };
+
         const divisor: usize = switch (value.len) {
             1 => std.math.maxInt(u4),
             2 => std.math.maxInt(u8),
@@ -407,6 +416,7 @@ pub const RGB = packed struct(u24) {
     ///    per color channel.
     pub fn parse(value: []const u8) !RGB {
         if (value.len == 0) {
+            @branchHint(.cold);
             return error.InvalidFormat;
         }
 
@@ -433,7 +443,10 @@ pub const RGB = packed struct(u24) {
                     .b = try RGB.fromHex(value[9..13]),
                 },
 
-                else => return error.InvalidFormat,
+                else => {
+                    @branchHint(.cold);
+                    return error.InvalidFormat;
+                },
             }
         }
 
@@ -443,6 +456,7 @@ pub const RGB = packed struct(u24) {
         if (x11_color.map.get(std.mem.trim(u8, value, " "))) |rgb| return rgb;
 
         if (value.len < "rgb:a/a/a".len or !std.mem.eql(u8, value[0..3], "rgb")) {
+            @branchHint(.cold);
             return error.InvalidFormat;
         }
 
@@ -454,6 +468,7 @@ pub const RGB = packed struct(u24) {
         } else false;
 
         if (value[i] != ':') {
+            @branchHint(.cold);
             return error.InvalidFormat;
         }
 
@@ -462,8 +477,10 @@ pub const RGB = packed struct(u24) {
         const r = r: {
             const slice = if (std.mem.indexOfScalarPos(u8, value, i, '/')) |end|
                 value[i..end]
-            else
+            else {
+                @branchHint(.cold);
                 return error.InvalidFormat;
+            };
 
             i += slice.len + 1;
 
@@ -476,8 +493,10 @@ pub const RGB = packed struct(u24) {
         const g = g: {
             const slice = if (std.mem.indexOfScalarPos(u8, value, i, '/')) |end|
                 value[i..end]
-            else
+            else {
+                @branchHint(.cold);
                 return error.InvalidFormat;
+            };
 
             i += slice.len + 1;
 

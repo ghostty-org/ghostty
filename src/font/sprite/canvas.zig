@@ -1,7 +1,7 @@
 //! This exposes primitives to draw 2D graphics and export the graphic to
 //! a font atlas.
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const z2d = @import("z2d");
 const font = @import("../main.zig");

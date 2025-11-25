@@ -1,6 +1,7 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
 const renderer = @import("../renderer.zig");
@@ -10,7 +11,7 @@ const terminal = @import("../terminal/main.zig");
 pub const Message = union(enum) {
     /// Purposely crash the renderer. This is used for testing and debugging.
     /// See the "crash" binding action.
-    crash: void,
+    crash,
 
     /// A change in state in the window focus that this renderer is
     /// rendering within. This is only sent when a change is detected so
@@ -24,7 +25,7 @@ pub const Message = union(enum) {
 
     /// Reset the cursor blink by immediately showing the cursor then
     /// restarting the timer.
-    reset_cursor_blink: void,
+    reset_cursor_blink,
 
     /// Change the font grid. This can happen for any number of reasons
     /// including a font size change, family change, etc.
@@ -52,11 +53,21 @@ pub const Message = union(enum) {
         impl: *renderer.Renderer.DerivedConfig,
     },
 
+    /// Matches for the current viewport from the search thread. These happen
+    /// async so they may be off for a frame or two from the actually rendered
+    /// viewport. The renderer must handle this gracefully.
+    search_viewport_matches: SearchMatches,
+
     /// Activate or deactivate the inspector.
     inspector: bool,
 
     /// The macOS display ID has changed for the window.
     macos_display_id: u32,
+
+    pub const SearchMatches = struct {
+        arena: ArenaAllocator,
+        matches: []const terminal.highlight.Flattened,
+    };
 
     /// Initialize a change_config message.
     pub fn initChangeConfig(alloc: Allocator, config: *const configpkg.Config) !Message {

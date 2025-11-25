@@ -1,14 +1,16 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const terminal = @import("../main.zig");
 const point = terminal.point;
+const size = terminal.size;
 const PageList = terminal.PageList;
 const Pin = PageList.Pin;
 const Selection = terminal.Selection;
 const Screen = terminal.Screen;
 const PageFormatter = @import("../formatter.zig").PageFormatter;
+const FlattenedHighlight = terminal.highlight.Flattened;
 
 /// Searches page nodes via a sliding window. The sliding window maintains
 /// the invariant that data isn't pruned until (1) we've searched it and
@@ -50,6 +52,10 @@ pub const SlidingWindow = struct {
     /// so callers must iterate through it to find the offset to map
     /// data to meta.
     meta: MetaBuf,
+
+    /// Buffer that can fit any amount of chunks necessary for next
+    /// to never fail allocation.
+    chunk_buf: std.MultiArrayList(FlattenedHighlight.Chunk),
 
     /// Offset into data for our current state. This handles the
     /// situation where our search moved through meta[0] but didn't
@@ -113,6 +119,7 @@ pub const SlidingWindow = struct {
             .alloc = alloc,
             .data = data,
             .meta = meta,
+            .chunk_buf = .empty,
             .needle = needle,
             .direction = direction,
             .overlap_buf = overlap_buf,
@@ -122,6 +129,7 @@ pub const SlidingWindow = struct {
     pub fn deinit(self: *SlidingWindow) void {
         self.alloc.free(self.overlap_buf);
         self.alloc.free(self.needle);
+        self.chunk_buf.deinit(self.alloc);
         self.data.deinit(self.alloc);
 
         var meta_it = self.meta.iterator(.forward);
@@ -143,14 +151,17 @@ pub const SlidingWindow = struct {
     /// the invariant that the window is always big enough to contain
     /// the needle.
     ///
-    /// It may seem wasteful to return a full selection, since the needle
-    /// length is known it seems like we can get away with just returning
-    /// the start index. However, returning a full selection will give us
-    /// more flexibility in the future (e.g. if we want to support regex
-    /// searches or other more complex searches). It does cost us some memory,
-    /// but searches are expected to be relatively rare compared to normal
-    /// operations and can eat up some extra memory temporarily.
-    pub fn next(self: *SlidingWindow) ?Selection {
+    /// This returns a flattened highlight on a match. The
+    /// flattened highlight requires allocation and is therefore more expensive
+    /// than a normal selection, but it is more efficient to render since it
+    /// has all the information without having to dereference pointers into
+    /// the terminal state.
+    ///
+    /// The flattened highlight chunks reference internal memory for this
+    /// sliding window and are only valid until the next call to `next()`
+    /// or `append()`. If the caller wants to retain the flattened highlight
+    /// then they should clone it.
+    pub fn next(self: *SlidingWindow) ?FlattenedHighlight {
         const slices = slices: {
             // If we have less data then the needle then we can't possibly match
             const data_len = self.data.len();
@@ -163,8 +174,8 @@ pub const SlidingWindow = struct {
         };
 
         // Search the first slice for the needle.
-        if (std.mem.indexOf(u8, slices[0], self.needle)) |idx| {
-            return self.selection(
+        if (std.ascii.indexOfIgnoreCase(slices[0], self.needle)) |idx| {
+            return self.highlight(
                 idx,
                 self.needle.len,
             );
@@ -189,23 +200,22 @@ pub const SlidingWindow = struct {
             @memcpy(self.overlap_buf[prefix.len..overlap_len], suffix);
 
             // Search the overlap
-            const idx = std.mem.indexOf(
-                u8,
+            const idx = std.ascii.indexOfIgnoreCase(
                 self.overlap_buf[0..overlap_len],
                 self.needle,
             ) orelse break :overlap;
 
             // We found a match in the overlap buffer. We need to map the
             // index back to the data buffer in order to get our selection.
-            return self.selection(
+            return self.highlight(
                 slices[0].len - prefix.len + idx,
                 self.needle.len,
             );
         }
 
         // Search the last slice for the needle.
-        if (std.mem.indexOf(u8, slices[1], self.needle)) |idx| {
-            return self.selection(
+        if (std.ascii.indexOfIgnoreCase(slices[1], self.needle)) |idx| {
+            return self.highlight(
                 slices[0].len + idx,
                 self.needle.len,
             );
@@ -263,114 +273,230 @@ pub const SlidingWindow = struct {
         return null;
     }
 
-    /// Return a selection for the given start and length into the data
-    /// buffer and also prune the data/meta buffers if possible up to
-    /// this start index.
+    /// Return a flattened highlight for the given start and length.
+    ///
+    /// The flattened highlight can be used to render the highlight
+    /// in the most efficient way because it doesn't require a terminal
+    /// lock to access terminal data to compare whether some viewport
+    /// matches the highlight (because it doesn't need to traverse
+    /// the page nodes).
     ///
     /// The start index is assumed to be relative to the offset. i.e.
     /// index zero is actually at `self.data[self.data_offset]`. The
     /// selection will account for the offset.
-    fn selection(
+    fn highlight(
         self: *SlidingWindow,
         start_offset: usize,
         len: usize,
-    ) Selection {
+    ) terminal.highlight.Flattened {
         const start = start_offset + self.data_offset;
-        assert(start < self.data.len());
-        assert(start + len <= self.data.len());
+        const end = start + len - 1;
+        if (comptime std.debug.runtime_safety) {
+            assert(start < self.data.len());
+            assert(start + len <= self.data.len());
+        }
 
-        // meta_consumed is the number of bytes we've consumed in the
-        // data buffer up to and NOT including the meta where we've
-        // found our pin. This is important because it tells us the
-        // amount of data we can safely deleted from self.data since
-        // we can't partially delete a meta block's data. (The partial
-        // amount is represented by self.data_offset).
-        var meta_it = self.meta.iterator(.forward);
-        var meta_consumed: usize = 0;
-        const tl: Pin = pin(&meta_it, &meta_consumed, start);
+        // Clear our previous chunk buffer to store this result
+        self.chunk_buf.clearRetainingCapacity();
+        var result: terminal.highlight.Flattened = .empty;
 
-        // Store the information required to prune later. We store this
-        // now because we only want to prune up to our START so we can
-        // find overlapping matches.
-        const tl_meta_idx = meta_it.idx - 1;
-        const tl_meta_consumed = meta_consumed;
+        // Go through the meta nodes to find our start.
+        const tl: struct {
+            /// If non-null, we need to continue searching for the bottom-right.
+            br: ?struct {
+                it: MetaBuf.Iterator,
+                consumed: usize,
+            },
 
-        // We have to seek back so that we reinspect our current
-        // iterator value again in case the start and end are in the
-        // same segment.
-        meta_it.seekBy(-1);
-        const br: Pin = pin(&meta_it, &meta_consumed, start + len - 1);
-        assert(meta_it.idx >= 1);
+            /// Data to prune, both are lengths.
+            prune: struct {
+                meta: usize,
+                data: usize,
+            },
+        } = tl: {
+            var meta_it = self.meta.iterator(.forward);
+            var meta_consumed: usize = 0;
+            while (meta_it.next()) |meta| {
+                // Always increment our consumed count so that our index
+                // is right for the end search if we do it.
+                const prior_meta_consumed = meta_consumed;
+                meta_consumed += meta.cell_map.items.len;
+
+                // meta_i is the index we expect to find the match in the
+                // cell map within this meta if it contains it.
+                const meta_i = start - prior_meta_consumed;
+
+                // This meta doesn't contain the match. This means we
+                // can also prune this set of data because we only look
+                // forward.
+                if (meta_i >= meta.cell_map.items.len) continue;
+
+                // Now we look for the end. In MOST cases it is the same as
+                // our starting chunk because highlights are usually small and
+                // not on a boundary, so let's optimize for that.
+                const end_i = end - prior_meta_consumed;
+                if (end_i < meta.cell_map.items.len) {
+                    @branchHint(.likely);
+
+                    // The entire highlight is within this meta.
+                    const start_map = meta.cell_map.items[meta_i];
+                    const end_map = meta.cell_map.items[end_i];
+                    result.top_x = start_map.x;
+                    result.bot_x = end_map.x;
+                    self.chunk_buf.appendAssumeCapacity(.{
+                        .node = meta.node,
+                        .start = @intCast(start_map.y),
+                        .end = @intCast(end_map.y + 1),
+                    });
+
+                    break :tl .{
+                        .br = null,
+                        .prune = .{
+                            .meta = meta_it.idx - 1,
+                            .data = prior_meta_consumed,
+                        },
+                    };
+                } else {
+                    // We found the meta that contains the start of the match
+                    // only. Consume this entire node from our start offset.
+                    const map = meta.cell_map.items[meta_i];
+                    result.top_x = map.x;
+                    self.chunk_buf.appendAssumeCapacity(.{
+                        .node = meta.node,
+                        .start = @intCast(map.y),
+                        .end = meta.node.data.size.rows,
+                    });
+
+                    break :tl .{
+                        .br = .{
+                            .it = meta_it,
+                            .consumed = meta_consumed,
+                        },
+                        .prune = .{
+                            .meta = meta_it.idx - 1,
+                            .data = prior_meta_consumed,
+                        },
+                    };
+                }
+            } else {
+                // Precondition that the start index is within the data buffer.
+                unreachable;
+            }
+        };
+
+        // Search for our end.
+        if (tl.br) |br| {
+            var meta_it = br.it;
+            var meta_consumed: usize = br.consumed;
+            while (meta_it.next()) |meta| {
+                // meta_i is the index we expect to find the match in the
+                // cell map within this meta if it contains it.
+                const meta_i = end - meta_consumed;
+                if (meta_i >= meta.cell_map.items.len) {
+                    // This meta doesn't contain the match. We still add it
+                    // to our results because we want the full flattened list.
+                    self.chunk_buf.appendAssumeCapacity(.{
+                        .node = meta.node,
+                        .start = 0,
+                        .end = meta.node.data.size.rows,
+                    });
+
+                    meta_consumed += meta.cell_map.items.len;
+                    continue;
+                }
+
+                // We found it
+                const map = meta.cell_map.items[meta_i];
+                result.bot_x = map.x;
+                self.chunk_buf.appendAssumeCapacity(.{
+                    .node = meta.node,
+                    .start = 0,
+                    .end = @intCast(map.y + 1),
+                });
+                break;
+            } else {
+                // Precondition that the end index is within the data buffer.
+                unreachable;
+            }
+        }
 
         // Our offset into the current meta block is the start index
         // minus the amount of data fully consumed. We then add one
         // to move one past the match so we don't repeat it.
-        self.data_offset = start - tl_meta_consumed + 1;
+        self.data_offset = start - tl.prune.data + 1;
 
-        // meta_it.idx is br's meta index plus one (because the iterator
-        // moves one past the end; we call next() one last time). So
-        // we compare against one to check that the meta that we matched
-        // in has prior meta blocks we can prune.
-        if (tl_meta_idx > 0) {
+        // If we went beyond our initial meta node we can prune.
+        if (tl.prune.meta > 0) {
             // Deinit all our memory in the meta blocks prior to our
             // match.
-            const meta_count = tl_meta_idx;
-            meta_it.reset();
-            for (0..meta_count) |_| meta_it.next().?.deinit(self.alloc);
-            if (comptime std.debug.runtime_safety) {
-                assert(meta_it.idx == meta_count);
-                assert(meta_it.next().?.node == tl.node);
+            var meta_it = self.meta.iterator(.forward);
+            var meta_consumed: usize = 0;
+            for (0..tl.prune.meta) |_| {
+                const meta: *Meta = meta_it.next().?;
+                meta_consumed += meta.cell_map.items.len;
+                meta.deinit(self.alloc);
             }
-            self.meta.deleteOldest(meta_count);
+            if (comptime std.debug.runtime_safety) {
+                assert(meta_it.idx == tl.prune.meta);
+                assert(meta_it.next().?.node == self.chunk_buf.items(.node)[0]);
+            }
+            self.meta.deleteOldest(tl.prune.meta);
 
             // Delete all the data up to our current index.
-            assert(tl_meta_consumed > 0);
-            self.data.deleteOldest(tl_meta_consumed);
+            assert(tl.prune.data > 0);
+            self.data.deleteOldest(tl.prune.data);
         }
 
-        self.assertIntegrity();
-        return switch (self.direction) {
-            .forward => .init(tl, br, false),
-            .reverse => .init(br, tl, false),
-        };
-    }
+        switch (self.direction) {
+            .forward => {},
+            .reverse => {
+                if (self.chunk_buf.len > 1) {
+                    // Reverse all our chunks. This should be pretty obvious why.
+                    const slice = self.chunk_buf.slice();
+                    const nodes = slice.items(.node);
+                    const starts = slice.items(.start);
+                    const ends = slice.items(.end);
+                    std.mem.reverse(*PageList.List.Node, nodes);
+                    std.mem.reverse(size.CellCountInt, starts);
+                    std.mem.reverse(size.CellCountInt, ends);
 
-    /// Convert a data index into a pin.
-    ///
-    /// The iterator and offset are both expected to be passed by
-    /// pointer so that the pin can be efficiently called for multiple
-    /// indexes (in order). See selection() for an example.
-    ///
-    /// Precondition: the index must be within the data buffer.
-    fn pin(
-        it: *MetaBuf.Iterator,
-        offset: *usize,
-        idx: usize,
-    ) Pin {
-        while (it.next()) |meta| {
-            // meta_i is the index we expect to find the match in the
-            // cell map within this meta if it contains it.
-            const meta_i = idx - offset.*;
-            if (meta_i >= meta.cell_map.items.len) {
-                // This meta doesn't contain the match. This means we
-                // can also prune this set of data because we only look
-                // forward.
-                offset.* += meta.cell_map.items.len;
-                continue;
-            }
+                    // Now normally with forward traversal with multiple pages,
+                    // the suffix of the first page and the prefix of the last
+                    // page are used.
+                    //
+                    // For a reverse traversal, this is inverted (since the
+                    // pages are in reverse order we get the suffix of the last
+                    // page and the prefix of the first page). So we need to
+                    // invert this.
+                    //
+                    // We DON'T need to do this for any middle pages because
+                    // they always use the full page.
+                    //
+                    // We DON'T need to do this for chunks.len == 1 because
+                    // the pages themselves aren't reversed and we don't have
+                    // any prefix/suffix problems.
+                    //
+                    // This is a fixup that makes our start/end match the
+                    // same logic as the loops above if they were in forward
+                    // order.
+                    assert(nodes.len >= 2);
+                    starts[0] = ends[0] - 1;
+                    ends[0] = nodes[0].data.size.rows;
+                    ends[nodes.len - 1] = starts[nodes.len - 1] + 1;
+                    starts[nodes.len - 1] = 0;
+                }
 
-            // We found the meta that contains the start of the match.
-            const map = meta.cell_map.items[meta_i];
-            return .{
-                .node = meta.node,
-                .y = @intCast(map.y),
-                .x = map.x,
-            };
+                // X values also need to be reversed since the top/bottom
+                // are swapped for the nodes.
+                const top_x = result.top_x;
+                result.top_x = result.bot_x;
+                result.bot_x = top_x;
+            },
         }
 
-        // Unreachable because it is a precondition that the index is
-        // within the data buffer.
-        unreachable;
+        // Copy over our MultiArrayList so it points to the proper memory.
+        result.chunks = self.chunk_buf;
+        return result;
     }
 
     /// Add a new node to the sliding window. This will always grow
@@ -442,10 +568,11 @@ pub const SlidingWindow = struct {
         // Ensure our buffers are big enough to store what we need.
         try self.data.ensureUnusedCapacity(self.alloc, written.len);
         try self.meta.ensureUnusedCapacity(self.alloc, 1);
+        try self.chunk_buf.ensureTotalCapacity(self.alloc, self.meta.capacity());
 
         // Append our new node to the circular buffer.
-        try self.data.appendSlice(written);
-        try self.meta.append(meta);
+        self.data.appendSliceAssumeCapacity(written);
+        self.meta.appendAssumeCapacity(meta);
 
         self.assertIntegrity();
         return written.len;
@@ -505,31 +632,77 @@ test "SlidingWindow single append" {
 
     // We should be able to find two matches.
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start));
         try testing.expectEqual(point.Point{ .active = .{
             .x = 10,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end));
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 19,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start));
         try testing.expectEqual(point.Point{ .active = .{
             .x = 22,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end));
     }
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
 }
 
+test "SlidingWindow single append case insensitive ASCII" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "Boo!");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello. boo! hello. boo!");
+
+    // We want to test single-page cases.
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    _ = try w.append(node);
+
+    // We should be able to find two matches.
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 10,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end));
+    }
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 19,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 22,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end));
+    }
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
 test "SlidingWindow single append no match" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -582,26 +755,28 @@ test "SlidingWindow two pages" {
 
     // Search should find two matches
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 76,
             .y = 22,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 79,
             .y = 22,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 23,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 10,
             .y = 23,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
@@ -634,15 +809,16 @@ test "SlidingWindow two pages match across boundary" {
 
     // Search should find a match
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 76,
             .y = 22,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 23,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
@@ -831,15 +1007,16 @@ test "SlidingWindow single append across circular buffer boundary" {
         try testing.expect(slices[1].len > 0);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 19,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 21,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
 }
@@ -889,15 +1066,16 @@ test "SlidingWindow single append match on boundary" {
         try testing.expect(slices[1].len > 0);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 21,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
 }
@@ -920,26 +1098,28 @@ test "SlidingWindow single append reversed" {
 
     // We should be able to find two matches.
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 19,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 22,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 10,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
@@ -997,26 +1177,28 @@ test "SlidingWindow two pages reversed" {
 
     // Search should find two matches (in reverse order)
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 23,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 10,
             .y = 23,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 76,
             .y = 22,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 79,
             .y = 22,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
@@ -1049,15 +1231,16 @@ test "SlidingWindow two pages match across boundary reversed" {
 
     // Search should find a match
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 76,
             .y = 22,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 7,
             .y = 23,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
     try testing.expect(w.next() == null);
@@ -1185,15 +1368,16 @@ test "SlidingWindow single append across circular buffer boundary reversed" {
         try testing.expect(slices[1].len > 0);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 19,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 21,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
 }
@@ -1244,15 +1428,16 @@ test "SlidingWindow single append match on boundary reversed" {
         try testing.expect(slices[1].len > 0);
     }
     {
-        const sel = w.next().?;
+        const h = w.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 21,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        } }, s.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end()).?);
+        } }, s.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(w.next() == null);
 }

@@ -4,7 +4,7 @@ pub const Thread = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const xev = @import("../global.zig").xev;
 const crash = @import("../crash/main.zig");
 const internal_os = @import("../os/main.zig");
@@ -449,6 +449,14 @@ fn drainMailbox(self: *Thread) !void {
                 // hasAnimations value.
                 self.stopDrawTimer();
                 self.startDrawTimer();
+            },
+
+            .search_viewport_matches => |v| {
+                // Note we don't free the new value because we expect our
+                // allocators to match.
+                if (self.renderer.search_matches) |*m| m.arena.deinit();
+                self.renderer.search_matches = v;
+                self.renderer.search_matches_dirty = true;
             },
 
             .inspector => |v| self.flags.has_inspector = v,

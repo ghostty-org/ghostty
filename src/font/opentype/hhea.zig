@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const sfnt = @import("sfnt.zig");
 
 /// Horizontal Header Table

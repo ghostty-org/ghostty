@@ -172,13 +172,16 @@ class SurfaceScrollView: NSView {
     }
     
     // MARK: Scrolling
-    
+
     private func synchronizeAppearance() {
         let scrollbarConfig = surfaceView.derivedConfig.scrollbar
         scrollView.hasVerticalScroller = scrollbarConfig != .never
         scrollView.verticalScroller?.controlSize = .small
+        let hasLightBackground = OSColor(surfaceView.derivedConfig.backgroundColor).isLightColor
+        // Make sure the scroller’s appearance matches the surface's background color.
+        scrollView.appearance = NSAppearance(named: hasLightBackground ? .aqua : .darkAqua)
     }
-    
+
     /// Positions the surface view to fill the currently visible rectangle.
     ///
     /// This is called whenever the scroll position changes. The surface view (which does the

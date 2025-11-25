@@ -885,12 +885,17 @@ class AppDelegate: NSObject,
         NSApplication.shared.appearance = .init(ghosttyConfig: config)
     }
 
-    @concurrent
+    // Using AppIconActor to ensure this work
+    // happens synchronously in the background
+    @AppIconActor
     private func updateAppIcon(from config: Ghostty.Config) async  {
         var appIcon: NSImage?
+        var appIconName: String? = config.macosIcon.rawValue
 
         switch (config.macosIcon) {
         case .official:
+            // Discard saved icon name
+            appIconName = nil
             break
         case .blueprint:
             appIcon = NSImage(named: "BlueprintImage")!
@@ -919,10 +924,15 @@ class AppDelegate: NSObject,
         case .custom:
             if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
                 appIcon = userIcon
+                appIconName = config.macosCustomIcon
             } else {
                 appIcon = nil // Revert back to official icon if invalid location
+                appIconName = nil // Discard saved icon name
             }
         case .customStyle:
+            // Discard saved icon name
+            // if no valid colours were found
+            appIconName = nil
             guard let ghostColor = config.macosIconGhostColor else { break }
             guard let screenColors = config.macosIconScreenColor else { break }
             guard let icon = ColorizedGhosttyIcon(
@@ -931,6 +941,24 @@ class AppDelegate: NSObject,
                 frame: config.macosIconFrame
             ).makeImage() else { break }
             appIcon = icon
+            let colorStrings = ([ghostColor] + screenColors).compactMap(\.hexString)
+            appIconName = (colorStrings + [config.macosIconFrame.rawValue])
+                .joined(separator: "_")
+        }
+        // Only change the icon if it has actually changed
+        // from the current one
+        guard UserDefaults.standard.string(forKey: "CustomGhosttyIcon") != appIconName else {
+#if DEBUG
+            if appIcon == nil {
+                await MainActor.run {
+                    // Changing the app bundle's icon will corrupt code signing.
+                    // We only use the default blueprint icon for the dock,
+                    // so developers don't need to clean and re-build every time.
+                    NSApplication.shared.applicationIconImage = NSImage(named: "BlueprintImage")
+                }
+            }
+#endif
+            return
         }
         // make it immutable, so Swift 6 won't complain
         let newIcon = appIcon
@@ -941,16 +969,9 @@ class AppDelegate: NSObject,
 
         await MainActor.run {
             self.appIcon = newIcon
-#if DEBUG
-            // if no custom icon specified, we use blueprint to distinguish from release app
-            NSApplication.shared.applicationIconImage = newIcon ?? NSImage(named: "BlueprintImage")
-            // Changing the app bundle's icon will corrupt code signing.
-            // We only use the default blueprint icon for the dock,
-            // so developers don't need to clean and re-build every time.
-#else
             NSApplication.shared.applicationIconImage = newIcon
-#endif
         }
+        UserDefaults.standard.set(appIconName, forKey: "CustomGhosttyIcon")
     }
 
     //MARK: - Restorable State
@@ -1228,4 +1249,9 @@ extension AppDelegate: NSMenuItemValidation {
             return true
         }
     }
+}
+
+@globalActor
+fileprivate actor AppIconActor: GlobalActor {
+    static let shared = AppIconActor()
 }

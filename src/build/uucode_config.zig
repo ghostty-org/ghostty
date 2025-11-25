@@ -19,23 +19,23 @@ fn computeWidth(
     _ = backing;
     _ = tracking;
 
-    // Emoji modifiers are technically width 0 because they're joining
-    // points. But we handle joining via grapheme break and don't use width
-    // there. If a emoji modifier is standalone, we want it to take up
-    // two columns.
-    if (data.is_emoji_modifier) {
-        assert(data.wcwidth == 0);
-        data.wcwidth = 2;
-        return;
+    // This condition is to get the previous behavior of uucode's `wcwidth`,
+    // returning the width of a code point in a grapheme cluster but with the
+    // exception to treat emoji modifiers as width 2 so they can be displayed
+    // in isolation. PRs to follow will take advantage of the new uucode
+    // `wcwidth_standalone` vs `wcwidth_zero_in_grapheme` split.
+    if (data.wcwidth_zero_in_grapheme and !data.is_emoji_modifier) {
+        data.width = 0;
+    } else {
+        data.width = @min(2, data.wcwidth_standalone);
     }
-
-    data.width = @intCast(@min(2, @max(0, data.wcwidth)));
 }
 
 const width = config.Extension{
     .inputs = &.{
+        "wcwidth_standalone",
+        "wcwidth_zero_in_grapheme",
         "is_emoji_modifier",
-        "wcwidth",
     },
     .compute = &computeWidth,
     .fields = &.{
@@ -90,10 +90,7 @@ pub const tables = [_]config.Table{
             width.field("width"),
             d.field("grapheme_break"),
             is_symbol.field("is_symbol"),
-            d.field("is_emoji_modifier"),
-            d.field("is_emoji_modifier_base"),
-            d.field("is_emoji_vs_text"),
-            d.field("is_emoji_vs_emoji"),
+            d.field("is_emoji_vs_base"),
         },
     },
 };

@@ -67,6 +67,10 @@ pub fn build(b: *std.Build) !void {
         "-fno-cxx-exceptions",
         "-fno-slp-vectorize",
         "-fno-vectorize",
+
+        // Fixes linker issues for release builds missing ubsanitizer symbols
+        "-fno-sanitize=undefined",
+        "-fno-sanitize-trap=undefined",
     });
     if (target.result.os.tag != .windows) {
         try flags.appendSlice(b.allocator, &.{
