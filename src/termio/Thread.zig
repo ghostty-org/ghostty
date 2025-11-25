@@ -311,6 +311,7 @@ fn drainMailbox(
 
         log.debug("mailbox message={s}", .{@tagName(message)});
         switch (message) {
+            .color_scheme_report => |v| try io.colorSchemeReport(data, v.force),
             .crash => @panic("crash request, crashing intentionally"),
             .change_config => |config| {
                 defer config.alloc.destroy(config.ptr);
