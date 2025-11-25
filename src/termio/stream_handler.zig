@@ -53,6 +53,9 @@ pub const StreamHandler = struct {
     /// The color reporting format for OSC requests.
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
 
+    /// The config conditional state.
+    config_conditional_state: configpkg.ConditionalState,
+
     /// The clipboard write access configuration.
     clipboard_write: configpkg.ClipboardAccess,
 
@@ -100,6 +103,7 @@ pub const StreamHandler = struct {
         self.enquiry_response = config.enquiry_response;
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
+        self.config_conditional_state = config.conditional_state;
 
         // If our cursor is the default, then we update it immediately.
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
@@ -107,7 +111,7 @@ pub const StreamHandler = struct {
         };
 
         // The config could have changed any of our colors so update mode 2031
-        self.surfaceMessageWriter(.{ .report_color_scheme = false });
+        self.reportColorScheme(false);
     }
 
     inline fn surfaceMessageWriter(
@@ -790,8 +794,21 @@ pub const StreamHandler = struct {
                 self.messageWriter(msg);
             },
 
-            .color_scheme => self.surfaceMessageWriter(.{ .report_color_scheme = true }),
+            .color_scheme => self.reportColorScheme(true),
         }
+    }
+
+    /// Sends a DSR response for the current color scheme to the pty.
+    /// The caller is resposible for holding self.renderer_state.mutex.
+    pub fn reportColorScheme(self: *StreamHandler, force: bool) void {
+        if (!force and !self.renderer_state.terminal.modes.get(.report_color_scheme)) {
+            return;
+        }
+        const output = switch (self.config_conditional_state.theme) {
+            .light => "\x1B[?997;2n",
+            .dark => "\x1B[?997;1n",
+        };
+        self.messageWriter(.{ .write_stable = output });
     }
 
     pub fn setCursorStyle(
@@ -875,7 +892,7 @@ pub const StreamHandler = struct {
         try self.setMouseShape(.text);
 
         // Reset resets our palette so we report it for mode 2031.
-        self.surfaceMessageWriter(.{ .report_color_scheme = false });
+        self.reportColorScheme(false);
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
