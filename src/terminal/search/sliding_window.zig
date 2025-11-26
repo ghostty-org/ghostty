@@ -439,14 +439,12 @@ pub const SlidingWindow = struct {
 
         // If we went beyond our initial meta node we can prune.
         if (tl.prune.meta > 0) {
-            // Deinit all our memory in the meta blocks prior to our
-            // match.
+            // Clear prior meta blocks but retain their allocations to avoid
+            // freeing memory still referenced by a returned highlight.
             var meta_it = self.meta.iterator(.forward);
-            var meta_consumed: usize = 0;
             for (0..tl.prune.meta) |_| {
                 const meta: *Meta = meta_it.next().?;
-                meta_consumed += meta.cell_map.items.len;
-                meta.deinit(self.alloc);
+                meta.cell_map.clearRetainingCapacity();
             }
             if (comptime std.debug.runtime_safety) {
                 assert(meta_it.idx == tl.prune.meta);
