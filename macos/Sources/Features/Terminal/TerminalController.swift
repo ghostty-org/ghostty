@@ -425,15 +425,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
             return
         }
-
-        // This is a surface-level config update. If we have the surface, we
-        // update our appearance based on it.
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
-        guard surfaceTree.contains(surfaceView) else { return }
-
-        // We can't use surfaceView.derivedConfig because it may not be updated
-        // yet since it also responds to notifications.
-        syncAppearance(.init(config))
+        /// Surface-level config will be updated in
+        /// ``Ghostty/Ghostty/SurfaceView/derivedConfig`` then
+        /// ``TerminalController/focusedSurfaceDidChange(to:)``
     }
 
     /// Update the accessory view of each tab according to the keyboard
