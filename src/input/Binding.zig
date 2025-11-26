@@ -876,6 +876,7 @@ pub const Action = union(enum) {
         left,
         down,
         right,
+        recent,
 
         pub fn parse(input: []const u8) !SplitFocusDirection {
             return std.meta.stringToEnum(SplitFocusDirection, input) orelse {
@@ -901,6 +902,7 @@ pub const Action = union(enum) {
             try testing.expectEqual(.left, try SplitFocusDirection.parse("left"));
             try testing.expectEqual(.down, try SplitFocusDirection.parse("down"));
             try testing.expectEqual(.right, try SplitFocusDirection.parse("right"));
+            try testing.expectEqual(.recent, try SplitFocusDirection.parse("recent"));
 
             try testing.expectEqual(.up, try SplitFocusDirection.parse("top"));
             try testing.expectEqual(.down, try SplitFocusDirection.parse("bottom"));

@@ -1956,14 +1956,7 @@ const Action = struct {
                     return false;
                 };
 
-                return tree.goto(switch (to) {
-                    .previous => .previous_wrapped,
-                    .next => .next_wrapped,
-                    .up => .{ .spatial = .up },
-                    .down => .{ .spatial = .down },
-                    .left => .{ .spatial = .left },
-                    .right => .{ .spatial = .right },
-                });
+                return tree.gotoSplit(to);
             },
         }
     }

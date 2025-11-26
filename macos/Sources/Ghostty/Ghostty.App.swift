@@ -1086,16 +1086,8 @@ extension Ghostty {
                     // Convert the C API direction to our Swift type
                     guard let splitDirection = SplitFocusDirection.from(direction: direction) else { return false }
 
-                    // Find the current node in the tree
-                    guard let targetNode = controller.surfaceTree.root?.node(view: surfaceView) else { return false }
-
-                    // Check if a split actually exists in the target direction before
-                    // returning true. This ensures performable keybinds only consume
-                    // the key event when we actually perform navigation.
-                    let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
-                    guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
-                        return false
-                    }
+                    // Validate there is a target split before claiming the action is performable.
+                    guard controller.splitFocusTarget(for: splitDirection, from: surfaceView) != nil else { return false }
 
                     // We have a valid target, post the notification to perform the navigation
                     NotificationCenter.default.post(
