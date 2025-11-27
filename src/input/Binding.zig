@@ -537,7 +537,7 @@ pub const Action = union(enum) {
 
     /// Focus on a split either in the specified direction (`right`, `down`,
     /// `left` and `up`), or in the adjacent split in the order of creation
-    /// (`previous` and `next`).
+    /// (`previous` and `next`), or the most recently used split (`recent`).
     goto_split: SplitFocusDirection,
 
     /// Zoom in or out of the current split.
