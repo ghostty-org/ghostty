@@ -112,6 +112,11 @@ pub const PageListSearch = struct {
     /// This returns false if there is no more data to feed. This essentially
     /// means we've searched the entire pagelist.
     pub fn feed(self: *PageListSearch) Allocator.Error!bool {
+        // If our pin becomes garbage it means wherever we were next
+        // was reused and we can't make sense of our progress anymore.
+        // It is effectively equivalent to reaching the end of the PageList.
+        if (self.pin.garbage) return false;
+
         // Add at least enough data to find a single match.
         var rem = self.window.needle.len;
 
@@ -390,5 +395,50 @@ test "feed with match spanning page boundary with newline" {
     try testing.expect(search.next() == null);
     try testing.expect(try search.feed());
     try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
+}
+
+test "feed with pruned page" {
+    const alloc = testing.allocator;
+
+    // Zero here forces minimum max size to effectively two pages.
+    var p: PageList = try .init(alloc, 80, 24, 0);
+    defer p.deinit();
+
+    // Grow to capacity
+    const page1_node = p.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try p.grow() == null);
+    }
+
+    // Grow and allocate one more page. Then fill that page up.
+    const page2_node = (try p.grow()).?;
+    const page2 = page2_node.data;
+    for (0..page2.capacity.rows - page2.size.rows) |_| {
+        try testing.expect(try p.grow() == null);
+    }
+
+    // Setup search and feed until we can't
+    var search: PageListSearch = try .init(
+        alloc,
+        "Test",
+        &p,
+        p.pages.last.?,
+    );
+    defer search.deinit();
+    try testing.expect(try search.feed());
+    try testing.expect(!try search.feed());
+
+    // Next should create a new page, but it should reuse our first
+    // page since we're at max size.
+    const new = (try p.grow()).?;
+    try testing.expect(p.pages.last.? == new);
+
+    // Our first should now be page2 and our last should be page1
+    try testing.expectEqual(page2_node, p.pages.first.?);
+    try testing.expectEqual(page1_node, p.pages.last.?);
+
+    // Feed should still do nothing
     try testing.expect(!try search.feed());
 }
