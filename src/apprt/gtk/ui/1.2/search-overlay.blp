@@ -1,0 +1,72 @@
+using Gtk 4.0;
+using Gdk 4.0;
+using Adw 1;
+
+template $GhosttySearchOverlay: Adw.Bin {
+  halign: end;
+  valign: start;
+
+  Adw.Bin {
+    Box container {
+      styles [
+        "background",
+        "search-overlay",
+      ]
+
+      orientation: horizontal;
+      spacing: 6;
+
+      SearchEntry search_entry {
+        placeholder-text: _("Find…");
+        width-chars: 20;
+        hexpand: true;
+      }
+
+      Label match_label {
+        styles [
+          "dim-label",
+        ]
+
+        label: "0/0";
+        width-chars: 6;
+        xalign: 1.0;
+      }
+
+      Box button_box {
+        orientation: horizontal;
+        spacing: 1;
+
+        styles [
+          "linked",
+        ]
+
+        Button prev_button {
+          icon-name: "go-up-symbolic";
+          tooltip-text: _("Previous Match");
+
+          cursor: Gdk.Cursor {
+            name: "pointer";
+          };
+        }
+
+        Button next_button {
+          icon-name: "go-down-symbolic";
+          tooltip-text: _("Next Match");
+
+          cursor: Gdk.Cursor {
+            name: "pointer";
+          };
+        }
+      }
+
+      Button close_button {
+        icon-name: "window-close-symbolic";
+        tooltip-text: _("Close");
+
+        cursor: Gdk.Cursor {
+          name: "pointer";
+        };
+      }
+    }
+  }
+}

@@ -43,6 +43,7 @@ pub const blueprints: []const Blueprint = &.{
     .{ .major = 1, .minor = 5, .name = "inspector-widget" },
     .{ .major = 1, .minor = 5, .name = "inspector-window" },
     .{ .major = 1, .minor = 2, .name = "resize-overlay" },
+    .{ .major = 1, .minor = 2, .name = "search-overlay" },
     .{ .major = 1, .minor = 5, .name = "split-tree" },
     .{ .major = 1, .minor = 5, .name = "split-tree-split" },
     .{ .major = 1, .minor = 2, .name = "surface" },

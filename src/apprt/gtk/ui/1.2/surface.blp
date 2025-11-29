@@ -148,11 +148,23 @@ Overlay terminal_page {
   }
 
   [overlay]
+  $GhosttySearchOverlay search_overlay {
+    halign: end;
+    valign: start;
+  }
+
+  [overlay]
   // Apply unfocused-split-fill and unfocused-split-opacity to current surface
   // this is only applied when a tab has more than one surface
   Revealer {
     reveal-child: bind $should_unfocused_split_be_shown(template.focused, template.is-split) as <bool>;
     transition-duration: 0;
+    // This is all necessary so that the Revealer itself doesn't override
+    // any input events from the other overlays. Namely, if you don't have
+    // these then the search overlay won't get mouse events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
 
     DrawingArea {
       styles [
