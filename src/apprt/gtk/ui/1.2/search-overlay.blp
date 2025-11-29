@@ -23,6 +23,8 @@ template $GhosttySearchOverlay: Adw.Bin {
         hexpand: true;
         stop-search => $stop_search();
         search-changed => $search_changed();
+        next-match => $next_match_entry();
+        previous-match => $previous_match_entry();
       }
 
       Label {
@@ -46,6 +48,7 @@ template $GhosttySearchOverlay: Adw.Bin {
         Button prev_button {
           icon-name: "go-up-symbolic";
           tooltip-text: _("Previous Match");
+          clicked => $next_match();
 
           cursor: Gdk.Cursor {
             name: "pointer";
@@ -55,6 +58,7 @@ template $GhosttySearchOverlay: Adw.Bin {
         Button next_button {
           icon-name: "go-down-symbolic";
           tooltip-text: _("Next Match");
+          clicked => $previous_match();
 
           cursor: Gdk.Cursor {
             name: "pointer";

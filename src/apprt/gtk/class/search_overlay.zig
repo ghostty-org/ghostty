@@ -102,6 +102,30 @@ pub const SearchOverlay = extern struct {
                 void,
             );
         };
+
+        /// Emitted when navigating to the next match.
+        pub const @"next-match" = struct {
+            pub const name = "next-match";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
+
+        /// Emitted when navigating to the previous match.
+        pub const @"previous-match" = struct {
+            pub const name = "previous-match";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
     };
 
     const Private = struct {
@@ -168,6 +192,22 @@ pub const SearchOverlay = extern struct {
         signals.@"search-changed".impl.emit(self, null, .{text}, null);
     }
 
+    fn nextMatch(_: *gtk.Button, self: *Self) callconv(.c) void {
+        signals.@"next-match".impl.emit(self, null, .{}, null);
+    }
+
+    fn previousMatch(_: *gtk.Button, self: *Self) callconv(.c) void {
+        signals.@"previous-match".impl.emit(self, null, .{}, null);
+    }
+
+    fn nextMatchEntry(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
+        signals.@"next-match".impl.emit(self, null, .{}, null);
+    }
+
+    fn previousMatchEntry(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
+        signals.@"previous-match".impl.emit(self, null, .{}, null);
+    }
+
     //---------------------------------------------------------------
     // Virtual methods
 
@@ -224,6 +264,10 @@ pub const SearchOverlay = extern struct {
             class.bindTemplateCallback("stop_search", &stopSearch);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("match_label_closure", &closureMatchLabel);
+            class.bindTemplateCallback("next_match", &nextMatch);
+            class.bindTemplateCallback("previous_match", &previousMatch);
+            class.bindTemplateCallback("next_match_entry", &nextMatchEntry);
+            class.bindTemplateCallback("previous_match_entry", &previousMatchEntry);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -235,6 +279,8 @@ pub const SearchOverlay = extern struct {
             // Signals
             signals.@"stop-search".impl.register(.{});
             signals.@"search-changed".impl.register(.{});
+            signals.@"next-match".impl.register(.{});
+            signals.@"previous-match".impl.register(.{});
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);

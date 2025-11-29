@@ -3211,6 +3211,20 @@ pub const Surface = extern struct {
         };
     }
 
+    fn searchNextMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .next }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
+    fn searchPreviousMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .previous }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3285,6 +3299,8 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
             class.bindTemplateCallback("search_stop", &searchStop);
             class.bindTemplateCallback("search_changed", &searchChanged);
+            class.bindTemplateCallback("search_next_match", &searchNextMatch);
+            class.bindTemplateCallback("search_previous_match", &searchPreviousMatch);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
