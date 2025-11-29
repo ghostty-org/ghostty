@@ -6098,6 +6098,20 @@ pub const Keybinds = struct {
                 .{ .jump_to_prompt = 1 },
             );
 
+            // Search
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .ctrl = true, .shift = true } },
+                .start_search,
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .escape } },
+                .end_search,
+                .{ .performable = true },
+            );
+
             // Inspector, matching Chromium
             try self.set.put(
                 alloc,
