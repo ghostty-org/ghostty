@@ -550,6 +550,9 @@ pub const Surface = extern struct {
         /// The resize overlay
         resize_overlay: *ResizeOverlay,
 
+        /// The search overlay
+        search_overlay: *SearchOverlay,
+
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
 
@@ -1952,6 +1955,20 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
     }
 
+    pub fn setSearchActive(self: *Self, active: bool) void {
+        const priv = self.private();
+        var value = gobject.ext.Value.newFrom(active);
+        defer value.unset();
+        gobject.Object.setProperty(
+            priv.search_overlay.as(gobject.Object),
+            SearchOverlay.properties.active.name,
+            &value,
+        );
+        if (active) {
+            priv.search_overlay.grabFocus();
+        }
+    }
+
     fn propConfig(
         self: *Self,
         _: *gobject.ParamSpec,
@@ -3205,6 +3222,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("error_page", .{});
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
+            class.bindTemplateChildPrivate("search_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});

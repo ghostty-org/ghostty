@@ -727,6 +727,9 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
 
+            .start_search => Action.startSearch(target),
+            .end_search => Action.endSearch(target),
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -741,8 +744,6 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
-            .start_search,
-            .end_search,
             .search_total,
             .search_selected,
             => {
@@ -2338,6 +2339,20 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| v.rt_surface.surface.setScrollbar(value),
+        }
+    }
+
+    pub fn startSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+        }
+    }
+
+    pub fn endSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(false),
         }
     }
 

@@ -34,39 +34,39 @@ pub const SearchOverlay = extern struct {
     });
 
     pub const properties = struct {
-        pub const duration = struct {
-            pub const name = "duration";
+        pub const active = struct {
+            pub const name = "active";
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
-                c_uint,
+                bool,
                 .{
-                    .default = 750,
-                    .minimum = 250,
-                    .maximum = std.math.maxInt(c_uint),
-                    .accessor = gobject.ext.privateFieldAccessor(
-                        Self,
-                        Private,
-                        &Private.offset,
-                        "duration",
-                    ),
+                    .default = false,
+                    .accessor = C.privateShallowFieldAccessor("active"),
                 },
             );
         };
     };
 
     const Private = struct {
-        /// The time that the overlay appears.
-        duration: c_uint,
+        /// The search entry widget.
+        search_entry: *gtk.SearchEntry,
+
+        /// True when a search is active, meaning we should show the overlay.
+        active: bool = false,
 
         pub var offset: c_int = 0;
     };
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+    }
 
+    /// Grab focus on the search entry and select all text.
+    pub fn grabFocus(self: *Self) void {
         const priv = self.private();
-        _ = priv;
+        _ = priv.search_entry.as(gtk.Widget).grabFocus();
+        priv.search_entry.as(gtk.Editable).selectRegion(0, -1);
     }
 
     //---------------------------------------------------------------
@@ -119,16 +119,12 @@ pub const SearchOverlay = extern struct {
             );
 
             // Bindings
-            // class.bindTemplateChildPrivate("label", .{});
+            class.bindTemplateChildPrivate("search_entry", .{});
 
             // Properties
-            // gobject.ext.registerProperties(class, &.{
-            //     properties.duration.impl,
-            //     properties.label.impl,
-            //     properties.@"first-delay".impl,
-            //     properties.@"overlay-halign".impl,
-            //     properties.@"overlay-valign".impl,
-            // });
+            gobject.ext.registerProperties(class, &.{
+                properties.active.impl,
+            });
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
