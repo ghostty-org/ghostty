@@ -22,6 +22,7 @@ template $GhosttySearchOverlay: Adw.Bin {
         width-chars: 20;
         hexpand: true;
         stop-search => $stop_search();
+        search-changed => $search_changed();
       }
 
       Label match_label {

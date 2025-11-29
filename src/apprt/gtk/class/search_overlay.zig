@@ -60,6 +60,18 @@ pub const SearchOverlay = extern struct {
                 void,
             );
         };
+
+        /// Emitted when the search text changes (debounced).
+        pub const @"search-changed" = struct {
+            pub const name = "search-changed";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{?[*:0]const u8},
+                void,
+            );
+        };
     };
 
     const Private = struct {
@@ -88,6 +100,11 @@ pub const SearchOverlay = extern struct {
 
     fn stopSearch(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
         signals.@"stop-search".impl.emit(self, null, .{}, null);
+    }
+
+    fn searchChanged(entry: *gtk.SearchEntry, self: *Self) callconv(.c) void {
+        const text = entry.as(gtk.Editable).getText();
+        signals.@"search-changed".impl.emit(self, null, .{text}, null);
     }
 
     //---------------------------------------------------------------
@@ -144,6 +161,7 @@ pub const SearchOverlay = extern struct {
 
             // Template Callbacks
             class.bindTemplateCallback("stop_search", &stopSearch);
+            class.bindTemplateCallback("search_changed", &searchChanged);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -152,6 +170,7 @@ pub const SearchOverlay = extern struct {
 
             // Signals
             signals.@"stop-search".impl.register(.{});
+            signals.@"search-changed".impl.register(.{});
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);

@@ -3196,6 +3196,13 @@ pub const Surface = extern struct {
         _ = self.private().gl_area.as(gtk.Widget).grabFocus();
     }
 
+    fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .search = std.mem.sliceTo(needle orelse "", 0) }) catch |err| {
+            log.warn("unable to perform search action err={}", .{err});
+        };
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3269,6 +3276,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
             class.bindTemplateCallback("search_stop", &searchStop);
+            class.bindTemplateCallback("search_changed", &searchChanged);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
