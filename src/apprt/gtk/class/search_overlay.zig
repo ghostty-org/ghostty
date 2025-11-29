@@ -187,6 +187,10 @@ pub const SearchOverlay = extern struct {
         signals.@"stop-search".impl.emit(self, null, .{}, null);
     }
 
+    fn stopSearchButton(_: *gtk.Button, self: *Self) callconv(.c) void {
+        signals.@"stop-search".impl.emit(self, null, .{}, null);
+    }
+
     fn searchChanged(entry: *gtk.SearchEntry, self: *Self) callconv(.c) void {
         const text = entry.as(gtk.Editable).getText();
         signals.@"search-changed".impl.emit(self, null, .{text}, null);
@@ -262,6 +266,7 @@ pub const SearchOverlay = extern struct {
 
             // Template Callbacks
             class.bindTemplateCallback("stop_search", &stopSearch);
+            class.bindTemplateCallback("stop_search_button", &stopSearchButton);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("match_label_closure", &closureMatchLabel);
             class.bindTemplateCallback("next_match", &nextMatch);

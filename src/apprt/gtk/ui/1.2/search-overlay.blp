@@ -69,6 +69,7 @@ template $GhosttySearchOverlay: Adw.Bin {
       Button close_button {
         icon-name: "window-close-symbolic";
         tooltip-text: _("Close");
+        clicked => $stop_search_button();
 
         cursor: Gdk.Cursor {
           name: "pointer";

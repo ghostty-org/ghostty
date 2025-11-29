@@ -3197,10 +3197,10 @@ pub const Surface = extern struct {
     }
 
     fn searchStop(_: *SearchOverlay, self: *Self) callconv(.c) void {
-        // Note: at the time of writing this, this behavior doesn't match
-        // macOS. But I think it makes more sense on Linux/GTK to do this.
-        // We may follow suit on macOS in the future.
-        self.setSearchActive(false);
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.end_search) catch |err| {
+            log.warn("unable to perform end_search action err={}", .{err});
+        };
         _ = self.private().gl_area.as(gtk.Widget).grabFocus();
     }
 
