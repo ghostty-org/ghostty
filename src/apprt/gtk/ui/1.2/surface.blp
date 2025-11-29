@@ -41,6 +41,34 @@ Overlay terminal_page {
       halign: start;
       has-arrow: false;
     }
+
+    EventControllerFocus {
+      enter => $focus_enter();
+      leave => $focus_leave();
+    }
+
+    EventControllerKey {
+      key-pressed => $key_pressed();
+      key-released => $key_released();
+    }
+
+    EventControllerScroll {
+      scroll => $scroll();
+      scroll-begin => $scroll_begin();
+      scroll-end => $scroll_end();
+      flags: both_axes;
+    }
+
+    EventControllerMotion {
+      motion => $mouse_motion();
+      leave => $mouse_leave();
+    }
+
+    GestureClick {
+      pressed => $mouse_down();
+      released => $mouse_up();
+      button: 0;
+    }
   };
 
   [overlay]
@@ -64,6 +92,10 @@ Overlay terminal_page {
     reveal-child: bind $should_border_be_shown(template.config, template.bell-ringing) as <bool>;
     transition-type: crossfade;
     transition-duration: 500;
+    // Revealers take up the full size, we need this to not capture events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
 
     Box bell_overlay {
       styles [
@@ -127,35 +159,6 @@ Overlay terminal_page {
         "unfocused-split",
       ]
     }
-  }
-
-  // Event controllers for interactivity
-  EventControllerFocus {
-    enter => $focus_enter();
-    leave => $focus_leave();
-  }
-
-  EventControllerKey {
-    key-pressed => $key_pressed();
-    key-released => $key_released();
-  }
-
-  EventControllerMotion {
-    motion => $mouse_motion();
-    leave => $mouse_leave();
-  }
-
-  EventControllerScroll {
-    scroll => $scroll();
-    scroll-begin => $scroll_begin();
-    scroll-end => $scroll_end();
-    flags: both_axes;
-  }
-
-  GestureClick {
-    pressed => $mouse_down();
-    released => $mouse_up();
-    button: 0;
   }
 
   DropTarget drop_target {
