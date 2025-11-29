@@ -48,6 +48,20 @@ pub const SearchOverlay = extern struct {
         };
     };
 
+    pub const signals = struct {
+        /// Emitted when the search is stopped (e.g., Escape pressed).
+        pub const @"stop-search" = struct {
+            pub const name = "stop-search";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
+    };
+
     const Private = struct {
         /// The search entry widget.
         search_entry: *gtk.SearchEntry,
@@ -67,6 +81,13 @@ pub const SearchOverlay = extern struct {
         const priv = self.private();
         _ = priv.search_entry.as(gtk.Widget).grabFocus();
         priv.search_entry.as(gtk.Editable).selectRegion(0, -1);
+    }
+
+    //---------------------------------------------------------------
+    // Template callbacks
+
+    fn stopSearch(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
+        signals.@"stop-search".impl.emit(self, null, .{}, null);
     }
 
     //---------------------------------------------------------------
@@ -121,10 +142,16 @@ pub const SearchOverlay = extern struct {
             // Bindings
             class.bindTemplateChildPrivate("search_entry", .{});
 
+            // Template Callbacks
+            class.bindTemplateCallback("stop_search", &stopSearch);
+
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.active.impl,
             });
+
+            // Signals
+            signals.@"stop-search".impl.register(.{});
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
@@ -133,5 +160,6 @@ pub const SearchOverlay = extern struct {
 
         pub const as = C.Class.as;
         pub const bindTemplateChildPrivate = C.Class.bindTemplateChildPrivate;
+        pub const bindTemplateCallback = C.Class.bindTemplateCallback;
     };
 };

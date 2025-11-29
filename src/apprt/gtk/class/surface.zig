@@ -3188,6 +3188,14 @@ pub const Surface = extern struct {
         self.setTitleOverride(if (title.len == 0) null else title);
     }
 
+    fn searchStop(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        // Note: at the time of writing this, this behavior doesn't match
+        // macOS. But I think it makes more sense on Linux/GTK to do this.
+        // We may follow suit on macOS in the future.
+        self.setSearchActive(false);
+        _ = self.private().gl_area.as(gtk.Widget).grabFocus();
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3260,6 +3268,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("search_stop", &searchStop);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
