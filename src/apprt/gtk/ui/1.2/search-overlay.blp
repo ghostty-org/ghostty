@@ -25,12 +25,12 @@ template $GhosttySearchOverlay: Adw.Bin {
         search-changed => $search_changed();
       }
 
-      Label match_label {
+      Label {
         styles [
           "dim-label",
         ]
 
-        label: "0/0";
+        label: bind $match_label_closure(template.search-selected, template.search-total) as <string>;
         width-chars: 6;
         xalign: 1.0;
       }

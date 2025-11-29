@@ -46,6 +46,36 @@ pub const SearchOverlay = extern struct {
                 },
             );
         };
+
+        pub const @"search-total" = struct {
+            pub const name = "search-total";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                i64,
+                .{
+                    .default = -1,
+                    .minimum = -1,
+                    .maximum = std.math.maxInt(i64),
+                    .accessor = C.privateShallowFieldAccessor("search_total"),
+                },
+            );
+        };
+
+        pub const @"search-selected" = struct {
+            pub const name = "search-selected";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                i64,
+                .{
+                    .default = -1,
+                    .minimum = -1,
+                    .maximum = std.math.maxInt(i64),
+                    .accessor = C.privateShallowFieldAccessor("search_selected"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -81,6 +111,12 @@ pub const SearchOverlay = extern struct {
         /// True when a search is active, meaning we should show the overlay.
         active: bool = false,
 
+        /// Total number of search matches (-1 means unknown/none).
+        search_total: i64 = -1,
+
+        /// Currently selected match index (-1 means none selected).
+        search_selected: i64 = -1,
+
         pub var offset: c_int = 0;
     };
 
@@ -93,6 +129,31 @@ pub const SearchOverlay = extern struct {
         const priv = self.private();
         _ = priv.search_entry.as(gtk.Widget).grabFocus();
         priv.search_entry.as(gtk.Editable).selectRegion(0, -1);
+    }
+
+    /// Set the total number of search matches.
+    pub fn setSearchTotal(self: *Self, total: ?usize) void {
+        const value: i64 = if (total) |t| @intCast(t) else -1;
+        var gvalue = gobject.ext.Value.newFrom(value);
+        defer gvalue.unset();
+        self.as(gobject.Object).setProperty(properties.@"search-total".name, &gvalue);
+    }
+
+    /// Set the currently selected match index.
+    pub fn setSearchSelected(self: *Self, selected: ?usize) void {
+        const value: i64 = if (selected) |s| @intCast(s) else -1;
+        var gvalue = gobject.ext.Value.newFrom(value);
+        defer gvalue.unset();
+        self.as(gobject.Object).setProperty(properties.@"search-selected".name, &gvalue);
+    }
+
+    fn closureMatchLabel(_: *Self, selected: i64, total: i64) callconv(.c) ?[*:0]const u8 {
+        var buf: [32]u8 = undefined;
+        const label = std.fmt.bufPrintZ(&buf, "{}/{}", .{
+            if (selected >= 0) selected else 0,
+            if (total >= 0) total else 0,
+        }) catch return null;
+        return glib.ext.dupeZ(u8, label);
     }
 
     //---------------------------------------------------------------
@@ -162,10 +223,13 @@ pub const SearchOverlay = extern struct {
             // Template Callbacks
             class.bindTemplateCallback("stop_search", &stopSearch);
             class.bindTemplateCallback("search_changed", &searchChanged);
+            class.bindTemplateCallback("match_label_closure", &closureMatchLabel);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.active.impl,
+                properties.@"search-total".impl,
+                properties.@"search-selected".impl,
             });
 
             // Signals

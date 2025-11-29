@@ -1969,6 +1969,14 @@ pub const Surface = extern struct {
         }
     }
 
+    pub fn setSearchTotal(self: *Self, total: ?usize) void {
+        self.private().search_overlay.setSearchTotal(total);
+    }
+
+    pub fn setSearchSelected(self: *Self, selected: ?usize) void {
+        self.private().search_overlay.setSearchSelected(selected);
+    }
+
     fn propConfig(
         self: *Self,
         _: *gobject.ParamSpec,
