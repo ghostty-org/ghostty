@@ -172,9 +172,10 @@ pub const SearchOverlay = extern struct {
     }
 
     fn closureMatchLabel(_: *Self, selected: i64, total: i64) callconv(.c) ?[*:0]const u8 {
+        if (total <= 0) return glib.ext.dupeZ(u8, "0/0");
         var buf: [32]u8 = undefined;
         const label = std.fmt.bufPrintZ(&buf, "{}/{}", .{
-            if (selected >= 0) selected else 0,
+            if (selected >= 0) selected + 1 else 0,
             if (total >= 0) total else 0,
         }) catch return null;
         return glib.ext.dupeZ(u8, label);
