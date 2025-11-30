@@ -219,7 +219,7 @@ pub const SplitTree = extern struct {
         // Inherit properly if we were asked to.
         if (parent_) |p| {
             if (p.core()) |core| {
-                surface.setParent(core);
+                surface.setParent(core, .split);
             }
         }
 
