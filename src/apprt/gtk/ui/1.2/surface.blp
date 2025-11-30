@@ -149,8 +149,6 @@ Overlay terminal_page {
 
   [overlay]
   $GhosttySearchOverlay search_overlay {
-    halign: end;
-    valign: start;
     stop-search => $search_stop();
     search-changed => $search_changed();
     next-match => $search_next_match();

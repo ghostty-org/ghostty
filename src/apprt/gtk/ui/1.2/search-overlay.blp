@@ -23,8 +23,8 @@ template $GhosttySearchOverlay: Adw.Bin {
         hexpand: true;
         stop-search => $stop_search();
         search-changed => $search_changed();
-        next-match => $next_match_entry();
-        previous-match => $previous_match_entry();
+        next-match => $next_match();
+        previous-match => $previous_match();
       }
 
       Label {
@@ -69,7 +69,7 @@ template $GhosttySearchOverlay: Adw.Bin {
       Button close_button {
         icon-name: "window-close-symbolic";
         tooltip-text: _("Close");
-        clicked => $stop_search_button();
+        clicked => $stop_search();
 
         cursor: Gdk.Cursor {
           name: "pointer";

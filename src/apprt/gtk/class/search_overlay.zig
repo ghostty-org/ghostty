@@ -184,32 +184,23 @@ pub const SearchOverlay = extern struct {
     //---------------------------------------------------------------
     // Template callbacks
 
-    fn stopSearch(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
-        signals.@"stop-search".impl.emit(self, null, .{}, null);
-    }
-
-    fn stopSearchButton(_: *gtk.Button, self: *Self) callconv(.c) void {
-        signals.@"stop-search".impl.emit(self, null, .{}, null);
-    }
-
     fn searchChanged(entry: *gtk.SearchEntry, self: *Self) callconv(.c) void {
         const text = entry.as(gtk.Editable).getText();
         signals.@"search-changed".impl.emit(self, null, .{text}, null);
     }
 
-    fn nextMatch(_: *gtk.Button, self: *Self) callconv(.c) void {
+    // NOTE: The callbacks below use anyopaque for the first parameter
+    // because they're shared with multiple widgets in the template.
+
+    fn stopSearch(_: *anyopaque, self: *Self) callconv(.c) void {
+        signals.@"stop-search".impl.emit(self, null, .{}, null);
+    }
+
+    fn nextMatch(_: *anyopaque, self: *Self) callconv(.c) void {
         signals.@"next-match".impl.emit(self, null, .{}, null);
     }
 
-    fn previousMatch(_: *gtk.Button, self: *Self) callconv(.c) void {
-        signals.@"previous-match".impl.emit(self, null, .{}, null);
-    }
-
-    fn nextMatchEntry(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
-        signals.@"next-match".impl.emit(self, null, .{}, null);
-    }
-
-    fn previousMatchEntry(_: *gtk.SearchEntry, self: *Self) callconv(.c) void {
+    fn previousMatch(_: *anyopaque, self: *Self) callconv(.c) void {
         signals.@"previous-match".impl.emit(self, null, .{}, null);
     }
 
@@ -267,13 +258,10 @@ pub const SearchOverlay = extern struct {
 
             // Template Callbacks
             class.bindTemplateCallback("stop_search", &stopSearch);
-            class.bindTemplateCallback("stop_search_button", &stopSearchButton);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("match_label_closure", &closureMatchLabel);
             class.bindTemplateCallback("next_match", &nextMatch);
             class.bindTemplateCallback("previous_match", &previousMatch);
-            class.bindTemplateCallback("next_match_entry", &nextMatchEntry);
-            class.bindTemplateCallback("previous_match_entry", &previousMatchEntry);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
