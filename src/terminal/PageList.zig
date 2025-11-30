@@ -2608,6 +2608,7 @@ pub fn adjustCapacity(
     errdefer self.destroyNode(new_node);
     const new_page: *Page = &new_node.data;
     assert(new_page.capacity.rows >= page.capacity.rows);
+    assert(new_page.capacity.cols >= page.capacity.cols);
     new_page.size.rows = page.size.rows;
     new_page.size.cols = page.size.cols;
     try new_page.cloneFrom(page, 0, page.size.rows);
