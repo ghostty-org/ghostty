@@ -3464,6 +3464,8 @@ fn mouseReport(
                 .five => 65,
                 .six => 66,
                 .seven => 67,
+                .eight => 128,
+                .nine => 129,
                 else => return, // unsupported
             };
         }
