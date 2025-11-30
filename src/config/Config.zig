@@ -2911,7 +2911,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
-///   * `window` - Create a new window unconditionally.
+///   * `new-window` - Create a new window unconditionally.
 ///
 /// The default value is `new-tab`.
 ///
@@ -7875,7 +7875,7 @@ pub const WindowNewTabPosition = enum {
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
     @"new-tab",
-    window,
+    @"new-window",
 };
 
 /// See window-show-tab-bar
