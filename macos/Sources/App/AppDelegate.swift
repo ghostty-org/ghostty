@@ -386,20 +386,35 @@ class AppDelegate: NSObject,
     }
 
     /// Initiates graceful application termination.
+    ///
+    /// We signal all child processes to stop and then wait for them to exit
+    /// (or for our timeout to expire) before terminating the application.
     private func terminateGracefully() -> NSApplication.TerminateReply {
-        /// Free our surfaces synchronously, ensuring SIGHUP signals are sent to all
-        /// child processes (e.g., bash) so they can clean up before the app exits.
-        TerminalController.freeAllSurfaces()
+        let surfaces = TerminalController.all.flatMap { $0.surfaceTree } + quickController.surfaceTree
+        surfaces.forEach { $0.stopProcess() }
 
-        if !quickController.surfaceTree.isEmpty {
-            quickController.freeSurfaces()
+        let deadline = DispatchTime.now() + .milliseconds(500)
+        let pollInterval: DispatchTimeInterval = .milliseconds(50)
+
+        func waitForProcesses() {
+            if surfaces.allSatisfy({ $0.processExited }) {
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            if DispatchTime.now() >= deadline {
+                Ghostty.logger.info("child process deadline exceeded; terminating immediately")
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
+                waitForProcesses()
+            }
         }
 
-        // Schedule termination after a brief delay to allow child processes
-        // to handle SIGHUP and complete cleanup (e.g., bash saving history).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NSApp.reply(toApplicationShouldTerminate: true)
-        }
+        Ghostty.logger.debug("waiting for child processes to exit")
+        waitForProcesses()
 
         return .terminateLater
     }
