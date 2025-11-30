@@ -231,6 +231,10 @@ pub const SearchOverlay = extern struct {
         // Select all text in the search entry field. -1 is distance from
         // the end, causing the entire text to be selected.
         priv.search_entry.as(gtk.Editable).selectRegion(0, -1);
+
+        // update search state with the active text
+        const text = priv.search_entry.as(gtk.Editable).getText();
+        signals.@"search-changed".impl.emit(self, null, .{text}, null);
     }
 
     /// Set the total number of search matches.
