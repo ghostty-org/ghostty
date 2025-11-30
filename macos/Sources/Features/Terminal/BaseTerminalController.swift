@@ -362,6 +362,20 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Frees all surfaces in this controller synchronously.
+    ///
+    /// This is used during app termination to ensure SIGHUP signals are sent
+    /// to child processes before the app exits. Unlike the async Surface.deinit
+    /// approach, this calls ghostty_surface_free synchronously.
+    func freeSurfaces() {
+        for surfaceView in surfaceTree {
+            if let surface = surfaceView.surface {
+                ghostty_surface_free(surface)
+            }
+        }
+        surfaceTree = .init()
+    }
+
     // MARK: Split Tree Management
 
     /// Find the next surface to focus when a node is being closed.

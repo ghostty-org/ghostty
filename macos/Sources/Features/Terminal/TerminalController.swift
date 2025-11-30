@@ -804,6 +804,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         undoManager?.endUndoGrouping()
     }
 
+    /// Frees all surfaces from all terminal controllers synchronously.
+    ///
+    /// This is used during termination to gracefully destroy our surfaces.
+    static internal func freeAllSurfaces() {
+        all.forEach { $0.freeSurfaces() }
+    }
+
     // MARK: Undo/Redo
 
     /// The state that we require to recreate a TerminalController from an undo.
