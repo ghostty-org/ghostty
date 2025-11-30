@@ -4,8 +4,16 @@ using Adw 1;
 
 template $GhosttySearchOverlay: Adw.Bin {
   visible: bind template.active;
-  halign: end;
-  valign: start;
+  halign-target: end;
+  valign-target: start;
+  halign: bind template.halign-target;
+  valign: bind template.valign-target;
+
+  GestureDrag {
+    button: 1;
+    propagation-phase: capture;
+    drag-end => $on_drag_end();
+  }
 
   Adw.Bin {
     Box container {

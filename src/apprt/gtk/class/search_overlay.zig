@@ -77,6 +77,32 @@ pub const SearchOverlay = extern struct {
                 },
             );
         };
+
+        pub const @"halign-target" = struct {
+            pub const name = "halign-target";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.Align,
+                .{
+                    .default = .end,
+                    .accessor = C.privateShallowFieldAccessor("halign_target"),
+                },
+            );
+        };
+
+        pub const @"valign-target" = struct {
+            pub const name = "valign-target";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.Align,
+                .{
+                    .default = .start,
+                    .accessor = C.privateShallowFieldAccessor("valign_target"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -142,6 +168,12 @@ pub const SearchOverlay = extern struct {
         /// Currently selected match index (-1 means none selected).
         search_selected: i64 = -1,
 
+        /// Target horizontal alignment for the overlay.
+        halign_target: gtk.Align = .end,
+
+        /// Target vertical alignment for the overlay.
+        valign_target: gtk.Align = .start,
+
         pub var offset: c_int = 0;
     };
 
@@ -158,18 +190,20 @@ pub const SearchOverlay = extern struct {
 
     /// Set the total number of search matches.
     pub fn setSearchTotal(self: *Self, total: ?usize) void {
+        const priv = self.private();
         const value: i64 = if (total) |t| @intCast(t) else -1;
-        var gvalue = gobject.ext.Value.newFrom(value);
-        defer gvalue.unset();
-        self.as(gobject.Object).setProperty(properties.@"search-total".name, &gvalue);
+        if (priv.search_total == value) return;
+        priv.search_total = value;
+        self.as(gobject.Object).notifyByPspec(properties.@"search-total".impl.param_spec);
     }
 
     /// Set the currently selected match index.
     pub fn setSearchSelected(self: *Self, selected: ?usize) void {
+        const priv = self.private();
         const value: i64 = if (selected) |s| @intCast(s) else -1;
-        var gvalue = gobject.ext.Value.newFrom(value);
-        defer gvalue.unset();
-        self.as(gobject.Object).setProperty(properties.@"search-selected".name, &gvalue);
+        if (priv.search_selected == value) return;
+        priv.search_selected = value;
+        self.as(gobject.Object).notifyByPspec(properties.@"search-selected".impl.param_spec);
     }
 
     fn closureMatchLabel(_: *Self, selected: i64, total: i64) callconv(.c) ?[*:0]const u8 {
@@ -223,6 +257,49 @@ pub const SearchOverlay = extern struct {
         }
 
         return 0;
+    }
+
+    fn onDragEnd(
+        _: *gtk.GestureDrag,
+        offset_x: f64,
+        offset_y: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        // On drag end, we want to move our halign/valign if we crossed
+        // the midpoint on either axis. This lets the search overlay be
+        // moved to different corners of the parent container.
+
+        const priv = self.private();
+        const widget = self.as(gtk.Widget);
+        const parent = widget.getParent() orelse return;
+
+        const parent_width: f64 = @floatFromInt(parent.getAllocatedWidth());
+        const parent_height: f64 = @floatFromInt(parent.getAllocatedHeight());
+        const self_width: f64 = @floatFromInt(widget.getAllocatedWidth());
+        const self_height: f64 = @floatFromInt(widget.getAllocatedHeight());
+
+        const self_x: f64 = if (priv.halign_target == .start) 0 else parent_width - self_width;
+        const self_y: f64 = if (priv.valign_target == .start) 0 else parent_height - self_height;
+
+        const new_x = self_x + offset_x + (self_width / 2);
+        const new_y = self_y + offset_y + (self_height / 2);
+
+        const new_halign: gtk.Align = if (new_x > parent_width / 2) .end else .start;
+        const new_valign: gtk.Align = if (new_y > parent_height / 2) .end else .start;
+
+        var changed = false;
+        if (new_halign != priv.halign_target) {
+            priv.halign_target = new_halign;
+            self.as(gobject.Object).notifyByPspec(properties.@"halign-target".impl.param_spec);
+            changed = true;
+        }
+        if (new_valign != priv.valign_target) {
+            priv.valign_target = new_valign;
+            self.as(gobject.Object).notifyByPspec(properties.@"valign-target".impl.param_spec);
+            changed = true;
+        }
+
+        if (changed) self.as(gtk.Widget).queueResize();
     }
 
     //---------------------------------------------------------------
@@ -284,12 +361,15 @@ pub const SearchOverlay = extern struct {
             class.bindTemplateCallback("next_match", &nextMatch);
             class.bindTemplateCallback("previous_match", &previousMatch);
             class.bindTemplateCallback("search_entry_key_pressed", &searchEntryKeyPressed);
+            class.bindTemplateCallback("on_drag_end", &onDragEnd);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.active.impl,
                 properties.@"search-total".impl,
                 properties.@"search-selected".impl,
+                properties.@"halign-target".impl,
+                properties.@"valign-target".impl,
             });
 
             // Signals
