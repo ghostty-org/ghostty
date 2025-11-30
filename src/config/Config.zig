@@ -2911,7 +2911,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
-///   * `window` - Create a new window unconditionally.
+///   * `new-window` - Create a new window unconditionally.
 ///
 /// The default value is `new-tab`.
 ///
@@ -7875,7 +7875,38 @@ pub const WindowNewTabPosition = enum {
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
     @"new-tab",
-    window,
+    @"new-window",
+
+    pub fn parseCLI(self: *MacOSDockDropBehavior, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+
+        // Backwards compatibility for old "window" value
+        // See: https://github.com/ghostty-org/ghostty/pull/9764
+        if (std.mem.eql(u8, value, "window")) {
+            self.* = .@"new-window";
+            return;
+        }
+
+        self.* = std.meta.stringToEnum(MacOSDockDropBehavior, value) orelse return error.InvalidValue;
+    }
+
+    test "parse MacOSDockDropBehavior" {
+        const testing = std.testing;
+        var v: MacOSDockDropBehavior = undefined;
+
+        try v.parseCLI("window");
+        try testing.expectEqual(.@"new-window", v);
+
+        try v.parseCLI("new-window");
+        try testing.expectEqual(.@"new-window", v);
+
+        try v.parseCLI("new-tab");
+        try testing.expectEqual(.@"new-tab", v);
+
+        try testing.expectError(error.ValueRequired, v.parseCLI(null));
+        try testing.expectError(error.InvalidValue, v.parseCLI("newwindow"));
+        try testing.expectError(error.InvalidValue, v.parseCLI("tab"));
+    }
 };
 
 /// See window-show-tab-bar
