@@ -46,7 +46,7 @@ template $GhosttySearchOverlay: Adw.Bin {
           "dim-label",
         ]
 
-        label: bind $match_label_closure(template.search-selected, template.search-total) as <string>;
+        label: bind $match_label_closure(template.has-search-selected, template.search-selected, template.has-search-total, template.search-total) as <string>;
         width-chars: 6;
         xalign: 1.0;
       }

@@ -53,12 +53,33 @@ pub const SearchOverlay = extern struct {
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
-                i64,
+                u64,
                 .{
-                    .default = -1,
-                    .minimum = -1,
-                    .maximum = std.math.maxInt(i64),
-                    .accessor = C.privateShallowFieldAccessor("search_total"),
+                    .default = 0,
+                    .minimum = 0,
+                    .maximum = std.math.maxInt(u64),
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        u64,
+                        .{ .getter = getSearchTotal },
+                    ),
+                },
+            );
+        };
+
+        pub const @"has-search-total" = struct {
+            pub const name = "has-search-total";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{ .getter = getHasSearchTotal },
+                    ),
                 },
             );
         };
@@ -68,12 +89,33 @@ pub const SearchOverlay = extern struct {
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
-                i64,
+                u64,
                 .{
-                    .default = -1,
-                    .minimum = -1,
-                    .maximum = std.math.maxInt(i64),
-                    .accessor = C.privateShallowFieldAccessor("search_selected"),
+                    .default = 0,
+                    .minimum = 0,
+                    .maximum = std.math.maxInt(u64),
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        u64,
+                        .{ .getter = getSearchSelected },
+                    ),
+                },
+            );
+        };
+
+        pub const @"has-search-selected" = struct {
+            pub const name = "has-search-selected";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{ .getter = getHasSearchSelected },
+                    ),
                 },
             );
         };
@@ -162,11 +204,11 @@ pub const SearchOverlay = extern struct {
         /// True when a search is active, meaning we should show the overlay.
         active: bool = false,
 
-        /// Total number of search matches (-1 means unknown/none).
-        search_total: i64 = -1,
+        /// Total number of search matches (null means unknown/none).
+        search_total: ?usize = null,
 
-        /// Currently selected match index (-1 means none selected).
-        search_selected: i64 = -1,
+        /// Currently selected match index (null means none selected).
+        search_selected: ?usize = null,
 
         /// Target horizontal alignment for the overlay.
         halign_target: gtk.Align = .end,
@@ -194,27 +236,55 @@ pub const SearchOverlay = extern struct {
     /// Set the total number of search matches.
     pub fn setSearchTotal(self: *Self, total: ?usize) void {
         const priv = self.private();
-        const value: i64 = if (total) |t| @intCast(t) else -1;
-        if (priv.search_total == value) return;
-        priv.search_total = value;
+        const had_total = priv.search_total != null;
+        if (priv.search_total == total) return;
+        priv.search_total = total;
         self.as(gobject.Object).notifyByPspec(properties.@"search-total".impl.param_spec);
+        if (had_total != (total != null)) {
+            self.as(gobject.Object).notifyByPspec(properties.@"has-search-total".impl.param_spec);
+        }
     }
 
     /// Set the currently selected match index.
     pub fn setSearchSelected(self: *Self, selected: ?usize) void {
         const priv = self.private();
-        const value: i64 = if (selected) |s| @intCast(s) else -1;
-        if (priv.search_selected == value) return;
-        priv.search_selected = value;
+        const had_selected = priv.search_selected != null;
+        if (priv.search_selected == selected) return;
+        priv.search_selected = selected;
         self.as(gobject.Object).notifyByPspec(properties.@"search-selected".impl.param_spec);
+        if (had_selected != (selected != null)) {
+            self.as(gobject.Object).notifyByPspec(properties.@"has-search-selected".impl.param_spec);
+        }
     }
 
-    fn closureMatchLabel(_: *Self, selected: i64, total: i64) callconv(.c) ?[*:0]const u8 {
-        if (total <= 0) return glib.ext.dupeZ(u8, "0/0");
+    fn getSearchTotal(self: *Self) u64 {
+        return self.private().search_total orelse 0;
+    }
+
+    fn getHasSearchTotal(self: *Self) bool {
+        return self.private().search_total != null;
+    }
+
+    fn getSearchSelected(self: *Self) u64 {
+        return self.private().search_selected orelse 0;
+    }
+
+    fn getHasSearchSelected(self: *Self) bool {
+        return self.private().search_selected != null;
+    }
+
+    fn closureMatchLabel(
+        _: *Self,
+        has_selected: bool,
+        selected: u64,
+        has_total: bool,
+        total: u64,
+    ) callconv(.c) ?[*:0]const u8 {
+        if (!has_total or total == 0) return glib.ext.dupeZ(u8, "0/0");
         var buf: [32]u8 = undefined;
         const label = std.fmt.bufPrintZ(&buf, "{}/{}", .{
-            if (selected >= 0) selected + 1 else 0,
-            if (total >= 0) total else 0,
+            if (has_selected) selected + 1 else 0,
+            total,
         }) catch return null;
         return glib.ext.dupeZ(u8, label);
     }
@@ -370,7 +440,9 @@ pub const SearchOverlay = extern struct {
             gobject.ext.registerProperties(class, &.{
                 properties.active.impl,
                 properties.@"search-total".impl,
+                properties.@"has-search-total".impl,
                 properties.@"search-selected".impl,
+                properties.@"has-search-selected".impl,
                 properties.@"halign-target".impl,
                 properties.@"valign-target".impl,
             });
