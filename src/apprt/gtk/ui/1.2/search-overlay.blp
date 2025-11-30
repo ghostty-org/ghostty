@@ -25,6 +25,12 @@ template $GhosttySearchOverlay: Adw.Bin {
         search-changed => $search_changed();
         next-match => $next_match();
         previous-match => $previous_match();
+
+        EventControllerKey {
+          // We need this so we capture before the SearchEntry.
+          propagation-phase: capture;
+          key-pressed => $search_entry_key_pressed();
+        }
       }
 
       Label {

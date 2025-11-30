@@ -2,6 +2,7 @@ const std = @import("std");
 const adw = @import("adw");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const gdk = @import("gdk");
 const gtk = @import("gtk");
 
 const gresource = @import("../build/gresource.zig");
@@ -204,6 +205,26 @@ pub const SearchOverlay = extern struct {
         signals.@"previous-match".impl.emit(self, null, .{}, null);
     }
 
+    fn searchEntryKeyPressed(
+        _: *gtk.EventControllerKey,
+        keyval: c_uint,
+        _: c_uint,
+        gtk_mods: gdk.ModifierType,
+        self: *Self,
+    ) callconv(.c) c_int {
+        if (keyval == gdk.KEY_Return or keyval == gdk.KEY_KP_Enter) {
+            if (gtk_mods.shift_mask) {
+                signals.@"previous-match".impl.emit(self, null, .{}, null);
+            } else {
+                signals.@"next-match".impl.emit(self, null, .{}, null);
+            }
+
+            return 1;
+        }
+
+        return 0;
+    }
+
     //---------------------------------------------------------------
     // Virtual methods
 
@@ -262,6 +283,7 @@ pub const SearchOverlay = extern struct {
             class.bindTemplateCallback("match_label_closure", &closureMatchLabel);
             class.bindTemplateCallback("next_match", &nextMatch);
             class.bindTemplateCallback("previous_match", &previousMatch);
+            class.bindTemplateCallback("search_entry_key_pressed", &searchEntryKeyPressed);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
