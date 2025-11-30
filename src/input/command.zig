@@ -452,6 +452,11 @@ fn actionCommands(action: Action.Key) []const Command {
                 .description = "Focus the next split, if any.",
             },
             .{
+                .action = .{ .goto_split = .recent },
+                .title = "Focus Split: Recent",
+                .description = "Focus the most recently used split, if any.",
+            },
+            .{
                 .action = .{ .goto_split = .left },
                 .title = "Focus Split: Left",
                 .description = "Focus the split to the left, if it exists.",

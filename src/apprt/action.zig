@@ -467,6 +467,7 @@ pub const GotoSplit = enum(c_int) {
     left,
     down,
     right,
+    recent,
 };
 
 /// The amount to resize the split by and the direction to resize it in.
