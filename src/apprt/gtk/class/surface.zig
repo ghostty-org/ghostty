@@ -1139,13 +1139,14 @@ pub const Surface = extern struct {
                 if (entry.native == keycode) break :w3c entry.key;
             } else .unidentified;
 
-            // If the key should be remappable, then consult the pre-remapped
-            // XKB keyval/keysym to get the (possibly) remapped key.
+            // Consult the pre-remapped XKB keyval/keysym to get the (possibly)
+            // remapped key. If the W3C key or the remapped key
+            // is eligible for remapping, we use it.
             //
             // See the docs for `shouldBeRemappable` for why we even have to
             // do this in the first place.
-            if (w3c_key.shouldBeRemappable()) {
-                if (gtk_key.keyFromKeyval(keyval)) |remapped|
+            if (gtk_key.keyFromKeyval(keyval)) |remapped| {
+                if (w3c_key.shouldBeRemappable() or remapped.shouldBeRemappable())
                     break :keycode remapped;
             }
 
