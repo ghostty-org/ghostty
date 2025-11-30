@@ -385,6 +385,7 @@ pub const RenderState = struct {
         const row_rows = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
         const row_sels = row_data.items(.selection);
+        const row_highlights = row_data.items(.highlights);
         const row_dirties = row_data.items(.dirty);
 
         // Track the last page that we know was dirty. This lets us
@@ -468,6 +469,7 @@ pub const RenderState = struct {
                 _ = arena.reset(.retain_capacity);
                 row_cells[y].clearRetainingCapacity();
                 row_sels[y] = null;
+                row_highlights[y] = .empty;
             }
             row_dirties[y] = true;
 
@@ -1313,4 +1315,63 @@ test "string" {
 
     const expected = "AB\x00\x00\x00\n\x00\x00\x00\x00\x00\n";
     try testing.expectEqualStrings(expected, result);
+}
+
+test "dirty row resets highlights" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("ABC");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Reset dirty state
+    state.dirty = .false;
+    {
+        const row_data = state.row_data.slice();
+        const dirty = row_data.items(.dirty);
+        @memset(dirty, false);
+    }
+
+    // Manually add a highlight to row 0
+    {
+        const row_data = state.row_data.slice();
+        const row_arenas = row_data.items(.arena);
+        const row_highlights = row_data.items(.highlights);
+        var arena = row_arenas[0].promote(alloc);
+        defer row_arenas[0] = arena.state;
+        try row_highlights[0].append(arena.allocator(), .{
+            .tag = 1,
+            .range = .{ 0, 2 },
+        });
+    }
+
+    // Verify we have a highlight
+    {
+        const row_data = state.row_data.slice();
+        const row_highlights = row_data.items(.highlights);
+        try testing.expectEqual(1, row_highlights[0].items.len);
+    }
+
+    // Write to row 0 to make it dirty
+    try s.nextSlice("\x1b[H"); // Move to home
+    try s.nextSlice("X");
+    try state.update(alloc, &t);
+
+    // Verify the highlight was reset on the dirty row
+    {
+        const row_data = state.row_data.slice();
+        const row_highlights = row_data.items(.highlights);
+        try testing.expectEqual(0, row_highlights[0].items.len);
+    }
 }
