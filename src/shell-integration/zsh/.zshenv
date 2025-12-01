@@ -43,9 +43,8 @@ fi
     [[ ! -r "$_ghostty_file" ]] || 'builtin' 'source' '--' "$_ghostty_file"
 } always {
     if [[ -o 'interactive' ]]; then
-        'builtin' 'autoload' '--' 'is-at-least'
-        'is-at-least' "5.1" || {
-            builtin echo "ZSH ${ZSH_VERSION} is too old for ghostty shell integration" > /dev/stderr
+        'builtin' 'autoload' '--' 'is-at-least' 2>/dev/null && 'is-at-least' "5.1" || {
+            'builtin' 'echo' "zsh ${ZSH_VERSION} is too old for ghostty shell integration" >&2
             'builtin' 'unset' '_ghostty_file'
             return
         }
