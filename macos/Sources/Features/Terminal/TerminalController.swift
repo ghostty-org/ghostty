@@ -54,6 +54,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
 
+    /// The accent color that should be rendered for this tab.
+    var tabColor: TerminalWindow.TabColor = .none {
+        didSet {
+            guard tabColor != oldValue else { return }
+            if let terminalWindow = window as? TerminalWindow {
+                terminalWindow.display(tabColor: tabColor)
+            }
+            window?.invalidateRestorableState()
+        }
+    }
+
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
@@ -103,6 +114,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self,
             selector: #selector(onCloseOtherTabs),
             name: .ghosttyCloseOtherTabs,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(onCloseTabsOnTheRight),
+            name: .ghosttyCloseTabsOnTheRight,
             object: nil)
         center.addObserver(
             self,
@@ -633,6 +649,48 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    private func closeTabsOnTheRightImmediately() {
+        guard let window = window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+
+        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        guard !tabsToClose.isEmpty else { return }
+
+        if let undoManager {
+            undoManager.beginUndoGrouping()
+        }
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+
+        for (_, candidate) in tabsToClose {
+            if let controller = candidate.windowController as? TerminalController {
+                controller.closeTabImmediately(registerRedo: false)
+            }
+        }
+
+        if let undoManager {
+            undoManager.setActionName("Close Tabs on the Right")
+
+            undoManager.registerUndo(
+                withTarget: self,
+                expiresAfter: undoExpiration
+            ) { target in
+                DispatchQueue.main.async {
+                    target.window?.makeKeyAndOrderFront(nil)
+                }
+
+                undoManager.registerUndo(
+                    withTarget: target,
+                    expiresAfter: target.undoExpiration
+                ) { target in
+                    target.closeTabsOnTheRightImmediately()
+                }
+            }
+        }
+    }
+
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
     private func closeWindowImmediately() {
@@ -813,12 +871,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let focusedSurface: UUID?
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
+        let tabColor: TerminalWindow.TabColor
     }
 
     convenience init(_ ghostty: Ghostty.App,
          with undoState: UndoState
     ) {
         self.init(ghostty, withSurfaceTree: undoState.surfaceTree)
+        self.tabColor = undoState.tabColor
 
         // Show the window and restore its frame
         showWindow(nil)
@@ -859,7 +919,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             surfaceTree: surfaceTree,
             focusedSurface: focusedSurface?.id,
             tabIndex: window.tabGroup?.windows.firstIndex(of: window),
-            tabGroup: window.tabGroup)
+            tabGroup: window.tabGroup,
+            tabColor: tabColor)
     }
 
     //MARK: - NSWindowController
@@ -900,7 +961,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             viewModel: self,
             delegate: self,
         ))
-        
+
+        if let terminalWindow = window as? TerminalWindow {
+            terminalWindow.display(tabColor: tabColor)
+        }
         // If we have a default size, we want to apply it.
         if let defaultSize {
             switch (defaultSize) {
@@ -1084,30 +1148,63 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         
         // If we only have one window then we have no other tabs to close
         guard tabGroup.windows.count > 1 else { return }
-        
+
         // Check if we have to confirm close.
         guard tabGroup.windows.contains(where: { window in
             // Ignore ourself
             if window == self.window { return false }
-            
+
             // Ignore non-terminals
             guard let controller = window.windowController as? TerminalController else {
                 return false
             }
-            
+
             // Check if any surfaces require confirmation
             return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
         }) else {
             self.closeOtherTabsImmediately()
             return
         }
-        
+
         confirmClose(
             messageText: "Close Other Tabs?",
             informativeText: "At least one other tab still has a running process. If you close the tab the process will be killed."
         ) {
             self.closeOtherTabsImmediately()
         }
+    }
+
+    @IBAction func closeTabsOnTheRight(_ sender: Any?) {
+        guard let window = window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+
+        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        guard !tabsToClose.isEmpty else { return }
+
+        let needsConfirm = tabsToClose.contains { (_, candidate) in
+            guard let controller = candidate.windowController as? TerminalController else {
+                return false
+            }
+
+            return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
+        }
+
+        if !needsConfirm {
+            self.closeTabsOnTheRightImmediately()
+            return
+        }
+
+        confirmClose(
+            messageText: "Close Tabs on the Right?",
+            informativeText: "At least one tab to the right still has a running process. If you close the tab the process will be killed."
+        ) {
+            self.closeTabsOnTheRightImmediately()
+        }
+    }
+
+    func setTabColor(_ color: TerminalWindow.TabColor) {
+        tabColor = color
     }
 
     @IBAction func returnToDefaultSize(_ sender: Any?) {
@@ -1311,6 +1408,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         closeOtherTabs(self)
     }
 
+    @objc private func onCloseTabsOnTheRight(notification: SwiftUI.Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        closeTabsOnTheRight(self)
+    }
+
     @objc private func onCloseWindow(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
@@ -1373,6 +1476,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(closeTabsOnTheRight):
+            guard let window, let tabGroup = window.tabGroup else { return false }
+            guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
+            return tabGroup.windows.enumerated().contains { $0.offset > currentIndex }
+
         case #selector(returnToDefaultSize):
             guard let window else { return false }
 
