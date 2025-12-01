@@ -271,6 +271,90 @@ pub const Client = struct {
             // Important: do not clear buffer here since name points to it
             self.state = .idle;
             return .{ .window_renamed = .{ .id = id, .name = name } };
+        } else if (std.mem.eql(u8, cmd, "%window-pane-changed")) cmd: {
+            var re = try oni.Regex.init(
+                "^%window-pane-changed @([0-9]+) %([0-9]+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            );
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const window_id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[1])..@intCast(ends[1])],
+                10,
+            ) catch unreachable;
+            const pane_id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[2])..@intCast(ends[2])],
+                10,
+            ) catch unreachable;
+
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .window_pane_changed = .{ .window_id = window_id, .pane_id = pane_id } };
+        } else if (std.mem.eql(u8, cmd, "%client-detached")) cmd: {
+            var re = try oni.Regex.init(
+                "^%client-detached (.+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            );
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const client = line[@intCast(starts[1])..@intCast(ends[1])];
+
+            // Important: do not clear buffer here since client points to it
+            self.state = .idle;
+            return .{ .client_detached = .{ .client = client } };
+        } else if (std.mem.eql(u8, cmd, "%client-session-changed")) cmd: {
+            var re = try oni.Regex.init(
+                "^%client-session-changed (.+) \\$([0-9]+) (.+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            );
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const client = line[@intCast(starts[1])..@intCast(ends[1])];
+            const session_id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[2])..@intCast(ends[2])],
+                10,
+            ) catch unreachable;
+            const name = line[@intCast(starts[3])..@intCast(ends[3])];
+
+            // Important: do not clear buffer here since client/name point to it
+            self.state = .idle;
+            return .{ .client_session_changed = .{ .client = client, .session_id = session_id, .name = name } };
         } else {
             // Unknown notification, log it and return to idle state.
             log.warn("unknown tmux control mode notification={s}", .{cmd});
@@ -291,32 +375,73 @@ pub const Client = struct {
 };
 
 /// Possible notification types from tmux control mode. These are documented
-/// in tmux(1).
+/// in tmux(1). A lot of the simple documentation was copied from that man
+/// page here.
 pub const Notification = union(enum) {
-    enter: void,
-    exit: void,
+    /// Entering tmux control mode. This isn't an actual event sent by
+    /// tmux but is one sent by us to indicate that we have detected that
+    /// tmux control mode is starting.
+    enter,
 
+    /// Exit.
+    ///
+    /// NOTE: The tmux protocol contains a "reason" string (human friendly)
+    /// associated with this. We currently drop it because we don't need it
+    /// but this may be something we want to add later. If we do add it,
+    /// we have to consider buffer limits and how we handle those (dropping
+    /// vs truncating, etc.).
+    exit,
+
+    /// Dispatched at the end of a begin/end block with the raw data.
+    /// The control mode parser can't parse the data because it is unaware
+    /// of the command that was sent to trigger this output.
     block_end: []const u8,
     block_err: []const u8,
 
+    /// Raw output from a pane.
     output: struct {
         pane_id: usize,
         data: []const u8, // unescaped
     },
 
+    /// The client is now attached to the session with ID session-id, which is
+    /// named name.
     session_changed: struct {
         id: usize,
         name: []const u8,
     },
 
-    sessions_changed: void,
+    /// A session was created or destroyed.
+    sessions_changed,
 
+    /// The window with ID window-id was linked to the current session.
     window_add: struct {
         id: usize,
     },
 
+    /// The window with ID window-id was renamed to name.
     window_renamed: struct {
         id: usize,
+        name: []const u8,
+    },
+
+    /// The active pane in the window with ID window-id changed to the pane
+    /// with ID pane-id.
+    window_pane_changed: struct {
+        window_id: usize,
+        pane_id: usize,
+    },
+
+    /// The client has detached.
+    client_detached: struct {
+        client: []const u8,
+    },
+
+    /// The client is now attached to the session with ID session-id, which is
+    /// named name.
+    client_session_changed: struct {
+        client: []const u8,
+        session_id: usize,
         name: []const u8,
     },
 };
@@ -432,4 +557,43 @@ test "tmux window-renamed" {
     try testing.expect(n == .window_renamed);
     try testing.expectEqual(42, n.window_renamed.id);
     try testing.expectEqualStrings("bar", n.window_renamed.name);
+}
+
+test "tmux window-pane-changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Client = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%window-pane-changed @42 %2") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_pane_changed);
+    try testing.expectEqual(42, n.window_pane_changed.window_id);
+    try testing.expectEqual(2, n.window_pane_changed.pane_id);
+}
+
+test "tmux client-detached" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Client = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%client-detached /dev/pts/1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .client_detached);
+    try testing.expectEqualStrings("/dev/pts/1", n.client_detached.client);
+}
+
+test "tmux client-session-changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Client = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%client-session-changed /dev/pts/1 $2 mysession") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .client_session_changed);
+    try testing.expectEqualStrings("/dev/pts/1", n.client_session_changed.client);
+    try testing.expectEqual(2, n.client_session_changed.session_id);
+    try testing.expectEqualStrings("mysession", n.client_session_changed.name);
 }
