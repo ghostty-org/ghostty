@@ -4,6 +4,7 @@
 //! documentation.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const assert = @import("../../quirks.zig").inlineAssert;
 const oni = @import("oniguruma");
 
@@ -56,7 +57,11 @@ pub const Parser = struct {
     }
 
     // Handle a byte of input.
-    pub fn put(self: *Parser, byte: u8) !?Notification {
+    //
+    // If we reach our byte limit this will return OutOfMemory. It only
+    // does this on the first time we exceed the limit; subsequent calls
+    // will return null as we drop all input in a broken state.
+    pub fn put(self: *Parser, byte: u8) Allocator.Error!?Notification {
         // If we're in a broken state, just do nothing.
         //
         // We have to do this check here before we check the buffer, because if
@@ -89,7 +94,15 @@ pub const Parser = struct {
             // complete notification we need to parse.
             .notification => if (byte == '\n') {
                 // We have a complete notification, parse it.
-                return try self.parseNotification();
+                return self.parseNotification() catch {
+                    // If parsing failed, then we do not mark the state
+                    // as broken because we may be able to continue parsing
+                    // other types of notifications.
+                    //
+                    // In the future we may want to emit a notification
+                    // here about unknown or unsupported notifications.
+                    return null;
+                };
             },
 
             // If we're in a block then we accumulate until we see a newline
@@ -122,12 +135,16 @@ pub const Parser = struct {
             },
         }
 
-        try self.buffer.writer.writeByte(byte);
+        self.buffer.writer.writeByte(byte) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
 
         return null;
     }
 
-    fn parseNotification(self: *Parser) !?Notification {
+    const ParseError = error{RegexError};
+
+    fn parseNotification(self: *Parser) ParseError!?Notification {
         assert(self.state == .notification);
 
         const line = line: {
@@ -155,13 +172,16 @@ pub const Parser = struct {
             self.buffer.clearRetainingCapacity();
             return null;
         } else if (std.mem.eql(u8, cmd, "%output")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%output %([0-9]+) (.+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
@@ -183,13 +203,16 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .output = .{ .pane_id = id, .data = data } };
         } else if (std.mem.eql(u8, cmd, "%session-changed")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%session-changed \\$([0-9]+) (.+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
@@ -220,13 +243,16 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .sessions_changed = {} };
         } else if (std.mem.eql(u8, cmd, "%window-add")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%window-add @([0-9]+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
@@ -247,13 +273,16 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .window_add = .{ .id = id } };
         } else if (std.mem.eql(u8, cmd, "%window-renamed")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%window-renamed @([0-9]+) (.+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
@@ -275,13 +304,16 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .window_renamed = .{ .id = id, .name = name } };
         } else if (std.mem.eql(u8, cmd, "%window-pane-changed")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%window-pane-changed @([0-9]+) %([0-9]+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
@@ -307,13 +339,16 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .window_pane_changed = .{ .window_id = window_id, .pane_id = pane_id } };
         } else if (std.mem.eql(u8, cmd, "%client-detached")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%client-detached (.+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
@@ -330,13 +365,16 @@ pub const Parser = struct {
             self.state = .idle;
             return .{ .client_detached = .{ .client = client } };
         } else if (std.mem.eql(u8, cmd, "%client-session-changed")) cmd: {
-            var re = try oni.Regex.init(
+            var re = oni.Regex.init(
                 "^%client-session-changed (.+) \\$([0-9]+) (.+)$",
                 .{ .capture_group = true },
                 oni.Encoding.utf8,
                 oni.Syntax.default,
                 null,
-            );
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
             defer re.deinit();
 
             var region = re.search(line, .{}) catch |err| {
