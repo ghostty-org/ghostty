@@ -23,6 +23,7 @@
                 <outlet property="menuCloseTab" destination="Obb-Mk-j8J" id="Gda-L0-gdz"/>
                 <outlet property="menuCloseWindow" destination="W5w-UZ-crk" id="6ff-BT-ENV"/>
                 <outlet property="menuCommandPalette" destination="et6-de-Mh7" id="53t-cu-dm5"/>
+                <outlet property="menuSearchSessions" destination="h6N-zu-n8A" id="vN3-Mj-uNm"/>
                 <outlet property="menuCopy" destination="Jqf-pv-Zcu" id="bKd-1C-oy9"/>
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
                 <outlet property="menuEqualizeSplits" destination="3gH-VD-vL9" id="SiZ-ce-FOF"/>
@@ -309,6 +310,12 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="L3L-I8-sqk"/>
+                            <menuItem title="Search Sessions…" keyEquivalent="p" id="h6N-zu-n8A">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES"/>
+                                <connections>
+                                    <action selector="searchSessions:" target="-1" id="z3b-xF-1Qh"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Command Palette" id="et6-de-Mh7">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

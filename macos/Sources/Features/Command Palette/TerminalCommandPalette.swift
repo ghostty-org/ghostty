@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import GhosttyKit
 
 struct TerminalCommandPaletteView: View {
@@ -8,6 +9,7 @@ struct TerminalCommandPaletteView: View {
     /// Set this to true to show the view, this will be set to false if any actions
     /// result in the view disappearing.
     @Binding var isPresented: Bool
+    @Binding var isSessionSearchPresented: Bool
 
     /// The configuration so we can lookup keyboard shortcuts.
     @ObservedObject var ghosttyConfig: Ghostty.Config
@@ -54,6 +56,14 @@ struct TerminalCommandPaletteView: View {
                 updateViewModel.state.cancel()
             })
         }
+
+        options.append(CommandOption(
+            title: "Search Sessions…",
+            description: "Find a tab by title or directory",
+            leadingIcon: "magnifyingglass"
+        ) {
+            isSessionSearchPresented = true
+        })
         
         // Add terminal commands
         guard let surface = surfaceView.surfaceModel else { return options }
@@ -77,44 +87,103 @@ struct TerminalCommandPaletteView: View {
 
     var body: some View {
         ZStack {
-            if isPresented {
-                GeometryReader { geometry in
-                    VStack {
-                        Spacer().frame(height: geometry.size.height * 0.05)
+            paletteOverlay(
+                isVisible: $isPresented,
+                placeholder: "Execute a command…",
+                options: commandOptions
+            )
 
-                        ResponderChainInjector(responder: surfaceView)
-                            .frame(width: 0, height: 0)
-
-                        CommandPaletteView(
-                            isPresented: $isPresented,
-                            backgroundColor: ghosttyConfig.backgroundColor,
-                            options: commandOptions
-                        )
-                        .zIndex(1) // Ensure it's on top
-
-                        Spacer()
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
-                }
-                .transition(
-                    .move(edge: .top)
-                    .combined(with: .opacity)
-                )
-            }
+            paletteOverlay(
+                isVisible: $isSessionSearchPresented,
+                placeholder: "Search sessions…",
+                options: sessionSearchOptions
+            )
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isPresented)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isSessionSearchPresented)
         .onChange(of: isPresented) { newValue in
             // When the command palette disappears we need to send focus back to the
             // surface view we were overlaid on top of. There's probably a better way
             // to handle the first responder state here but I don't know it.
-            if !newValue {
-                // Has to be on queue because onChange happens on a user-interactive
-                // thread and Xcode is mad about this call on that.
-                DispatchQueue.main.async {
-                    surfaceView.window?.makeFirstResponder(surfaceView)
+            handleDismissal(newValue)
+        }
+        .onChange(of: isSessionSearchPresented) { newValue in
+            handleDismissal(newValue)
+        }
+    }
+
+    @ViewBuilder
+    private func paletteOverlay(
+        isVisible: Binding<Bool>,
+        placeholder: String,
+        options: [CommandOption]
+    ) -> some View {
+        if isVisible.wrappedValue {
+            GeometryReader { geometry in
+                VStack {
+                    Spacer().frame(height: geometry.size.height * 0.05)
+
+                    ResponderChainInjector(responder: surfaceView)
+                        .frame(width: 0, height: 0)
+
+                    CommandPaletteView(
+                        isPresented: isVisible,
+                        backgroundColor: ghosttyConfig.backgroundColor,
+                        placeholder: placeholder,
+                        options: options
+                    )
+                    .zIndex(1)
+
+                    Spacer()
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            }
+            .transition(
+                .move(edge: .top)
+                .combined(with: .opacity)
+            )
+        }
+    }
+
+    private func handleDismissal(_ isVisible: Bool) {
+        if !isVisible {
+            DispatchQueue.main.async {
+                surfaceView.window?.makeFirstResponder(surfaceView)
+            }
+        }
+    }
+
+    private var sessionSearchOptions: [CommandOption] {
+        TerminalController.all.compactMap { controller in
+            guard let window = controller.window else { return nil }
+
+            let title = window.title.isEmpty ? "Untitled" : window.title
+            let directory = controller.focusedSurface?.pwd
+            let color = controller.tabColor == .none ? nil : controller.tabColor
+
+            return CommandOption(
+                title: title,
+                description: directory.map(formattedPath),
+                leadingIcon: "rectangle.on.rectangle",
+                tabColor: color
+            ) {
+                NSApp.activate(ignoringOtherApps: true)
+                controller.window?.makeKeyAndOrderFront(nil)
+                if let surface = controller.focusedSurface {
+                    Ghostty.moveFocus(to: surface)
                 }
             }
         }
+    }
+
+    private func formattedPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home) {
+            let suffix = path.dropFirst(home.count)
+            return suffix.isEmpty ? "~" : "~" + suffix
+        }
+
+        return path
     }
 }
 

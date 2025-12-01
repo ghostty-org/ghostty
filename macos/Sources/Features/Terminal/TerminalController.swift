@@ -1480,6 +1480,9 @@ extension TerminalController {
             guard let window, let tabGroup = window.tabGroup else { return false }
             guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
             return tabGroup.windows.enumerated().contains { $0.offset > currentIndex }
+            
+        case #selector(searchSessions):
+            return true
 
         case #selector(returnToDefaultSize):
             guard let window else { return false }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct CommandOption: Identifiable, Hashable {
     let id = UUID()
@@ -8,6 +9,7 @@ struct CommandOption: Identifiable, Hashable {
     let leadingIcon: String?
     let badge: String?
     let emphasis: Bool
+    let tabColor: TerminalWindow.TabColor?
     let action: () -> Void
     
     init(
@@ -17,6 +19,7 @@ struct CommandOption: Identifiable, Hashable {
         leadingIcon: String? = nil,
         badge: String? = nil,
         emphasis: Bool = false,
+        tabColor: TerminalWindow.TabColor? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -25,6 +28,7 @@ struct CommandOption: Identifiable, Hashable {
         self.leadingIcon = leadingIcon
         self.badge = badge
         self.emphasis = emphasis
+        self.tabColor = tabColor
         self.action = action
     }
 
@@ -40,6 +44,7 @@ struct CommandOption: Identifiable, Hashable {
 struct CommandPaletteView: View {
     @Binding var isPresented: Bool
     var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
+    var placeholder: String = "Execute a command…"
     var options: [CommandOption]
     @State private var query = ""
     @State private var selectedIndex: UInt?
@@ -52,7 +57,11 @@ struct CommandPaletteView: View {
         if query.isEmpty {
             return options
         } else {
-            return options.filter { $0.title.localizedCaseInsensitiveContains(query) }
+            return options.filter {
+                $0.title.localizedCaseInsensitiveContains(query)
+                    || ($0.description?.localizedCaseInsensitiveContains(query) ?? false)
+                    || ($0.badge?.localizedCaseInsensitiveContains(query) ?? false)
+            }
         }
     }
 
@@ -73,7 +82,7 @@ struct CommandPaletteView: View {
         }
 
         VStack(alignment: .leading, spacing: 0) {
-            CommandPaletteQuery(query: $query, isTextFieldFocused: _isTextFieldFocused) { event in
+            CommandPaletteQuery(query: $query, placeholder: placeholder, isTextFieldFocused: _isTextFieldFocused) { event in
                 switch (event) {
                 case .exit:
                     isPresented = false
@@ -173,11 +182,13 @@ struct CommandPaletteView: View {
 /// The text field for building the query for the command palette.
 fileprivate struct CommandPaletteQuery: View {
     @Binding var query: String
+    var placeholder: String
     var onEvent: ((KeyboardEvent) -> Void)? = nil
     @FocusState private var isTextFieldFocused: Bool
 
-    init(query: Binding<String>, isTextFieldFocused: FocusState<Bool>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
+    init(query: Binding<String>, placeholder: String, isTextFieldFocused: FocusState<Bool>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
         _query = query
+        self.placeholder = placeholder
         self.onEvent = onEvent
         _isTextFieldFocused = isTextFieldFocused
     }
@@ -208,7 +219,7 @@ fileprivate struct CommandPaletteQuery: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
 
-            TextField("Execute a command…", text: $query)
+            TextField(placeholder, text: $query)
                 .padding()
                 .font(.system(size: 20, weight: .light))
                 .frame(height: 48)
@@ -283,6 +294,13 @@ fileprivate struct CommandRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
+                if let tabColor = option.tabColor,
+                   let nsColor = tabColor.displayColor {
+                    Circle()
+                        .fill(Color(nsColor: nsColor))
+                        .frame(width: 10, height: 10)
+                }
+
                 if let icon = option.leadingIcon {
                     Image(systemName: icon)
                         .foregroundStyle(option.emphasis ? Color.accentColor : .secondary)
