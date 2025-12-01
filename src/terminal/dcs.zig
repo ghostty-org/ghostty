@@ -213,7 +213,7 @@ pub const Command = union(enum) {
 
     /// Tmux control mode
     tmux: if (build_options.tmux_control_mode)
-        terminal.tmux.Notification
+        terminal.tmux.ControlNotification
     else
         void,
 
@@ -276,7 +276,7 @@ const State = union(enum) {
 
     /// Tmux control mode: https://github.com/tmux/tmux/wiki/Control-Mode
     tmux: if (build_options.tmux_control_mode)
-        terminal.tmux.Client
+        terminal.tmux.ControlParser
     else
         void,
 
