@@ -223,6 +223,13 @@ pub const SearchOverlay = extern struct {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
 
+    /// Update search contents when widget is activated
+    pub fn updateSearch(self: *Self) void {
+        const priv = self.private();
+        const text = priv.search_entry.as(gtk.Editable).getText();
+        signals.@"search-changed".impl.emit(self, null, .{text}, null);
+    }
+
     /// Grab focus on the search entry and select all text.
     pub fn grabFocus(self: *Self) void {
         const priv = self.private();
@@ -231,10 +238,6 @@ pub const SearchOverlay = extern struct {
         // Select all text in the search entry field. -1 is distance from
         // the end, causing the entire text to be selected.
         priv.search_entry.as(gtk.Editable).selectRegion(0, -1);
-
-        // update search state with the active text
-        const text = priv.search_entry.as(gtk.Editable).getText();
-        signals.@"search-changed".impl.emit(self, null, .{text}, null);
     }
 
     /// Set the total number of search matches.
