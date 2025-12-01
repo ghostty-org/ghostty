@@ -43,7 +43,14 @@ pub const SearchOverlay = extern struct {
                 bool,
                 .{
                     .default = false,
-                    .accessor = C.privateShallowFieldAccessor("active"),
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .getter = getSearchActive,
+                            .setter = setSearchActive,
+                        },
+                    ),
                 },
             );
         };
@@ -223,13 +230,6 @@ pub const SearchOverlay = extern struct {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
 
-    /// Update search contents when widget is activated
-    pub fn updateSearch(self: *Self) void {
-        const priv = self.private();
-        const text = priv.search_entry.as(gtk.Editable).getText();
-        signals.@"search-changed".impl.emit(self, null, .{text}, null);
-    }
-
     /// Grab focus on the search entry and select all text.
     pub fn grabFocus(self: *Self) void {
         const priv = self.private();
@@ -238,6 +238,16 @@ pub const SearchOverlay = extern struct {
         // Select all text in the search entry field. -1 is distance from
         // the end, causing the entire text to be selected.
         priv.search_entry.as(gtk.Editable).selectRegion(0, -1);
+    }
+
+    // Set active status, and update search on activation
+    fn setSearchActive(self: *Self, active: bool) void {
+        const priv = self.private();
+        if (!priv.active and active) {
+            const text = priv.search_entry.as(gtk.Editable).getText();
+            signals.@"search-changed".impl.emit(self, null, .{text}, null);
+        }
+        priv.active = active;
     }
 
     /// Set the total number of search matches.
@@ -262,6 +272,10 @@ pub const SearchOverlay = extern struct {
         if (had_selected != (selected != null)) {
             self.as(gobject.Object).notifyByPspec(properties.@"has-search-selected".impl.param_spec);
         }
+    }
+
+    fn getSearchActive(self: *Self) bool {
+        return self.private().active;
     }
 
     fn getSearchTotal(self: *Self) u64 {

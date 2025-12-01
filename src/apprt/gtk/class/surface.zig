@@ -1965,16 +1965,6 @@ pub const Surface = extern struct {
             &value,
         );
 
-        var is_active = gobject.ext.Value.newFrom(false);
-        defer is_active.unset();
-        gobject.Object.getProperty(
-            priv.search_overlay.as(gobject.Object),
-            SearchOverlay.properties.active.name,
-            &is_active
-        );
-        if (active and !is_active) {
-            priv.search_overlay.updateSearch();
-        }
         if (active) {
             priv.search_overlay.grabFocus();
         }
