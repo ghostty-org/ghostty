@@ -43,11 +43,6 @@ fi
     [[ ! -r "$_ghostty_file" ]] || 'builtin' 'source' '--' "$_ghostty_file"
 } always {
     if [[ -o 'interactive' ]]; then
-        'builtin' 'autoload' '--' 'is-at-least' 2>/dev/null && 'is-at-least' "5.1" || {
-            'builtin' 'echo' "zsh ${ZSH_VERSION} is too old for ghostty shell integration" >&2
-            'builtin' 'unset' '_ghostty_file'
-            return
-        }
         # ${(%):-%x} is the path to the current file.
         # On top of it we add :A:h to get the directory.
         'builtin' 'typeset' _ghostty_file="${${(%):-%x}:A:h}"/ghostty-integration

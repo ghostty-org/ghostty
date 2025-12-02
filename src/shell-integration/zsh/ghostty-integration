@@ -1,3 +1,5 @@
+# vim:ft=zsh
+#
 # Based on (started as) a copy of Kitty's zsh integration. Kitty is
 # distributed under GPLv3, so this file is also distributed under GPLv3.
 # The license header is reproduced below:
@@ -40,6 +42,13 @@ _entrypoint() {
 
     [[ -o interactive ]]              || builtin return 0  # non-interactive shell
     (( ! $+_ghostty_state ))          || builtin return 0  # already initialized
+
+    # We require zsh 5.1+ (released Sept 2015) for features like functions_source,
+    # introspection arrays, and array pattern substitution.
+    if ! { builtin autoload -- is-at-least 2>/dev/null && is-at-least 5.1; }; then
+        builtin echo "Zsh ${ZSH_VERSION} is too old for ghostty shell integration (5.1+ required)" >&2
+        builtin return 1
+    fi
 
     # 0: no OSC 133 [AC] marks have been written yet.
     # 1: the last written OSC 133 C has not been closed with D yet.
