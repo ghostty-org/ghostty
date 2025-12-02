@@ -170,11 +170,11 @@ pub const Resource = struct {
 
     /// Returns true if the dist path exists at build time.
     pub fn exists(self: *const Resource, b: *std.Build) bool {
-        if (std.fs.accessAbsolute(b.pathFromRoot(self.dist), .{})) {
+        if (b.build_root.handle.access(self.dist, .{})) {
             // If we have a ".git" directory then we're a git checkout
             // and we never want to use the dist path. This shouldn't happen
             // so show a warning to the user.
-            if (std.fs.accessAbsolute(b.pathFromRoot(".git"), .{})) {
+            if (b.build_root.handle.access(".git", .{})) {
                 std.log.warn(
                     "dist resource '{s}' should not be in a git checkout",
                     .{self.dist},
