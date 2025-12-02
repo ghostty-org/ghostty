@@ -30,6 +30,36 @@ pub const Layout = struct {
 
     pub const ParseError = Allocator.Error || error{SyntaxError};
 
+    /// Parse a layout string that includes a 4-character checksum prefix.
+    ///
+    /// The expected format is: `XXXX,layout_string` where XXXX is the
+    /// 4-character hexadecimal checksum and the layout string follows
+    /// after the comma. For example: `f8f9,80x24,0,0{40x24,0,0,1,40x24,40,0,2}`.
+    ///
+    /// Returns `ChecksumMismatch` if the checksum doesn't match the layout.
+    /// Returns `SyntaxError` if the format is invalid.
+    pub fn parseWithChecksum(
+        alloc: Allocator,
+        str: []const u8,
+    ) (ParseError || error{ChecksumMismatch})!Layout {
+        // If the string is less than 5 characters, it can't possibly
+        // be correct. 4-char checksum + comma. In practice it should
+        // be even longer, but that'll fail parse later.
+        if (str.len < 5) return error.SyntaxError;
+        if (str[4] != ',') return error.SyntaxError;
+
+        // The layout string should start with a 4-character checksum.
+        const checksum: Checksum = .calculate(str[5..]);
+        if (!std.mem.startsWith(
+            u8,
+            str,
+            &checksum.asString(),
+        )) return error.ChecksumMismatch;
+
+        // Checksum matches, parse the rest.
+        return try parse(alloc, str[5..]);
+    }
+
     /// Parse a layout string into a Layout structure. The given allocator
     /// will be used for all allocations within the layout. Note that
     /// individual nodes can't be freed so this allocator must be some
@@ -190,6 +220,38 @@ pub const Layout = struct {
             .x = x,
             .y = y,
             .content = content,
+        };
+    }
+};
+
+pub const Checksum = enum(u16) {
+    _,
+
+    /// Calculate the checksum of a tmux layout string.
+    /// The algorithm rotates the checksum right by 1 bit (with wraparound)
+    /// and adds the ASCII value of each character.
+    pub fn calculate(str: []const u8) Checksum {
+        var result: u16 = 0;
+        for (str) |c| {
+            // Rotate right by 1: (result >> 1) + ((result & 1) << 15)
+            result = (result >> 1) | ((result & 1) << 15);
+            result +%= c;
+        }
+
+        return @enumFromInt(result);
+    }
+
+    /// Convert the checksum to a 4-character hexadecimal string. This
+    /// is always zero-padded to match the tmux implementation
+    /// (in layout-custom.c).
+    pub fn asString(self: Checksum) [4]u8 {
+        const value = @intFromEnum(self);
+        const charset = "0123456789abcdef";
+        return .{
+            charset[(value >> 12) & 0xf],
+            charset[(value >> 8) & 0xf],
+            charset[(value >> 4) & 0xf],
+            charset[value & 0xf],
         };
     }
 };
@@ -456,4 +518,121 @@ test "syntax error no content delimiter" {
     defer arena.deinit();
 
     try testing.expectError(error.SyntaxError, Layout.parse(arena.allocator(), "80x24,0,0"));
+}
+
+// parseWithChecksum tests
+
+test "parseWithChecksum valid" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const layout: Layout = try .parseWithChecksum(arena.allocator(), "f8f9,80x24,0,0{40x24,0,0,1,40x24,40,0,2}");
+    try testing.expectEqual(80, layout.width);
+    try testing.expectEqual(24, layout.height);
+}
+
+test "parseWithChecksum mismatch" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    try testing.expectError(error.ChecksumMismatch, Layout.parseWithChecksum(arena.allocator(), "0000,80x24,0,0{40x24,0,0,1,40x24,40,0,2}"));
+}
+
+test "parseWithChecksum too short" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    try testing.expectError(error.SyntaxError, Layout.parseWithChecksum(arena.allocator(), "bb62"));
+    try testing.expectError(error.SyntaxError, Layout.parseWithChecksum(arena.allocator(), ""));
+}
+
+test "parseWithChecksum missing comma" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    try testing.expectError(error.SyntaxError, Layout.parseWithChecksum(arena.allocator(), "bb62x159x48,0,0"));
+}
+
+// Checksum tests
+
+test "checksum empty string" {
+    const checksum = Checksum.calculate("");
+    try testing.expectEqual(@as(u16, 0), @intFromEnum(checksum));
+    try testing.expectEqualStrings("0000", &checksum.asString());
+}
+
+test "checksum single character" {
+    // 'A' = 65, first iteration: csum = 0 >> 1 | 0 = 0, then 0 + 65 = 65
+    const checksum = Checksum.calculate("A");
+    try testing.expectEqual(@as(u16, 65), @intFromEnum(checksum));
+    try testing.expectEqualStrings("0041", &checksum.asString());
+}
+
+test "checksum two characters" {
+    // 'A' (65): csum = 0, rotate = 0, add 65 => 65
+    // 'B' (66): csum = 65, rotate => (65 >> 1) | ((65 & 1) << 15) = 32 | 32768 = 32800
+    //           add 66 => 32800 + 66 = 32866
+    const checksum = Checksum.calculate("AB");
+    try testing.expectEqual(@as(u16, 32866), @intFromEnum(checksum));
+    try testing.expectEqualStrings("8062", &checksum.asString());
+}
+
+test "checksum simple layout" {
+    const checksum = Checksum.calculate("80x24,0,0,42");
+    try testing.expectEqualStrings("d962", &checksum.asString());
+}
+
+test "checksum horizontal split layout" {
+    const checksum = Checksum.calculate("80x24,0,0{40x24,0,0,1,40x24,40,0,2}");
+    try testing.expectEqualStrings("f8f9", &checksum.asString());
+}
+
+test "checksum asString zero padding" {
+    // Value 0x000f should produce "000f"
+    const checksum: Checksum = @enumFromInt(0x000f);
+    try testing.expectEqualStrings("000f", &checksum.asString());
+}
+
+test "checksum asString all digits" {
+    // Value 0x1234 should produce "1234"
+    const checksum: Checksum = @enumFromInt(0x1234);
+    try testing.expectEqualStrings("1234", &checksum.asString());
+}
+
+test "checksum asString with letters" {
+    // Value 0xabcd should produce "abcd"
+    const checksum: Checksum = @enumFromInt(0xabcd);
+    try testing.expectEqualStrings("abcd", &checksum.asString());
+}
+
+test "checksum asString max value" {
+    // Value 0xffff should produce "ffff"
+    const checksum: Checksum = @enumFromInt(0xffff);
+    try testing.expectEqualStrings("ffff", &checksum.asString());
+}
+
+test "checksum wraparound" {
+    const checksum = Checksum.calculate("\xff\xff\xff\xff\xff\xff\xff\xff");
+    try testing.expectEqualStrings("03fc", &checksum.asString());
+}
+
+test "checksum deterministic" {
+    // Same input should always produce same output
+    const str = "159x48,0,0{79x48,0,0,79x48,80,0}";
+    const checksum1 = Checksum.calculate(str);
+    const checksum2 = Checksum.calculate(str);
+    try testing.expectEqual(checksum1, checksum2);
+}
+
+test "checksum different inputs different outputs" {
+    const checksum1 = Checksum.calculate("80x24,0,0,1");
+    const checksum2 = Checksum.calculate("80x24,0,0,2");
+    try testing.expect(@intFromEnum(checksum1) != @intFromEnum(checksum2));
+}
+
+test "checksum known tmux layout bb62" {
+    // From tmux documentation: "bb62,159x48,0,0{79x48,0,0,79x48,80,0}"
+    // The checksum "bb62" corresponds to the layout "159x48,0,0{79x48,0,0,79x48,80,0}"
+    const checksum = Checksum.calculate("159x48,0,0{79x48,0,0,79x48,80,0}");
+    try testing.expectEqualStrings("bb62", &checksum.asString());
 }
