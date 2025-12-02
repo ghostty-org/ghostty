@@ -659,12 +659,12 @@ fn setupZsh(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !void {
-    // Preserve the old zdotdir value so we can recover it.
+    // Preserve an existing ZDOTDIR value. We're about to overwrite it.
     if (env.get("ZDOTDIR")) |old| {
         try env.put("GHOSTTY_ZSH_ZDOTDIR", old);
     }
 
-    // Set our new ZDOTDIR
+    // Set our new ZDOTDIR to point to our shell resource directory.
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const integ_dir = try std.fmt.bufPrint(
         &path_buf,
