@@ -242,6 +242,44 @@ pub const Parser = struct {
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
             return .{ .sessions_changed = {} };
+        } else if (std.mem.eql(u8, cmd, "%layout-change")) cmd: {
+            var re = oni.Regex.init(
+                "^%layout-change @([0-9]+) (.+) (.+) (.*)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[1])..@intCast(ends[1])],
+                10,
+            ) catch unreachable;
+            const layout = line[@intCast(starts[2])..@intCast(ends[2])];
+            const visible_layout = line[@intCast(starts[3])..@intCast(ends[3])];
+            const raw_flags = line[@intCast(starts[4])..@intCast(ends[4])];
+
+            // Important: do not clear buffer here since layout strings point to it
+            self.state = .idle;
+            return .{ .layout_change = .{
+                .window_id = id,
+                .layout = layout,
+                .visible_layout = visible_layout,
+                .raw_flags = raw_flags,
+            } };
         } else if (std.mem.eql(u8, cmd, "%window-add")) cmd: {
             var re = oni.Regex.init(
                 "^%window-add @([0-9]+)$",
@@ -455,6 +493,14 @@ pub const Notification = union(enum) {
     /// A session was created or destroyed.
     sessions_changed,
 
+    /// The layout of the window with ID window-id changed.
+    layout_change: struct {
+        window_id: usize,
+        layout: []const u8,
+        visible_layout: []const u8,
+        raw_flags: []const u8,
+    },
+
     /// The window with ID window-id was linked to the current session.
     window_add: struct {
         id: usize,
@@ -573,6 +619,21 @@ test "tmux sessions-changed carriage return" {
     for ("%sessions-changed\r") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .sessions_changed);
+}
+
+test "tmux layout-change" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%layout-change @2 1234x791,0,0{617x791,0,0,0,617x791,618,0,1} 1234x791,0,0{617x791,0,0,0,617x791,618,0,1} *-") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .layout_change);
+    try testing.expectEqual(2, n.layout_change.window_id);
+    try testing.expectEqualStrings("1234x791,0,0{617x791,0,0,0,617x791,618,0,1}", n.layout_change.layout);
+    try testing.expectEqualStrings("1234x791,0,0{617x791,0,0,0,617x791,618,0,1}", n.layout_change.visible_layout);
+    try testing.expectEqualStrings("*-", n.layout_change.raw_flags);
 }
 
 test "tmux window-add" {
