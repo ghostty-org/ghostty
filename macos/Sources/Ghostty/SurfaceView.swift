@@ -1,6 +1,6 @@
+import GhosttyKit
 import SwiftUI
 import UserNotifications
-import GhosttyKit
 
 extension Ghostty {
     /// Render a terminal for the active app in the environment.
@@ -51,8 +51,8 @@ extension Ghostty {
         @State private var isHoveringURLLeft: Bool = false
 
         #if canImport(AppKit)
-        // Observe SecureInput to detect when its enabled
-        @ObservedObject private var secureInput = SecureInput.shared
+            // Observe SecureInput to detect when its enabled
+            @ObservedObject private var secureInput = SecureInput.shared
         #endif
 
         @EnvironmentObject private var ghostty: Ghostty.App
@@ -66,8 +66,8 @@ extension Ghostty {
                 // resize callback.
                 GeometryReader { geo in
                     #if canImport(AppKit)
-                    let pubBecomeKey = center.publisher(for: NSWindow.didBecomeKeyNotification)
-                    let pubResign = center.publisher(for: NSWindow.didResignKeyNotification)
+                        let pubBecomeKey = center.publisher(for: NSWindow.didBecomeKeyNotification)
+                        let pubResign = center.publisher(for: NSWindow.didResignKeyNotification)
                     #endif
 
                     SurfaceRepresentable(view: surfaceView, size: geo.size)
@@ -75,20 +75,20 @@ extension Ghostty {
                         .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
                         .focusedValue(\.ghosttySurfaceView, surfaceView)
                         .focusedValue(\.ghosttySurfaceCellSize, surfaceView.cellSize)
-                    #if canImport(AppKit)
-                        .onReceive(pubBecomeKey) { notification in
-                            guard let window = notification.object as? NSWindow else { return }
-                            guard let surfaceWindow = surfaceView.window else { return }
-                            windowFocus = surfaceWindow == window
-                        }
-                        .onReceive(pubResign) { notification in
-                            guard let window = notification.object as? NSWindow else { return }
-                            guard let surfaceWindow = surfaceView.window else { return }
-                            if (surfaceWindow == window) {
-                                windowFocus = false
+                        #if canImport(AppKit)
+                            .onReceive(pubBecomeKey) { notification in
+                                guard let window = notification.object as? NSWindow else { return }
+                                guard let surfaceWindow = surfaceView.window else { return }
+                                windowFocus = surfaceWindow == window
                             }
-                        }
-                    #endif
+                            .onReceive(pubResign) { notification in
+                                guard let window = notification.object as? NSWindow else { return }
+                                guard let surfaceWindow = surfaceView.window else { return }
+                                if surfaceWindow == window {
+                                    windowFocus = false
+                                }
+                            }
+                        #endif
 
                     // If our geo size changed then we show the resize overlay as configured.
                     if let surfaceSize = surfaceView.surfaceSize {
@@ -103,9 +103,10 @@ extension Ghostty {
                     }
                 }
                 .ghosttySurfaceView(surfaceView)
-                
+
                 // Progress report
-                if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
+                if let progressReport = surfaceView.progressReport, progressReport.state != .remove
+                {
                     VStack(spacing: 0) {
                         SurfaceProgressBar(report: progressReport)
                         Spacer()
@@ -114,34 +115,39 @@ extension Ghostty {
                     .allowsHitTesting(false)
                     .transition(.opacity)
                 }
-                
-#if canImport(AppKit)
-                // If we are in the middle of a key sequence, then we show a visual element. We only
-                // support this on macOS currently although in theory we can support mobile with keyboards!
-                if !surfaceView.keySequence.isEmpty {
-                    let padding: CGFloat = 5
-                    VStack {
-                        Spacer()
 
-                        HStack {
-                            Text(verbatim: "Pending Key Sequence:")
-                            ForEach(0..<surfaceView.keySequence.count, id: \.description) { index in
-                                let key = surfaceView.keySequence[index]
-                                Text(verbatim: key.description)
-                                    .font(.system(.body, design: .monospaced))
-                                    .padding(3)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .fill(Color(NSColor.selectedTextBackgroundColor))
-                                    )
+                #if canImport(AppKit)
+                    // If we are in the middle of a key sequence, then we show a visual element. We only
+                    // support this on macOS currently although in theory we can support mobile with keyboards!
+                    if !surfaceView.keySequence.isEmpty {
+                        let padding: CGFloat = 5
+                        VStack {
+                            Spacer()
+
+                            HStack {
+                                Text(verbatim: "Pending Key Sequence:")
+                                ForEach(0..<surfaceView.keySequence.count, id: \.description) {
+                                    index in
+                                    let key = surfaceView.keySequence[index]
+                                    Text(verbatim: key.description)
+                                        .font(.system(.body, design: .monospaced))
+                                        .padding(3)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .fill(Color(NSColor.selectedTextBackgroundColor))
+                                        )
+                                }
                             }
+                            .padding(
+                                .init(
+                                    top: padding, leading: padding, bottom: padding,
+                                    trailing: padding)
+                            )
+                            .frame(maxWidth: .infinity)
+                            .background(.background)
                         }
-                        .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                        .frame(maxWidth: .infinity)
-                        .background(.background)
                     }
-                }
-#endif
+                #endif
 
                 // If we have a URL from hovering a link, we show that.
                 if let url = surfaceView.hoverUrl {
@@ -154,10 +160,16 @@ extension Ghostty {
                                 Spacer()
 
                                 Text(verbatim: url)
-                                    .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
+                                    .padding(
+                                        .init(
+                                            top: padding, leading: padding, bottom: padding,
+                                            trailing: padding)
+                                    )
                                     .background(
-                                        UnevenRoundedRectangle(cornerRadii: .init(topLeading: cornerRadius))
-                                            .fill(.background)
+                                        UnevenRoundedRectangle(
+                                            cornerRadii: .init(topLeading: cornerRadius)
+                                        )
+                                        .fill(.background)
                                     )
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -170,10 +182,16 @@ extension Ghostty {
                                 Spacer()
 
                                 Text(verbatim: url)
-                                    .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
+                                    .padding(
+                                        .init(
+                                            top: padding, leading: padding, bottom: padding,
+                                            trailing: padding)
+                                    )
                                     .background(
-                                        UnevenRoundedRectangle(cornerRadii: .init(topTrailing: cornerRadius))
-                                            .fill(.background)
+                                        UnevenRoundedRectangle(
+                                            cornerRadii: .init(topTrailing: cornerRadius)
+                                        )
+                                        .fill(.background)
                                     )
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -188,14 +206,13 @@ extension Ghostty {
                 }
 
                 #if canImport(AppKit)
-                // If we have secure input enabled and we're the focused surface and window
-                // then we want to show the secure input overlay.
-                if (ghostty.config.secureInputIndication &&
-                    secureInput.enabled &&
-                    surfaceFocus &&
-                    windowFocus) {
-                    SecureInputOverlay()
-                }
+                    // If we have secure input enabled and we're the focused surface and window
+                    // then we want to show the secure input overlay.
+                    if ghostty.config.secureInputIndication && secureInput.enabled && surfaceFocus
+                        && windowFocus
+                    {
+                        SecureInputOverlay()
+                    }
                 #endif
 
                 // Search overlay
@@ -208,15 +225,15 @@ extension Ghostty {
                 }
 
                 // Show bell border if enabled
-                if (ghostty.config.bellFeatures.contains(.border)) {
+                if ghostty.config.bellFeatures.contains(.border) {
                     BellBorderOverlay(bell: surfaceView.bell)
                 }
 
                 // If our surface is not healthy, then we render an error view over it.
-                if (!surfaceView.healthy) {
+                if !surfaceView.healthy {
                     Rectangle().fill(ghostty.config.backgroundColor)
                     SurfaceRendererUnhealthyView()
-                } else if (surfaceView.error != nil) {
+                } else if surfaceView.error != nil {
                     Rectangle().fill(ghostty.config.backgroundColor)
                     SurfaceErrorView()
                 }
@@ -225,11 +242,24 @@ extension Ghostty {
                 // rectangle above our view to make it look unfocused. We use "surfaceFocus"
                 // because we want to keep our focused surface dark even if we don't have window
                 // focus.
-                if (isSplit && !surfaceFocus) {
-                    let overlayOpacity = ghostty.config.unfocusedSplitOpacity;
-                    if (overlayOpacity > 0) {
+                if isSplit && !surfaceFocus {
+                    let overlayOpacity = ghostty.config.unfocusedSplitOpacity
+                    if overlayOpacity > 0 {
                         Rectangle()
                             .fill(ghostty.config.unfocusedSplitFill)
+                            .allowsHitTesting(false)
+                            .opacity(overlayOpacity)
+                    }
+                }
+
+                // If our window doesn't have focus, we put a semi-transparent black
+                // rectangle above our view to make it look unfocused. This is independent
+                // of split focus - it applies to ALL surfaces in an unfocused window.
+                if !windowFocus {
+                    let overlayOpacity = ghostty.config.unfocusedWindowOpacity
+                    if overlayOpacity > 0 {
+                        Rectangle()
+                            .fill(ghostty.config.unfocusedWindowFill)
                             .allowsHitTesting(false)
                             .opacity(overlayOpacity)
                     }
@@ -248,7 +278,8 @@ extension Ghostty {
 
                 VStack(alignment: .leading) {
                     Text("Oh, no. 😭").font(.title)
-                    Text("""
+                    Text(
+                        """
                         The renderer has failed. This is usually due to exhausting
                         available GPU memory. Please free up available resources.
                         """.replacingOccurrences(of: "\n", with: " ")
@@ -270,7 +301,8 @@ extension Ghostty {
 
                 VStack(alignment: .leading) {
                     Text("Oh, no. 😭").font(.title)
-                    Text("""
+                    Text(
+                        """
                         The terminal failed to initialize. Please check the logs for
                         more information. This is usually a bug.
                         """.replacingOccurrences(of: "\n", with: " ")
@@ -281,8 +313,6 @@ extension Ghostty {
             .padding()
         }
     }
-
-
 
     // This is the resize overlay that shows on top of a surface to show the current
     // size during a resize operation.
@@ -308,47 +338,50 @@ extension Ghostty {
         // This computed boolean is set to true when the overlay should be hidden.
         private var hidden: Bool {
             // If we aren't ready yet then we wait...
-            if (!ready) { return true; }
+            if !ready { return true }
 
             // Hidden if we already processed this size.
-            if (lastSize == geoSize) { return true; }
+            if lastSize == geoSize { return true }
 
             // If we were focused recently we hide it as well. This avoids showing
             // the resize overlay when SwiftUI is lazily resizing.
             if let instant = focusInstant {
                 let d = instant.duration(to: ContinuousClock.now)
-                if (d < .milliseconds(500)) {
+                if d < .milliseconds(500) {
                     // Avoid this size completely. We can't set values during
                     // view updates so we have to defer this to another tick.
                     DispatchQueue.main.async {
                         lastSize = geoSize
                     }
 
-                    return true;
+                    return true
                 }
             }
 
             // Hidden depending on overlay config
-            switch (overlay) {
-            case .never: return true;
-            case .always: return false;
-            case .after_first: return lastSize == nil;
+            switch overlay {
+            case .never: return true
+            case .always: return false
+            case .after_first: return lastSize == nil
             }
         }
 
         var body: some View {
             VStack {
-                if (!position.top()) {
+                if !position.top() {
                     Spacer()
                 }
 
                 HStack {
-                    if (!position.left()) {
+                    if !position.left() {
                         Spacer()
                     }
 
                     Text(verbatim: "\(size.columns) ⨯ \(size.rows)")
-                        .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
+                        .padding(
+                            .init(
+                                top: padding, leading: padding, bottom: padding, trailing: padding)
+                        )
                         .background(
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(.background)
@@ -357,12 +390,12 @@ extension Ghostty {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    if (!position.right()) {
+                    if !position.right() {
                         Spacer()
                     }
                 }
 
-                if (!position.bottom()) {
+                if !position.bottom() {
                     Spacer()
                 }
             }
@@ -382,7 +415,7 @@ extension Ghostty {
 
                 // We only sleep if we're ready. If we're not ready then we want to set
                 // our last size right away to avoid a flash.
-                if (ready) {
+                if ready {
                     try? await Task.sleep(nanoseconds: UInt64(duration) * 1_000_000)
                 }
 
@@ -400,68 +433,72 @@ extension Ghostty {
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
         @FocusState private var isSearchFieldFocused: Bool
-        
+
         private let padding: CGFloat = 8
-        
+
         var body: some View {
             GeometryReader { geo in
                 HStack(spacing: 4) {
                     TextField("Search", text: $searchState.needle)
-                    .textFieldStyle(.plain)
-                    .frame(width: 180)
-                    .padding(.leading, 8)
-                    .padding(.trailing, 50)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.1))
-                    .cornerRadius(6)
-                    .focused($isSearchFieldFocused)
-                    .overlay(alignment: .trailing) {
-                        if let selected = searchState.selected {
-                            Text("\(selected + 1)/\(searchState.total, default: "?")")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                                .padding(.trailing, 8)
-                        } else if let total = searchState.total {
-                            Text("-/\(total)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                                .padding(.trailing, 8)
+                        .textFieldStyle(.plain)
+                        .frame(width: 180)
+                        .padding(.leading, 8)
+                        .padding(.trailing, 50)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.1))
+                        .cornerRadius(6)
+                        .focused($isSearchFieldFocused)
+                        .overlay(alignment: .trailing) {
+                            if let selected = searchState.selected {
+                                Text("\(selected + 1)/\(searchState.total, default: "?")")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .monospacedDigit()
+                                    .padding(.trailing, 8)
+                            } else if let total = searchState.total {
+                                Text("-/\(total)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .monospacedDigit()
+                                    .padding(.trailing, 8)
+                            }
                         }
-                    }
-#if canImport(AppKit)
-                    .onExitCommand {
-                        Ghostty.moveFocus(to: surfaceView)
-                    }
-#endif
-                    .backport.onKeyPress(.return) { modifiers in
-                        guard let surface = surfaceView.surface else { return .ignored }
-                        let action = modifiers.contains(.shift)
-                        ? "navigate_search:previous"
-                        : "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
-                        return .handled
-                    }
+                        #if canImport(AppKit)
+                            .onExitCommand {
+                                Ghostty.moveFocus(to: surfaceView)
+                            }
+                        #endif
+                        .backport.onKeyPress(.return) { modifiers in
+                            guard let surface = surfaceView.surface else { return .ignored }
+                            let action =
+                                modifiers.contains(.shift)
+                                ? "navigate_search:previous"
+                                : "navigate_search:next"
+                            ghostty_surface_binding_action(
+                                surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                            return .handled
+                        }
 
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                        ghostty_surface_binding_action(
+                            surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                     }) {
                         Image(systemName: "chevron.up")
                     }
                     .buttonStyle(SearchButtonStyle())
-                    
+
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:previous"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                        ghostty_surface_binding_action(
+                            surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                     }) {
                         Image(systemName: "chevron.down")
                     }
                     .buttonStyle(SearchButtonStyle())
-                    
+
                     Button(action: onClose) {
                         Image(systemName: "xmark")
                     }
@@ -474,7 +511,8 @@ extension Ghostty {
                 .onAppear {
                     isSearchFieldFocused = true
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) {
+                    notification in
                     guard notification.object as? SurfaceView === surfaceView else { return }
                     isSearchFieldFocused = true
                 }
@@ -494,7 +532,8 @@ extension Ghostty {
                             dragOffset = value.translation
                         }
                         .onEnded { value in
-                            let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
+                            let centerPos = centerPosition(
+                                for: corner, in: geo.size, barSize: barSize)
                             let newCenter = CGPoint(
                                 x: centerPos.x + value.translation.width,
                                 y: centerPos.y + value.translation.height
@@ -519,7 +558,7 @@ extension Ghostty {
 
         enum Corner {
             case topLeft, topRight, bottomLeft, bottomRight
-            
+
             var alignment: Alignment {
                 switch self {
                 case .topLeft: return .topLeading
@@ -529,11 +568,13 @@ extension Ghostty {
                 }
             }
         }
-        
-        private func centerPosition(for corner: Corner, in containerSize: CGSize, barSize: CGSize) -> CGPoint {
+
+        private func centerPosition(for corner: Corner, in containerSize: CGSize, barSize: CGSize)
+            -> CGPoint
+        {
             let halfWidth = barSize.width / 2 + padding
             let halfHeight = barSize.height / 2 + padding
-            
+
             switch corner {
             case .topLeft:
                 return CGPoint(x: halfWidth, y: halfHeight)
@@ -542,24 +583,25 @@ extension Ghostty {
             case .bottomLeft:
                 return CGPoint(x: halfWidth, y: containerSize.height - halfHeight)
             case .bottomRight:
-                return CGPoint(x: containerSize.width - halfWidth, y: containerSize.height - halfHeight)
+                return CGPoint(
+                    x: containerSize.width - halfWidth, y: containerSize.height - halfHeight)
             }
         }
-        
+
         private func closestCorner(to point: CGPoint, in containerSize: CGSize) -> Corner {
             let midX = containerSize.width / 2
             let midY = containerSize.height / 2
-            
+
             if point.x < midX {
                 return point.y < midY ? .topLeft : .bottomLeft
             } else {
                 return point.y < midY ? .topRight : .bottomRight
             }
         }
-        
+
         struct SearchButtonStyle: ButtonStyle {
             @State private var isHovered = false
-            
+
             func makeBody(configuration: Configuration) -> some View {
                 configuration.label
                     .foregroundStyle(isHovered || configuration.isPressed ? .primary : .secondary)
@@ -574,7 +616,7 @@ extension Ghostty {
                     }
                     .backport.pointerStyle(.link)
             }
-            
+
             private func backgroundColor(isPressed: Bool) -> Color {
                 if isPressed {
                     return Color.primary.opacity(0.2)
@@ -605,24 +647,24 @@ extension Ghostty {
         let size: CGSize
 
         #if canImport(AppKit)
-        func makeOSView(context: Context) -> SurfaceScrollView {
-            // On macOS, wrap the surface view in a scroll view
-            return SurfaceScrollView(contentSize: size, surfaceView: view)
-        }
+            func makeOSView(context: Context) -> SurfaceScrollView {
+                // On macOS, wrap the surface view in a scroll view
+                return SurfaceScrollView(contentSize: size, surfaceView: view)
+            }
 
-        func updateOSView(_ scrollView: SurfaceScrollView, context: Context) {
-            // Nothing to do: SwiftUI automatically updates the frame size, and
-            // SurfaceScrollView handles the rest in response to that
-        }
+            func updateOSView(_ scrollView: SurfaceScrollView, context: Context) {
+                // Nothing to do: SwiftUI automatically updates the frame size, and
+                // SurfaceScrollView handles the rest in response to that
+            }
         #else
-        func makeOSView(context: Context) -> SurfaceView {
-            // On iOS, return the surface view directly
-            return view
-        }
+            func makeOSView(context: Context) -> SurfaceView {
+                // On iOS, return the surface view directly
+                return view
+            }
 
-        func updateOSView(_ view: SurfaceView, context: Context) {
-            view.sizeDidChange(size)
-        }
+            func updateOSView(_ view: SurfaceView, context: Context) {
+                view.sizeDidChange(size)
+            }
         #endif
     }
 
@@ -637,13 +679,13 @@ extension Ghostty {
 
         /// Explicit command to set
         var command: String? = nil
-        
+
         /// Environment variables to set for the terminal
         var environmentVariables: [String: String] = [:]
 
         /// Extra input to send as stdin
         var initialInput: String? = nil
-        
+
         /// Wait after the command
         var waitAfterCommand: Bool = false
 
@@ -663,7 +705,8 @@ extension Ghostty {
                 for i in 0..<config.env_var_count {
                     let envVar = envVars[i]
                     if let key = String(cString: envVar.key, encoding: .utf8),
-                       let value = String(cString: envVar.value, encoding: .utf8) {
+                        let value = String(cString: envVar.value, encoding: .utf8)
+                    {
                         self.environmentVariables[key] = value
                     }
                 }
@@ -672,32 +715,36 @@ extension Ghostty {
 
         /// Provides a C-compatible ghostty configuration within a closure. The configuration
         /// and all its string pointers are only valid within the closure.
-        func withCValue<T>(view: SurfaceView, _ body: (inout ghostty_surface_config_s) throws -> T) rethrows -> T {
+        func withCValue<T>(view: SurfaceView, _ body: (inout ghostty_surface_config_s) throws -> T)
+            rethrows -> T
+        {
             var config = ghostty_surface_config_new()
             config.userdata = Unmanaged.passUnretained(view).toOpaque()
-#if os(macOS)
-            config.platform_tag = GHOSTTY_PLATFORM_MACOS
-            config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
-                nsview: Unmanaged.passUnretained(view).toOpaque()
-            ))
-            config.scale_factor = NSScreen.main!.backingScaleFactor
-#elseif os(iOS)
-            config.platform_tag = GHOSTTY_PLATFORM_IOS
-            config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(
-                uiview: Unmanaged.passUnretained(view).toOpaque()
-            ))
-            // Note that UIScreen.main is deprecated and we're supposed to get the
-            // screen through the view hierarchy instead. This means that we should
-            // probably set this to some default, then modify the scale factor through
-            // libghostty APIs when a UIView is attached to a window/scene. TODO.
-            config.scale_factor = UIScreen.main.scale
-#else
-#error("unsupported target")
-#endif
+            #if os(macOS)
+                config.platform_tag = GHOSTTY_PLATFORM_MACOS
+                config.platform = ghostty_platform_u(
+                    macos: ghostty_platform_macos_s(
+                        nsview: Unmanaged.passUnretained(view).toOpaque()
+                    ))
+                config.scale_factor = NSScreen.main!.backingScaleFactor
+            #elseif os(iOS)
+                config.platform_tag = GHOSTTY_PLATFORM_IOS
+                config.platform = ghostty_platform_u(
+                    ios: ghostty_platform_ios_s(
+                        uiview: Unmanaged.passUnretained(view).toOpaque()
+                    ))
+                // Note that UIScreen.main is deprecated and we're supposed to get the
+                // screen through the view hierarchy instead. This means that we should
+                // probably set this to some default, then modify the scale factor through
+                // libghostty APIs when a UIView is attached to a window/scene. TODO.
+                config.scale_factor = UIScreen.main.scale
+            #else
+                #error("unsupported target")
+            #endif
 
             // Zero is our default value that means to inherit the font size.
             config.font_size = fontSize ?? 0
-            
+
             // Set wait after command
             config.wait_after_command = waitAfterCommand
 
@@ -719,13 +766,14 @@ extension Ghostty {
                         return try keys.withCStrings { keyCStrings in
                             return try values.withCStrings { valueCStrings in
                                 // Create array of ghostty_env_var_s
-                                var envVars = Array<ghostty_env_var_s>()
+                                var envVars = [ghostty_env_var_s]()
                                 envVars.reserveCapacity(environmentVariables.count)
                                 for i in 0..<environmentVariables.count {
-                                    envVars.append(ghostty_env_var_s(
-                                        key: keyCStrings[i],
-                                        value: valueCStrings[i]
-                                    ))
+                                    envVars.append(
+                                        ghostty_env_var_s(
+                                            key: keyCStrings[i],
+                                            value: valueCStrings[i]
+                                        ))
                                 }
 
                                 return try envVars.withUnsafeMutableBufferPointer { buffer in
@@ -744,7 +792,7 @@ extension Ghostty {
     /// Visual overlay that shows a border around the edges when the bell rings with border feature enabled.
     struct BellBorderOverlay: View {
         let bell: Bool
-        
+
         var body: some View {
             Rectangle()
                 .strokeBorder(
@@ -758,59 +806,60 @@ extension Ghostty {
     }
 
     #if canImport(AppKit)
-    /// When changing the split state, or going full screen (native or non), the terminal view
-    /// will lose focus. There has to be some nice SwiftUI-native way to fix this but I can't
-    /// figure it out so we're going to do this hacky thing to bring focus back to the terminal
-    /// that should have it.
-    static func moveFocus(
-        to: SurfaceView,
-        from: SurfaceView? = nil,
-        delay: TimeInterval? = nil
-    ) {
-        // The whole delay machinery is a bit of a hack to work around a
-        // situation where the window is destroyed and the surface view
-        // will never be attached to a window. Realistically, we should
-        // handle this upstream but we also don't want this function to be
-        // a source of infinite loops.
+        /// When changing the split state, or going full screen (native or non), the terminal view
+        /// will lose focus. There has to be some nice SwiftUI-native way to fix this but I can't
+        /// figure it out so we're going to do this hacky thing to bring focus back to the terminal
+        /// that should have it.
+        static func moveFocus(
+            to: SurfaceView,
+            from: SurfaceView? = nil,
+            delay: TimeInterval? = nil
+        ) {
+            // The whole delay machinery is a bit of a hack to work around a
+            // situation where the window is destroyed and the surface view
+            // will never be attached to a window. Realistically, we should
+            // handle this upstream but we also don't want this function to be
+            // a source of infinite loops.
 
-        // Our max delay before we give up
-        let maxDelay: TimeInterval = 0.5
-        guard (delay ?? 0) < maxDelay else { return }
+            // Our max delay before we give up
+            let maxDelay: TimeInterval = 0.5
+            guard (delay ?? 0) < maxDelay else { return }
 
-        // We start at a 50 millisecond delay and do a doubling backoff
-        let nextDelay: TimeInterval = if let delay {
-            delay * 2
-        } else {
-            // 100 milliseconds
-            0.05
-        }
+            // We start at a 50 millisecond delay and do a doubling backoff
+            let nextDelay: TimeInterval =
+                if let delay {
+                    delay * 2
+                } else {
+                    // 100 milliseconds
+                    0.05
+                }
 
-        let work: DispatchWorkItem = .init {
-            // If the callback runs before the surface is attached to a view
-            // then the window will be nil. We just reschedule in that case.
-            guard let window = to.window else {
-                moveFocus(to: to, from: from, delay: nextDelay)
-                return
+            let work: DispatchWorkItem = .init {
+                // If the callback runs before the surface is attached to a view
+                // then the window will be nil. We just reschedule in that case.
+                guard let window = to.window else {
+                    moveFocus(to: to, from: from, delay: nextDelay)
+                    return
+                }
+
+                // If we had a previously focused node and its not where we're sending
+                // focus, make sure that we explicitly tell it to lose focus. In theory
+                // we should NOT have to do this but the focus callback isn't getting
+                // called for some reason.
+                if let from = from {
+                    _ = from.resignFirstResponder()
+                }
+
+                window.makeFirstResponder(to)
             }
 
-            // If we had a previously focused node and its not where we're sending
-            // focus, make sure that we explicitly tell it to lose focus. In theory
-            // we should NOT have to do this but the focus callback isn't getting
-            // called for some reason.
-            if let from = from {
-                _ = from.resignFirstResponder()
+            let queue = DispatchQueue.main
+            if let delay {
+                queue.asyncAfter(deadline: .now() + delay, execute: work)
+            } else {
+                queue.async(execute: work)
             }
-
-            window.makeFirstResponder(to)
         }
-
-        let queue = DispatchQueue.main
-        if let delay {
-            queue.asyncAfter(deadline: .now() + delay, execute: work)
-        } else {
-            queue.async(execute: work)
-        }
-    }
     #endif
 }
 
