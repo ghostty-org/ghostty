@@ -155,6 +155,9 @@ command_timer: ?std.time.Instant = null,
 /// Search state
 search: ?Search = null,
 
+/// Used to rate limit BEL handling.
+last_bell_time: ?std.time.Instant = null,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -1026,7 +1029,12 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .password_input => |v| try self.passwordInput(v),
 
-        .ring_bell => {
+        .ring_bell => bell: {
+            const now = std.time.Instant.now() catch unreachable;
+            if (self.last_bell_time) |last| {
+                if (now.since(last) < 100 * std.time.ns_per_ms) break :bell;
+            }
+            self.last_bell_time = now;
             _ = self.rt_app.performAction(
                 .{ .surface = self },
                 .ring_bell,
