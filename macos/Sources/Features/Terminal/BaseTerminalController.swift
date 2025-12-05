@@ -47,7 +47,22 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// This can be set to show/hide the command palette.
-    @Published var commandPaletteIsShowing: Bool = false
+    @Published var commandPaletteIsShowing: Bool = false {
+        didSet {
+            if commandPaletteIsShowing && sessionSearchIsShowing {
+                sessionSearchIsShowing = false
+            }
+        }
+    }
+    
+    /// This shows the session search palette.
+    @Published var sessionSearchIsShowing: Bool = false {
+        didSet {
+            if sessionSearchIsShowing && commandPaletteIsShowing {
+                commandPaletteIsShowing = false
+            }
+        }
+    }
     
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
@@ -511,7 +526,7 @@ class BaseTerminalController: NSWindowController,
         guard surfaceTree.contains(surfaceView) else { return }
         toggleCommandPalette(nil)
     }
-
+    
     @objc private func ghosttyMaximizeDidToggle(_ notification: Notification) {
         guard let window else { return }
         guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
@@ -1111,6 +1126,10 @@ class BaseTerminalController: NSWindowController,
 
     @IBAction func toggleCommandPalette(_ sender: Any?) {
         commandPaletteIsShowing.toggle()
+    }
+    
+    @IBAction func searchSessions(_ sender: Any?) {
+        sessionSearchIsShowing.toggle()
     }
     
     @IBAction func find(_ sender: Any) {

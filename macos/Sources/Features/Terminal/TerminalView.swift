@@ -32,6 +32,9 @@ protocol TerminalViewModel: ObservableObject {
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
     
+    /// The session search palette state.
+    var sessionSearchIsShowing: Bool { get set }
+    
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
 }
@@ -110,6 +113,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     TerminalCommandPaletteView(
                         surfaceView: surfaceView,
                         isPresented: $viewModel.commandPaletteIsShowing,
+                        isSessionSearchPresented: $viewModel.sessionSearchIsShowing,
                         ghosttyConfig: ghostty.config,
                         updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
                         self.delegate?.performAction(action, on: surfaceView)
