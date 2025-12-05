@@ -2592,6 +2592,8 @@ pub fn keyCallback(
         {
             // Refresh our link state
             const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             self.mouseRefreshLinks(
                 pos,
                 self.posToViewport(pos.x, pos.y),
