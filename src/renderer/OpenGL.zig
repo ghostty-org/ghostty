@@ -137,6 +137,17 @@ fn prepareContext(getProcAddress: anytype) !void {
     errdefer gl.glad.unload();
     log.info("loaded OpenGL {}.{}", .{ major, minor });
 
+    // Need to check version before trying to enable it
+    if (major < MIN_VERSION_MAJOR or
+        (major == MIN_VERSION_MAJOR and minor < MIN_VERSION_MINOR))
+    {
+        log.err(
+            "OpenGL version is too old. Ghostty requires OpenGL {d}.{d}",
+            .{ MIN_VERSION_MAJOR, MIN_VERSION_MINOR },
+        );
+        return error.OpenGLOutdated;
+    }
+
     // Enable debug output for the context.
     try gl.enable(gl.c.GL_DEBUG_OUTPUT);
 
@@ -145,16 +156,6 @@ fn prepareContext(getProcAddress: anytype) !void {
 
     // Enable SRGB framebuffer for linear blending support.
     try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
-
-    if (major < MIN_VERSION_MAJOR or
-        (major == MIN_VERSION_MAJOR and minor < MIN_VERSION_MINOR))
-    {
-        log.warn(
-            "OpenGL version is too old. Ghostty requires OpenGL {d}.{d}",
-            .{ MIN_VERSION_MAJOR, MIN_VERSION_MINOR },
-        );
-        return error.OpenGLOutdated;
-    }
 }
 
 /// This is called early right after surface creation.
