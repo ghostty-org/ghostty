@@ -162,6 +162,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             page-attached => $page_attached();
             page-detached => $page_detached();
             create-window => $tab_create_window();
+            menu-model: tab_context_menu;
             shortcuts: none;
           }
         }
@@ -189,6 +190,35 @@ menu split_menu {
   item {
     label: _("Split Right");
     action: "win.split-right";
+  }
+}
+
+menu tab_context_menu {
+  section {
+    item {
+      label: _("New Tab");
+      action: "win.new-tab";
+    }
+  }
+
+  section {
+    item {
+      label: _("Close Tab");
+      action: "tab.close";
+      target: "this";
+    }
+
+    item {
+      label: _("Close Other Tabs");
+      action: "tab.close";
+      target: "other";
+    }
+
+    item {
+      label: _("Close Tabs on the Right");
+      action: "tab.close";
+      target: "right";
+    }
   }
 }
 

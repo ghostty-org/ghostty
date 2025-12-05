@@ -600,9 +600,8 @@ pub const Action = union(enum) {
     /// of the `confirm-close-surface` configuration setting.
     close_surface,
 
-    /// Close the current tab and all splits therein _or_ close all tabs and
-    /// splits thein of tabs _other_ than the current tab, depending on the
-    /// mode.
+    /// Close the current tab and all splits therein, close all other tabs, or
+    /// close every tab to the right of the current one depending on the mode.
     ///
     /// If the mode is not specified, defaults to closing the current tab.
     ///
@@ -1005,6 +1004,7 @@ pub const Action = union(enum) {
     pub const CloseTabMode = enum {
         this,
         other,
+        right,
 
         pub const default: CloseTabMode = .this;
     };

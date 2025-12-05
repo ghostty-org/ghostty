@@ -26,6 +26,8 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
+
+    private var tabMenuObserver: NSObjectProtocol? = nil
     
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -53,6 +55,15 @@ class TerminalWindow: NSWindow {
     override func awakeFromNib() {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
+
+        tabMenuObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name(rawValue: "NSMenuWillOpenNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let menu = note.object as? NSMenu else { return }
+            self.configureTabContextMenuIfNeeded(menu)
+        }
         
         // This is required so that window restoration properly creates our tabs
         // again. I'm not sure why this is required. If you don't do this, then
@@ -202,6 +213,8 @@ class TerminalWindow: NSWindow {
     /// added.
     static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
 
+    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+
     func findTitlebarView() -> NSView? {
         // Find our tab bar. If it doesn't exist we don't do anything.
         //
@@ -276,6 +289,47 @@ class TerminalWindow: NSWindow {
             }
         }
     }
+
+    private func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
+        guard isTabContextMenu(menu) else { return }
+        if let existing = menu.items.first(where: { $0.identifier == Self.closeTabsOnRightMenuItemIdentifier }) {
+            menu.removeItem(existing)
+        }
+        guard let terminalController else { return }
+
+        let title = NSLocalizedString("Close Tabs on the Right", comment: "Tab context menu option")
+        let item = NSMenuItem(title: title, action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
+        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
+        item.target = terminalController
+        item.isEnabled = true
+
+        let closeOtherIndex = menu.items.firstIndex(where: { menuItem in
+            guard let action = menuItem.action else { return false }
+            let name = NSStringFromSelector(action).lowercased()
+            return name.contains("close") && name.contains("other") && name.contains("tab")
+        })
+
+        let closeThisIndex = menu.items.firstIndex(where: { menuItem in
+            guard let action = menuItem.action else { return false }
+            let name = NSStringFromSelector(action).lowercased()
+            return name.contains("close") && name.contains("tab")
+        })
+
+        if let idx = closeOtherIndex {
+            menu.insertItem(item, at: idx + 1)
+        } else if let idx = closeThisIndex {
+            menu.insertItem(item, at: idx + 1)
+        } else {
+            menu.addItem(item)
+        }
+    }
+
+    private func isTabContextMenu(_ menu: NSMenu) -> Bool {
+        guard NSApp.keyWindow === self else { return false }
+        let selectorNames = menu.items.compactMap { $0.action }.map { NSStringFromSelector($0).lowercased() }
+        return selectorNames.contains { $0.contains("close") && $0.contains("tab") }
+    }
+
 
     // MARK: Tab Key Equivalents
 
@@ -511,6 +565,12 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.closeButton)?.isHidden = true
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
+    }
+
+    deinit {
+        if let observer = tabMenuObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     // MARK: Config

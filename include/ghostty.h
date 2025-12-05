@@ -714,6 +714,7 @@ typedef struct {
 typedef enum {
   GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS,
   GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER,
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT,
 } ghostty_action_close_tab_mode_e;
 
 // apprt.surface.Message.ChildExited

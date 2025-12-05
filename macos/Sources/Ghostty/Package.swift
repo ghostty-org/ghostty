@@ -380,6 +380,9 @@ extension Notification.Name {
     /// Close other tabs
     static let ghosttyCloseOtherTabs = Notification.Name("com.mitchellh.ghostty.closeOtherTabs")
 
+    /// Close tabs to the right of the focused tab
+    static let ghosttyCloseTabsOnTheRight = Notification.Name("com.mitchellh.ghostty.closeTabsOnTheRight")
+
     /// Close window
     static let ghosttyCloseWindow = Notification.Name("com.mitchellh.ghostty.closeWindow")
 

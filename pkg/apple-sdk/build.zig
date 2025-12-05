@@ -30,6 +30,7 @@ pub fn addPaths(
             framework: []const u8,
             system_include: []const u8,
             library: []const u8,
+            cxx_include: []const u8,
         }) = .{};
     };
 
@@ -82,11 +83,36 @@ pub fn addPaths(
             });
         };
 
+        const cxx_include_path = cxx: {
+            const preferred = try std.fs.path.join(b.allocator, &.{
+                libc.sys_include_dir.?,
+                "c++",
+                "v1",
+            });
+            if (std.fs.accessAbsolute(preferred, .{})) |_| {
+                break :cxx preferred;
+            } else |_| {}
+
+            const sdk_root = std.fs.path.dirname(libc.sys_include_dir.?).?;
+            const fallback = try std.fs.path.join(b.allocator, &.{
+                sdk_root,
+                "include",
+                "c++",
+                "v1",
+            });
+            if (std.fs.accessAbsolute(fallback, .{})) |_| {
+                break :cxx fallback;
+            } else |_| {}
+
+            break :cxx preferred;
+        };
+
         gop.value_ptr.* = .{
             .libc = path,
             .framework = framework_path,
             .system_include = libc.sys_include_dir.?,
             .library = library_path,
+            .cxx_include = cxx_include_path,
         };
     }
 
@@ -107,5 +133,6 @@ pub fn addPaths(
     // https://github.com/ziglang/zig/issues/24024
     step.root_module.addSystemFrameworkPath(.{ .cwd_relative = value.framework });
     step.root_module.addSystemIncludePath(.{ .cwd_relative = value.system_include });
+    step.root_module.addSystemIncludePath(.{ .cwd_relative = value.cxx_include });
     step.root_module.addLibraryPath(.{ .cwd_relative = value.library });
 }
