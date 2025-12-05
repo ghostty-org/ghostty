@@ -48,7 +48,7 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
-    
+
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
@@ -77,6 +77,9 @@ class BaseTerminalController: NSWindowController,
 
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
+
+    /// The most recently focused surface used for toggling focus.
+    private var recentFocusedSurface: Ghostty.SurfaceView? = nil
 
     /// The time that undo/redo operations that contain running ptys are valid for.
     var undoExpiration: Duration {
@@ -259,6 +262,8 @@ class BaseTerminalController: NSWindowController,
         if (to.isEmpty) {
             focusedSurface = nil
         }
+
+        pruneRecentFocusedSurface(tree: to)
     }
 
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
@@ -364,11 +369,61 @@ class BaseTerminalController: NSWindowController,
 
     // MARK: Split Tree Management
 
+    private func containsInSurfaceTree(
+        _ surface: Ghostty.SurfaceView?,
+        tree: SplitTree<Ghostty.SurfaceView>? = nil
+    ) -> Bool {
+        guard let surface else { return false }
+        let activeTree = tree ?? surfaceTree
+        return activeTree.contains(surface)
+    }
+
+    private func pruneRecentFocusedSurface(tree: SplitTree<Ghostty.SurfaceView>? = nil) {
+        guard recentFocusedSurface != nil else { return }
+
+        if !containsInSurfaceTree(recentFocusedSurface, tree: tree) {
+            recentFocusedSurface = nil
+        }
+    }
+
+    private func updateRecentFocusedSurface(
+        previous: Ghostty.SurfaceView?,
+        current: Ghostty.SurfaceView?
+    ) {
+        guard let previous, let current else { return }
+        guard previous !== current else { return }
+        guard containsInSurfaceTree(previous), containsInSurfaceTree(current) else { return }
+
+        recentFocusedSurface = previous
+    }
+
+    func splitFocusTarget(
+        for direction: Ghostty.SplitFocusDirection,
+        from target: Ghostty.SurfaceView
+    ) -> Ghostty.SurfaceView? {
+        // Find the node for the target surface
+        guard let targetNode = surfaceTree.root?.node(view: target) else { return nil }
+
+        switch direction {
+        case .recent:
+            pruneRecentFocusedSurface()
+
+            guard let recentSurface = recentFocusedSurface, recentSurface !== target else {
+                return nil
+            }
+
+            return containsInSurfaceTree(recentSurface) ? recentSurface : nil
+
+        default:
+            return surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode)
+        }
+    }
+
     /// Find the next surface to focus when a node is being closed.
     /// Goes to previous split unless we're the leftmost leaf, then goes to next.
     private func findNextFocusTargetAfterClosing(node: SplitTree<Ghostty.SurfaceView>.Node) -> Ghostty.SurfaceView? {
         guard let root = surfaceTree.root else { return nil }
-        
+
         // If we're the leftmost, then we move to the next surface after closing.
         // Otherwise, we move to the previous.
         if root.leftmostLeaf() == node.leftmostLeaf() {
@@ -377,7 +432,7 @@ class BaseTerminalController: NSWindowController,
             return surfaceTree.focusTarget(for: .previous, from: node)
         }
     }
-    
+
     /// Remove a node from the surface tree and move focus appropriately.
     ///
     /// This also updates the undo manager to support restoring this node.
@@ -553,14 +608,14 @@ class BaseTerminalController: NSWindowController,
 
     @objc private func ghosttyDidEqualizeSplits(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
-        
+
         // Check if target surface is in current controller's tree
         guard surfaceTree.contains(target) else { return }
-        
+
         // Equalize the splits
         surfaceTree = surfaceTree.equalize()
     }
-    
+
     @objc private func ghosttyDidFocusSplit(_ notification: Notification) {
         // The target must be within our tree
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
@@ -570,11 +625,8 @@ class BaseTerminalController: NSWindowController,
         guard let directionAny = notification.userInfo?[Ghostty.Notification.SplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
 
-        // Find the node for the target surface
-        guard let targetNode = surfaceTree.root?.node(view: target) else { return }
-        
         // Find the next surface to focus
-        guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
+        guard let nextSurface = splitFocusTarget(for: direction, from: target) else {
             return
         }
 
@@ -588,7 +640,7 @@ class BaseTerminalController: NSWindowController,
             Ghostty.moveFocus(to: nextSurface, from: target)
         }
     }
-    
+
     @objc private func ghosttyDidToggleSplitZoom(_ notification: Notification) {
         // The target must be within our tree
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
@@ -616,19 +668,19 @@ class BaseTerminalController: NSWindowController,
             Ghostty.moveFocus(to: target)
         }
     }
-    
+
     @objc private func ghosttyDidResizeSplit(_ notification: Notification) {
         // The target must be within our tree
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
-        
+
         // Extract direction and amount from notification
         guard let directionAny = notification.userInfo?[Ghostty.Notification.ResizeSplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitResizeDirection else { return }
-        
+
         guard let amountAny = notification.userInfo?[Ghostty.Notification.ResizeSplitAmountKey] else { return }
         guard let amount = amountAny as? UInt16 else { return }
-        
+
         // Convert Ghostty.SplitResizeDirection to SplitTree.Spatial.Direction
         let spatialDirection: SplitTree<Ghostty.SurfaceView>.Spatial.Direction
         switch direction {
@@ -637,10 +689,10 @@ class BaseTerminalController: NSWindowController,
         case .left: spatialDirection = .left
         case .right: spatialDirection = .right
         }
-        
+
         // Use viewBounds for the spatial calculation bounds
         let bounds = CGRect(origin: .zero, size: surfaceTree.viewBounds())
-        
+
         // Perform the resize using the new SplitTree resize method
         do {
             surfaceTree = try surfaceTree.resize(node: targetNode, by: amount, in: spatialDirection, with: bounds)
@@ -670,7 +722,7 @@ class BaseTerminalController: NSWindowController,
         if NSApp.mainWindow == window {
             surfaces = surfaces.filter { $0 != focusedSurface }
         }
-        
+
         for surface in surfaces {
             surface.flagsChanged(with: event)
         }
@@ -683,6 +735,9 @@ class BaseTerminalController: NSWindowController,
     func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         let lastFocusedSurface = focusedSurface
         focusedSurface = to
+
+        updateRecentFocusedSurface(previous: lastFocusedSurface, current: focusedSurface)
+        pruneRecentFocusedSurface()
 
         // Important to cancel any prior subscriptions
         focusedSurfaceCancellables = []
@@ -704,7 +759,7 @@ class BaseTerminalController: NSWindowController,
             titleDidChange(to: "👻")
         }
     }
-    
+
     private func computeTitle(title: String, bell: Bool) -> String {
         var result = title
         if (bell && ghostty.config.bellFeatures.contains(.title)) {
@@ -716,11 +771,11 @@ class BaseTerminalController: NSWindowController,
 
     private func titleDidChange(to: String) {
         guard let window else { return }
-        
+
         // Set the main window title
         window.title = to
     }
-    
+
     func pwdDidChange(to: URL?) {
         guard let window else { return }
 
@@ -812,7 +867,7 @@ class BaseTerminalController: NSWindowController,
 
     func fullscreenDidChange() {
         guard let fullscreenStyle else { return }
-        
+
         // When we enter fullscreen, we want to show the update overlay so that it
         // is easily visible. For native fullscreen this is visible by showing the
         // menubar but we don't want to rely on that.
@@ -903,26 +958,26 @@ class BaseTerminalController: NSWindowController,
             fullscreenStyle = NativeFullscreen(window)
             fullscreenStyle?.delegate = self
         }
-        
+
         // Set our update overlay state
         updateOverlayIsVisible = defaultUpdateOverlayVisibility()
     }
-    
+
     func defaultUpdateOverlayVisibility() -> Bool {
         guard let window else { return true }
-        
+
         // No titlebar we always show the update overlay because it can't support
         // updates in the titlebar
         guard window.styleMask.contains(.titled) else {
             return true
         }
-        
+
         // If it's a non terminal window we can't trust it has an update accessory,
         // so we always want to show the overlay.
         guard let window = window as? TerminalWindow else {
             return true
         }
-        
+
         // Show the overlay if the window isn't.
         return !window.supportsUpdateAccessory
     }
@@ -1112,19 +1167,19 @@ class BaseTerminalController: NSWindowController,
     @IBAction func toggleCommandPalette(_ sender: Any?) {
         commandPaletteIsShowing.toggle()
     }
-    
+
     @IBAction func find(_ sender: Any) {
         focusedSurface?.find(sender)
     }
-    
+
     @IBAction func findNext(_ sender: Any) {
         focusedSurface?.findNext(sender)
     }
-    
+
     @IBAction func findPrevious(_ sender: Any) {
         focusedSurface?.findNext(sender)
     }
-    
+
     @IBAction func findHide(_ sender: Any) {
         focusedSurface?.findHide(sender)
     }
