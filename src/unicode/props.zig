@@ -5,6 +5,7 @@
 //! benchmarks in src/bench to verify that we haven't regressed.
 
 const std = @import("std");
+const uucode = @import("uucode");
 
 pub const Properties = packed struct {
     /// Codepoint width. We clamp to [0, 2] since Ghostty handles control
@@ -12,8 +13,8 @@ pub const Properties = packed struct {
     /// becomes a 2-em dash).
     width: u2 = 0,
 
-    /// Grapheme boundary class.
-    grapheme_boundary_class: GraphemeBoundaryClass = .invalid,
+    /// Grapheme break property.
+    grapheme_break: uucode.x.types.GraphemeBreakNoControl = .other,
 
     /// Emoji VS compatibility
     emoji_vs_base: bool = false,
@@ -21,7 +22,7 @@ pub const Properties = packed struct {
     // Needed for lut.Generator
     pub fn eql(a: Properties, b: Properties) bool {
         return a.width == b.width and
-            a.grapheme_boundary_class == b.grapheme_boundary_class and
+            a.grapheme_break == b.grapheme_break and
             a.emoji_vs_base == b.emoji_vs_base;
     }
 
@@ -33,46 +34,13 @@ pub const Properties = packed struct {
         try writer.print(
             \\.{{
             \\    .width= {},
-            \\    .grapheme_boundary_class= .{s},
+            \\    .grapheme_break= .{s},
             \\    .emoji_vs_base= {},
             \\}}
         , .{
             self.width,
-            @tagName(self.grapheme_boundary_class),
+            @tagName(self.grapheme_break),
             self.emoji_vs_base,
         });
-    }
-};
-
-/// Possible grapheme boundary classes. This isn't an exhaustive list:
-/// we omit control, CR, LF, etc. because in Ghostty's usage that are
-/// impossible because they're handled by the terminal.
-pub const GraphemeBoundaryClass = enum(u4) {
-    invalid,
-    L,
-    V,
-    T,
-    LV,
-    LVT,
-    prepend,
-    extend,
-    zwj,
-    spacing_mark,
-    regional_indicator,
-    extended_pictographic,
-    extended_pictographic_base, // \p{Extended_Pictographic} & \p{Emoji_Modifier_Base}
-    emoji_modifier, // \p{Emoji_Modifier}
-
-    /// Returns true if this is an extended pictographic type. This
-    /// should be used instead of comparing the enum value directly
-    /// because we classify multiple.
-    pub fn isExtendedPictographic(self: GraphemeBoundaryClass) bool {
-        return switch (self) {
-            .extended_pictographic,
-            .extended_pictographic_base,
-            => true,
-
-            else => false,
-        };
     }
 };
