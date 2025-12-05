@@ -26,7 +26,7 @@ pub const Handler = struct {
         assert(self.state == .inactive);
 
         // Initialize our state to ignore in case of error
-        self.state = .{ .ignore = {} };
+        self.state = .ignore;
 
         // Try to parse the hook.
         const hk_ = self.tryHook(alloc, dcs) catch |err| {
@@ -70,7 +70,7 @@ pub const Handler = struct {
                                 ),
                             },
                         },
-                        .command = .{ .tmux = .{ .enter = {} } },
+                        .command = .{ .tmux = .enter },
                     };
                 },
 
@@ -116,7 +116,7 @@ pub const Handler = struct {
             // On error we just discard our state and ignore the rest
             log.info("error putting byte into DCS handler err={}", .{err});
             self.discard();
-            self.state = .{ .ignore = {} };
+            self.state = .ignore;
             return null;
         };
     }
@@ -158,7 +158,7 @@ pub const Handler = struct {
         // Note: we do NOT call deinit here on purpose because some commands
         // transfer memory ownership. If state needs cleanup, the switch
         // prong below should handle it.
-        defer self.state = .{ .inactive = {} };
+        defer self.state = .inactive;
 
         return switch (self.state) {
             .inactive,
@@ -167,7 +167,7 @@ pub const Handler = struct {
 
             .tmux => if (comptime build_options.tmux_control_mode) tmux: {
                 self.state.deinit();
-                break :tmux .{ .tmux = .{ .exit = {} } };
+                break :tmux .{ .tmux = .exit };
             } else unreachable,
 
             .xtgettcap => |*list| xtgettcap: {
@@ -200,7 +200,7 @@ pub const Handler = struct {
 
     fn discard(self: *Handler) void {
         self.state.deinit();
-        self.state = .{ .inactive = {} };
+        self.state = .inactive;
     }
 };
 
@@ -213,7 +213,7 @@ pub const Command = union(enum) {
 
     /// Tmux control mode
     tmux: if (build_options.tmux_control_mode)
-        terminal.tmux.Notification
+        terminal.tmux.ControlNotification
     else
         void,
 
@@ -255,21 +255,15 @@ pub const Command = union(enum) {
         decstbm,
         decslrm,
     };
-
-    /// Tmux control mode
-    pub const Tmux = union(enum) {
-        enter: void,
-        exit: void,
-    };
 };
 
 const State = union(enum) {
     /// We're not in a DCS state at the moment.
-    inactive: void,
+    inactive,
 
     /// We're hooked, but its an unknown DCS command or one that went
     /// invalid due to some bad input, so we're ignoring the rest.
-    ignore: void,
+    ignore,
 
     /// XTGETTCAP
     xtgettcap: std.Io.Writer.Allocating,
@@ -282,7 +276,7 @@ const State = union(enum) {
 
     /// Tmux control mode: https://github.com/tmux/tmux/wiki/Control-Mode
     tmux: if (build_options.tmux_control_mode)
-        terminal.tmux.Client
+        terminal.tmux.ControlParser
     else
         void,
 
