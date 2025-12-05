@@ -6,7 +6,9 @@
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
     #
-    # We are currently on unstable to get Zig 0.15 for our package.nix
+    # We are currently on nixpkgs-unstable to get Zig 0.15 for our package.nix and
+    # Gnome 49/Gtk 4.20.
+    #
     nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz";
     flake-utils.url = "github:numtide/flake-utils";
 
@@ -28,10 +30,7 @@
     zon2nix = {
       url = "github:jcollie/zon2nix?rev=bf983aa90ff169372b9fa8c02e57ea75e0b42245";
       inputs = {
-        # Don't override nixpkgs until Zig 0.15 is available in the Nix branch
-        # we are using for "normal" builds.
-        #
-        # nixpkgs.follows = "nixpkgs";
+        nixpkgs.follows = "nixpkgs";
       };
     };
   };
