@@ -342,7 +342,23 @@ fn addLinuxAppResources(
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
         });
 
+        // GSettings schema
+        try ts.append(b.allocator, .{
+            b.path("data/ghostty.gschema.xml.in"),
+            b.fmt("share/glib-2.0/schemas/{s}.gschema.xml", .{app_id}),
+        });
+
         break :templates try ts.toOwnedSlice(b.allocator);
+    };
+
+    // Convert app_id to path format (com.mitchellh.ghostty -> /com/mitchellh/ghostty/)
+    const app_id_path = appid_path: {
+        const path = try b.allocator.alloc(u8, app_id.len + 2);
+        path[0] = '/';
+        @memcpy(path[1 .. app_id.len + 1], app_id);
+        std.mem.replaceScalar(u8, path[1 .. app_id.len + 1], '.', '/');
+        path[path.len - 1] = '/';
+        break :appid_path path;
     };
 
     // Process all our templates
@@ -352,6 +368,7 @@ fn addLinuxAppResources(
         }, .{
             .NAME = name,
             .APPID = app_id,
+            .APPID_PATH = app_id_path,
             .GHOSTTY = exe_abs_path,
         });
 
