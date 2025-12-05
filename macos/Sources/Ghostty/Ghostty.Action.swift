@@ -108,6 +108,7 @@ extension Ghostty.Action {
         let total: UInt64
         let offset: UInt64
         let len: UInt64
+        var active: Bool { return total >= len }
         
         init(c: ghostty_action_scrollbar_s) {
             total = c.total
