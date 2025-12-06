@@ -8,6 +8,9 @@ import SwiftUI
 class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSToolbarDelegate {
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
+
+    /// Tb bar view for event routing
+    private weak var tabBarView: NSView?
     
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
@@ -67,6 +70,30 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         
         viewModel.isMainWindow = false
     }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard let tabBarView, viewModel.hasTabBar else {
+            super.sendEvent(event)
+            return
+        }
+
+        let isRightClick =
+            event.type == .rightMouseDown ||
+            (event.type == .otherMouseDown && event.buttonNumber == 2)
+
+        guard isRightClick else {
+            super.sendEvent(event)
+            return
+        }
+        let locationInTabBar = tabBarView.convert(event.locationInWindow, from: nil)
+
+        if tabBarView.bounds.contains(locationInTabBar) {
+            tabBarView.rightMouseDown(with: event)
+        } else {
+            super.sendEvent(event)
+        }
+    }
+
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
     // this, detect the tab bar being added, and override its behavior.
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
@@ -148,6 +175,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             let tabBar = findTabBar()
         else { return }
 
+        self.tabBarView = tabBar
+
         // View model updates must happen on their own ticks.
         DispatchQueue.main.async { [weak self] in
             self?.viewModel.hasTabBar = true
@@ -206,6 +235,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
             // Remove the observer so we can call setup again.
             self.tabBarObserver = nil
+            self.tabBarView = nil
 
             // Wait a tick to let the new tab bars appear and then set them up.
             DispatchQueue.main.async {
@@ -223,6 +253,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         // Clear our observations
         self.tabBarObserver = nil
+        self.tabBarView = nil
     }
 
     // MARK: NSToolbarDelegate
