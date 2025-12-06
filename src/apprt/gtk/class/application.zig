@@ -659,6 +659,8 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
+            .goto_window => return Action.gotoWindow(value),
+
             .goto_tab => return Action.gotoTab(target, value),
 
             .initial_size => return Action.initialSize(target, value),
@@ -1991,6 +1993,44 @@ const Action = struct {
                 });
             },
         }
+    }
+
+    pub fn gotoWindow(
+        direction: apprt.action.GotoWindow,
+    ) bool {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        const node = @as(?*glib.List, glist.findCustom(null, findActiveWindow));
+
+        const target_node = if (node) |n| switch (direction) {
+            .next => n.f_next orelse glist,
+            .previous => n.f_prev orelse last: {
+                var current = glist;
+                while (current.f_next) |next| {
+                    current = next;
+                }
+                break :last current;
+            },
+        } else glist;
+
+        const data = target_node.f_data  orelse return false;
+        const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+        gtk.Window.present(gtk_window);
+
+        const ghostty_window = gobject.ext.cast(Window, gtk_window) orelse return false;
+
+        var surface: ?*gobject.Object = null;
+        ghostty_window.as(gobject.Object).get("active-surface", &surface, @as(?*anyopaque, null));
+
+        if (surface) |s| {
+            const surface_obj = gobject.ext.cast(Surface, s) orelse return false;
+            surface_obj.grabFocus();
+            return true;
+        }
+
+        log.warn("window has no active surface, cannot grab focus", .{});
+        return false;
     }
 
     pub fn initialSize(
