@@ -286,18 +286,19 @@ pub const VTEvent = struct {
             ),
 
             else => switch (Value) {
-                u8, u16 => try md.put(
-                    key,
-                    try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
-                ),
-
                 []const u8,
                 [:0]const u8,
                 => try md.put(key, try alloc.dupeZ(u8, value)),
 
-                else => |T| {
-                    @compileLog(T);
-                    @compileError("unsupported type, see log");
+                else => switch (@typeInfo(Value)) {
+                    .int => try md.put(
+                        key,
+                        try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
+                    ),
+                    else => {
+                        @compileLog(Value);
+                        @compileError("unsupported type, see log");
+                    },
                 },
             },
         }
