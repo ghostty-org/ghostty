@@ -432,6 +432,7 @@ extension Ghostty {
                     }
 #if canImport(AppKit)
                     .onExitCommand {
+                        onClose()
                         Ghostty.moveFocus(to: surfaceView)
                     }
 #endif
