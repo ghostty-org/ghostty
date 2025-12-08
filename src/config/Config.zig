@@ -981,7 +981,7 @@ palette: Palette = .{},
 /// A value outside of the range 0.15 to 1 will be clamped to the nearest valid value.
 ///
 /// When set to 0 (the default), this feature is disabled completely.
-@"unfocused-window-opacity": f64 = 0,
+@"unfocused-window-opacity": f64 = 1.0,
 
 /// The color to dim an unfocused window. Unfocused windows are dimmed by
 /// rendering a semi-transparent rectangle over the split. This sets the color of
@@ -4278,10 +4278,8 @@ pub fn finalize(self: *Config) !void {
     // Clamp our split opacity
     self.@"unfocused-split-opacity" = @min(1.0, @max(0.15, self.@"unfocused-split-opacity"));
 
-    // Clamp our window opacity - allow 0 for "disabled"
-    if (self.@"unfocused-window-opacity" > 0) {
-        self.@"unfocused-window-opacity" = @min(1.0, @max(0.15, self.@"unfocused-window-opacity"));
-    }
+    // Clamp our window opacity
+    self.@"unfocused-window-opacity" = @min(1.0, @max(0.15, self.@"unfocused-window-opacity"));
 
     // Clamp our contrast
     self.@"minimum-contrast" = @min(21, @max(1, self.@"minimum-contrast"));

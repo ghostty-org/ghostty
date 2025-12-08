@@ -449,7 +449,7 @@ extension Ghostty {
         }
 
         var unfocusedWindowOpacity: Double {
-            guard let config = self.config else { return 0 }
+            guard let config = self.config else { return 1 }
             var opacity: Double = 1.00
             let key = "unfocused-window-opacity"
             _ = ghostty_config_get(config, &opacity, key, UInt(key.lengthOfBytes(using: .utf8)))
