@@ -1,5 +1,10 @@
 on: [push, pull_request]
 name: Nix
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name != 'main' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   required:
     name: "Required Checks: Nix"

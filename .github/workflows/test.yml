@@ -5,6 +5,11 @@ on:
 
 name: Test
 
+# We only want the latest commit to test for any non-main ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name != 'main' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   required:
     name: "Required Checks: Test"

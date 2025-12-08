@@ -5032,8 +5032,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .copy_to_clipboard => |format| {
-            // We can read from the renderer state without holding
-            // the lock because only we will write to this field.
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
             if (self.io.terminal.screens.active.selection) |sel| {
                 try self.copySelectionToClipboards(
                     sel,
@@ -5061,8 +5062,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .copy_url_to_clipboard => {
             // If the mouse isn't over a link, nothing we can do.
             if (!self.mouse.over_link) return false;
-
             const pos = try self.rt_surface.getCursorPos();
+
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             if (try self.linkAtPos(pos)) |link_info| {
                 const url_text = switch (link_info[0]) {
                     .open => url_text: {
@@ -5438,6 +5441,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         ),
 
         .select_all => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
             const sel = self.io.terminal.screens.active.selectAll();
             if (sel) |s| {
                 try self.setSelection(s);

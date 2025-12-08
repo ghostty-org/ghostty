@@ -7,6 +7,7 @@
 //! [1]: https://github.com/WebKit/WebKit/blob/main/Source/WebCore/page/Quirks.cpp
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const font = @import("font/main.zig");
 
@@ -41,6 +42,16 @@ pub fn disableDefaultFontFeatures(face: *const font.Face) bool {
 /// is negligible, but we have some asserts inside tight loops and hotpaths
 /// that cause significant overhead (as much as 15-20%) when they don't get
 /// optimized out.
-pub inline fn inlineAssert(ok: bool) void {
-    if (!ok) unreachable;
-}
+pub const inlineAssert = switch (builtin.mode) {
+    // In debug builds we just use std.debug.assert because this
+    // fixes up stack traces. `inline` causes broken stack traces. This
+    // is probably a Zig compiler bug but until it is fixed we have to
+    // do this for development sanity.
+    .Debug => std.debug.assert,
+
+    .ReleaseSmall, .ReleaseSafe, .ReleaseFast => (struct {
+        inline fn assert(ok: bool) void {
+            if (!ok) unreachable;
+        }
+    }).assert,
+};

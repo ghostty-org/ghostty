@@ -69,6 +69,7 @@ test {
     _ = i18n;
     _ = path;
     _ = uri;
+    _ = shell;
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;
