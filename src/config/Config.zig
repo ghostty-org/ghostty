@@ -8013,7 +8013,8 @@ pub const QuickTerminalSize = struct {
             tag: Tag,
             value: Value,
 
-            pub const Tag = enum(u8) { none, percentage, pixels };
+            /// c_int because it needs to be extern compatible
+            pub const Tag = enum(c_int) { none, percentage, pixels };
 
             pub const Value = extern union {
                 percentage: f32,
