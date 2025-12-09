@@ -2861,6 +2861,20 @@ keybind: Keybinds = .{},
 ///
 ///  * `vec4 iPreviousCursorColor` - Color of the previous terminal cursor.
 ///
+///  * `vec4 iCurrentCursorStyle` - Style of the terminal cursor
+///
+///    Macros simplified use are defined for the various cursor styles:
+///
+///    - `CURSORSTYLE_BLOCK` or `0`
+///    - `CURSORSTYLE_BLOCK_HOLLOW` or `1`
+///    - `CURSORSTYLE_BAR` or `2`
+///    - `CURSORSTYLE_UNDERLINE` or `3`
+///    - `CURSORSTYLE_LOCK` or `4`
+///
+///  * `vec4 iPreviousCursorStyle` - Style of the previous terminal cursor
+///
+///  * `vec4 iCursorVisible` - Visibility of the terminal cursor.
+///
 ///  * `float iTimeCursorChange` - Timestamp of terminal cursor change.
 ///
 ///    When the terminal cursor changes position or color, this is set to
