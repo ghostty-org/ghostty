@@ -316,6 +316,12 @@ class QuickTerminalController: BaseTerminalController {
             return
         }
 
+        // If there are multiple tabs, close the current tab instead of hiding
+        if tabManager.tabs.count > 1, let currentTab = tabManager.currentTab {
+            tabManager.closeTab(currentTab)
+            return
+        }
+
         // If its the root then we just animate out. We never actually allow
         // the surface to fully close.
         animateOut()
