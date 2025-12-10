@@ -8,7 +8,6 @@ const SurfaceMouse = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const input = @import("input.zig");
-const apprt = @import("apprt.zig");
 const terminal = @import("terminal/main.zig");
 const MouseShape = @import("terminal/mouse_shape.zig").MouseShape;
 

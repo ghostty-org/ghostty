@@ -1,5 +1,3 @@
-const internal_os = @import("../os/main.zig");
-
 // The required comptime API for any apprt.
 pub const App = @import("gtk/App.zig");
 pub const Surface = @import("gtk/Surface.zig");

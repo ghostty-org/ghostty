@@ -2,7 +2,7 @@ import Cocoa
 import GhosttyKit
 
 /// The fullscreen modes we support define how the fullscreen behaves.
-enum FullscreenMode {
+enum FullscreenMode: String, Codable {
     case native
     case nonNative
     case nonNativeVisibleMenu
@@ -31,6 +31,7 @@ enum FullscreenMode {
 /// Protocol that must be implemented by all fullscreen styles.
 protocol FullscreenStyle {
     var delegate: FullscreenDelegate? { get set }
+    var fullscreenMode: FullscreenMode { get }
     var isFullscreen: Bool { get }
     var supportsTabs: Bool { get }
     init?(_ window: NSWindow)
@@ -87,6 +88,7 @@ class FullscreenBase {
 /// macOS native fullscreen. This is the typical behavior you get by pressing the green fullscreen
 /// button on regular titlebars.
 class NativeFullscreen: FullscreenBase, FullscreenStyle {
+    var fullscreenMode: FullscreenMode { .native }
     var isFullscreen: Bool { window.styleMask.contains(.fullScreen) }
     var supportsTabs: Bool { true }
 
@@ -127,6 +129,8 @@ class NativeFullscreen: FullscreenBase, FullscreenStyle {
 }
 
 class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
+    var fullscreenMode: FullscreenMode { .nonNative }
+    
     // Non-native fullscreen never supports tabs because tabs require
     // the "titled" style and we don't have it for non-native fullscreen.
     var supportsTabs: Bool { false }
@@ -439,10 +443,12 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 }
 
 class NonNativeFullscreenVisibleMenu: NonNativeFullscreen {
+    override var fullscreenMode: FullscreenMode { .nonNativeVisibleMenu }
     override var properties: Properties { Properties(hideMenu: false) }
 }
 
 class NonNativeFullscreenPaddedNotch: NonNativeFullscreen {
+    override var fullscreenMode: FullscreenMode { .nonNativePaddedNotch }
     override var properties: Properties { Properties(paddedNotch: true) }
 }
 

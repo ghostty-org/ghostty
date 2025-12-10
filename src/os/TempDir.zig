@@ -3,7 +3,6 @@
 const TempDir = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const Dir = std.fs.Dir;
 const allocTmpDir = @import("file.zig").allocTmpDir;

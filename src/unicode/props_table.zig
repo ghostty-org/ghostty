@@ -1,4 +1,4 @@
-const Properties = @import("Properties.zig");
+const Properties = @import("props.zig").Properties;
 const lut = @import("lut.zig");
 
 /// The lookup tables for Ghostty.

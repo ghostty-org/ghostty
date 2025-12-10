@@ -12,10 +12,8 @@
 //!
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-
-const z2d = @import("z2d");
 
 const common = @import("common.zig");
 const Thickness = common.Thickness;
@@ -30,7 +28,6 @@ const hlineMiddle = common.hlineMiddle;
 const vlineMiddle = common.vlineMiddle;
 
 const font = @import("../../main.zig");
-const Sprite = @import("../../sprite.zig").Sprite;
 
 /// Specification of a traditional intersection-style line/box-drawing char,
 /// which can have a different style of line from each edge to the center.

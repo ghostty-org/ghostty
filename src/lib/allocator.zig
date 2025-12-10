@@ -2,6 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 
+/// Convenience functions
+pub const convenience = @import("allocator/convenience.zig");
+
 /// Useful alias since they're required to create Zig allocators
 pub const ZigVTable = std.mem.Allocator.VTable;
 
@@ -20,10 +23,16 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
     // If we're given an allocator, use it.
     if (c_alloc_) |c_alloc| return c_alloc.zig();
 
+    // Tests always use the test allocator so we can detect leaks.
+    if (comptime builtin.is_test) return testing.allocator;
+
     // If we have libc, use that. We prefer libc if we have it because
     // its generally fast but also lets the embedder easily override
     // malloc/free with custom allocators like mimalloc or something.
     if (comptime builtin.link_libc) return std.heap.c_allocator;
+
+    // Wasm
+    if (comptime builtin.target.cpu.arch.isWasm()) return std.heap.wasm_allocator;
 
     // No libc, use the preferred allocator for releases which is the
     // Zig SMP allocator.

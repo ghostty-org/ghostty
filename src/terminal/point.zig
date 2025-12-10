@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
 const size = @import("size.zig");
 
 /// The possible reference locations for a point. When someone says "(42, 80)"

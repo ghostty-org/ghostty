@@ -32,6 +32,9 @@ extension Ghostty {
                         InspectorViewRepresentable(surfaceView: surfaceView)
                             .focused($inspectorFocus)
                             .focusedValue(\.ghosttySurfaceView, surfaceView)
+                    }, onEqualize: {
+                        guard let surface = surfaceView.surface else { return }
+                        ghostty.splitEqualize(surface: surface)
                     })
                 }
             }

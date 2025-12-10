@@ -1,7 +1,6 @@
 //! Wayland protocol implementation for the Ghostty GTK apprt.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const build_options = @import("build_options");
 
 const gdk = @import("gdk");
 const gdk_wayland = @import("gdk_wayland");

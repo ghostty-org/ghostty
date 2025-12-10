@@ -136,6 +136,11 @@ in
         blueprint-compiler
         libadwaita
         gtk4
+
+        # Python packages
+        (python3.withPackages (python-pkgs: [
+          python-pkgs.ucs-detect
+        ]))
       ]
       ++ lib.optionals stdenv.hostPlatform.isLinux [
         # My nix shell environment installs the non-interactive version

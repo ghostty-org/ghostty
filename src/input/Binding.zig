@@ -4,7 +4,7 @@ const Binding = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
@@ -296,7 +296,7 @@ pub const Action = union(enum) {
     reset,
 
     /// Copy the selected text to the clipboard.
-    copy_to_clipboard,
+    copy_to_clipboard: CopyToClipboard,
 
     /// Paste the contents of the default clipboard.
     paste_from_clipboard,
@@ -332,6 +332,25 @@ pub const Action = union(enum) {
     /// to 14.5 points.
     set_font_size: f32,
 
+    /// Start a search for the given text. If the text is empty, then
+    /// the search is canceled. A canceled search will not disable any GUI
+    /// elements showing search. For that, the explicit end_search binding
+    /// should be used.
+    ///
+    /// If a previous search is active, it is replaced.
+    search: []const u8,
+
+    /// Navigate the search results. If there is no active search, this
+    /// is not performed.
+    navigate_search: NavigateSearch,
+
+    /// Start a search if it isn't started already. This doesn't set any
+    /// search terms, but opens the UI for searching.
+    start_search,
+
+    /// End the current search if any and hide any GUI elements.
+    end_search,
+
     /// Clear the screen and all scrollback.
     clear_screen,
 
@@ -346,6 +365,10 @@ pub const Action = union(enum) {
 
     /// Scroll to the selected text.
     scroll_to_selection,
+
+    /// Scroll to the given absolute row in the screen with 0 being
+    /// the first row.
+    scroll_to_row: usize,
 
     /// Scroll the screen up by one page.
     scroll_page_up,
@@ -430,13 +453,13 @@ pub const Action = union(enum) {
     ///     The default OS editor is determined by using `open` on macOS
     ///     and `xdg-open` on Linux.
     ///
-    write_scrollback_file: WriteScreenAction,
+    write_scrollback_file: WriteScreen,
 
     /// Write the contents of the screen into a temporary file with the
     /// specified action.
     ///
     /// See `write_scrollback_file` for possible actions.
-    write_screen_file: WriteScreenAction,
+    write_screen_file: WriteScreen,
 
     /// Write the currently selected text into a temporary file with the
     /// specified action.
@@ -444,7 +467,7 @@ pub const Action = union(enum) {
     /// See `write_scrollback_file` for possible actions.
     ///
     /// Does nothing when no text is selected.
-    write_selection_file: WriteScreenAction,
+    write_selection_file: WriteScreen,
 
     /// Open a new window.
     ///
@@ -633,6 +656,17 @@ pub const Action = union(enum) {
     /// Only implemented on macOS, as this uses a built-in system API.
     toggle_secure_input,
 
+    /// Toggle mouse reporting on or off.
+    ///
+    /// When mouse reporting is disabled, mouse events will not be reported to
+    /// terminal applications even if they request it. This allows you to always
+    /// use the mouse for selection and other terminal UI interactions without
+    /// applications capturing mouse input.
+    ///
+    /// This can also be controlled via the `mouse-reporting` configuration
+    /// option.
+    toggle_mouse_reporting,
+
     /// Toggle the command palette.
     ///
     /// The command palette is a popup that lets you see what actions
@@ -796,6 +830,20 @@ pub const Action = union(enum) {
                 .application = try alloc.dupe(u8, self.application),
             };
         }
+
+        pub fn format(
+            self: CursorKey,
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            _ = self;
+            _ = writer;
+            @panic("formatting not supported");
+        }
+    };
+
+    pub const NavigateSearch = enum {
+        previous,
+        next,
     };
 
     pub const AdjustSelection = enum {
@@ -874,10 +922,77 @@ pub const Action = union(enum) {
         u16,
     };
 
-    pub const WriteScreenAction = enum {
-        copy,
-        paste,
-        open,
+    pub const CopyToClipboard = enum {
+        plain,
+        vt,
+        html,
+
+        /// This type will mix multiple distinct types with a set content-type
+        /// such as text/html for html, so that the OS/application can choose
+        /// what is best when pasting.
+        mixed,
+
+        pub const default: CopyToClipboard = .mixed;
+    };
+
+    pub const WriteScreen = struct {
+        action: WriteScreen.Action,
+        emit: WriteScreen.Format,
+
+        pub const copy: WriteScreen = .{ .action = .copy, .emit = .plain };
+        pub const paste: WriteScreen = .{ .action = .paste, .emit = .plain };
+        pub const open: WriteScreen = .{ .action = .open, .emit = .plain };
+
+        pub const Action = enum {
+            copy,
+            paste,
+            open,
+        };
+
+        pub const Format = enum {
+            plain,
+            vt,
+            html,
+        };
+
+        pub fn parse(param: []const u8) !WriteScreen {
+            // If we don't have a `,`, default to the plain format. This is
+            // also very important for backwards compatibility before Ghostty
+            // 1.3 which didn't support output formats.
+            const idx = std.mem.indexOfScalar(u8, param, ',') orelse return .{
+                .action = try Binding.Action.parseEnum(
+                    WriteScreen.Action,
+                    param,
+                ),
+                .emit = .plain,
+            };
+
+            return .{
+                .action = try Binding.Action.parseEnum(
+                    WriteScreen.Action,
+                    param[0..idx],
+                ),
+                .emit = try Binding.Action.parseEnum(
+                    WriteScreen.Format,
+                    param[idx + 1 ..],
+                ),
+            };
+        }
+
+        pub fn clone(
+            self: WriteScreen,
+            alloc: Allocator,
+        ) Allocator.Error!WriteScreen {
+            _ = alloc;
+            return self;
+        }
+
+        pub fn format(self: WriteScreen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try writer.print("{t},{t}", .{
+                self.action,
+                self.emit,
+            });
+        }
     };
 
     // Extern because it is used in the embedded runtime ABI.
@@ -920,7 +1035,7 @@ pub const Action = union(enum) {
             if (@hasDecl(field.type, "parse") and
                 @typeInfo(@TypeOf(field.type.parse)) == .@"fn")
             {
-                return field.type.parse(param);
+                return try field.type.parse(param);
             }
         }
 
@@ -1061,6 +1176,10 @@ pub const Action = union(enum) {
             .esc,
             .text,
             .cursor_key,
+            .search,
+            .navigate_search,
+            .start_search,
+            .end_search,
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,
@@ -1077,6 +1196,7 @@ pub const Action = union(enum) {
             .scroll_to_top,
             .scroll_to_bottom,
             .scroll_to_selection,
+            .scroll_to_row,
             .scroll_page_up,
             .scroll_page_down,
             .scroll_page_fractional,
@@ -1094,6 +1214,7 @@ pub const Action = union(enum) {
             .toggle_window_decorations,
             .toggle_window_float_on_top,
             .toggle_secure_input,
+            .toggle_mouse_reporting,
             .toggle_command_palette,
             .show_on_screen_keyboard,
             .reset_window_size,
@@ -1214,12 +1335,19 @@ pub const Action = union(enum) {
                 .@"enum" => try writer.print("{t}", .{value}),
                 .float => try writer.print("{d}", .{value}),
                 .int => try writer.print("{d}", .{value}),
-                .@"struct" => |info| if (!info.is_tuple) {
-                    try writer.print("{} (not configurable)", .{value});
-                } else {
-                    inline for (info.fields, 0..) |field, i| {
-                        try formatValue(writer, @field(value, field.name));
-                        if (i + 1 < info.fields.len) try writer.writeAll(",");
+                .@"struct" => |info| format: {
+                    if (@hasDecl(Value, "format")) {
+                        try value.format(writer);
+                        break :format;
+                    }
+
+                    if (!info.is_tuple) {
+                        @compileError("unhandled struct type: " ++ @typeName(Value));
+                    } else {
+                        inline for (info.fields, 0..) |field, i| {
+                            try formatValue(writer, @field(value, field.name));
+                            if (i + 1 < info.fields.len) try writer.writeAll(",");
+                        }
                     }
                 },
                 else => @compileError("unhandled type: " ++ @typeName(Value)),
@@ -3220,6 +3348,84 @@ test "parse: set_font_size" {
         try testing.expect(binding.action == .set_font_size);
         try testing.expectEqual(13.5, binding.action.set_font_size);
     }
+}
+
+test "parse: copy to clipboard default" {
+    const testing = std.testing;
+
+    // parameter
+    {
+        const binding = try parseSingle("a=copy_to_clipboard");
+        try testing.expect(binding.action == .copy_to_clipboard);
+        try testing.expectEqual(Action.CopyToClipboard.mixed, binding.action.copy_to_clipboard);
+    }
+}
+
+test "parse: copy to clipboard explicit" {
+    const testing = std.testing;
+
+    // parameter
+    {
+        const binding = try parseSingle("a=copy_to_clipboard:html");
+        try testing.expect(binding.action == .copy_to_clipboard);
+        try testing.expectEqual(Action.CopyToClipboard.html, binding.action.copy_to_clipboard);
+    }
+}
+
+test "parse: write screen file no format" {
+    const testing = std.testing;
+
+    // parameter
+    {
+        const binding = try parseSingle("a=write_screen_file:copy");
+        try testing.expect(binding.action == .write_screen_file);
+        try testing.expectEqual(Action.WriteScreen.copy, binding.action.write_screen_file);
+    }
+}
+
+test "parse: write screen file format" {
+    const testing = std.testing;
+
+    // parameter
+    {
+        const binding = try parseSingle("a=write_screen_file:copy,html");
+        try testing.expect(binding.action == .write_screen_file);
+        try testing.expectEqual(Action.WriteScreen{
+            .action = .copy,
+            .emit = .html,
+        }, binding.action.write_screen_file);
+    }
+}
+
+test "parse: write screen file format as string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        const binding = try parseSingle("a=write_screen_file:copy,html");
+        try binding.action.format(&buf.writer);
+        try testing.expectEqualStrings("write_screen_file:copy,html", buf.written());
+    }
+}
+
+test "parse: write screen file invalid" {
+    const testing = std.testing;
+
+    // paramet  r
+    try testing.expectError(Error.InvalidFormat, parseSingle(
+        "a=write_screen_file:",
+    ));
+    try testing.expectError(Error.InvalidFormat, parseSingle(
+        "a=write_screen_file:,",
+    ));
+    try testing.expectError(Error.InvalidFormat, parseSingle(
+        "a=write_screen_file:copy,",
+    ));
+    try testing.expectError(Error.InvalidFormat, parseSingle(
+        "a=write_screen_file:copy,html,extra",
+    ));
 }
 
 test "action: format" {

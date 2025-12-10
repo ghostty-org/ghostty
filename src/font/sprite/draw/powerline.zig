@@ -11,8 +11,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const z2d = @import("z2d");
-
 const common = @import("common.zig");
 const Thickness = common.Thickness;
 const Shade = common.Shade;

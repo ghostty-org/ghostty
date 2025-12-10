@@ -6,6 +6,8 @@ server {
     location / {
         root /usr/share/nginx/html;
         index index.html;
+        etag on;
+        add_header Cache-Control "no-cache" always;
         add_header X-Robots-Tag "noindex, nofollow" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" always;
     }
@@ -20,6 +22,8 @@ server {
     location / {
         root /usr/share/nginx/html;
         index index.html;
+        etag on;
+        add_header Cache-Control "no-cache" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" always;
     }
 }

@@ -8,7 +8,7 @@
 // it could be expanded to be general purpose in the future.
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("quirks.zig").inlineAssert;
 const posix = std.posix;
 const builtin = @import("builtin");
 const build_config = @import("build_config.zig");

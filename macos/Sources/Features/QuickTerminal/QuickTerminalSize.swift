@@ -33,6 +33,7 @@ struct QuickTerminalSize {
             case GHOSTTY_QUICK_TERMINAL_SIZE_PIXELS:
                 self = .pixels(cStruct.value.pixels)
             default:
+                assertionFailure()
                 return nil
             }
         }

@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const macos = @import("macos");
 const objc = @import("objc");
 const internal_os = @import("main.zig");
@@ -82,6 +82,11 @@ fn setLangFromCocoa() void {
     const locale = NSLocale.msgSend(objc.Object, objc.sel("currentLocale"), .{});
     const lang = locale.getProperty(objc.Object, "languageCode");
     const country = locale.getProperty(objc.Object, "countryCode");
+
+    if (lang.value == null or country.value == null) {
+        log.warn("languageCode or countryCode not found. Locale may be incorrect.", .{});
+        return;
+    }
 
     // Get our UTF8 string values
     const c_lang = lang.getProperty([*:0]const u8, "UTF8String");

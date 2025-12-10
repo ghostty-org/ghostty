@@ -7,8 +7,6 @@
 //! APIs. The renderers in this package assume that the renderer is already
 //! setup (OpenGL has a context, Vulkan has a surface, etc.)
 
-const std = @import("std");
-const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
 
 const cursor = @import("renderer/cursor.zig");

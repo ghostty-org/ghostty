@@ -80,15 +80,15 @@ pub fn clipboardRequest(
     );
 }
 
-pub fn setClipboardString(
+pub fn setClipboard(
     self: *Self,
-    val: [:0]const u8,
     clipboard_type: apprt.Clipboard,
+    contents: []const apprt.ClipboardContent,
     confirm: bool,
 ) !void {
-    self.surface.setClipboardString(
-        val,
+    self.surface.setClipboard(
         clipboard_type,
+        contents,
         confirm,
     );
 }

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24123.1" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24412" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24123.1"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24412"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -26,7 +26,12 @@
                 <outlet property="menuCopy" destination="Jqf-pv-Zcu" id="bKd-1C-oy9"/>
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
                 <outlet property="menuEqualizeSplits" destination="3gH-VD-vL9" id="SiZ-ce-FOF"/>
+                <outlet property="menuFind" destination="nwE-0w-30h" id="idg-Nc-apE"/>
+                <outlet property="menuFindNext" destination="XqU-X8-q32" id="vNh-AH-6gZ"/>
+                <outlet property="menuFindParent" destination="cE3-Bt-FcH" id="2dc-ok-hgH"/>
+                <outlet property="menuFindPrevious" destination="1hd-2Z-wVm" id="sSo-wO-2MW"/>
                 <outlet property="menuFloatOnTop" destination="uRj-7z-1Nh" id="94n-o9-Jol"/>
+                <outlet property="menuHideFindBar" destination="xzC-AG-HAc" id="HCo-o6-VWv"/>
                 <outlet property="menuIncreaseFontSize" destination="CIH-ey-Z6x" id="hkc-9C-80E"/>
                 <outlet property="menuMoveSplitDividerDown" destination="Zj7-2W-fdF" id="997-LL-nlN"/>
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
@@ -245,6 +250,39 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="VYS-RG-uZD"/>
+                            <menuItem title="Find" id="cE3-Bt-FcH">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <menu key="submenu" title="Find" id="vPo-Sd-cTP">
+                                    <items>
+                                        <menuItem title="Find..." id="nwE-0w-30h">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="find:" target="-1" id="PeY-3u-IxC"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Find Next" id="XqU-X8-q32">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="findNext:" target="-1" id="Dka-ng-aSs"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Find Previous" id="1hd-2Z-wVm">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="findPrevious:" target="-1" id="Zvs-bs-ZR4"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem isSeparatorItem="YES" id="KlV-2C-wYr"/>
+                                        <menuItem title="Hide Find Bar" id="xzC-AG-HAc">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="findHide:" target="-1" id="hGP-K9-yN9"/>
+                                            </connections>
+                                        </menuItem>
+                                    </items>
+                                </menu>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Xbz-ms-irt"/>
                         </items>
                     </menu>
                 </menuItem>

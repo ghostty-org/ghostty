@@ -1,3 +1,7 @@
+const build_options = @import("terminal_options");
+const lib = @import("../lib/main.zig");
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+
 /// C0 (7-bit) control characters from ANSI.
 ///
 /// This is not complete, control characters are only added to this
@@ -49,33 +53,28 @@ pub const RenditionAspect = enum(u16) {
 };
 
 /// The device attribute request type (ESC [ c).
-pub const DeviceAttributeReq = enum {
-    primary, // Blank
-    secondary, // >
-    tertiary, // =
-};
+pub const DeviceAttributeReq = lib.Enum(
+    lib_target,
+    &.{
+        "primary", // Blank
+        "secondary", // >
+        "tertiary", // =
+    },
+);
 
 /// Possible cursor styles (ESC [ q)
-pub const CursorStyle = enum(u16) {
-    default = 0,
-    blinking_block = 1,
-    steady_block = 2,
-    blinking_underline = 3,
-    steady_underline = 4,
-    blinking_bar = 5,
-    steady_bar = 6,
-
-    // Non-exhaustive so that @intToEnum never fails for unsupported modes.
-    _,
-
-    /// True if the cursor should blink.
-    pub fn blinking(self: CursorStyle) bool {
-        return switch (self) {
-            .blinking_block, .blinking_underline, .blinking_bar => true,
-            else => false,
-        };
-    }
-};
+pub const CursorStyle = lib.Enum(
+    lib_target,
+    &.{
+        "default",
+        "blinking_block",
+        "steady_block",
+        "blinking_underline",
+        "steady_underline",
+        "blinking_bar",
+        "steady_bar",
+    },
+);
 
 /// The status line type for DECSSDT.
 pub const StatusLineType = enum(u16) {
@@ -88,19 +87,27 @@ pub const StatusLineType = enum(u16) {
 };
 
 /// The display to target for status updates (DECSASD).
-pub const StatusDisplay = enum(u16) {
-    main = 0,
-    status_line = 1,
-};
+pub const StatusDisplay = lib.Enum(
+    lib_target,
+    &.{
+        "main",
+        "status_line",
+    },
+);
 
 /// The possible modify key formats to ESC[>{a};{b}m
 /// Note: this is not complete, we should add more as we support more
-pub const ModifyKeyFormat = union(enum) {
-    legacy: void,
-    cursor_keys: void,
-    function_keys: void,
-    other_keys: enum { none, numeric_except, numeric },
-};
+pub const ModifyKeyFormat = lib.Enum(
+    lib_target,
+    &.{
+        "legacy",
+        "cursor_keys",
+        "function_keys",
+        "other_keys_none",
+        "other_keys_numeric_except",
+        "other_keys_numeric",
+    },
+);
 
 /// The protection modes that can be set for the terminal. See DECSCA and
 /// ESC V, W.

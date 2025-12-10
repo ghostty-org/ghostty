@@ -1,7 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const adw = @import("adw");
-const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 

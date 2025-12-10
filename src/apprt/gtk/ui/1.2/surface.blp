@@ -41,6 +41,34 @@ Overlay terminal_page {
       halign: start;
       has-arrow: false;
     }
+
+    EventControllerFocus {
+      enter => $focus_enter();
+      leave => $focus_leave();
+    }
+
+    EventControllerKey {
+      key-pressed => $key_pressed();
+      key-released => $key_released();
+    }
+
+    EventControllerScroll {
+      scroll => $scroll();
+      scroll-begin => $scroll_begin();
+      scroll-end => $scroll_end();
+      flags: both_axes;
+    }
+
+    EventControllerMotion {
+      motion => $mouse_motion();
+      leave => $mouse_leave();
+    }
+
+    GestureClick {
+      pressed => $mouse_down();
+      released => $mouse_up();
+      button: 0;
+    }
   };
 
   [overlay]
@@ -64,6 +92,10 @@ Overlay terminal_page {
     reveal-child: bind $should_border_be_shown(template.config, template.bell-ringing) as <bool>;
     transition-type: crossfade;
     transition-duration: 500;
+    // Revealers take up the full size, we need this to not capture events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
 
     Box bell_overlay {
       styles [
@@ -116,46 +148,31 @@ Overlay terminal_page {
   }
 
   [overlay]
+  $GhosttySearchOverlay search_overlay {
+    stop-search => $search_stop();
+    search-changed => $search_changed();
+    next-match => $search_next_match();
+    previous-match => $search_previous_match();
+  }
+
+  [overlay]
   // Apply unfocused-split-fill and unfocused-split-opacity to current surface
   // this is only applied when a tab has more than one surface
   Revealer {
     reveal-child: bind $should_unfocused_split_be_shown(template.focused, template.is-split) as <bool>;
     transition-duration: 0;
+    // This is all necessary so that the Revealer itself doesn't override
+    // any input events from the other overlays. Namely, if you don't have
+    // these then the search overlay won't get mouse events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
 
     DrawingArea {
       styles [
         "unfocused-split",
       ]
     }
-  }
-
-  // Event controllers for interactivity
-  EventControllerFocus {
-    enter => $focus_enter();
-    leave => $focus_leave();
-  }
-
-  EventControllerKey {
-    key-pressed => $key_pressed();
-    key-released => $key_released();
-  }
-
-  EventControllerMotion {
-    motion => $mouse_motion();
-    leave => $mouse_leave();
-  }
-
-  EventControllerScroll {
-    scroll => $scroll();
-    scroll-begin => $scroll_begin();
-    scroll-end => $scroll_end();
-    flags: both_axes;
-  }
-
-  GestureClick {
-    pressed => $mouse_down();
-    released => $mouse_up();
-    button: 0;
   }
 
   DropTarget drop_target {
@@ -174,6 +191,7 @@ template $GhosttySurface: Adw.Bin {
   notify::mouse-hover-url => $notify_mouse_hover_url();
   notify::mouse-hidden => $notify_mouse_hidden();
   notify::mouse-shape => $notify_mouse_shape();
+  notify::vadjustment => $notify_vadjustment();
   // Some history: we used to use a Stack here and swap between the
   // terminal and error pages as needed. But a Stack doesn't play nice
   // with our SplitTree and Gtk.Paned usage[^1]. Replacing this with

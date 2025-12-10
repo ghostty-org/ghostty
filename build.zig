@@ -2,20 +2,19 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
+const appVersion = @import("build.zig.zon").version;
+const minimumZigVersion = @import("build.zig.zon").minimum_zig_version;
 
 comptime {
-    buildpkg.requireZig("0.15.1");
+    buildpkg.requireZig(minimumZigVersion);
 }
 
 pub fn build(b: *std.Build) !void {
-    // Works around a Zig but still present in 0.15.1. Remove when fixed.
-    // https://github.com/ghostty-org/ghostty/issues/8924
-    try limitCoresForZigBug();
-
     // This defines all the available build options (e.g. `-D`). If you
     // want to know what options are available, you can run `--help` or
     // you can read `src/build/Config.zig`.
-    const config = try buildpkg.Config.init(b);
+
+    const config = try buildpkg.Config.init(b, appVersion);
     const test_filters = b.option(
         [][]const u8,
         "test-filter",
@@ -56,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
-    const resources = try buildpkg.GhosttyResources.init(b, &config);
+    const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
 
     // Ghostty executable, the actual runnable Ghostty program.
@@ -102,10 +101,19 @@ pub fn build(b: *std.Build) !void {
     );
 
     // libghostty-vt
-    const libghostty_vt_shared = try buildpkg.GhosttyLibVt.initShared(
-        b,
-        &mod,
-    );
+    const libghostty_vt_shared = shared: {
+        if (config.target.result.cpu.arch.isWasm()) {
+            break :shared try buildpkg.GhosttyLibVt.initWasm(
+                b,
+                &mod,
+            );
+        }
+
+        break :shared try buildpkg.GhosttyLibVt.initShared(
+            b,
+            &mod,
+        );
+    };
     libghostty_vt_shared.install(libvt_step);
     libghostty_vt_shared.install(b.getInstallStep());
 
@@ -308,14 +316,4 @@ pub fn build(b: *std.Build) !void {
     } else {
         try translations_step.addError("cannot update translations when i18n is disabled", .{});
     }
-}
-
-// WARNING: Remove this when https://github.com/ghostty-org/ghostty/issues/8924 is resolved!
-// Limit ourselves to 32 cpus on Linux because of an upstream Zig bug.
-fn limitCoresForZigBug() !void {
-    if (comptime builtin.os.tag != .linux) return;
-    const pid = std.os.linux.getpid();
-    var set: std.bit_set.ArrayBitSet(usize, std.os.linux.CPU_SETSIZE * 8) = .initEmpty();
-    for (0..32) |cpu| set.set(cpu);
-    try std.os.linux.sched_setaffinity(pid, &set.masks);
 }

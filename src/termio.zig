@@ -30,7 +30,6 @@ pub const Backend = backend.Backend;
 pub const DerivedConfig = Termio.DerivedConfig;
 pub const Mailbox = mailbox.Mailbox;
 pub const Message = message.Message;
-pub const MessageData = message.MessageData;
 pub const StreamHandler = stream_handler.StreamHandler;
 
 test {

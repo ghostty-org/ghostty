@@ -9,4 +9,6 @@ pkg/glfw/wayland-headers/** linguist-vendored
 pkg/libintl/config.h linguist-generated=true
 pkg/libintl/libintl.h linguist-generated=true
 pkg/simdutf/vendor/** linguist-vendored
+src/font/nerd_font_attributes.zig linguist-generated=true
+src/font/nerd_font_codepoint_tables.py linguist-generated=true
 src/terminal/res/** linguist-vendored

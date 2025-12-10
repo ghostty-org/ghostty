@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const config = @import("config.zig");
 const config_x = @import("config.x.zig");
 const d = config.default;
@@ -17,11 +18,25 @@ fn computeWidth(
     _ = cp;
     _ = backing;
     _ = tracking;
-    data.width = @intCast(@min(2, @max(0, data.wcwidth)));
+
+    // This condition is to get the previous behavior of uucode's `wcwidth`,
+    // returning the width of a code point in a grapheme cluster but with the
+    // exception to treat emoji modifiers as width 2 so they can be displayed
+    // in isolation. PRs to follow will take advantage of the new uucode
+    // `wcwidth_standalone` vs `wcwidth_zero_in_grapheme` split.
+    if (data.wcwidth_zero_in_grapheme and !data.is_emoji_modifier) {
+        data.width = 0;
+    } else {
+        data.width = @min(2, data.wcwidth_standalone);
+    }
 }
 
 const width = config.Extension{
-    .inputs = &.{"wcwidth"},
+    .inputs = &.{
+        "wcwidth_standalone",
+        "wcwidth_zero_in_grapheme",
+        "is_emoji_modifier",
+    },
     .compute = &computeWidth,
     .fields = &.{
         .{ .name = "width", .type = u2 },
@@ -41,6 +56,7 @@ fn computeIsSymbol(
     _ = tracking;
     const block = data.block;
     data.is_symbol = data.general_category == .other_private_use or
+        block == .arrows or
         block == .dingbats or
         block == .emoticons or
         block == .miscellaneous_symbols or
@@ -74,8 +90,7 @@ pub const tables = [_]config.Table{
             width.field("width"),
             d.field("grapheme_break"),
             is_symbol.field("is_symbol"),
-            d.field("is_emoji_modifier"),
-            d.field("is_emoji_modifier_base"),
+            d.field("is_emoji_vs_base"),
         },
     },
 };

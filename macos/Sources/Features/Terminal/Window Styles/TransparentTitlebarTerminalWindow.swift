@@ -59,6 +59,10 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
     override func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         super.syncAppearance(surfaceConfig)
+        // override appearance based on the terminal's background color
+        if let preferredBackgroundColor {
+            appearance = (preferredBackgroundColor.isLightColor ? NSAppearance(named: .aqua) : NSAppearance(named: .darkAqua))
+        }
 
         // Save our config in case we need to reapply
         lastSurfaceConfig = surfaceConfig

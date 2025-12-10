@@ -11,6 +11,20 @@ pub const c = @cImport({
     @cInclude("adwaita.h");
 });
 
+pub const blueprint_compiler_help =
+    \\
+    \\When building from a Git checkout, Ghostty requires
+    \\version {f} or newer of `blueprint-compiler` as a
+    \\build-time dependency. Please install it, ensure that it
+    \\is available on your PATH, and then retry building Ghostty.
+    \\See `HACKING.md` for more details.
+    \\
+    \\This message should *not* appear for normal users, who
+    \\should build Ghostty from official release tarballs instead.
+    \\Please consult https://ghostty.org/docs/install/build for
+    \\more information on the recommended build instructions.
+;
+
 const adwaita_version = std.SemanticVersion{
     .major = c.ADW_MAJOR_VERSION,
     .minor = c.ADW_MINOR_VERSION,
@@ -79,13 +93,9 @@ pub fn main() !void {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
-                    \\
-                    \\Ghostty requires version {f} or newer of
-                    \\`blueprint-compiler` as a build-time dependency starting
-                    \\from version 1.2. Please install it, ensure that it is
-                    \\available on your PATH, and then retry building Ghostty.
-                    \\
-                , .{required_blueprint_version});
+                ++ blueprint_compiler_help,
+                    .{required_blueprint_version},
+                );
                 std.posix.exit(1);
             },
             else => return err,
@@ -103,13 +113,9 @@ pub fn main() !void {
         if (version.order(required_blueprint_version) == .lt) {
             std.debug.print(
                 \\`blueprint-compiler` is the wrong version.
-                \\
-                \\Ghostty requires version {f} or newer of
-                \\`blueprint-compiler` as a build-time dependency starting
-                \\from version 1.2. Please install it, ensure that it is
-                \\available on your PATH, and then retry building Ghostty.
-                \\
-            , .{required_blueprint_version});
+            ++ blueprint_compiler_help,
+                .{required_blueprint_version},
+            );
             std.posix.exit(1);
         }
     }
@@ -144,13 +150,9 @@ pub fn main() !void {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
-                    \\
-                    \\Ghostty requires version {f} or newer of
-                    \\`blueprint-compiler` as a build-time dependency starting
-                    \\from version 1.2. Please install it, ensure that it is
-                    \\available on your PATH, and then retry building Ghostty.
-                    \\
-                , .{required_blueprint_version});
+                ++ blueprint_compiler_help,
+                    .{required_blueprint_version},
+                );
                 std.posix.exit(1);
             },
             else => return err,

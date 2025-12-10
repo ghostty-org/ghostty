@@ -6,15 +6,15 @@ const build_config = @import("../build_config.zig");
 const App = @import("../App.zig");
 const Surface = @import("../Surface.zig");
 const renderer = @import("../renderer.zig");
-const termio = @import("../termio.zig");
 const terminal = @import("../terminal/main.zig");
 const Config = @import("../config.zig").Config;
+const MessageData = @import("../datastruct/main.zig").MessageData;
 
 /// The message types that can be sent to a single surface.
 pub const Message = union(enum) {
     /// Represents a write request. Magic number comes from the max size
     /// we want this union to be.
-    pub const WriteReq = termio.MessageData(u8, 255);
+    pub const WriteReq = MessageData(u8, 255);
 
     /// Set the title of the surface.
     /// TODO: we should change this to a "WriteReq" style structure in
@@ -103,6 +103,15 @@ pub const Message = union(enum) {
     /// notifications as appropriate. The optional u8 is the exit code
     /// of the command.
     stop_command: ?u8,
+
+    /// The scrollbar state changed for the surface.
+    scrollbar: terminal.Scrollbar,
+
+    /// Search progress update
+    search_total: ?usize,
+
+    /// Selected search index change
+    search_selected: ?usize,
 
     pub const ReportTitleStyle = enum {
         csi_21_t,

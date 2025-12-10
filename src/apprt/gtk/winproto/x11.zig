@@ -1,10 +1,8 @@
 //! X11 window protocol implementation for the Ghostty GTK apprt.
 const std = @import("std");
 const builtin = @import("builtin");
-const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 
-const adw = @import("adw");
 const gdk = @import("gdk");
 const gdk_x11 = @import("gdk_x11");
 const glib = @import("glib");

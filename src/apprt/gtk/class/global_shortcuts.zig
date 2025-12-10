@@ -1,14 +1,11 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const adw = @import("adw");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
-const gtk = @import("gtk");
 
 const Binding = @import("../../../input.zig").Binding;
-const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;

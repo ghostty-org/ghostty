@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const objc = @import("objc");
 const apprt = @import("../apprt.zig");
@@ -66,7 +66,13 @@ pub const App = struct {
         ) callconv(.c) void,
 
         /// Write the clipboard value.
-        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int, bool) callconv(.c) void,
+        write_clipboard: *const fn (
+            SurfaceUD,
+            c_int,
+            [*]const CAPI.ClipboardContent,
+            usize,
+            bool,
+        ) callconv(.c) void,
 
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
@@ -699,16 +705,27 @@ pub const Surface = struct {
         alloc.destroy(state);
     }
 
-    pub fn setClipboardString(
+    pub fn setClipboard(
         self: *const Surface,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) !void {
+        const alloc = self.app.core_app.alloc;
+        const array = try alloc.alloc(CAPI.ClipboardContent, contents.len);
+        defer alloc.free(array);
+        for (contents, 0..) |content, i| {
+            array[i] = .{
+                .mime = content.mime,
+                .data = content.data,
+            };
+        }
+
         self.app.opts.write_clipboard(
             self.userdata,
-            val.ptr,
             @intCast(@intFromEnum(clipboard_type)),
+            array.ptr,
+            array.len,
             confirm,
         );
     }
@@ -1211,6 +1228,12 @@ pub const CAPI = struct {
         cell_height_px: u32,
     };
 
+    // ghostty_clipboard_content_s
+    const ClipboardContent = extern struct {
+        mime: [*:0]const u8,
+        data: [*:0]const u8,
+    };
+
     // ghostty_text_s
     const Text = extern struct {
         tl_px_x: f64,
@@ -1535,7 +1558,7 @@ pub const CAPI = struct {
         defer core_surface.renderer_state.mutex.unlock();
 
         // If we don't have a selection, do nothing.
-        const core_sel = core_surface.io.terminal.screen.selection orelse return false;
+        const core_sel = core_surface.io.terminal.screens.active.selection orelse return false;
 
         // Read the text from the selection.
         return readTextLocked(surface, core_sel, result);
@@ -1555,7 +1578,7 @@ pub const CAPI = struct {
         defer surface.core_surface.renderer_state.mutex.unlock();
 
         const core_sel = sel.core(
-            &surface.core_surface.renderer_state.terminal.screen,
+            surface.core_surface.renderer_state.terminal.screens.active,
         ) orelse return false;
 
         return readTextLocked(surface, core_sel, result);
@@ -2114,7 +2137,7 @@ pub const CAPI = struct {
 
             // Get our word selection
             const sel = sel: {
-                const screen = &surface.renderer_state.terminal.screen;
+                const screen: *terminal.Screen = surface.renderer_state.terminal.screens.active;
                 const pos = try ptr.getCursorPos();
                 const pt_viewport = surface.posToViewport(pos.x, pos.y);
                 const pin = screen.pages.pin(.{
@@ -2126,7 +2149,7 @@ pub const CAPI = struct {
                     if (comptime std.debug.runtime_safety) unreachable;
                     return false;
                 };
-                break :sel surface.io.terminal.screen.selectWord(pin) orelse return false;
+                break :sel surface.io.terminal.screens.active.selectWord(pin) orelse return false;
             };
 
             // Read the selection

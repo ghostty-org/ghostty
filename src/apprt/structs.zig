@@ -54,6 +54,11 @@ pub const Clipboard = enum(Backing) {
     };
 };
 
+pub const ClipboardContent = struct {
+    mime: [:0]const u8,
+    data: [:0]const u8,
+};
+
 pub const ClipboardRequestType = enum(u8) {
     paste,
     osc_52_read,

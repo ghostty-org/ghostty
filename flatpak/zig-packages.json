@@ -61,9 +61,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz",
-    "dest": "vendor/p/N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y",
-    "sha256": "1ac11656de30333a7afbb37923e415ba109527bd1c16b7400f051db39f402a7c"
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251201-150531-bfb3ee1/ghostty-themes.tgz",
+    "dest": "vendor/p/N-V-__8AANFEAwCzzNzNs3Gaq8pzGNl2BbeyFBwTyO5iZJL-",
+    "sha256": "e5078f050952b33f56dabe334d2dd00fe70301ec8e6e1479d44d80909dd92149"
   },
   {
     "type": "archive",
@@ -132,22 +132,22 @@
     "sha256": "ffc668a310e77607d393f3c18b32715f223da1eac4c4d6e0579a11df8e6b59cf"
   },
   {
-    "type": "archive",
-    "url": "https://deps.files.ghostty.org/uucode-f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
-    "dest": "vendor/p/uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT",
-    "sha256": "56899260e17c7d12706fff06b551bf42a47a73de734a442de3ae3d0bfe0a5c07"
+    "type": "git",
+    "url": "https://github.com/jacobsandlund/uucode",
+    "commit": "5f05f8f83a75caea201f12cc8ea32a2d82ea9732",
+    "dest": "vendor/p/uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/vaxis-9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz",
-    "dest": "vendor/p/vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ",
-    "sha256": "ec7e5ad09eee52caf394eec93407ff52cb22f56c6f9ac6f22529a1aaf97eaea2"
+    "url": "https://github.com/jacobsandlund/uucode/archive/31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
+    "dest": "vendor/p/uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
+    "sha256": "4b3a581a1806e01e8bb9ff1e4f7e6c28ba1b0b18e6c04ba8d53c24d237aef60e"
   },
   {
     "type": "archive",
-    "url": "https://github.com/rockorager/libvaxis/archive/1bf887aa7e3736bad69fd4e277a378946edb0f2a.tar.gz",
-    "dest": "vendor/p/vaxis-0.5.1-BWNV_H0PCQAeMusmtLzh9P9xO2IW242GZ2IRe9iKYhcA",
-    "sha256": "7aae580b6e8e6348b671d409d195cc67ea36bc740b10534d1b342de59bb3e013"
+    "url": "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
+    "dest": "vendor/p/vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS",
+    "sha256": "2e72332bc89c5b541ec6e6bd48769e1f3fb757c4006f3d1af940b54f9b088ef6"
   },
   {
     "type": "archive",
@@ -169,27 +169,15 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/z2d-a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz",
-    "dest": "vendor/p/z2d-0.8.2-pre-j5P_HlVRFgCsBTQ3EgUoKbYHx5JMnyH1mHsOSPiafnef",
-    "sha256": "e7fa91640221d54e36bfb8ea97d5b48ebdb3cd066dbb7f43c493cb56b4b26c98"
+    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz",
+    "dest": "vendor/p/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T",
+    "sha256": "f90a824685f0ac5035fe5fa85af615c8055e6c6422b401503618bd537115af10"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/zf-52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz",
-    "dest": "vendor/p/zf-0.10.3-OIRy8QGJAACJcu3tCGtfbJnnd3Y4QL7OW_X8PJ8u_ASR",
-    "sha256": "f018a76da9d27d978103c481028a55c7024e6cddfafc14e9c551c004a89cb0c4"
-  },
-  {
-    "type": "git",
-    "url": "https://codeberg.org/ivanstepanovftw/zg",
-    "commit": "4fe689e56ce2ed5a8f59308b471bccd7da89fac9",
-    "dest": "vendor/p/zg-0.14.1-oGqU3J4_tAKBfyes3AWleKDjo-IcYvnEwaB8qxOqFMwM"
-  },
-  {
-    "type": "archive",
-    "url": "https://codeberg.org/chaten/zg/archive/749197a3f9d25e211615960c02380a3d659b20f9.tar.gz",
-    "dest": "vendor/p/zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9",
-    "sha256": "059873d673eac4aea176c250eba9fb264e3332015218b5e6f1e534097ffb9832"
+    "url": "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
+    "dest": "vendor/p/zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh",
+    "sha256": "3b015d928af04e9e26272bc15eb4dbb4d9a9d469eb6d290a0ddae673b77c4568"
   },
   {
     "type": "archive",
@@ -208,12 +196,6 @@
     "url": "https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz",
     "dest": "vendor/p/wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
     "sha256": "4f146b735ed0d527f520e3bf71d3e93f72c3d0fa583ae8edd3a4851f7079124e"
-  },
-  {
-    "type": "git",
-    "url": "https://github.com/ivanstepanovftw/zigimg",
-    "commit": "aa4c31db872612c39edbb79f753b3cd9a79fe726",
-    "dest": "vendor/p/zigimg-0.1.0-8_eo2mWmEgBoqdr0sH9O5GTqDHthkoEPM5_tipcBRreL"
   },
   {
     "type": "archive",

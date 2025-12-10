@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 

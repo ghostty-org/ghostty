@@ -3,15 +3,17 @@ const builtin = @import("builtin");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const posix = std.posix;
 const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
-const sgr = @import("sgr.zig");
-const style = @import("style.zig");
+const stylepkg = @import("style.zig");
+const Style = stylepkg.Style;
+const StyleId = stylepkg.Id;
+const StyleSet = stylepkg.Set;
 const size = @import("size.zig");
 const getOffset = size.getOffset;
 const Offset = size.Offset;
@@ -86,7 +88,7 @@ pub const Page = struct {
         assert(std.heap.page_size_min % @max(
             @alignOf(Row),
             @alignOf(Cell),
-            style.Set.base_align.toByteUnits(),
+            StyleSet.base_align.toByteUnits(),
         ) == 0);
     }
 
@@ -104,6 +106,15 @@ pub const Page = struct {
     /// to row, you must use the `rows` field. From the pointer to the
     /// first column, all cells in that row are laid out in column order.
     cells: Offset(Cell),
+
+    /// Set to true when an operation is performed that dirties all rows in
+    /// the page. See `Row.dirty` for more information on dirty tracking.
+    ///
+    /// NOTE: A value of false does NOT indicate that
+    ///       the page has no dirty rows in it, only
+    ///       that no full-page-dirtying operations
+    ///       have occurred since it was last cleared.
+    dirty: bool,
 
     /// The string allocator for this page used for shared utf-8 encoded
     /// strings. Liveness of strings and memory management is deferred to
@@ -124,7 +135,7 @@ pub const Page = struct {
     grapheme_map: GraphemeMap,
 
     /// The available set of styles in use on this page.
-    styles: style.Set,
+    styles: StyleSet,
 
     /// The structures used for tracking hyperlinks within the page.
     /// The map maps cell offsets to hyperlink IDs and the IDs are in
@@ -132,44 +143,6 @@ pub const Page = struct {
     /// are allocated in the string allocator.
     hyperlink_map: hyperlink.Map,
     hyperlink_set: hyperlink.Set,
-
-    /// The offset to the first mask of dirty bits in the page.
-    ///
-    /// The dirty bits is a contiguous array of usize where each bit represents
-    /// a row in the page, in order. If the bit is set, then the row is dirty
-    /// and requires a redraw. Dirty status is only ever meant to convey that
-    /// a cell has changed visually. A cell which changes in a way that doesn't
-    /// affect the visual representation may not be marked as dirty.
-    ///
-    /// Dirty tracking may have false positives but should never have false
-    /// negatives. A false negative would result in a visual artifact on the
-    /// screen.
-    ///
-    /// Dirty bits are only ever unset by consumers of a page. The page
-    /// structure itself does not unset dirty bits since the page does not
-    /// know when a cell has been redrawn.
-    ///
-    /// As implementation background: it may seem that dirty bits should be
-    /// stored elsewhere and not on the page itself, because the only data
-    /// that could possibly change is in the active area of a terminal
-    /// historically and that area is small compared to the typical scrollback.
-    /// My original thinking was to put the dirty bits on Screen instead and
-    /// have them only track the active area. However, I decided to put them
-    /// into the page directly for a few reasons:
-    ///
-    ///   1. It's simpler. The page is a self-contained unit and it's nice
-    ///      to have all the data for a page in one place.
-    ///
-    ///   2. It's cheap. Even a very large page might have 1000 rows and
-    ///      that's only ~128 bytes of 64-bit integers to track all the dirty
-    ///      bits. Compared to the hundreds of kilobytes a typical page
-    ///      consumes, this is nothing.
-    ///
-    ///   3. It's more flexible. If we ever want to implement new terminal
-    ///      features that allow non-active area to be dirty, we can do that
-    ///      with minimal dirty-tracking work.
-    ///
-    dirty: Offset(usize),
 
     /// The current dimensions of the page. The capacity may be larger
     /// than this. This allows us to allocate a larger page than necessary
@@ -235,8 +208,7 @@ pub const Page = struct {
             .memory = @alignCast(buf.start()[0..l.total_size]),
             .rows = rows,
             .cells = cells,
-            .dirty = buf.member(usize, l.dirty_start),
-            .styles = style.Set.init(
+            .styles = StyleSet.init(
                 buf.add(l.styles_start),
                 l.styles_layout,
                 .{},
@@ -264,6 +236,7 @@ pub const Page = struct {
             ),
             .size = .{ .cols = cap.cols, .rows = cap.rows },
             .capacity = cap,
+            .dirty = false,
         };
     }
 
@@ -372,7 +345,7 @@ pub const Page = struct {
         const alloc = arena.allocator();
 
         var graphemes_seen: usize = 0;
-        var styles_seen = std.AutoHashMap(style.Id, usize).init(alloc);
+        var styles_seen = std.AutoHashMap(StyleId, usize).init(alloc);
         defer styles_seen.deinit();
         var hyperlinks_seen = std.AutoHashMap(hyperlink.Id, usize).init(alloc);
         defer hyperlinks_seen.deinit();
@@ -409,7 +382,7 @@ pub const Page = struct {
                     }
                 }
 
-                if (cell.style_id != style.default_id) {
+                if (cell.style_id != stylepkg.default_id) {
                     // If a cell has a style, it must be present in the styles
                     // set. Accessing it with `get` asserts that.
                     _ = self.styles.get(
@@ -683,11 +656,8 @@ pub const Page = struct {
 
         const other_rows = other.rows.ptr(other.memory)[y_start..y_end];
         const rows = self.rows.ptr(self.memory)[0 .. y_end - y_start];
-        const other_dirty_set = other.dirtyBitSet();
-        var dirty_set = self.dirtyBitSet();
-        for (rows, 0.., other_rows, y_start..) |*dst_row, dst_y, *src_row, src_y| {
+        for (rows, other_rows) |*dst_row, *src_row| {
             try self.cloneRowFrom(other, dst_row, src_row);
-            if (other_dirty_set.isSet(src_y)) dirty_set.set(dst_y);
         }
 
         // We should remain consistent
@@ -749,6 +719,7 @@ pub const Page = struct {
                 copy.grapheme = dst_row.grapheme;
                 copy.hyperlink = dst_row.hyperlink;
                 copy.styled = dst_row.styled;
+                copy.dirty |= dst_row.dirty;
             }
 
             // Our cell offset remains the same
@@ -767,7 +738,7 @@ pub const Page = struct {
                 for (other_cells) |cell| {
                     assert(!cell.hasGrapheme());
                     assert(!cell.hyperlink);
-                    assert(cell.style_id == style.default_id);
+                    assert(cell.style_id == stylepkg.default_id);
                 }
             }
 
@@ -782,18 +753,12 @@ pub const Page = struct {
                 // hit an integrity check if we have to return an error because
                 // the page can't fit the new memory.
                 dst_cell.hyperlink = false;
-                dst_cell.style_id = style.default_id;
+                dst_cell.style_id = stylepkg.default_id;
                 if (dst_cell.content_tag == .codepoint_grapheme) {
                     dst_cell.content_tag = .codepoint;
                 }
 
                 if (src_cell.hasGrapheme()) {
-                    // To prevent integrity checks flipping. This will
-                    // get fixed up when we check the style id below.
-                    if (build_options.slow_runtime_safety) {
-                        dst_cell.style_id = style.default_id;
-                    }
-
                     // Copy the grapheme codepoints
                     const cps = other.lookupGrapheme(src_cell).?;
 
@@ -867,7 +832,7 @@ pub const Page = struct {
 
                     try self.setHyperlink(dst_row, dst_cell, dst_id);
                 }
-                if (src_cell.style_id != style.default_id) style: {
+                if (src_cell.style_id != stylepkg.default_id) style: {
                     dst_row.styled = true;
 
                     if (other == self) {
@@ -995,7 +960,7 @@ pub const Page = struct {
 
         // The destination row has styles if any of the cells are styled
         if (!dst_row.styled) dst_row.styled = styled: for (dst_cells) |c| {
-            if (c.style_id != style.default_id) break :styled true;
+            if (c.style_id != stylepkg.default_id) break :styled true;
         } else false;
 
         // Clear our source row now that the copy is complete. We can NOT
@@ -1087,26 +1052,54 @@ pub const Page = struct {
 
         const cells = row.cells.ptr(self.memory)[left..end];
 
+        // If we have managed memory (styles, graphemes, or hyperlinks)
+        // in this row then we go cell by cell and clear them if present.
         if (row.grapheme) {
             for (cells) |*cell| {
-                if (cell.hasGrapheme()) self.clearGrapheme(row, cell);
+                if (cell.hasGrapheme())
+                    @call(.always_inline, clearGrapheme, .{ self, cell });
+            }
+
+            // If we have no left/right scroll region we can be sure
+            // that we've cleared all the graphemes, so we clear the
+            // flag, otherwise we use the update function to update.
+            if (cells.len == self.size.cols) {
+                row.grapheme = false;
+            } else {
+                self.updateRowGraphemeFlag(row);
             }
         }
 
         if (row.hyperlink) {
             for (cells) |*cell| {
-                if (cell.hyperlink) self.clearHyperlink(row, cell);
+                if (cell.hyperlink)
+                    @call(.always_inline, clearHyperlink, .{ self, cell });
+            }
+
+            // If we have no left/right scroll region we can be sure
+            // that we've cleared all the hyperlinks, so we clear the
+            // flag, otherwise we use the update function to update.
+            if (cells.len == self.size.cols) {
+                row.hyperlink = false;
+            } else {
+                self.updateRowHyperlinkFlag(row);
             }
         }
 
         if (row.styled) {
             for (cells) |*cell| {
-                if (cell.style_id == style.default_id) continue;
-
-                self.styles.release(self.memory, cell.style_id);
+                if (cell.hasStyling())
+                    self.styles.release(self.memory, cell.style_id);
             }
 
-            if (cells.len == self.size.cols) row.styled = false;
+            // If we have no left/right scroll region we can be sure
+            // that we've cleared all the styles, so we clear the
+            // flag, otherwise we use the update function to update.
+            if (cells.len == self.size.cols) {
+                row.styled = false;
+            } else {
+                self.updateRowStyledFlag(row);
+            }
         }
 
         if (comptime build_options.kitty_graphics) {
@@ -1134,7 +1127,11 @@ pub const Page = struct {
     }
 
     /// Clear the hyperlink from the given cell.
-    pub inline fn clearHyperlink(self: *Page, row: *Row, cell: *Cell) void {
+    ///
+    /// In order to update the hyperlink flag on the row, call
+    /// `updateRowHyperlinkFlag` after you finish clearing any
+    /// hyperlinks in the row.
+    pub fn clearHyperlink(self: *Page, cell: *Cell) void {
         defer self.assertIntegrity();
 
         // Get our ID
@@ -1146,9 +1143,13 @@ pub const Page = struct {
         self.hyperlink_set.release(self.memory, entry.value_ptr.*);
         map.removeByPtr(entry.key_ptr);
         cell.hyperlink = false;
+    }
 
-        // Mark that we no longer have hyperlinks, also search the row
-        // to make sure its state is correct.
+    /// Checks if the row contains any hyperlinks and sets
+    /// the hyperlink flag to false if none are found.
+    ///
+    /// Call after removing hyperlinks in a row.
+    pub inline fn updateRowHyperlinkFlag(self: *Page, row: *Row) void {
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
         for (cells) |c| if (c.hyperlink) return;
         row.hyperlink = false;
@@ -1195,7 +1196,7 @@ pub const Page = struct {
         };
         errdefer self.string_alloc.free(
             self.memory,
-            page_uri.offset.ptr(self.memory)[0..page_uri.len],
+            page_uri.slice(self.memory),
         );
 
         // Allocate an ID for our page memory if we have to.
@@ -1225,7 +1226,7 @@ pub const Page = struct {
             .implicit => {},
             .explicit => |slice| self.string_alloc.free(
                 self.memory,
-                slice.offset.ptr(self.memory)[0..slice.len],
+                slice.slice(self.memory),
             ),
         };
 
@@ -1418,7 +1419,7 @@ pub const Page = struct {
         // most graphemes to fit within our chunk size.
         const cps = try self.grapheme_alloc.alloc(u21, self.memory, slice.len + 1);
         errdefer self.grapheme_alloc.free(self.memory, cps);
-        const old_cps = slice.offset.ptr(self.memory)[0..slice.len];
+        const old_cps = slice.slice(self.memory);
         fastmem.copy(u21, cps[0..old_cps.len], old_cps);
         cps[slice.len] = cp;
         slice.* = .{
@@ -1437,7 +1438,7 @@ pub const Page = struct {
         const cell_offset = getOffset(Cell, self.memory, cell);
         const map = self.grapheme_map.map(self.memory);
         const slice = map.get(cell_offset) orelse return null;
-        return slice.offset.ptr(self.memory)[0..slice.len];
+        return slice.slice(self.memory);
     }
 
     /// Move the graphemes from one cell to another. This can't fail
@@ -1462,7 +1463,11 @@ pub const Page = struct {
     }
 
     /// Clear the graphemes for a given cell.
-    pub inline fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
+    ///
+    /// In order to update the grapheme flag on the row, call
+    /// `updateRowGraphemeFlag` after you finish clearing any
+    /// graphemes in the row.
+    pub fn clearGrapheme(self: *Page, cell: *Cell) void {
         defer self.assertIntegrity();
         if (build_options.slow_runtime_safety) assert(cell.hasGrapheme());
 
@@ -1472,15 +1477,21 @@ pub const Page = struct {
         const entry = map.getEntry(cell_offset).?;
 
         // Free our grapheme data
-        const cps = entry.value_ptr.offset.ptr(self.memory)[0..entry.value_ptr.len];
+        const cps = entry.value_ptr.slice(self.memory);
         self.grapheme_alloc.free(self.memory, cps);
 
         // Remove the entry
         map.removeByPtr(entry.key_ptr);
 
-        // Mark that we no longer have graphemes, also search the row
-        // to make sure its state is correct.
+        // Mark that we no longer have graphemes by changing the content tag.
         cell.content_tag = .codepoint;
+    }
+
+    /// Checks if the row contains any graphemes and sets
+    /// the grapheme flag to false if none are found.
+    ///
+    /// Call after removing graphemes in a row.
+    pub inline fn updateRowGraphemeFlag(self: *Page, row: *Row) void {
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
         for (cells) |c| if (c.hasGrapheme()) return;
         row.grapheme = false;
@@ -1498,217 +1509,23 @@ pub const Page = struct {
         return self.grapheme_map.map(self.memory).capacity();
     }
 
-    /// Options for encoding the page as UTF-8.
-    pub const EncodeUtf8Options = struct {
-        /// The range of rows to encode. If end_y is null, then it will
-        /// encode to the end of the page.
-        start_y: size.CellCountInt = 0,
-        end_y: ?size.CellCountInt = null,
-
-        /// If true, this will unwrap soft-wrapped lines. If false, this will
-        /// dump the screen as it is visually seen in a rendered window.
-        unwrap: bool = true,
-
-        /// Preceding state from encoding the prior page. Used to preserve
-        /// blanks properly across multiple pages.
-        preceding: TrailingUtf8State = .{},
-
-        /// If non-null, this will be cleared and filled with the x/y
-        /// coordinates of each byte in the UTF-8 encoded output.
-        /// The index in the array is the byte offset in the output
-        /// where 0 is the cursor of the writer when the function is
-        /// called.
-        cell_map: ?*CellMap = null,
-
-        /// Trailing state for UTF-8 encoding.
-        pub const TrailingUtf8State = struct {
-            rows: usize = 0,
-            cells: usize = 0,
-        };
-    };
-
-    /// See cell_map
-    pub const CellMap = struct {
-        alloc: Allocator,
-        map: std.ArrayList(CellMapEntry),
-
-        pub fn init(alloc: Allocator) CellMap {
-            return .{
-                .alloc = alloc,
-                .map = .empty,
-            };
-        }
-
-        pub fn deinit(self: *CellMap) void {
-            self.map.deinit(self.alloc);
-        }
-    };
-
-    /// The x/y coordinate of a single cell in the cell map.
-    pub const CellMapEntry = struct {
-        y: size.CellCountInt,
-        x: size.CellCountInt,
-    };
-
-    /// Encode the page contents as UTF-8.
+    /// Checks if the row contains any styles and sets
+    /// the styled flag to false if none are found.
     ///
-    /// If preceding is non-null, then it will be used to initialize our
-    /// blank rows/cells count so that we can accumulate blanks across
-    /// multiple pages.
-    ///
-    /// Note: Many tests for this function are done via Screen.dumpString
-    /// tests since that function is a thin wrapper around this one and
-    /// it makes it easier to test input contents.
-    pub fn encodeUtf8(
-        self: *const Page,
-        writer: *std.Io.Writer,
-        opts: EncodeUtf8Options,
-    ) anyerror!EncodeUtf8Options.TrailingUtf8State {
-        var blank_rows: usize = opts.preceding.rows;
-        var blank_cells: usize = opts.preceding.cells;
-
-        const start_y: size.CellCountInt = opts.start_y;
-        const end_y: size.CellCountInt = opts.end_y orelse self.size.rows;
-
-        // We can probably avoid this by doing the logic below in a different
-        // way. The reason this exists is so that when we end a non-blank
-        // line with a newline, we can correctly map the cell map over to
-        // the correct x value.
-        //
-        // For example "A\nB". The cell map for "\n" should be (1, 0).
-        // This is tested in Screen.zig so feel free to refactor this.
-        var last_x: size.CellCountInt = 0;
-
-        for (start_y..end_y) |y_usize| {
-            const y: size.CellCountInt = @intCast(y_usize);
-            const row: *Row = self.getRow(y);
-            const cells: []const Cell = self.getCells(row);
-
-            // If this row is blank, accumulate to avoid a bunch of extra
-            // work later. If it isn't blank, make sure we dump all our
-            // blanks.
-            if (!Cell.hasTextAny(cells)) {
-                blank_rows += 1;
-                continue;
-            }
-            for (1..blank_rows + 1) |i| {
-                try writer.writeByte('\n');
-
-                // This is tested in Screen.zig, i.e. one test is
-                // "cell map with newlines"
-                if (opts.cell_map) |cell_map| {
-                    try cell_map.map.append(cell_map.alloc, .{
-                        .x = last_x,
-                        .y = @intCast(y - blank_rows + i - 1),
-                    });
-                    last_x = 0;
-                }
-            }
-            blank_rows = 0;
-
-            // If we're not wrapped, we always add a newline so after
-            // the row is printed we can add a newline.
-            if (!row.wrap or !opts.unwrap) blank_rows += 1;
-
-            // If the row doesn't continue a wrap then we need to reset
-            // our blank cell count.
-            if (!row.wrap_continuation or !opts.unwrap) blank_cells = 0;
-
-            // Go through each cell and print it
-            for (cells, 0..) |*cell, x_usize| {
-                const x: size.CellCountInt = @intCast(x_usize);
-
-                // Skip spacers
-                switch (cell.wide) {
-                    .narrow, .wide => {},
-                    .spacer_head, .spacer_tail => continue,
-                }
-
-                // If we have a zero value, then we accumulate a counter. We
-                // only want to turn zero values into spaces if we have a non-zero
-                // char sometime later.
-                if (!cell.hasText()) {
-                    blank_cells += 1;
-                    continue;
-                }
-                if (blank_cells > 0) {
-                    try writer.splatByteAll(' ', blank_cells);
-                    if (opts.cell_map) |cell_map| {
-                        for (0..blank_cells) |i| try cell_map.map.append(cell_map.alloc, .{
-                            .x = @intCast(x - blank_cells + i),
-                            .y = y,
-                        });
-                    }
-
-                    blank_cells = 0;
-                }
-
-                switch (cell.content_tag) {
-                    .codepoint => {
-                        try writer.print("{u}", .{cell.content.codepoint});
-                        if (opts.cell_map) |cell_map| {
-                            last_x = x + 1;
-                            try cell_map.map.append(cell_map.alloc, .{
-                                .x = x,
-                                .y = y,
-                            });
-                        }
-                    },
-
-                    .codepoint_grapheme => {
-                        try writer.print("{u}", .{cell.content.codepoint});
-                        if (opts.cell_map) |cell_map| {
-                            last_x = x + 1;
-                            try cell_map.map.append(cell_map.alloc, .{
-                                .x = x,
-                                .y = y,
-                            });
-                        }
-
-                        for (self.lookupGrapheme(cell).?) |cp| {
-                            try writer.print("{u}", .{cp});
-                            if (opts.cell_map) |cell_map| try cell_map.map.append(cell_map.alloc, .{
-                                .x = x,
-                                .y = y,
-                            });
-                        }
-                    },
-
-                    // Unreachable since we do hasText() above
-                    .bg_color_palette,
-                    .bg_color_rgb,
-                    => unreachable,
-                }
-            }
-        }
-
-        return .{ .rows = blank_rows, .cells = blank_cells };
+    /// Call after removing styles in a row.
+    pub inline fn updateRowStyledFlag(self: *Page, row: *Row) void {
+        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        for (cells) |c| if (c.hasStyling()) return;
+        row.styled = false;
     }
 
-    /// Returns the bitset for the dirty bits on this page.
-    ///
-    /// The returned value is a DynamicBitSetUnmanaged but it is NOT
-    /// actually dynamic; do NOT call resize on this. It is safe to
-    /// read and write but do not resize it.
-    pub inline fn dirtyBitSet(self: *const Page) std.DynamicBitSetUnmanaged {
-        return .{
-            .bit_length = self.capacity.rows,
-            .masks = self.dirty.ptr(self.memory),
-        };
-    }
-
-    /// Returns true if the given row is dirty. This is NOT very
-    /// efficient if you're checking many rows and you should use
-    /// dirtyBitSet directly instead.
-    pub inline fn isRowDirty(self: *const Page, y: usize) bool {
-        return self.dirtyBitSet().isSet(y);
-    }
-
-    /// Returns true if this page is dirty at all. If you plan on
-    /// checking any additional rows, you should use dirtyBitSet and
-    /// check this on your own so you have the set available.
+    /// Returns true if this page is dirty at all.
     pub inline fn isDirty(self: *const Page) bool {
-        return self.dirtyBitSet().findFirstSet() != null;
+        if (self.dirty) return true;
+        for (self.rows.ptr(self.memory)[0..self.size.rows]) |row| {
+            if (row.dirty) return true;
+        }
+        return false;
     }
 
     pub const Layout = struct {
@@ -1717,10 +1534,8 @@ pub const Page = struct {
         rows_size: usize,
         cells_start: usize,
         cells_size: usize,
-        dirty_start: usize,
-        dirty_size: usize,
         styles_start: usize,
-        styles_layout: style.Set.Layout,
+        styles_layout: StyleSet.Layout,
         grapheme_alloc_start: usize,
         grapheme_alloc_layout: GraphemeAlloc.Layout,
         grapheme_map_start: usize,
@@ -1745,19 +1560,8 @@ pub const Page = struct {
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
         const cells_end = cells_start + (cells_count * @sizeOf(Cell));
 
-        // The division below cannot fail because our row count cannot
-        // exceed the maximum value of usize.
-        const dirty_bit_length: usize = rows_count;
-        const dirty_usize_length: usize = std.math.divCeil(
-            usize,
-            dirty_bit_length,
-            @bitSizeOf(usize),
-        ) catch unreachable;
-        const dirty_start = alignForward(usize, cells_end, @alignOf(usize));
-        const dirty_end: usize = dirty_start + (dirty_usize_length * @sizeOf(usize));
-
-        const styles_layout: style.Set.Layout = .init(cap.styles);
-        const styles_start = alignForward(usize, dirty_end, style.Set.base_align.toByteUnits());
+        const styles_layout: StyleSet.Layout = .init(cap.styles);
+        const styles_start = alignForward(usize, cells_end, StyleSet.base_align.toByteUnits());
         const styles_end = styles_start + styles_layout.total_size;
 
         const grapheme_alloc_layout = GraphemeAlloc.layout(cap.grapheme_bytes);
@@ -1798,8 +1602,6 @@ pub const Page = struct {
             .rows_size = rows_end - rows_start,
             .cells_start = cells_start,
             .cells_size = cells_end - cells_start,
-            .dirty_start = dirty_start,
-            .dirty_size = dirty_end - dirty_start,
             .styles_start = styles_start,
             .styles_layout = styles_layout,
             .grapheme_alloc_start = grapheme_alloc_start,
@@ -1886,16 +1688,14 @@ pub const Capacity = struct {
             const string_alloc_start = alignBackward(usize, hyperlink_set_start - layout.string_alloc_layout.total_size, StringAlloc.base_align.toByteUnits());
             const grapheme_map_start = alignBackward(usize, string_alloc_start - layout.grapheme_map_layout.total_size, GraphemeMap.base_align.toByteUnits());
             const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - layout.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align.toByteUnits());
-            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, style.Set.base_align.toByteUnits());
+            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, StyleSet.base_align.toByteUnits());
 
             // The size per row is:
             //   - The row metadata itself
             //   - The cells per row (n=cols)
-            //   - 1 bit for dirty tracking
             const bits_per_row: usize = size: {
                 var bits: usize = @bitSizeOf(Row); // Row metadata
                 bits += @bitSizeOf(Cell) * @as(usize, @intCast(cols)); // Cells (n=cols)
-                bits += 1; // The dirty bit
                 break :size bits;
             };
             const available_bits: usize = styles_start * 8;
@@ -1959,7 +1759,20 @@ pub const Row = packed struct(u64) {
     // everything throughout the same.
     kitty_virtual_placeholder: bool = false,
 
-    _padding: u23 = 0,
+    /// True if this row is dirty and requires a redraw. This is set to true
+    /// by any operation that modifies the row's contents or position, and
+    /// consumers of the page are expected to clear it when they redraw.
+    ///
+    /// Dirty status is only ever meant to convey that one or more cells in
+    /// the row have changed visually. A cell which changes in a way that
+    /// doesn't affect the visual representation may not be marked as dirty.
+    ///
+    /// Dirty tracking may have false positives but should never have false
+    /// negatives. A false negative would result in a visual artifact on the
+    /// screen.
+    dirty: bool = false,
+
+    _padding: u22 = 0,
 
     /// Semantic prompt type.
     pub const SemanticPrompt = enum(u3) {
@@ -1986,8 +1799,9 @@ pub const Row = packed struct(u64) {
 
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
-    fn managedMemory(self: Row) bool {
-        return self.grapheme or self.styled or self.hyperlink;
+    pub inline fn managedMemory(self: Row) bool {
+        // Ordered on purpose for likelihood.
+        return self.styled or self.hyperlink or self.grapheme;
     }
 };
 
@@ -2014,7 +1828,7 @@ pub const Cell = packed struct(u64) {
 
     /// The style ID to use for this cell within the style map. Zero
     /// is always the default style so no lookup is required.
-    style_id: style.Id = 0,
+    style_id: StyleId = 0,
 
     /// The wide property of this cell, for wide characters. Characters in
     /// a terminal grid can only be 1 or 2 cells wide. A wide character
@@ -2080,7 +1894,7 @@ pub const Cell = packed struct(u64) {
         return cell;
     }
 
-    pub fn isZero(self: Cell) bool {
+    pub inline fn isZero(self: Cell) bool {
         return @as(u64, @bitCast(self)) == 0;
     }
 
@@ -2090,7 +1904,7 @@ pub const Cell = packed struct(u64) {
     ///   - Cell text is blank
     ///   - Cell is styled but only with a background color and no text
     ///   - Cell has a unicode placeholder for Kitty graphics protocol
-    pub fn hasText(self: Cell) bool {
+    pub inline fn hasText(self: Cell) bool {
         return switch (self.content_tag) {
             .codepoint,
             .codepoint_grapheme,
@@ -2102,7 +1916,7 @@ pub const Cell = packed struct(u64) {
         };
     }
 
-    pub fn codepoint(self: Cell) u21 {
+    pub inline fn codepoint(self: Cell) u21 {
         return switch (self.content_tag) {
             .codepoint,
             .codepoint_grapheme,
@@ -2115,15 +1929,15 @@ pub const Cell = packed struct(u64) {
     }
 
     /// The width in grid cells that this cell takes up.
-    pub fn gridWidth(self: Cell) u2 {
+    pub inline fn gridWidth(self: Cell) u2 {
         return switch (self.wide) {
             .narrow, .spacer_head, .spacer_tail => 1,
             .wide => 2,
         };
     }
 
-    pub fn hasStyling(self: Cell) bool {
-        return self.style_id != style.default_id;
+    pub inline fn hasStyling(self: Cell) bool {
+        return self.style_id != stylepkg.default_id;
     }
 
     /// Returns true if the cell has no text or styling.
@@ -2141,12 +1955,12 @@ pub const Cell = packed struct(u64) {
         };
     }
 
-    pub fn hasGrapheme(self: Cell) bool {
+    pub inline fn hasGrapheme(self: Cell) bool {
         return self.content_tag == .codepoint_grapheme;
     }
 
     /// Returns true if the set of cells has text in it.
-    pub fn hasTextAny(cells: []const Cell) bool {
+    pub inline fn hasTextAny(cells: []const Cell) bool {
         for (cells) |cell| {
             if (cell.hasText()) return true;
         }
@@ -2263,10 +2077,6 @@ test "Page init" {
         .styles = 32,
     });
     defer page.deinit();
-
-    // Dirty set should be empty
-    const dirty = page.dirtyBitSet();
-    try std.testing.expectEqual(@as(usize, 0), dirty.count());
 }
 
 test "Page read and write cells" {
@@ -2316,7 +2126,8 @@ test "Page appendGrapheme small" {
     try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page.lookupGrapheme(rac.cell).?);
 
     // Clear it
-    page.clearGrapheme(rac.row, rac.cell);
+    page.clearGrapheme(rac.cell);
+    page.updateRowGraphemeFlag(rac.row);
     try testing.expect(!rac.row.grapheme);
     try testing.expect(!rac.cell.hasGrapheme());
 }
@@ -2361,7 +2172,8 @@ test "Page clearGrapheme not all cells" {
     try page.appendGrapheme(rac2.row, rac2.cell, 0x0A);
 
     // Clear it
-    page.clearGrapheme(rac.row, rac.cell);
+    page.clearGrapheme(rac.cell);
+    page.updateRowGraphemeFlag(rac.row);
     try testing.expect(rac.row.grapheme);
     try testing.expect(!rac.cell.hasGrapheme());
     try testing.expect(rac2.cell.hasGrapheme());
@@ -2414,6 +2226,84 @@ test "Page clone" {
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
         try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+    }
+}
+
+test "Page clone graphemes" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Append some graphemes
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .init(0x09);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0A);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0B);
+    }
+
+    // Clone it
+    var page2 = try page.clone();
+    defer page2.deinit();
+    {
+        const rac = page2.getRowAndCell(0, 0);
+        try testing.expect(rac.row.grapheme);
+        try testing.expect(rac.cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page2.lookupGrapheme(rac.cell).?);
+    }
+}
+
+test "Page clone styles" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write with some styles
+    {
+        const id = try page.styles.add(page.memory, .{ .flags = .{
+            .bold = true,
+        } });
+
+        for (0..page.size.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.row.styled = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x + 1) },
+                .style_id = id,
+            };
+            page.styles.use(page.memory, id);
+        }
+    }
+
+    // Clone it
+    var page2 = try page.clone();
+    defer page2.deinit();
+    {
+        const id: u16 = style: {
+            const rac = page2.getRowAndCell(0, 0);
+            break :style rac.cell.style_id;
+        };
+
+        for (0..page.size.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            try testing.expect(rac.row.styled);
+            try testing.expectEqual(id, rac.cell.style_id);
+        }
+
+        const style = page.styles.get(
+            page.memory,
+            id,
+        );
+        try testing.expect((Style{ .flags = .{
+            .bold = true,
+        } }).eql(style.*));
     }
 }
 
@@ -2625,7 +2515,8 @@ test "Page cloneFrom graphemes" {
     // Write again
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
-        page.clearGrapheme(rac.row, rac.cell);
+        page.clearGrapheme(rac.cell);
+        page.updateRowGraphemeFlag(rac.row);
         rac.cell.* = .{
             .content_tag = .codepoint,
             .content = .{ .codepoint = 0 },

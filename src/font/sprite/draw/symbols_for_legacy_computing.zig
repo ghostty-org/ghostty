@@ -21,9 +21,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-
-const z2d = @import("z2d");
+const assert = @import("../../../quirks.zig").inlineAssert;
 
 const common = @import("common.zig");
 const Thickness = common.Thickness;

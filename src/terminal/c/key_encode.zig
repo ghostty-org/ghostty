@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const lib_alloc = @import("../../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
@@ -9,6 +8,8 @@ const KittyFlags = @import("../../terminal/kitty/key.zig").Flags;
 const OptionAsAlt = @import("../../input/config.zig").OptionAsAlt;
 const Result = @import("result.zig").Result;
 const KeyEvent = @import("key_event.zig").Event;
+
+const log = std.log.scoped(.key_encode);
 
 /// Wrapper around key encoding options that tracks the allocator for C API usage.
 const KeyEncoderWrapper = struct {
@@ -70,6 +71,13 @@ pub fn setopt(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(.c) void {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
+            log.warn("setopt invalid option value={d}", .{@intFromEnum(option)});
+            return;
+        };
+    }
+
     return switch (option) {
         inline else => |comptime_option| setoptTyped(
             encoder_,
@@ -95,7 +103,15 @@ fn setoptTyped(
             const bits: u5 = @truncate(value.*);
             break :flags @bitCast(bits);
         },
-        .macos_option_as_alt => opts.macos_option_as_alt = value.*,
+        .macos_option_as_alt => {
+            if (comptime std.debug.runtime_safety) {
+                _ = std.meta.intToEnum(OptionAsAlt, @intFromEnum(value.*)) catch {
+                    log.warn("setopt invalid OptionAsAlt value={d}", .{@intFromEnum(value.*)});
+                    return;
+                };
+            }
+            opts.macos_option_as_alt = value.*;
+        },
     }
 }
 
@@ -123,7 +139,9 @@ pub fn encode(
                 encoder_.?.opts,
             ) catch unreachable;
 
-            out_written.* = discarding.count;
+            // Discarding always uses a u64. If we're on 32-bit systems
+            // we cast down. We should make this safer in the future.
+            out_written.* = @intCast(discarding.count);
             return .out_of_memory;
         },
     };

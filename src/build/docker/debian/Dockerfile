@@ -24,12 +24,12 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
 
 WORKDIR /src
 
-COPY ./build.zig /src
+COPY ./build.zig ./build.zig.zon /src/
 
 # Install zig
 # https://ziglang.org/download/
 
-RUN export ZIG_VERSION=$(sed -n -e 's/^.*requireZig("\(.*\)").*$/\1/p' build.zig) && curl -L -o /tmp/zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-$(uname -m)-linux-$ZIG_VERSION.tar.xz" && \
+RUN export ZIG_VERSION=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon) && curl -L -o /tmp/zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-$(uname -m)-linux-$ZIG_VERSION.tar.xz" && \
     tar -xf /tmp/zig.tar.xz -C /opt && \
     rm /tmp/zig.tar.xz && \
     ln -s "/opt/zig-$(uname -m)-linux-$ZIG_VERSION/zig" /usr/local/bin/zig
@@ -41,4 +41,3 @@ RUN zig build \
     -Dcpu=baseline
 
 RUN ./zig-out/bin/ghostty +version
-

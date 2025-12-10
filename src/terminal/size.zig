@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 
 /// The maximum size of a page in bytes. We use a u16 here because any
 /// smaller bit size by Zig is upgraded anyways to a u16 on mainstream
@@ -28,6 +28,11 @@ pub fn Offset(comptime T: type) type {
         pub const Slice = struct {
             offset: Self = .{},
             len: usize = 0,
+
+            /// Returns a slice for the data, properly typed.
+            pub inline fn slice(self: Slice, base: anytype) []T {
+                return self.offset.ptr(base)[0..self.len];
+            }
         };
 
         /// Returns a pointer to the start of the data, properly typed.
@@ -118,7 +123,7 @@ pub const OffsetBuf = struct {
 
 /// Get the offset for a given type from some base pointer to the
 /// actual pointer to the type.
-pub fn getOffset(
+pub inline fn getOffset(
     comptime T: type,
     base: anytype,
     ptr: *const T,
@@ -129,7 +134,7 @@ pub fn getOffset(
     return .{ .offset = @intCast(offset) };
 }
 
-fn intFromBase(base: anytype) usize {
+inline fn intFromBase(base: anytype) usize {
     const T = @TypeOf(base);
     return switch (@typeInfo(T)) {
         .pointer => |v| switch (v.size) {

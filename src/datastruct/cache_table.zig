@@ -1,7 +1,7 @@
 const fastmem = @import("../fastmem.zig");
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 
 /// An associative data structure used for efficiently storing and
 /// retrieving values which are able to be recomputed if necessary.

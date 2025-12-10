@@ -5,8 +5,6 @@
 const Parser = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
 const testing = std.testing;
 const table = @import("parse_table.zig").table;
 const osc = @import("osc.zig");
@@ -127,6 +125,14 @@ pub const Action = union(enum) {
         intermediates: []const u8 = "",
         params: []const u16 = &.{},
         final: u8,
+
+        pub const C = extern struct {
+            intermediates: [*]const u8,
+            intermediates_len: usize,
+            params: [*]const u16,
+            params_len: usize,
+            final: u8,
+        };
     };
 
     // Implement formatter for logging. This is mostly copied from the
@@ -221,7 +227,7 @@ pub fn init() Parser {
         .params_idx = 0,
         .param_acc = 0,
         .param_acc_idx = 0,
-        .osc_parser = .init(),
+        .osc_parser = .init(null),
 
         .intermediates = undefined,
         .params = undefined,
@@ -304,6 +310,7 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
 
 pub inline fn collect(self: *Parser, c: u8) void {
     if (self.intermediates_idx >= MAX_INTERMEDIATE) {
+        @branchHint(.cold);
         log.warn("invalid intermediates count", .{});
         return;
     }
@@ -340,9 +347,7 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             }
 
             // A numeric value. Add it to our accumulator.
-            if (self.param_acc_idx > 0) {
-                self.param_acc *|= 10;
-            }
+            self.param_acc *|= 10;
             self.param_acc +|= c - '0';
 
             // Increment our accumulator index. If we overflow then
@@ -378,6 +383,7 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 
             // We only allow colon or mixed separators for the 'm' command.
             if (c != 'm' and self.params_sep.count() > 0) {
+                @branchHint(.cold);
                 log.warn(
                     "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
                     .{result},

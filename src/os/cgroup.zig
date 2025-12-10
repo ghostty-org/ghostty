@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const linux = std.os.linux;
 const posix = std.posix;
 const Allocator = std.mem.Allocator;

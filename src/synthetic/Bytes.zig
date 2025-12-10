@@ -27,27 +27,35 @@ pub fn generator(self: *Bytes) Generator {
     return .init(self, next);
 }
 
-pub fn next(self: *Bytes, buf: []u8) Generator.Error![]const u8 {
+pub fn next(self: *Bytes, writer: *std.Io.Writer, max_len: usize) Generator.Error!void {
+    std.debug.assert(max_len >= 1);
     const len = @min(
         self.rand.intRangeAtMostBiased(usize, self.min_len, self.max_len),
-        buf.len,
+        max_len,
     );
 
-    const result = buf[0..len];
-    self.rand.bytes(result);
-    if (self.alphabet) |alphabet| {
-        for (result) |*byte| byte.* = alphabet[byte.* % alphabet.len];
+    var buf: [8]u8 = undefined;
+    var remaining = len;
+    while (remaining > 0) {
+        const data = buf[0..@min(remaining, buf.len)];
+        self.rand.bytes(data);
+        if (self.alphabet) |alphabet| {
+            for (data) |*byte| byte.* = alphabet[byte.* % alphabet.len];
+        }
+        try writer.writeAll(data);
+        remaining -= data.len;
     }
-
-    return result;
 }
 
 test "bytes" {
     const testing = std.testing;
     var prng = std.Random.DefaultPrng.init(0);
     var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
     var v: Bytes = .{ .rand = prng.random() };
+    v.min_len = buf.len;
+    v.max_len = buf.len;
     const gen = v.generator();
-    const result = try gen.next(&buf);
-    try testing.expect(result.len > 0);
+    try gen.next(&writer, buf.len);
+    try testing.expectEqual(buf.len, writer.buffered().len);
 }

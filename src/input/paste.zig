@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const Terminal = @import("../terminal/Terminal.zig");
 
 pub const Options = struct {

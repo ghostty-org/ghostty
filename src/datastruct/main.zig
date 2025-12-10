@@ -13,6 +13,7 @@ pub const BlockingQueue = blocking_queue.BlockingQueue;
 pub const CacheTable = cache_table.CacheTable;
 pub const CircBuf = circ_buf.CircBuf;
 pub const IntrusiveDoublyLinkedList = intrusive_linked_list.DoublyLinkedList;
+pub const MessageData = @import("message_data.zig").MessageData;
 pub const SegmentedPool = segmented_pool.SegmentedPool;
 pub const SplitTree = split_tree.SplitTree;
 

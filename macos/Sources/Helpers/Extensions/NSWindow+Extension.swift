@@ -15,4 +15,20 @@ extension NSWindow {
         guard let firstWindow = tabGroup?.windows.first else { return true }
         return firstWindow === self
     }
+
+    /// Adjusts the window origin if necessary to ensure the window remains visible on screen.
+    func constrainToScreen() {
+        guard let screen = screen ?? NSScreen.main else { return }
+        let visibleFrame = screen.visibleFrame
+        var windowFrame = frame
+
+        windowFrame.origin.x = max(visibleFrame.minX,
+            min(windowFrame.origin.x, visibleFrame.maxX - windowFrame.width))
+        windowFrame.origin.y = max(visibleFrame.minY,
+            min(windowFrame.origin.y, visibleFrame.maxY - windowFrame.height))
+
+        if windowFrame.origin != frame.origin {
+            setFrameOrigin(windowFrame.origin)
+        }
+    }
 }

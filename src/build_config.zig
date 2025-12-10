@@ -9,7 +9,6 @@ const assert = std.debug.assert;
 const apprt = @import("apprt.zig");
 const font = @import("font/main.zig");
 const rendererpkg = @import("renderer.zig");
-const WasmTarget = @import("os/wasm/target.zig").Target;
 const BuildConfig = @import("build/Config.zig");
 
 pub const ReleaseChannel = BuildConfig.ReleaseChannel;

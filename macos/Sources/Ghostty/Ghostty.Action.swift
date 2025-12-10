@@ -45,11 +45,14 @@ extension Ghostty.Action {
         enum Kind {
             case unknown
             case text
+            case html
             
             init(_ c: ghostty_action_open_url_kind_e) {
                 switch c {
                 case GHOSTTY_ACTION_OPEN_URL_KIND_TEXT:
                     self = .text
+                case GHOSTTY_ACTION_OPEN_URL_KIND_HTML:
+                    self = .html
                 default:
                     self = .unknown
                 }
@@ -99,6 +102,30 @@ extension Ghostty.Action {
         
         let state: State
         let progress: UInt8?
+    }
+    
+    struct Scrollbar {
+        let total: UInt64
+        let offset: UInt64
+        let len: UInt64
+        
+        init(c: ghostty_action_scrollbar_s) {
+            total = c.total
+            offset = c.offset            
+            len = c.len
+        }
+    }
+
+    struct StartSearch {
+        let needle: String?
+        
+        init(c: ghostty_action_start_search_s) {
+            if let needleCString = c.needle {
+                self.needle = String(cString: needleCString)
+            } else {
+                self.needle = nil
+            }
+        }
     }
 }
 

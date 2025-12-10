@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
 const objc = @import("objc");
 
 const log = std.log.scoped(.os);

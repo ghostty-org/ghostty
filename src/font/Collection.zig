@@ -16,7 +16,6 @@
 const Collection = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const config = @import("../config.zig");
 const comparison = @import("../datastruct/comparison.zig");
@@ -1228,7 +1227,8 @@ test "metrics" {
         .overline_thickness = 1,
         .box_thickness = 1,
         .cursor_height = 17,
-        .icon_height = 12.24,
+        .icon_height = 16.784,
+        .icon_height_single = 12.24,
         .face_width = 8.0,
         .face_height = 16.784,
         .face_y = -0.04,
@@ -1248,7 +1248,8 @@ test "metrics" {
         .overline_thickness = 2,
         .box_thickness = 2,
         .cursor_height = 34,
-        .icon_height = 24.48,
+        .icon_height = 33.568,
+        .icon_height_single = 24.48,
         .face_width = 16.0,
         .face_height = 33.568,
         .face_y = -0.08,

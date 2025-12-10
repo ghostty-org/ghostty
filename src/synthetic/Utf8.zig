@@ -41,13 +41,12 @@ pub fn generator(self: *Utf8) Generator {
     return .init(self, next);
 }
 
-pub fn next(self: *Utf8, buf: []u8) Generator.Error![]const u8 {
+pub fn next(self: *Utf8, writer: *std.Io.Writer, max_len: usize) Generator.Error!void {
     const len = @min(
         self.rand.intRangeAtMostBiased(usize, self.min_len, self.max_len),
-        buf.len,
+        max_len,
     );
 
-    const result = buf[0..len];
     var rem: usize = len;
     while (rem > 0) {
         // Pick a utf8 byte count to generate.
@@ -75,9 +74,11 @@ pub fn next(self: *Utf8, buf: []u8) Generator.Error![]const u8 {
         assert(std.unicode.utf8CodepointSequenceLength(
             cp,
         ) catch unreachable == @intFromEnum(utf8_len));
-        rem -= std.unicode.utf8Encode(
+
+        var buf: [4]u8 = undefined;
+        const l = std.unicode.utf8Encode(
             cp,
-            result[result.len - rem ..],
+            &buf,
         ) catch |err| switch (err) {
             // Impossible because our generation above is hardcoded to
             // produce a valid range. If not, a bug.
@@ -86,18 +87,22 @@ pub fn next(self: *Utf8, buf: []u8) Generator.Error![]const u8 {
             // Possible, in which case we redo the loop and encode nothing.
             error.Utf8CannotEncodeSurrogateHalf => continue,
         };
+        try writer.writeAll(buf[0..l]);
+        rem -= l;
     }
-
-    return result;
 }
 
 test "utf8" {
     const testing = std.testing;
     var prng = std.Random.DefaultPrng.init(0);
     var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
     var v: Utf8 = .{ .rand = prng.random() };
+    v.min_len = buf.len;
+    v.max_len = buf.len;
     const gen = v.generator();
-    const result = try gen.next(&buf);
-    try testing.expect(result.len > 0);
+    try gen.next(&writer, buf.len);
+    const result = writer.buffered();
+    try testing.expectEqual(256, result.len);
     try testing.expect(std.unicode.utf8ValidateSlice(result));
 }

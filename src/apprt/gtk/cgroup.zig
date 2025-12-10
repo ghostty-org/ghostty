@@ -1,14 +1,11 @@
 /// Contains all the logic for putting the Ghostty process and
 /// each individual surface into its own cgroup.
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const gio = @import("gio");
 const glib = @import("glib");
-const gobject = @import("gobject");
 
-const App = @import("App.zig");
 const internal_os = @import("../../os/main.zig");
 
 const log = std.log.scoped(.gtk_systemd_cgroup);

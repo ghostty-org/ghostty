@@ -6,14 +6,8 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const build_config = @import("build_config.zig");
-const options = @import("build_options");
-const glslang = @import("glslang");
 const macos = @import("macos");
-const oni = @import("oniguruma");
 const cli = @import("cli.zig");
-const internal_os = @import("os/main.zig");
-const fontconfig = @import("fontconfig");
-const harfbuzz = @import("harfbuzz");
 const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
 
@@ -193,6 +187,7 @@ test {
     _ = @import("crash/main.zig");
     _ = @import("datastruct/main.zig");
     _ = @import("inspector/main.zig");
+    _ = @import("lib/main.zig");
     _ = @import("terminal/main.zig");
     _ = @import("terminfo/main.zig");
     _ = @import("simd/main.zig");

@@ -9,6 +9,9 @@
 //! this in the future.
 const lib = @This();
 
+const std = @import("std");
+const builtin = @import("builtin");
+
 // The public API below reproduces a lot of terminal/main.zig but
 // is separate because (1) we need our root file to be in `src/`
 // so we can access other directories and (2) we may want to withhold
@@ -22,6 +25,8 @@ pub const osc = terminal.osc;
 pub const point = terminal.point;
 pub const color = terminal.color;
 pub const device_status = terminal.device_status;
+pub const formatter = terminal.formatter;
+pub const highlight = terminal.highlight;
 pub const kitty = terminal.kitty;
 pub const modes = terminal.modes;
 pub const page = terminal.page;
@@ -43,14 +48,16 @@ pub const PageList = terminal.PageList;
 pub const Parser = terminal.Parser;
 pub const Pin = PageList.Pin;
 pub const Point = point.Point;
+pub const RenderState = terminal.RenderState;
 pub const Screen = terminal.Screen;
-pub const ScreenType = Terminal.ScreenType;
+pub const ScreenSet = terminal.ScreenSet;
 pub const Selection = terminal.Selection;
 pub const SizeReportStyle = terminal.SizeReportStyle;
 pub const StringMap = terminal.StringMap;
 pub const Style = terminal.Style;
 pub const Terminal = terminal.Terminal;
 pub const Stream = terminal.Stream;
+pub const StreamAction = terminal.StreamAction;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;
@@ -95,13 +102,6 @@ comptime {
     // we want to reference the C API so that it gets exported.
     if (@import("root") == lib) {
         const c = terminal.c_api;
-        @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
-        @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
-        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
-        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
-        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
-        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
-        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
         @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
         @export(&c.key_event_free, .{ .name = "ghostty_key_event_free" });
         @export(&c.key_event_set_action, .{ .name = "ghostty_key_event_set_action" });
@@ -122,8 +122,63 @@ comptime {
         @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
         @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
         @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
+        @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
+        @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
+        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
+        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
+        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
+        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
+        @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
+        @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
+        @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
+        @export(&c.sgr_reset, .{ .name = "ghostty_sgr_reset" });
+        @export(&c.sgr_set_params, .{ .name = "ghostty_sgr_set_params" });
+        @export(&c.sgr_next, .{ .name = "ghostty_sgr_next" });
+        @export(&c.sgr_unknown_full, .{ .name = "ghostty_sgr_unknown_full" });
+        @export(&c.sgr_unknown_partial, .{ .name = "ghostty_sgr_unknown_partial" });
+        @export(&c.sgr_attribute_tag, .{ .name = "ghostty_sgr_attribute_tag" });
+        @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
+
+        // On Wasm we need to export our allocator convenience functions.
+        if (builtin.target.cpu.arch.isWasm()) {
+            const alloc = @import("lib/allocator/convenience.zig");
+            @export(&alloc.allocOpaque, .{ .name = "ghostty_wasm_alloc_opaque" });
+            @export(&alloc.freeOpaque, .{ .name = "ghostty_wasm_free_opaque" });
+            @export(&alloc.allocU8Array, .{ .name = "ghostty_wasm_alloc_u8_array" });
+            @export(&alloc.freeU8Array, .{ .name = "ghostty_wasm_free_u8_array" });
+            @export(&alloc.allocU16Array, .{ .name = "ghostty_wasm_alloc_u16_array" });
+            @export(&alloc.freeU16Array, .{ .name = "ghostty_wasm_free_u16_array" });
+            @export(&alloc.allocU8, .{ .name = "ghostty_wasm_alloc_u8" });
+            @export(&alloc.freeU8, .{ .name = "ghostty_wasm_free_u8" });
+            @export(&alloc.allocUsize, .{ .name = "ghostty_wasm_alloc_usize" });
+            @export(&alloc.freeUsize, .{ .name = "ghostty_wasm_free_usize" });
+            @export(&c.wasm_alloc_sgr_attribute, .{ .name = "ghostty_wasm_alloc_sgr_attribute" });
+            @export(&c.wasm_free_sgr_attribute, .{ .name = "ghostty_wasm_free_sgr_attribute" });
+        }
     }
 }
+
+pub const std_options: std.Options = options: {
+    if (builtin.target.cpu.arch.isWasm()) break :options .{
+        // Wasm builds we specifically want to optimize for space with small
+        // releases so we bump up to warn. Everything else acts pretty normal.
+        .log_level = switch (builtin.mode) {
+            .Debug => .debug,
+            .ReleaseSmall => .warn,
+            else => .info,
+        },
+
+        // Wasm doesn't have access to stdio so we have a custom log function.
+        .logFn = @import("os/wasm/log.zig").log,
+    };
+
+    // For everything else we currently use defaults. Longer term I'm
+    // SURE this isn't right (e.g. we definitely want to customize the log
+    // function for the C lib at least).
+    break :options .{};
+};
 
 test {
     _ = terminal;

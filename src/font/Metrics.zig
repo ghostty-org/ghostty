@@ -1,6 +1,7 @@
 const Metrics = @This();
 
 const std = @import("std");
+const assert = @import("../quirks.zig").inlineAssert;
 
 /// Recommended cell width and height for a monospace grid using this font.
 cell_width: u32,
@@ -38,14 +39,18 @@ cursor_height: u32,
 /// The constraint height for nerd fonts icons.
 icon_height: f64,
 
+/// The constraint height for nerd fonts icons limited to a single cell width.
+icon_height_single: f64,
+
 /// The unrounded face width, used in scaling calculations.
 face_width: f64,
 
 /// The unrounded face height, used in scaling calculations.
 face_height: f64,
 
-/// The vertical bearing of face within the pixel-rounded
-/// and possibly height-adjusted cell
+/// The offset from the bottom of the cell to the bottom
+/// of the face's bounding box, based on the rounded and
+/// potentially adjusted cell height.
 face_y: f64,
 
 /// Minimum acceptable values for some fields to prevent modifiers
@@ -60,6 +65,7 @@ const Minimums = struct {
     const cursor_thickness = 1;
     const cursor_height = 1;
     const icon_height = 1.0;
+    const icon_height_single = 1.0;
     const face_height = 1.0;
     const face_width = 1.0;
 };
@@ -219,25 +225,68 @@ pub const FaceMetrics = struct {
 ///
 /// For any nullable options that are not provided, estimates will be used.
 pub fn calc(face: FaceMetrics) Metrics {
-    // We use the ceiling of the provided cell width and height to ensure
-    // that the cell is large enough for the provided size, since we cast
-    // it to an integer later.
+    // These are the unrounded advance width and line height values,
+    // which are retained separately from the rounded cell width and
+    // height values (below), for calculations that need to know how
+    // much error there is between the design dimensions of the font
+    // and the pixel dimensions of our cells.
     const face_width = face.cell_width;
     const face_height = face.lineHeight();
-    const cell_width = @ceil(face_width);
-    const cell_height = @ceil(face_height);
+
+    // The cell width and height values need to be integers since they
+    // represent pixel dimensions of the grid cells in the terminal.
+    //
+    // We use @round for the cell width to limit the difference from
+    // the "true" width value to no more than 0.5px. This is a better
+    // approximation of the authorial intent of the font than ceiling
+    // would be, and makes the apparent spacing match better between
+    // low and high DPI displays.
+    //
+    // This does mean that it's possible for a glyph to overflow the
+    // edge of the cell by a pixel if it has no side bearings, but in
+    // reality such glyphs are generally meant to connect to adjacent
+    // glyphs in some way so it's not really an issue.
+    //
+    // The same is true for the height. Some fonts are poorly authored
+    // and have a descender on a normal glyph that extends right up to
+    // the descent value of the face, and this can result in the glyph
+    // overflowing the bottom of the cell by a pixel, which isn't good
+    // but if we try to prevent it by increasing the cell height then
+    // we get line heights that are too large for most users and even
+    // more inconsistent across DPIs.
+    //
+    // Users who experience such cell-height overflows should:
+    //
+    // 1. Nag the font author to either redesign the glyph to not go
+    //    so low, or else adjust the descent value in the metadata.
+    //
+    // 2. Add an `adjust-cell-height` entry to their config to give
+    //    the cell enough room for the glyph.
+    const cell_width = @round(face_width);
+    const cell_height = @round(face_height);
 
     // We split our line gap in two parts, and put half of it on the top
     // of the cell and the other half on the bottom, so that our text never
     // bumps up against either edge of the cell vertically.
     const half_line_gap = face.line_gap / 2;
 
-    // Unlike all our other metrics, `cell_baseline` is relative to the
-    // BOTTOM of the cell.
+    // NOTE: Unlike all our other metrics, `cell_baseline` is
+    // relative to the BOTTOM of the cell rather than the top.
     const face_baseline = half_line_gap - face.descent;
-    const cell_baseline = @round(face_baseline);
+    // We calculate the baseline by trying to center the face vertically
+    // in the pixel-rounded cell height, so that before rounding it will
+    // be an even distance from the top and bottom of the cell, meaning
+    // it either sticks out the same amount or is inset the same amount,
+    // depending on whether the cell height was rounded up or down from
+    // the line height. We do this by adding half the difference between
+    // the cell height and the face height.
+    const cell_baseline = @round(face_baseline - (cell_height - face_height) / 2);
 
-    // We keep track of the vertical bearing of the face in the cell
+    // We keep track of the offset from the bottom of the cell
+    // to the bottom of the face's "true" bounding box, which at
+    // this point, since nothing has been scaled yet, is equivalent
+    // to the offset between the baseline we draw at (cell_baseline)
+    // and the one the font wants (face_baseline).
     const face_y = cell_baseline - face_baseline;
 
     // We calculate a top_to_baseline to make following calculations simpler.
@@ -251,8 +300,11 @@ pub fn calc(face: FaceMetrics) Metrics {
     const underline_position = @round(top_to_baseline - face.underlinePosition());
     const strikethrough_position = @round(top_to_baseline - face.strikethroughPosition());
 
-    // Same heuristic as the font_patcher script
-    const icon_height = (2 * cap_height + face_height) / 3;
+    // Same heuristic as the font_patcher script. We store icon_height
+    // separately from face_height such that modifiers can apply to the former
+    // without affecting the latter.
+    const icon_height = face_height;
+    const icon_height_single = (2 * cap_height + face_height) / 3;
 
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),
@@ -267,6 +319,7 @@ pub fn calc(face: FaceMetrics) Metrics {
         .box_thickness = @intFromFloat(underline_thickness),
         .cursor_height = @intFromFloat(cell_height),
         .icon_height = icon_height,
+        .icon_height_single = icon_height_single,
         .face_width = face_width,
         .face_height = face_height,
         .face_y = face_y,
@@ -303,30 +356,53 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 // here is to center the baseline so that text is vertically
                 // centered in the cell.
                 if (comptime tag == .cell_height) {
-                    // We split the difference in half because we want to
-                    // center the baseline in the cell. If the difference
-                    // is odd, one more pixel is added/removed on top than
-                    // on the bottom.
-                    if (new > original) {
-                        const diff = new - original;
-                        const diff_bottom = diff / 2;
-                        const diff_top = diff - diff_bottom;
-                        self.face_y += @floatFromInt(diff_bottom);
-                        self.cell_baseline +|= diff_bottom;
-                        self.underline_position +|= diff_top;
-                        self.strikethrough_position +|= diff_top;
-                        self.overline_position +|= @as(i32, @intCast(diff_top));
-                    } else {
-                        const diff = original - new;
-                        const diff_bottom = diff / 2;
-                        const diff_top = diff - diff_bottom;
-                        self.face_y -= @floatFromInt(diff_bottom);
-                        self.cell_baseline -|= diff_bottom;
-                        self.underline_position -|= diff_top;
-                        self.strikethrough_position -|= diff_top;
-                        self.overline_position -|= @as(i32, @intCast(diff_top));
-                    }
+                    const original_f64: f64 = @floatFromInt(original);
+                    const new_f64: f64 = @floatFromInt(new);
+                    const diff = new_f64 - original_f64;
+                    const half_diff = diff / 2.0;
+
+                    // If the diff is even, the number of pixels we add
+                    // will be the same for the top and the bottom, but
+                    // if the diff is odd then we want to add the extra
+                    // pixel to the edge of the cell that needs it most.
+                    //
+                    // How much the edge "needs it" depends on whether
+                    // the face is higher or lower than it should be to
+                    // be perfectly centered in the cell.
+                    //
+                    // If the face were perfectly centered then face_y
+                    // would be equal to half of the difference between
+                    // the cell height and the face height.
+                    const position_with_respect_to_center =
+                        self.face_y - (original_f64 - self.face_height) / 2;
+
+                    const diff_top, const diff_bottom =
+                        if (position_with_respect_to_center > 0)
+                            // The baseline is higher than it should be, so we
+                            // add the extra to the top, or if it's a negative
+                            // diff it gets added to the bottom because of how
+                            // floor and ceil work.
+                            .{ @ceil(half_diff), @floor(half_diff) }
+                        else
+                            // The baseline is lower than it should be, so we
+                            // add the extra to the bottom, or vice versa for
+                            // negative diffs.
+                            .{ @floor(half_diff), @ceil(half_diff) };
+
+                    // The cell baseline and face_y values are relative to the
+                    // bottom of the cell so we add the bottom diff to them.
+                    addFloatToInt(&self.cell_baseline, diff_bottom);
+                    self.face_y += diff_bottom;
+
+                    // These are all relative to the top of the cell.
+                    addFloatToInt(&self.underline_position, diff_top);
+                    addFloatToInt(&self.strikethrough_position, diff_top);
+                    self.overline_position +|= @as(i32, @intFromFloat(diff_top));
                 }
+            },
+            inline .icon_height => {
+                self.icon_height = entry.value_ptr.apply(self.icon_height);
+                self.icon_height_single = entry.value_ptr.apply(self.icon_height_single);
             },
 
             inline else => |tag| {
@@ -337,6 +413,21 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
 
     // Prevent modifiers from pushing metrics out of their allowable range.
     self.clamp();
+}
+
+/// Helper function for adding an f64 to a u32.
+///
+/// Performs saturating addition or subtraction
+/// depending on the sign of the provided float.
+///
+/// The f64 is asserted to have an integer value.
+inline fn addFloatToInt(int: *u32, float: f64) void {
+    assert(@floor(float) == float);
+    int.* =
+        if (float >= 0.0)
+            int.* +| @as(u32, @intFromFloat(float))
+        else
+            int.* -| @as(u32, @intFromFloat(-float));
 }
 
 /// Clamp all metrics to their allowable range.
@@ -529,6 +620,7 @@ fn init() Metrics {
         .box_thickness = 0,
         .cursor_height = 0,
         .icon_height = 0.0,
+        .icon_height_single = 0.0,
         .face_width = 0.0,
         .face_height = 0.0,
         .face_y = 0.0,
@@ -557,7 +649,9 @@ test "Metrics: adjust cell height smaller" {
     defer set.deinit(alloc);
     // We choose numbers such that the subtracted number of pixels is odd,
     // as that's the case that could most easily have off-by-one errors.
-    // Here we're removing 25 pixels: 12 on the bottom, 13 on top.
+    // Here we're removing 25 pixels: 13 on the bottom, 12 on top, split
+    // that way because we're simulating a face that's 0.33px higher than
+    // it "should" be (due to rounding).
     try set.put(alloc, .cell_height, .{ .percent = 0.75 });
 
     var m: Metrics = init();
@@ -567,14 +661,15 @@ test "Metrics: adjust cell height smaller" {
     m.strikethrough_position = 30;
     m.overline_position = 0;
     m.cell_height = 100;
+    m.face_height = 99.67;
     m.cursor_height = 100;
     m.apply(set);
-    try testing.expectEqual(-11.67, m.face_y);
+    try testing.expectEqual(-12.67, m.face_y);
     try testing.expectEqual(@as(u32, 75), m.cell_height);
-    try testing.expectEqual(@as(u32, 38), m.cell_baseline);
-    try testing.expectEqual(@as(u32, 42), m.underline_position);
-    try testing.expectEqual(@as(u32, 17), m.strikethrough_position);
-    try testing.expectEqual(@as(i32, -13), m.overline_position);
+    try testing.expectEqual(@as(u32, 37), m.cell_baseline);
+    try testing.expectEqual(@as(u32, 43), m.underline_position);
+    try testing.expectEqual(@as(u32, 18), m.strikethrough_position);
+    try testing.expectEqual(@as(i32, -12), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
 }
@@ -587,7 +682,9 @@ test "Metrics: adjust cell height larger" {
     defer set.deinit(alloc);
     // We choose numbers such that the added number of pixels is odd,
     // as that's the case that could most easily have off-by-one errors.
-    // Here we're adding 75 pixels: 37 on the bottom, 38 on top.
+    // Here we're adding 75 pixels: 37 on the bottom, 38 on top, split
+    // that way because we're simulating a face that's 0.33px higher
+    // than it "should" be (due to rounding).
     try set.put(alloc, .cell_height, .{ .percent = 1.75 });
 
     var m: Metrics = init();
@@ -597,6 +694,7 @@ test "Metrics: adjust cell height larger" {
     m.strikethrough_position = 30;
     m.overline_position = 0;
     m.cell_height = 100;
+    m.face_height = 99.67;
     m.cursor_height = 100;
     m.apply(set);
     try testing.expectEqual(37.33, m.face_y);
@@ -607,6 +705,48 @@ test "Metrics: adjust cell height larger" {
     try testing.expectEqual(@as(i32, 38), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
+}
+
+test "Metrics: adjust icon height by percentage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: ModifierSet = .{};
+    defer set.deinit(alloc);
+    try set.put(alloc, .icon_height, .{ .percent = 0.75 });
+
+    var m: Metrics = init();
+    m.icon_height = 100.0;
+    m.icon_height_single = 80.0;
+    m.face_height = 100.0;
+    m.face_y = 1.0;
+    m.apply(set);
+    try testing.expectEqual(75.0, m.icon_height);
+    try testing.expectEqual(60.0, m.icon_height_single);
+    // Face metrics not affected
+    try testing.expectEqual(100.0, m.face_height);
+    try testing.expectEqual(1.0, m.face_y);
+}
+
+test "Metrics: adjust icon height by absolute pixels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: ModifierSet = .{};
+    defer set.deinit(alloc);
+    try set.put(alloc, .icon_height, .{ .absolute = -5 });
+
+    var m: Metrics = init();
+    m.icon_height = 100.0;
+    m.icon_height_single = 80.0;
+    m.face_height = 100.0;
+    m.face_y = 1.0;
+    m.apply(set);
+    try testing.expectEqual(95.0, m.icon_height);
+    try testing.expectEqual(75.0, m.icon_height_single);
+    // Face metrics not affected
+    try testing.expectEqual(100.0, m.face_height);
+    try testing.expectEqual(1.0, m.face_y);
 }
 
 test "Modifier: parse absolute" {

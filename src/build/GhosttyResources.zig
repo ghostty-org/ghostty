@@ -1,15 +1,14 @@
 const GhosttyResources = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
-const buildpkg = @import("main.zig");
 const Config = @import("Config.zig");
 const RunStep = std.Build.Step.Run;
+const SharedDeps = @import("SharedDeps.zig");
 
 steps: []*std.Build.Step,
 
-pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
+pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !GhosttyResources {
     var steps: std.ArrayList(*std.Build.Step) = .empty;
     errdefer steps.deinit(b.allocator);
 
@@ -25,6 +24,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
         }),
     });
     build_data_exe.linkLibC();
+
+    deps.help_strings.addImport(build_data_exe);
 
     // Terminfo
     terminfo: {
@@ -125,14 +126,16 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     }
 
     // Themes
-    if (b.lazyDependency("iterm2_themes", .{})) |upstream| {
-        const install_step = b.addInstallDirectory(.{
-            .source_dir = upstream.path(""),
-            .install_dir = .{ .custom = "share" },
-            .install_subdir = b.pathJoin(&.{ "ghostty", "themes" }),
-            .exclude_extensions = &.{".md"},
-        });
-        try steps.append(b.allocator, &install_step.step);
+    if (cfg.emit_themes) {
+        if (b.lazyDependency("iterm2_themes", .{})) |upstream| {
+            const install_step = b.addInstallDirectory(.{
+                .source_dir = upstream.path(""),
+                .install_dir = .{ .custom = "share" },
+                .install_subdir = b.pathJoin(&.{ "ghostty", "themes" }),
+                .exclude_extensions = &.{".md"},
+            });
+            try steps.append(b.allocator, &install_step.step);
+        }
     }
 
     // Fish shell completions
@@ -225,7 +228,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     // 'ghostty.sublime-syntax' file from zig-out to the '~.config/bat/syntaxes'
     // directory. The syntax then needs to be mapped to the correct language in
     // the config file within the '~.config/bat' directory
-    // (ex: --map-syntax "/Users/user/.config/ghostty/config:Ghostty Config").
+    // (ex: --map-syntax "/Users/user/.config/ghostty/config.ghostty:Ghostty Config").
     {
         const run = b.addRunArtifact(build_data_exe);
         run.addArg("+sublime");

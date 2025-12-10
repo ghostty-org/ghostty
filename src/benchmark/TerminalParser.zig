@@ -75,7 +75,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // the benchmark results and... I know writing this that we
     // aren't currently IO bound.
     const f = self.data_f orelse return;
-    var read_buf: [4096]u8 = undefined;
+    var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     var f_reader = f.reader(&read_buf);
     var r = &f_reader.interface;
 

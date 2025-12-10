@@ -1,19 +1,13 @@
 const std = @import("std");
-const build_config = @import("../../../build_config.zig");
-const assert = std.debug.assert;
 const adw = @import("adw");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
-const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
-const input = @import("../../../input.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const ext = @import("../ext.zig");
-const gtk_version = @import("../gtk_version.zig");
-const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
@@ -389,8 +383,14 @@ pub const Tab = extern struct {
         // the terminal title if it exists, otherwise a default string.
         const plain = plain: {
             const default = "Ghostty";
+            const config_title: ?[*:0]const u8 = title: {
+                const config = config_ orelse break :title null;
+                break :title config.get().title orelse null;
+            };
+
             const plain = override_ orelse
                 terminal_ orelse
+                config_title orelse
                 break :plain default;
             break :plain std.mem.span(plain);
         };

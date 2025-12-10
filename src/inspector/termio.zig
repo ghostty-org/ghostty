@@ -64,7 +64,7 @@ pub const VTEvent = struct {
         return .{
             .kind = kind,
             .str = str,
-            .cursor = t.screen.cursor,
+            .cursor = t.screens.active.cursor,
             .scrolling_region = t.scrolling_region,
             .metadata = md.unmanaged,
         };
@@ -264,6 +264,11 @@ pub const VTEvent = struct {
                     if (std.mem.eql(u8, field.name, tag_name)) {
                         const s = if (field.type == void)
                             try alloc.dupeZ(u8, tag_name)
+                        else if (field.type == [:0]const u8 or field.type == []const u8)
+                            try std.fmt.allocPrintSentinel(alloc, "{s}={s}", .{
+                                tag_name,
+                                @field(value, field.name),
+                            }, 0)
                         else
                             try std.fmt.allocPrintSentinel(alloc, "{s}={}", .{
                                 tag_name,
@@ -326,6 +331,15 @@ pub const VTHandler = struct {
 
     pub fn deinit(self: *VTHandler) void {
         cimgui.c.ImGuiTextFilter_destroy(self.filter_text);
+    }
+
+    pub fn vt(
+        self: *VTHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) !void {
+        _ = self;
+        _ = value;
     }
 
     /// This is called with every single terminal action.

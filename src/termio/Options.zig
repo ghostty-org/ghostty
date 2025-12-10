@@ -1,10 +1,8 @@
 //! The options that are used to configure a terminal IO implementation.
 
-const builtin = @import("builtin");
 const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
 const renderer = @import("../renderer.zig");
-const Command = @import("../Command.zig");
 const Config = @import("../config.zig").Config;
 const termio = @import("../termio.zig");
 

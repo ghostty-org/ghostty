@@ -1,11 +1,9 @@
 const std = @import("std");
-const inputpkg = @import("../input.zig");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config/Config.zig");
 const themepkg = @import("../config/theme.zig");
 const tui = @import("tui.zig");
-const internal_os = @import("../os/main.zig");
 const global_state = &@import("../global.zig").state;
 
 const vaxis = @import("vaxis");
@@ -180,7 +178,13 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
         return 0;
     }
 
+    var theme_config = try Config.default(gpa_alloc);
+    defer theme_config.deinit();
     for (themes.items) |theme| {
+        try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+        if (!shouldIncludeTheme(opts.color, theme_config)) {
+            continue;
+        }
         if (opts.path)
             try stdout.print("{s} ({t}) {s}\n", .{ theme.theme, theme.location, theme.path })
         else
@@ -241,7 +245,7 @@ const Preview = struct {
             .hex = false,
             .mode = .normal,
             .color_scheme = .light,
-            .text_input = .init(allocator, &self.vx.unicode),
+            .text_input = .init(allocator),
             .theme_filter = theme_filter,
         };
 

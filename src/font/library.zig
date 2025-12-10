@@ -2,7 +2,6 @@
 //! library implementation(s) require per-process.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const freetype = @import("freetype");
 const font = @import("main.zig");

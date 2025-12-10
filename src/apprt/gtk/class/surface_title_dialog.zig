@@ -6,7 +6,6 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const gresource = @import("../build/gresource.zig");
-const adw_version = @import("../adw_version.zig");
 const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
 

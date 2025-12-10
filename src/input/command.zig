@@ -1,6 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
 
@@ -50,7 +49,7 @@ pub const Command = struct {
 
         return .{
             .action_key = @tagName(self.action),
-            .action = std.fmt.comptimePrint("{t}", .{self.action}),
+            .action = std.fmt.comptimePrint("{f}", .{self.action}),
             .title = self.title,
             .description = self.description,
         };
@@ -121,11 +120,23 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Reset the terminal to a clean state.",
         }},
 
-        .copy_to_clipboard => comptime &.{.{
-            .action = .copy_to_clipboard,
+        .copy_to_clipboard => comptime &.{ .{
+            .action = .{ .copy_to_clipboard = .mixed },
             .title = "Copy to Clipboard",
-            .description = "Copy the selected text to the clipboard.",
-        }},
+            .description = "Copy the selected text to the clipboard in both plain and styled formats.",
+        }, .{
+            .action = .{ .copy_to_clipboard = .plain },
+            .title = "Copy Selection as Plain Text to Clipboard",
+            .description = "Copy the selected text as plain text to the clipboard.",
+        }, .{
+            .action = .{ .copy_to_clipboard = .vt },
+            .title = "Copy Selection as ANSI Sequences to Clipboard",
+            .description = "Copy the selected text as ANSI escape sequences to the clipboard.",
+        }, .{
+            .action = .{ .copy_to_clipboard = .html },
+            .title = "Copy Selection as HTML to Clipboard",
+            .description = "Copy the selected text as HTML to the clipboard.",
+        } },
 
         .copy_url_to_clipboard => comptime &.{.{
             .action = .copy_url_to_clipboard,
@@ -150,6 +161,28 @@ fn actionCommands(action: Action.Key) []const Command {
             .title = "Paste from Selection",
             .description = "Paste the contents of the selection clipboard.",
         }},
+
+        .start_search => comptime &.{.{
+            .action = .start_search,
+            .title = "Start Search",
+            .description = "Start a search if one isn't already active.",
+        }},
+
+        .end_search => comptime &.{.{
+            .action = .end_search,
+            .title = "End Search",
+            .description = "End the current search if any and hide any GUI elements.",
+        }},
+
+        .navigate_search => comptime &.{ .{
+            .action = .{ .navigate_search = .next },
+            .title = "Next Search Result",
+            .description = "Navigate to the next search result, if any.",
+        }, .{
+            .action = .{ .navigate_search = .previous },
+            .title = "Previous Search Result",
+            .description = "Navigate to the previous search result, if any.",
+        } },
 
         .increase_font_size => comptime &.{.{
             .action = .{ .increase_font_size = 1 },
@@ -227,6 +260,56 @@ fn actionCommands(action: Action.Key) []const Command {
                 .title = "Copy Screen to Temporary File and Open",
                 .description = "Copy the screen contents to a temporary file and open it.",
             },
+
+            .{
+                .action = .{ .write_screen_file = .{
+                    .action = .copy,
+                    .emit = .html,
+                } },
+                .title = "Copy Screen as HTML to Temporary File and Copy Path",
+                .description = "Copy the screen contents as HTML to a temporary file and copy the path to the clipboard.",
+            },
+            .{
+                .action = .{ .write_screen_file = .{
+                    .action = .paste,
+                    .emit = .html,
+                } },
+                .title = "Copy Screen as HTML to Temporary File and Paste Path",
+                .description = "Copy the screen contents as HTML to a temporary file and paste the path to the file.",
+            },
+            .{
+                .action = .{ .write_screen_file = .{
+                    .action = .open,
+                    .emit = .html,
+                } },
+                .title = "Copy Screen as HTML to Temporary File and Open",
+                .description = "Copy the screen contents as HTML to a temporary file and open it.",
+            },
+
+            .{
+                .action = .{ .write_screen_file = .{
+                    .action = .copy,
+                    .emit = .vt,
+                } },
+                .title = "Copy Screen as ANSI Sequences to Temporary File and Copy Path",
+                .description = "Copy the screen contents as ANSI escape sequences to a temporary file and copy the path to the clipboard.",
+            },
+            .{
+                .action = .{ .write_screen_file = .{
+                    .action = .paste,
+                    .emit = .vt,
+                } },
+                .title = "Copy Screen as ANSI Sequences to Temporary File and Paste Path",
+                .description = "Copy the screen contents as ANSI escape sequences to a temporary file and paste the path to the file.",
+            },
+            .{
+                .action = .{ .write_screen_file = .{
+                    .action = .open,
+                    .emit = .vt,
+                } },
+                .title = "Copy Screen as ANSI Sequences to Temporary File and Open",
+                .description = "Copy the screen contents as ANSI escape sequences to a temporary file and open it.",
+            },
         },
 
         .write_selection_file => comptime &.{
@@ -244,6 +327,56 @@ fn actionCommands(action: Action.Key) []const Command {
                 .action = .{ .write_selection_file = .open },
                 .title = "Copy Selection to Temporary File and Open",
                 .description = "Copy the selection contents to a temporary file and open it.",
+            },
+
+            .{
+                .action = .{ .write_selection_file = .{
+                    .action = .copy,
+                    .emit = .html,
+                } },
+                .title = "Copy Selection as HTML to Temporary File and Copy Path",
+                .description = "Copy the selection contents as HTML to a temporary file and copy the path to the clipboard.",
+            },
+            .{
+                .action = .{ .write_selection_file = .{
+                    .action = .paste,
+                    .emit = .html,
+                } },
+                .title = "Copy Selection as HTML to Temporary File and Paste Path",
+                .description = "Copy the selection contents as HTML to a temporary file and paste the path to the file.",
+            },
+            .{
+                .action = .{ .write_selection_file = .{
+                    .action = .open,
+                    .emit = .html,
+                } },
+                .title = "Copy Selection as HTML to Temporary File and Open",
+                .description = "Copy the selection contents as HTML to a temporary file and open it.",
+            },
+
+            .{
+                .action = .{ .write_selection_file = .{
+                    .action = .copy,
+                    .emit = .vt,
+                } },
+                .title = "Copy Selection as ANSI Sequences to Temporary File and Copy Path",
+                .description = "Copy the selection contents as ANSI escape sequences to a temporary file and copy the path to the clipboard.",
+            },
+            .{
+                .action = .{ .write_selection_file = .{
+                    .action = .paste,
+                    .emit = .vt,
+                } },
+                .title = "Copy Selection as ANSI Sequences to Temporary File and Paste Path",
+                .description = "Copy the selection contents as ANSI escape sequences to a temporary file and paste the path to the file.",
+            },
+            .{
+                .action = .{ .write_selection_file = .{
+                    .action = .open,
+                    .emit = .vt,
+                } },
+                .title = "Copy Selection as ANSI Sequences to Temporary File and Open",
+                .description = "Copy the selection contents as ANSI escape sequences to a temporary file and open it.",
             },
         },
 
@@ -449,6 +582,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle secure input mode.",
         }},
 
+        .toggle_mouse_reporting => comptime &.{.{
+            .action = .toggle_mouse_reporting,
+            .title = "Toggle Mouse Reporting",
+            .description = "Toggle whether mouse events are reported to terminal applications.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
@@ -487,6 +626,8 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .cursor_key,
         .set_font_size,
+        .search,
+        .scroll_to_row,
         .scroll_page_fractional,
         .scroll_page_lines,
         .adjust_selection,

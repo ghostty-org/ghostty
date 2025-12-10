@@ -37,14 +37,11 @@ pub fn run(self: *Osc, writer: *std.Io.Writer, rand: std.Random) !void {
 
     var buf: [1024]u8 = undefined;
     while (true) {
-        const data = try gen.next(&buf);
-        writer.writeAll(data) catch |err| {
-            const Error = error{ WriteFailed, BrokenPipe } || @TypeOf(err);
-            switch (@as(Error, err)) {
-                error.BrokenPipe => return, // stdout closed
-                error.WriteFailed => return, // fixed buffer full
-                else => return err,
-            }
+        var fixed: std.Io.Writer = .fixed(&buf);
+        try gen.next(&fixed, buf.len);
+        const data = fixed.buffered();
+        writer.writeAll(data) catch |err| switch (err) {
+            error.WriteFailed => return,
         };
     }
 }

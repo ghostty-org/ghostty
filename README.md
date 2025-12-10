@@ -144,15 +144,22 @@ In addition to being a standalone terminal emulator, Ghostty is a
 C-compatible library for embedding a fast, feature-rich terminal emulator
 in any 3rd party project. This library is called `libghostty`.
 
-This goal is not hypothetical! The macOS app is a `libghostty` consumer.
+Due to the scope of this project, we're breaking libghostty down into
+separate actually libraries, starting with `libghostty-vt`. The goal of
+this project is to focus on parsing terminal sequences and maintaining
+terminal state. This is covered in more detail in this
+[blog post](https://mitchellh.com/writing/libghostty-is-coming).
+
+`libghostty-vt` is already available and usable today for Zig and C and
+is compatible for macOS, Linux, Windows, and WebAssembly. At the time of
+writing this, the API isn't stable yet and we haven't tagged an official
+release, but the core logic is well proven (since Ghostty uses it) and
+we're working hard on it now.
+
+The ultimate goal is not hypothetical! The macOS app is a `libghostty` consumer.
 The macOS app is a native Swift app developed in Xcode and `main()` is
 within Swift. The Swift app links to `libghostty` and uses the C API to
 render terminals.
-
-This step encompasses expanding `libghostty` support to more platforms
-and more use cases. At the time of writing this, `libghostty` is very
-Mac-centric -- particularly around rendering -- and we have work to do to
-expand this to other platforms.
 
 ## Crash Reports
 
@@ -193,4 +200,4 @@ SENTRY_DSN=https://e914ee84fd895c4fe324afa3e53dac76@o4507352570920960.ingest.us.
 > purposely contain sensitive information, but it does contain the full
 > stack memory of each thread at the time of the crash. This information
 > is used to rebuild the stack trace but can also contain sensitive data
-> depending when the crash occurred.
+> depending on when the crash occurred.

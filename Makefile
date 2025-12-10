@@ -22,7 +22,7 @@ vendor/glad/include/glad/glad.h: vendor/glad/include/glad/gl.h
 
 clean:
 	rm -rf \
-		zig-out zig-cache \
+		zig-out .zig-cache \
 		macos/build \
 		macos/GhosttyKit.xcframework
 .PHONY: clean

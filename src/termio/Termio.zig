@@ -5,27 +5,20 @@
 pub const Termio = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
-const build_config = @import("../build_config.zig");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const EnvMap = std.process.EnvMap;
 const posix = std.posix;
 const termio = @import("../termio.zig");
-const Command = @import("../Command.zig");
-const Pty = @import("../pty.zig").Pty;
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
 const terminalpkg = @import("../terminal/main.zig");
-const terminfo = @import("../terminfo/main.zig");
 const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
-const fastmem = @import("../fastmem.zig");
 const internal_os = @import("../os/main.zig");
 const windows = internal_os.windows;
 const configpkg = @import("../config.zig");
-const shell_integration = @import("shell_integration.zig");
 
 const log = std.log.scoped(.io_exec);
 
@@ -64,7 +57,7 @@ mailbox: termio.Mailbox,
 
 /// The stream parser. This parses the stream of escape codes and so on
 /// from the child process and calls callbacks in the stream handler.
-terminal_stream: terminalpkg.Stream(StreamHandler),
+terminal_stream: StreamHandler.Stream,
 
 /// Last time the cursor was reset. This is used to prevent message
 /// flooding with cursor resets.
@@ -231,26 +224,33 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
             .rows = grid_size.rows,
             .max_scrollback = opts.full_config.@"scrollback-limit",
             .default_modes = default_modes,
+            .colors = .{
+                .background = .init(opts.config.background.toTerminalRGB()),
+                .foreground = .init(opts.config.foreground.toTerminalRGB()),
+                .cursor = cursor: {
+                    const color = opts.config.cursor_color orelse break :cursor .unset;
+                    const rgb = color.toTerminalRGB() orelse break :cursor .unset;
+                    break :cursor .init(rgb);
+                },
+                .palette = .init(opts.config.palette),
+            },
         };
     });
     errdefer term.deinit(alloc);
-    term.default_palette = opts.config.palette;
-    term.color_palette.colors = opts.config.palette;
 
     // Set the image size limits
-    try term.screen.kitty_images.setLimit(
-        alloc,
-        &term.screen,
-        opts.config.image_storage_limit,
-    );
-    try term.secondary_screen.kitty_images.setLimit(
-        alloc,
-        &term.secondary_screen,
-        opts.config.image_storage_limit,
-    );
+    var it = term.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *terminalpkg.Screen = entry.value.*;
+        try screen.kitty_images.setLimit(
+            alloc,
+            screen,
+            opts.config.image_storage_limit,
+        );
+    }
 
     // Set our default cursor style
-    term.screen.cursor.cursor_style = opts.config.cursor_style;
+    term.screens.active.cursor.cursor_style = opts.config.cursor_style;
 
     // Setup our terminal size in pixels for certain requests.
     term.width_px = term.cols * opts.size.cell.width;
@@ -262,39 +262,20 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
 
     // Create our stream handler. This points to memory in self so it
     // isn't safe to use until self.* is set.
-    const handler: StreamHandler = handler: {
-        const default_cursor_color: ?terminalpkg.color.RGB = color: {
-            if (opts.config.cursor_color) |color| switch (color) {
-                .color => break :color color.color.toTerminalRGB(),
-                .@"cell-foreground",
-                .@"cell-background",
-                => {},
-            };
-
-            break :color null;
-        };
-
-        break :handler .{
-            .alloc = alloc,
-            .termio_mailbox = &self.mailbox,
-            .surface_mailbox = opts.surface_mailbox,
-            .renderer_state = opts.renderer_state,
-            .renderer_wakeup = opts.renderer_wakeup,
-            .renderer_mailbox = opts.renderer_mailbox,
-            .size = &self.size,
-            .terminal = &self.terminal,
-            .osc_color_report_format = opts.config.osc_color_report_format,
-            .clipboard_write = opts.config.clipboard_write,
-            .enquiry_response = opts.config.enquiry_response,
-            .default_foreground_color = opts.config.foreground.toTerminalRGB(),
-            .default_background_color = opts.config.background.toTerminalRGB(),
-            .default_cursor_style = opts.config.cursor_style,
-            .default_cursor_blink = opts.config.cursor_blink,
-            .default_cursor_color = default_cursor_color,
-            .cursor_color = null,
-            .foreground_color = null,
-            .background_color = null,
-        };
+    const handler: StreamHandler = .{
+        .alloc = alloc,
+        .termio_mailbox = &self.mailbox,
+        .surface_mailbox = opts.surface_mailbox,
+        .renderer_state = opts.renderer_state,
+        .renderer_wakeup = opts.renderer_wakeup,
+        .renderer_mailbox = opts.renderer_mailbox,
+        .size = &self.size,
+        .terminal = &self.terminal,
+        .osc_color_report_format = opts.config.osc_color_report_format,
+        .clipboard_write = opts.config.clipboard_write,
+        .enquiry_response = opts.config.enquiry_response,
+        .default_cursor_style = opts.config.cursor_style,
+        .default_cursor_blink = opts.config.cursor_blink,
     };
 
     const thread_enter_state = try ThreadEnterState.create(
@@ -313,13 +294,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .size = opts.size,
         .backend = backend,
         .mailbox = opts.mailbox,
-        .terminal_stream = stream: {
-            var s: terminalpkg.Stream(StreamHandler) = .init(handler);
-            // Populate the OSC parser allocator (optional) because
-            // we want to support large OSC payloads such as OSC 52.
-            s.parser.osc_parser.alloc = alloc;
-            break :stream s;
-        },
+        .terminal_stream = .initAlloc(alloc, handler),
         .thread_enter_state = thread_enter_state,
     };
 }
@@ -331,7 +306,6 @@ pub fn deinit(self: *Termio) void {
     self.mailbox.deinit(self.alloc);
 
     // Clear any StreamHandler state
-    self.terminal_stream.handler.deinit();
     self.terminal_stream.deinit();
 
     // Clear any initial state if we have it
@@ -456,30 +430,28 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     //   - command, working-directory: we never restart the underlying
     //   process so we don't care or need to know about these.
 
-    // Update the default palette. Note this will only apply to new colors drawn
-    // since we decode all palette colors to RGB on usage.
-    self.terminal.default_palette = config.palette;
+    // Update the default palette.
+    self.terminal.colors.palette.changeDefault(config.palette);
+    self.terminal.flags.dirty.palette = true;
 
-    // Update the active palette, except for any colors that were modified with
-    // OSC 4
-    for (0..config.palette.len) |i| {
-        if (!self.terminal.color_palette.mask.isSet(i)) {
-            self.terminal.color_palette.colors[i] = config.palette[i];
-            self.terminal.flags.dirty.palette = true;
-        }
-    }
+    // Update all our other colors
+    self.terminal.colors.background.default = config.background.toTerminalRGB();
+    self.terminal.colors.foreground.default = config.foreground.toTerminalRGB();
+    self.terminal.colors.cursor.default = cursor: {
+        const color = config.cursor_color orelse break :cursor null;
+        break :cursor color.toTerminalRGB() orelse break :cursor null;
+    };
 
     // Set the image size limits
-    try self.terminal.screen.kitty_images.setLimit(
-        self.alloc,
-        &self.terminal.screen,
-        config.image_storage_limit,
-    );
-    try self.terminal.secondary_screen.kitty_images.setLimit(
-        self.alloc,
-        &self.terminal.secondary_screen,
-        config.image_storage_limit,
-    );
+    var it = self.terminal.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *terminalpkg.Screen = entry.value.*;
+        try screen.kitty_images.setLimit(
+            self.alloc,
+            screen,
+            config.image_storage_limit,
+        );
+    }
 }
 
 /// Resize the terminal.
@@ -597,20 +569,20 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         // emulator-level screen clear, this messes up the running programs
         // knowledge of where the cursor is and causes rendering issues. So,
         // for alt screen, we do nothing.
-        if (self.terminal.active_screen == .alternate) return;
+        if (self.terminal.screens.active_key == .alternate) return;
 
         // Clear our selection
-        self.terminal.screen.clearSelection();
+        self.terminal.screens.active.clearSelection();
 
         // Clear our scrollback
         if (history) self.terminal.eraseDisplay(.scrollback, false);
 
         // If we're not at a prompt, we just delete above the cursor.
         if (!self.terminal.cursorIsAtPrompt()) {
-            if (self.terminal.screen.cursor.y > 0) {
-                self.terminal.screen.eraseRows(
+            if (self.terminal.screens.active.cursor.y > 0) {
+                self.terminal.screens.active.eraseRows(
                     .{ .active = .{ .y = 0 } },
-                    .{ .active = .{ .y = self.terminal.screen.cursor.y - 1 } },
+                    .{ .active = .{ .y = self.terminal.screens.active.cursor.y - 1 } },
                 );
             }
 
@@ -620,8 +592,8 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
             // graphics that are placed baove the cursor or if it deletes
             // all of them. We delete all of them for now but if this behavior
             // isn't fully correct we should fix this later.
-            self.terminal.screen.kitty_images.delete(
-                self.terminal.screen.alloc,
+            self.terminal.screens.active.kitty_images.delete(
+                self.terminal.screens.active.alloc,
                 &self.terminal,
                 .{ .all = true },
             );
@@ -654,7 +626,7 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        self.terminal.screen.scroll(.{ .delta_prompt = delta });
+        self.terminal.screens.active.scroll(.{ .delta_prompt = delta });
     }
 
     try self.renderer_wakeup.notify();

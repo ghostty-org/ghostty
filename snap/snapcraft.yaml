@@ -52,7 +52,7 @@ parts:
       rm -rf $CRAFT_PART_SRC/*
 
       if [[ -n $arch ]]; then
-        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.15.1/zig-$arch-linux-0.15.1.tar.xz
+        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.15.2/zig-$arch-linux-0.15.2.tar.xz
       else
         echo "Unsupported arch"
         exit 1

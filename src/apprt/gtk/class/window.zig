@@ -1,6 +1,6 @@
 const std = @import("std");
 const build_config = @import("../../../build_config.zig");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const adw = @import("adw");
 const gdk = @import("gdk");
 const gio = @import("gio");
@@ -28,7 +28,6 @@ const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
-const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 
 const log = std.log.scoped(.gtk_ghostty_window);
@@ -1015,6 +1014,15 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
+        // Hide quick-terminal if set to autohide
+        if (self.isQuickTerminal()) {
+            if (self.getConfig()) |cfg| {
+                if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
+                    self.toggleVisibility();
+                }
+            }
+        }
+
         // Don't change urgency if we're not the active window.
         if (self.as(gtk.Window).isActive() == 0) return;
 
@@ -1585,6 +1593,9 @@ pub const Window = extern struct {
 
         // Grab focus
         surface.grabFocus();
+
+        // Bring the window to the front.
+        self.as(gtk.Window).present();
     }
 
     fn surfaceToggleFullscreen(
@@ -1789,7 +1800,7 @@ pub const Window = extern struct {
         _: ?*glib.Variant,
         self: *Window,
     ) callconv(.c) void {
-        self.performBindingAction(.copy_to_clipboard);
+        self.performBindingAction(.{ .copy_to_clipboard = .mixed });
     }
 
     fn actionPaste(

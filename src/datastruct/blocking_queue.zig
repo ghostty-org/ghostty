@@ -2,8 +2,6 @@
 //! between threads.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 /// Returns a blocking queue implementation for type T.
@@ -73,7 +71,7 @@ pub fn BlockingQueue(
         not_full_waiters: usize = 0,
 
         /// Allocate the blocking queue on the heap.
-        pub fn create(alloc: Allocator) !*Self {
+        pub fn create(alloc: Allocator) Allocator.Error!*Self {
             const ptr = try alloc.create(Self);
             errdefer alloc.destroy(ptr);
 

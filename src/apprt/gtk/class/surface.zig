@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const adw = @import("adw");
 const gdk = @import("gdk");
@@ -19,18 +19,17 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
-const adw_version = @import("../adw_version.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
+const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
-const WeakRef = @import("../weak_ref.zig").WeakRef;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
 
@@ -40,12 +39,16 @@ pub const Surface = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.Bin;
+    pub const Implements = [_]type{gtk.Scrollable};
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttySurface",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
         .private = .{ .Type = Private, .offset = &Private.offset },
+        .implements = &.{
+            gobject.ext.implement(gtk.Scrollable, .{}),
+        },
     });
 
     /// A SplitTree implementation that stores surfaces.
@@ -301,6 +304,62 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const hadjustment = struct {
+            pub const name = "hadjustment";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*gtk.Adjustment,
+                .{
+                    .accessor = .{
+                        .getter = getHAdjustmentValue,
+                        .setter = setHAdjustmentValue,
+                    },
+                },
+            );
+        };
+
+        pub const vadjustment = struct {
+            pub const name = "vadjustment";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*gtk.Adjustment,
+                .{
+                    .accessor = .{
+                        .getter = getVAdjustmentValue,
+                        .setter = setVAdjustmentValue,
+                    },
+                },
+            );
+        };
+
+        pub const @"hscroll-policy" = struct {
+            pub const name = "hscroll-policy";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.ScrollablePolicy,
+                .{
+                    .default = .natural,
+                    .accessor = C.privateShallowFieldAccessor("hscroll_policy"),
+                },
+            );
+        };
+
+        pub const @"vscroll-policy" = struct {
+            pub const name = "vscroll-policy";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                gtk.ScrollablePolicy,
+                .{
+                    .default = .natural,
+                    .accessor = C.privateShallowFieldAccessor("vscroll_policy"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -491,6 +550,9 @@ pub const Surface = extern struct {
         /// The resize overlay
         resize_overlay: *ResizeOverlay,
 
+        /// The search overlay
+        search_overlay: *SearchOverlay,
+
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
 
@@ -547,6 +609,13 @@ pub const Surface = extern struct {
         is_split: bool = false,
 
         action_group: ?*gio.SimpleActionGroup = null,
+
+        // Gtk.Scrollable interface adjustments
+        hadj: ?*gtk.Adjustment = null,
+        vadj: ?*gtk.Adjustment = null,
+        hscroll_policy: gtk.ScrollablePolicy = .natural,
+        vscroll_policy: gtk.ScrollablePolicy = .natural,
+        vadj_signal_group: ?*gobject.SignalGroup = null,
 
         // Template binds
         child_exited_overlay: *ChildExited,
@@ -714,6 +783,47 @@ pub const Surface = extern struct {
         return priv.im_context.as(gtk.IMContext).activateOsk(event) != 0;
     }
 
+    /// Set the scrollbar state for this surface. This will setup the
+    /// properties for our Gtk.Scrollable interface properly.
+    pub fn setScrollbar(self: *Self, scrollbar: terminal.Scrollbar) void {
+        // Update existing adjustment in-place. If we don't have an
+        // adjustment then we do nothing because we're not part of a
+        // scrolled window.
+        const vadj = self.getVAdjustment() orelse return;
+
+        // Check if values match existing adjustment and skip update if so
+        const value: f64 = @floatFromInt(scrollbar.offset);
+        const upper: f64 = @floatFromInt(scrollbar.total);
+        const page_size: f64 = @floatFromInt(scrollbar.len);
+
+        if (std.math.approxEqAbs(f64, vadj.getValue(), value, 0.001) and
+            std.math.approxEqAbs(f64, vadj.getUpper(), upper, 0.001) and
+            std.math.approxEqAbs(f64, vadj.getPageSize(), page_size, 0.001))
+        {
+            return;
+        }
+
+        // If we have a vadjustment we MUST have the signal group since
+        // it is setup in the prop handler.
+        const priv = self.private();
+        const group = priv.vadj_signal_group.?;
+
+        // During manual scrollbar changes from Ghostty core we don't
+        // want to emit value-changed signals so we block them. This would
+        // cause a waste of resources at best and infinite loops at worst.
+        group.block();
+        defer group.unblock();
+
+        vadj.configure(
+            value, // value: current scroll position
+            0, // lower: minimum value
+            upper, // upper: maximum value (total scrollable area)
+            1, // step_increment: amount to scroll on arrow click
+            page_size, // page_increment: amount to scroll on page up/down
+            page_size, // page_size: size of visible area
+        );
+    }
+
     /// Set the current progress report state.
     pub fn setProgressReport(
         self: *Self,
@@ -837,6 +947,8 @@ pub const Surface = extern struct {
             if (cfg.@"notify-on-command-finish" == .never) return true;
             if (cfg.@"notify-on-command-finish" == .unfocused and self.getFocused()) return true;
         }
+
+        if (value.duration.lte(cfg.@"notify-on-command-finish-after")) return true;
 
         const action = cfg.@"notify-on-command-finish-action";
 
@@ -1027,13 +1139,14 @@ pub const Surface = extern struct {
                 if (entry.native == keycode) break :w3c entry.key;
             } else .unidentified;
 
-            // If the key should be remappable, then consult the pre-remapped
-            // XKB keyval/keysym to get the (possibly) remapped key.
+            // Consult the pre-remapped XKB keyval/keysym to get the (possibly)
+            // remapped key. If the W3C key or the remapped key
+            // is eligible for remapping, we use it.
             //
             // See the docs for `shouldBeRemappable` for why we even have to
             // do this in the first place.
-            if (w3c_key.shouldBeRemappable()) {
-                if (gtk_key.keyFromKeyval(keyval)) |remapped|
+            if (gtk_key.keyFromKeyval(keyval)) |remapped| {
+                if (w3c_key.shouldBeRemappable() or remapped.shouldBeRemappable())
                     break :keycode remapped;
             }
 
@@ -1355,6 +1468,10 @@ pub const Surface = extern struct {
         // EnvMap is a bit annoying so I'm punting it.
         if (ext.getAncestor(Window, self.as(gtk.Widget))) |window| {
             try window.winproto().addSubprocessEnv(&env);
+
+            if (window.isQuickTerminal()) {
+                try env.put("GHOSTTY_QUICK_TERMINAL", "1");
+            }
         }
 
         return env;
@@ -1443,16 +1560,16 @@ pub const Surface = extern struct {
         );
     }
 
-    pub fn setClipboardString(
+    pub fn setClipboard(
         self: *Self,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) void {
         Clipboard.set(
             self,
-            val,
             clipboard_type,
+            contents,
             confirm,
         );
     }
@@ -1466,6 +1583,12 @@ pub const Surface = extern struct {
 
     pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
         const app = Application.default();
+        const priv: *Private = self.private();
+
+        const core_surface = priv.core_surface orelse {
+            log.warn("can't send notification because there is no core surface", .{});
+            return;
+        };
 
         const t = switch (title.len) {
             0 => "Ghostty",
@@ -1480,7 +1603,7 @@ pub const Surface = extern struct {
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
 
-        const pointer = glib.Variant.newUint64(@intFromPtr(self));
+        const pointer = glib.Variant.newUint64(@intFromPtr(core_surface));
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
             pointer,
@@ -1511,6 +1634,7 @@ pub const Surface = extern struct {
         priv.mouse_hidden = false;
         priv.focused = true;
         priv.size = .{ .width = 0, .height = 0 };
+        priv.vadj_signal_group = null;
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -1573,6 +1697,22 @@ pub const Surface = extern struct {
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
+        }
+
+        if (priv.vadj_signal_group) |group| {
+            group.setTarget(null);
+            group.as(gobject.Object).unref();
+            priv.vadj_signal_group = null;
+        }
+
+        if (priv.hadj) |v| {
+            v.as(gobject.Object).unref();
+            priv.hadj = null;
+        }
+
+        if (priv.vadj) |v| {
+            v.as(gobject.Object).unref();
+            priv.vadj = null;
         }
 
         if (priv.progress_bar_timer) |timer| {
@@ -1816,6 +1956,29 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
     }
 
+    pub fn setSearchActive(self: *Self, active: bool) void {
+        const priv = self.private();
+        var value = gobject.ext.Value.newFrom(active);
+        defer value.unset();
+        gobject.Object.setProperty(
+            priv.search_overlay.as(gobject.Object),
+            SearchOverlay.properties.active.name,
+            &value,
+        );
+
+        if (active) {
+            priv.search_overlay.grabFocus();
+        }
+    }
+
+    pub fn setSearchTotal(self: *Self, total: ?usize) void {
+        self.private().search_overlay.setSearchTotal(total);
+    }
+
+    pub fn setSearchSelected(self: *Self, selected: ?usize) void {
+        self.private().search_overlay.setSearchSelected(selected);
+    }
+
     fn propConfig(
         self: *Self,
         _: *gobject.ParamSpec,
@@ -1988,6 +2151,43 @@ pub const Surface = extern struct {
         self.as(gtk.Widget).setCursorFromName(name.ptr);
     }
 
+    fn vadjValueChanged(adj: *gtk.Adjustment, self: *Self) callconv(.c) void {
+        // This will trigger for every single pixel change in the adjustment,
+        // but our core surface handles the noise from this so that identical
+        // rows are cheap.
+        const core_surface = self.core() orelse return;
+        const row: usize = @intFromFloat(@round(adj.getValue()));
+        _ = core_surface.performBindingAction(.{ .scroll_to_row = row }) catch |err| {
+            log.err("error performing scroll_to_row action err={}", .{err});
+        };
+    }
+
+    fn propVAdjustment(
+        self: *Self,
+        _: *gobject.ParamSpec,
+        _: ?*anyopaque,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        // When vadjustment is first set, we setup the signal group lazily.
+        // This makes it so that if we don't use scrollbars, we never
+        // pay the memory cost of this.
+        const group: *gobject.SignalGroup = priv.vadj_signal_group orelse group: {
+            const group = gobject.SignalGroup.new(gtk.Adjustment.getGObjectType());
+            group.connect(
+                "value-changed",
+                @ptrCast(&vadjValueChanged),
+                self,
+            );
+
+            priv.vadj_signal_group = group;
+            break :group group;
+        };
+
+        // Setup our signal group target
+        group.setTarget(if (priv.vadj) |v| v.as(gobject.Object) else null);
+    }
+
     /// Handle bell features that need to happen every time a BEL is received
     /// Currently this is audio and system but this could change in the future.
     fn ringBell(self: *Self) void {
@@ -2050,6 +2250,66 @@ pub const Surface = extern struct {
             media_stream.setVolume(volume);
             media_stream.play();
         }
+    }
+
+    //---------------------------------------------------------------
+    // Gtk.Scrollable interface implementation
+
+    pub fn getHAdjustment(self: *Self) ?*gtk.Adjustment {
+        return self.private().hadj;
+    }
+
+    pub fn setHAdjustment(self: *Self, adj_: ?*gtk.Adjustment) void {
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.hadjustment.impl.param_spec);
+
+        const priv = self.private();
+        if (priv.hadj) |old| {
+            old.as(gobject.Object).unref();
+            priv.hadj = null;
+        }
+
+        const adj = adj_ orelse return;
+        _ = adj.as(gobject.Object).ref();
+        priv.hadj = adj;
+    }
+
+    fn getHAdjustmentValue(self: *Self, value: *gobject.Value) void {
+        gobject.ext.Value.set(value, self.getHAdjustment());
+    }
+
+    fn setHAdjustmentValue(self: *Self, value: *const gobject.Value) void {
+        self.setHAdjustment(gobject.ext.Value.get(value, ?*gtk.Adjustment));
+    }
+
+    pub fn getVAdjustment(self: *Self) ?*gtk.Adjustment {
+        return self.private().vadj;
+    }
+
+    pub fn setVAdjustment(self: *Self, adj_: ?*gtk.Adjustment) void {
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.vadjustment.impl.param_spec);
+
+        const priv = self.private();
+
+        if (priv.vadj) |old| {
+            old.as(gobject.Object).unref();
+            priv.vadj = null;
+        }
+
+        const adj = adj_ orelse return;
+        _ = adj.as(gobject.Object).ref();
+        priv.vadj = adj;
+    }
+
+    fn getVAdjustmentValue(self: *Self, value: *gobject.Value) void {
+        gobject.ext.Value.set(value, self.getVAdjustment());
+    }
+
+    fn setVAdjustmentValue(self: *Self, value: *const gobject.Value) void {
+        self.setVAdjustment(gobject.ext.Value.get(value, ?*gtk.Adjustment));
     }
 
     //---------------------------------------------------------------
@@ -2938,6 +3198,35 @@ pub const Surface = extern struct {
         self.setTitleOverride(if (title.len == 0) null else title);
     }
 
+    fn searchStop(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.end_search) catch |err| {
+            log.warn("unable to perform end_search action err={}", .{err});
+        };
+        _ = self.private().gl_area.as(gtk.Widget).grabFocus();
+    }
+
+    fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .search = std.mem.sliceTo(needle orelse "", 0) }) catch |err| {
+            log.warn("unable to perform search action err={}", .{err});
+        };
+    }
+
+    fn searchNextMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .next }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
+    fn searchPreviousMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .previous }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -2952,6 +3241,7 @@ pub const Surface = extern struct {
 
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(ResizeOverlay);
+            gobject.ext.ensureType(SearchOverlay);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -2971,6 +3261,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("error_page", .{});
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
+            class.bindTemplateChildPrivate("search_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
@@ -3005,8 +3296,13 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
+            class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("search_stop", &searchStop);
+            class.bindTemplateCallback("search_changed", &searchChanged);
+            class.bindTemplateCallback("search_next_match", &searchNextMatch);
+            class.bindTemplateCallback("search_previous_match", &searchPreviousMatch);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -3026,6 +3322,12 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+
+                // For Gtk.Scrollable
+                properties.hadjustment.impl,
+                properties.vadjustment.impl,
+                properties.@"hscroll-policy".impl,
+                properties.@"vscroll-policy".impl,
             });
 
             // Signals
@@ -3097,11 +3399,19 @@ const Clipboard = struct {
     /// Set the clipboard contents.
     pub fn set(
         self: *Surface,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) void {
         const priv = self.private();
+
+        // Grab our plaintext content for use in confirmation dialogs
+        // and signals. We always expect one to exist.
+        const text: [:0]const u8 = for (contents) |content| {
+            if (std.mem.eql(u8, content.mime, "text/plain")) {
+                break content.data;
+            }
+        } else return;
 
         // If no confirmation is necessary, set the clipboard.
         if (!confirm) {
@@ -3109,12 +3419,60 @@ const Clipboard = struct {
                 priv.gl_area.as(gtk.Widget),
                 clipboard_type,
             ) orelse return;
-            clipboard.setText(val);
+
+            const alloc = Application.default().allocator();
+            if (alloc.alloc(*gdk.ContentProvider, contents.len)) |providers| {
+                // Note: we don't need to unref the individual providers
+                // because new_union takes ownership of them.
+                defer alloc.free(providers);
+
+                for (contents, 0..) |content, i| {
+                    const bytes = glib.Bytes.new(content.data.ptr, content.data.len);
+                    defer bytes.unref();
+                    if (std.mem.eql(u8, content.mime, "text/plain")) {
+                        // Add an explicit UTF-8 encoding parameter to the
+                        // text/plain type. The default charset when there is
+                        // none is ASCII, and lots of things look for UTF-8
+                        // specifically.
+                        // The specs are not clear about the order here, but
+                        // some clients apparently pick the first match in the
+                        // order we set here then garble up bare 'text/plain'
+                        // with non-ASCII UTF-8 content, so offer UTF-8 first.
+                        //
+                        // Note that under X11, GTK automatically adds the
+                        // UTF8_STRING atom when this is present.
+                        const text_provider_atoms = [_][:0]const u8{
+                            "text/plain;charset=utf-8",
+                            "text/plain",
+                        };
+                        var text_providers: [text_provider_atoms.len]*gdk.ContentProvider = undefined;
+                        for (text_provider_atoms, 0..) |atom, j| {
+                            const provider = gdk.ContentProvider.newForBytes(atom, bytes);
+                            text_providers[j] = provider;
+                        }
+                        const text_union = gdk.ContentProvider.newUnion(
+                            &text_providers,
+                            text_providers.len,
+                        );
+                        providers[i] = text_union;
+                    } else {
+                        const provider = gdk.ContentProvider.newForBytes(content.mime, bytes);
+                        providers[i] = provider;
+                    }
+                }
+
+                const all = gdk.ContentProvider.newUnion(providers.ptr, providers.len);
+                defer all.unref();
+                _ = clipboard.setContent(all);
+            } else |_| {
+                // If we fail to alloc, we can at least set the text content.
+                clipboard.setText(text);
+            }
 
             Surface.signals.@"clipboard-write".impl.emit(
                 self,
                 null,
-                .{ clipboard_type, val.ptr },
+                .{ clipboard_type, text.ptr },
                 null,
             );
 
@@ -3124,7 +3482,7 @@ const Clipboard = struct {
         showClipboardConfirmation(
             self,
             .{ .osc_52_write = clipboard_type },
-            val,
+            text,
         );
     }
 

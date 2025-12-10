@@ -19,7 +19,6 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (
-        github.event.workflow_run.conclusion == 'success' &&
         github.repository_owner == 'ghostty-org' &&
         github.ref_name == 'main'
       )
@@ -30,11 +29,11 @@ jobs:
       commit: ${{ steps.extract_build_info.outputs.commit }}
       commit_long: ${{ steps.extract_build_info.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           # Important so that build number generation works
           fetch-depth: 0
-      - uses: cachix/install-nix-action@9280e7aca88deada44c930f1e2c78e21c3ae3edd # v31.7.0
+      - uses: cachix/install-nix-action@0b0e072294b088b73964f1d72dfdac0951439dbd # v31.8.4
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
@@ -67,7 +66,7 @@ jobs:
     needs: [setup, build-macos]
     if: needs.setup.outputs.should_skip != 'true'
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       - name: Tip Tag
         run: |
           git config user.name "github-actions[bot]"
@@ -82,7 +81,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Install sentry-cli
         run: |
@@ -105,7 +104,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Install sentry-cli
         run: |
@@ -128,7 +127,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Install sentry-cli
         run: |
@@ -151,7 +150,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -161,14 +159,14 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@446d8f390563cd54ca27e8de5bdb816f63c0b706 # v1.2.21
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@9280e7aca88deada44c930f1e2c78e21c3ae3edd # v31.7.0
+      - uses: cachix/install-nix-action@0b0e072294b088b73964f1d72dfdac0951439dbd # v31.8.4
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
@@ -188,7 +186,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -206,7 +204,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -220,7 +217,7 @@ jobs:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           # Important so that build number generation works
           fetch-depth: 0
@@ -359,7 +356,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -373,7 +370,6 @@ jobs:
       # Create our appcast for Sparkle
       - name: Generate Appcast
         if: |
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         env:
@@ -408,7 +404,6 @@ jobs:
       # gets out of sync with the binaries.
       - name: Prep R2 Storage for Appcast
         if: |
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         run: |
@@ -418,7 +413,6 @@ jobs:
 
       - name: Upload Appcast to R2
         if: |
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
@@ -444,7 +438,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -458,7 +451,7 @@ jobs:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           # Important so that build number generation works
           fetch-depth: 0
@@ -590,7 +583,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -629,7 +622,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -643,7 +635,7 @@ jobs:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           # Important so that build number generation works
           fetch-depth: 0
@@ -775,7 +767,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true

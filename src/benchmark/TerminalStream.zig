@@ -114,7 +114,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // aren't currently IO bound.
     const f = self.data_f orelse return;
 
-    var read_buf: [4096]u8 = undefined;
+    var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     var f_reader = f.reader(&read_buf);
     const r = &f_reader.interface;
 
@@ -138,8 +138,15 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
 const Handler = struct {
     t: *Terminal,
 
-    pub fn print(self: *Handler, cp: u21) !void {
-        try self.t.print(cp);
+    pub fn vt(
+        self: *Handler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) !void {
+        switch (action) {
+            .print => try self.t.print(value.cp),
+            else => {},
+        }
     }
 };
 

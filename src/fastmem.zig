@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
 
 /// Same as @memmove but prefers libc memmove if it is
 /// available because it is generally much faster?.

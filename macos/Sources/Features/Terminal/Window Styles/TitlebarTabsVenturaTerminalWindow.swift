@@ -2,6 +2,10 @@ import Cocoa
 
 /// Titlebar tabs for macOS 13 to 15.
 class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
+    /// Titlebar tabs can't support the update accessory because of the way we layout
+    /// the native tabs back into the menu bar.
+    override var supportsUpdateAccessory: Bool { false }
+    
     /// This is used to determine if certain elements should be drawn light or dark and should
     /// be updated whenever the window background color or surrounding elements changes.
     fileprivate var isLightTheme: Bool = false
@@ -139,8 +143,13 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     override func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         super.syncAppearance(surfaceConfig)
+        // override appearance based on the terminal's background color
+        if let preferredBackgroundColor {
+            appearance = (preferredBackgroundColor.isLightColor ? NSAppearance(named: .aqua) : NSAppearance(named: .darkAqua))
+        }
 
         // Update our window light/darkness based on our updated background color
+        let themeChanged = isLightTheme != OSColor(surfaceConfig.backgroundColor).isLightColor
         isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
 
         // Update our titlebar color
@@ -150,7 +159,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
             titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
         }
 
-        if (isOpaque) {
+        if (isOpaque || themeChanged) {
             // If there is transparency, calling this will make the titlebar opaque
             // so we only call this if we are opaque.
             updateTabBar()
@@ -183,41 +192,33 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     // so we need to do it manually.
     private func updateNewTabButtonOpacity() {
         guard let newTabButton: NSButton = titlebarContainer?.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
-        guard let newTabButtonImageView: NSImageView = newTabButton.subviews.first(where: {
-            $0 as? NSImageView != nil
-        }) as? NSImageView else { return }
+        guard let newTabButtonImageView = newTabButton.firstDescendant(withClassName: "NSImageView") as? NSImageView else { return }
 
         newTabButtonImageView.alphaValue = isKeyWindow ? 1 : 0.5
     }
 
-	// Color the new tab button's image to match the color of the tab title/keyboard shortcut labels,
-	// just as it does in the stock tab bar.
+    /// Update: This method only add a vibrant overlay now,
+    /// since the image itself supports light/dark tint,
+    /// and system could restore it any time,
+    /// altering it will only cause maintenance burden for us.
+    ///
+    /// And if we hide original image,
+    /// ``updateNewTabButtonOpacity`` will not work
+    ///
+    /// ~~Color the new tab button's image to match the color of the tab title/keyboard shortcut labels,~~
+	/// ~~just as it does in the stock tab bar.~~
 	private func updateNewTabButtonImage() {
 		guard let newTabButton: NSButton = titlebarContainer?.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
-		guard let newTabButtonImageView: NSImageView = newTabButton.subviews.first(where: {
-			$0 as? NSImageView != nil
-		}) as? NSImageView else { return }
+        guard let newTabButtonImageView = newTabButton.firstDescendant(withClassName: "NSImageView") as? NSImageView else { return }
         guard let newTabButtonImage = newTabButtonImageView.image else { return }
 
+        let imageLayer = newTabButtonImageLayer ?? VibrantLayer(forAppearance: isLightTheme ? .light : .dark)!
+        imageLayer.frame = NSRect(origin: NSPoint(x: newTabButton.bounds.midX - newTabButtonImage.size.width/2, y: newTabButton.bounds.midY - newTabButtonImage.size.height/2), size: newTabButtonImage.size)
+        imageLayer.contentsGravity = .resizeAspect
+        imageLayer.opacity = 0.5
 
-        if newTabButtonImageLayer == nil {
-			let fillColor: NSColor = isLightTheme ? .black.withAlphaComponent(0.85) : .white.withAlphaComponent(0.85)
-			let newImage = NSImage(size: newTabButtonImage.size, flipped: false) { rect in
-				newTabButtonImage.draw(in: rect)
-				fillColor.setFill()
-				rect.fill(using: .sourceAtop)
-				return true
-			}
-			let imageLayer = VibrantLayer(forAppearance: isLightTheme ? .light : .dark)!
-			imageLayer.frame = NSRect(origin: NSPoint(x: newTabButton.bounds.midX - newTabButtonImage.size.width/2, y: newTabButton.bounds.midY - newTabButtonImage.size.height/2), size: newTabButtonImage.size)
-			imageLayer.contentsGravity = .resizeAspect
-			imageLayer.contents = newImage
-			imageLayer.opacity = 0.5
+        newTabButtonImageLayer = imageLayer
 
-			newTabButtonImageLayer = imageLayer
-		}
-
-        newTabButtonImageView.isHidden = true
         newTabButton.layer?.sublayers?.first(where: { $0.className == "VibrantLayer" })?.removeFromSuperlayer()
         newTabButton.layer?.addSublayer(newTabButtonImageLayer!)
 	}
@@ -448,6 +449,13 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     }
 
     private func addWindowButtonsBackdrop(titlebarView: NSView, toolbarView: NSView) {
+        guard windowButtonsBackdrop?.superview != titlebarView else {
+            /// replacing existing backdrop aggressively
+            /// may cause incorrect hierarchy
+            ///
+            /// because multiple windows are adding this around the 'same time'
+            return
+        }
         windowButtonsBackdrop?.removeFromSuperview()
         windowButtonsBackdrop = nil
 
@@ -466,16 +474,11 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     private func addWindowDragHandle(titlebarView: NSView, toolbarView: NSView) {
         // If we already made the view, just make sure it's unhidden and correctly placed as a subview.
-        if let view = windowDragHandle {
-            view.removeFromSuperview()
-            view.isHidden = false
-            titlebarView.superview?.addSubview(view)
-            view.leftAnchor.constraint(equalTo: toolbarView.leftAnchor).isActive = true
-            view.rightAnchor.constraint(equalTo: toolbarView.rightAnchor).isActive = true
-            view.topAnchor.constraint(equalTo: toolbarView.topAnchor).isActive = true
-            view.bottomAnchor.constraint(equalTo: toolbarView.topAnchor, constant: 12).isActive = true
+        guard windowDragHandle?.superview != titlebarView.superview else {
+            // similar to `addWindowButtonsBackdrop`
             return
         }
+        windowDragHandle?.removeFromSuperview()
 
         let view = WindowDragView()
         view.identifier = NSUserInterfaceItemIdentifier("_windowDragHandle")
@@ -536,7 +539,10 @@ fileprivate class WindowButtonsBackdropView: NSView {
     // This must be weak because the window has this view. Otherwise
     // a retain cycle occurs.
 	private weak var terminalWindow: TitlebarTabsVenturaTerminalWindow?
-	private let isLightTheme: Bool
+    private var isLightTheme: Bool {
+        // using up-to-date value from hosting window directly
+        terminalWindow?.isLightTheme ?? false
+    }
     private let overlayLayer = VibrantLayer()
 
     var isHighlighted: Bool = true {
@@ -565,7 +571,6 @@ fileprivate class WindowButtonsBackdropView: NSView {
 
     init(window: TitlebarTabsVenturaTerminalWindow) {
 		self.terminalWindow = window
-        self.isLightTheme = window.isLightTheme
 
         super.init(frame: .zero)
 

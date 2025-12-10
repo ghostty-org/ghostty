@@ -4,7 +4,6 @@ pub const Thread = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
 const xev = @import("../global.zig").xev;
 const crash = @import("../crash/main.zig");
 const internal_os = @import("../os/main.zig");
@@ -437,21 +436,6 @@ fn drainMailbox(self: *Thread) !void {
                 grid.set.deref(grid.old_key);
             },
 
-            .foreground_color => |color| {
-                self.renderer.foreground_color = color;
-                self.renderer.markDirty();
-            },
-
-            .background_color => |color| {
-                self.renderer.background_color = color;
-                self.renderer.markDirty();
-            },
-
-            .cursor_color => |color| {
-                self.renderer.cursor_color = color;
-                self.renderer.markDirty();
-            },
-
             .resize => |v| self.renderer.setScreenSize(v),
 
             .change_config => |config| {
@@ -464,6 +448,22 @@ fn drainMailbox(self: *Thread) !void {
                 // hasAnimations value.
                 self.stopDrawTimer();
                 self.startDrawTimer();
+            },
+
+            .search_viewport_matches => |v| {
+                // Note we don't free the new value because we expect our
+                // allocators to match.
+                if (self.renderer.search_matches) |*m| m.arena.deinit();
+                self.renderer.search_matches = v;
+                self.renderer.search_matches_dirty = true;
+            },
+
+            .search_selected_match => |v| {
+                // Note we don't free the new value because we expect our
+                // allocators to match.
+                if (self.renderer.search_selected_match) |*m| m.arena.deinit();
+                self.renderer.search_selected_match = v;
+                self.renderer.search_matches_dirty = true;
             },
 
             .inspector => |v| self.flags.has_inspector = v,

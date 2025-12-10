@@ -1,6 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
-const cli = @import("../cli.zig");
 const inputpkg = @import("../input.zig");
 const state = &@import("../global.zig").state;
 const c = @import("../main_c.zig");

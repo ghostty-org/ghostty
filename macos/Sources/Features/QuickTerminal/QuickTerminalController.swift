@@ -21,13 +21,8 @@ class QuickTerminalController: BaseTerminalController {
     // The active space when the quick terminal was last shown.
     private var previousActiveSpace: CGSSpace? = nil
 
-    /// The saved state when the quick terminal's surface tree becomes empty.
-    ///
-    /// This preserves the user's window size and position when all terminal surfaces
-    /// are closed (e.g., via the `exit` command). When a new surface is created,
-    /// the window will be restored to this frame, preventing SwiftUI from resetting
-    /// the window to its default minimum size.
-    private var lastClosedFrames: NSMapTable<NSScreen, LastClosedState>
+    /// Cache for per-screen window state.
+    private let screenStateCache = QuickTerminalScreenStateCache()
 
     /// Non-nil if we have hidden dock state.
     private var hiddenDock: HiddenDock? = nil
@@ -51,10 +46,6 @@ class QuickTerminalController: BaseTerminalController {
     ) {
         self.position = position
         self.derivedConfig = DerivedConfig(ghostty.config)
-        
-        // This is a weak to strong mapping, so that our keys being NSScreens
-        // can remove themselves when they disappear.
-        self.lastClosedFrames = .weakToStrongObjects()
 
         // Important detail here: we initialize with an empty surface tree so
         // that we don't start a terminal process. This gets started when the
@@ -148,13 +139,13 @@ class QuickTerminalController: BaseTerminalController {
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = window.frame
         }
-        
+
         window.contentView = NSHostingView(rootView: QuickTerminalView(
             ghostty: self.ghostty,
             controller: self,
             tabManager: tabManager,
         ))
-        
+
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = nil
@@ -246,7 +237,7 @@ class QuickTerminalController: BaseTerminalController {
         // Prevent recursive loops
         isHandlingResize = true
         defer { isHandlingResize = false }
-        
+
         switch position {
         case .top, .bottom, .center:
             // For centered positions (top, bottom, center), we need to recenter the window
@@ -371,7 +362,10 @@ class QuickTerminalController: BaseTerminalController {
         // animate out.
         if surfaceTree.isEmpty,
            let ghostty_app = ghostty.app {
-            let view = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
+            var config = Ghostty.SurfaceConfiguration()
+            config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
+
+            let view = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
             surfaceTree = SplitTree(view: view)
             focusedSurface = view
         }
@@ -398,18 +392,16 @@ class QuickTerminalController: BaseTerminalController {
 
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
-        
-        // Grab our last closed frame to use, and clear our state since we're animating in.
-        // We only use the last closed frame if we're opening on the same screen.
-        let lastClosedFrame: NSRect? = lastClosedFrames.object(forKey: screen)?.frame
-        lastClosedFrames.removeObject(forKey: screen)
+
+        // Grab our last closed frame to use from the cache.
+        let closedFrame = screenStateCache.frame(for: screen)
 
         // Move our window off screen to the initial animation position.
         position.setInitial(
             in: window,
             on: screen,
             terminalSize: derivedConfig.quickTerminalSize,
-            closedFrame: lastClosedFrame)
+            closedFrame: closedFrame)
 
         // We need to set our window level to a high value. In testing, only
         // popUpMenu and above do what we want. This gets it above the menu bar
@@ -444,7 +436,7 @@ class QuickTerminalController: BaseTerminalController {
                 in: window.animator(),
                 on: screen,
                 terminalSize: derivedConfig.quickTerminalSize,
-                closedFrame: lastClosedFrame)
+                closedFrame: closedFrame)
         }, completionHandler: {
             // There is a very minor delay here so waiting at least an event loop tick
             // keeps us safe from the view not being on the window.
@@ -533,7 +525,7 @@ class QuickTerminalController: BaseTerminalController {
         // terminal is reactivated with a new surface. Without this, SwiftUI
         // would reset the window to its minimum content size.
         if window.frame.width > 0 && window.frame.height > 0, let screen = window.screen {
-            lastClosedFrames.setObject(.init(frame: window.frame), forKey: screen)
+            screenStateCache.save(frame: window.frame, for: screen)
         }
 
         // If we hid the dock then we unhide it.
@@ -544,6 +536,10 @@ class QuickTerminalController: BaseTerminalController {
         if !window.isOnActiveSpace {
             self.previousApp = nil
             window.orderOut(self)
+            // If our application is hidden previously, we hide it again
+            if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
+                NSApp.hide(nil)
+            }
             return
         }
 
@@ -580,6 +576,10 @@ class QuickTerminalController: BaseTerminalController {
             // This causes the window to be removed from the screen list and macOS
             // handles what should be focused next.
             window.orderOut(self)
+            // If our application is hidden previously, we hide it again
+            if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
+                NSApp.hide(nil)
+            }
         })
     }
 
@@ -609,6 +609,15 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    private func showNoNewTabAlert() {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Cannot Create New Tab"
+        alert.informativeText = "Tabs aren't supported in the Quick Terminal."
+        alert.addButton(withTitle: "OK")
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window)
+    }
     // MARK: First Responder
 
     @IBAction override func closeWindow(_ sender: Any) {
@@ -743,14 +752,6 @@ class QuickTerminalController: BaseTerminalController {
             NSApp.releasePresentationOption(.autoHideDock)
             Dock.autoHideEnabled = previousAutoHide
             hidden = false
-        }
-    }
-    
-    private class LastClosedState {
-        let frame: NSRect
-        
-        init(frame: NSRect) {
-            self.frame = frame
         }
     }
 }

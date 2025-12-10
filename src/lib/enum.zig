@@ -1,4 +1,5 @@
 const std = @import("std");
+const Target = @import("target.zig").Target;
 
 /// Create an enum type with the given keys that is C ABI compatible
 /// if we're targeting C, otherwise a Zig enum with smallest possible
@@ -57,11 +58,6 @@ pub fn Enum(
     } });
     return Result;
 }
-
-pub const Target = union(enum) {
-    c,
-    zig,
-};
 
 test "zig" {
     const testing = std.testing;

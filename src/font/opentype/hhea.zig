@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const sfnt = @import("sfnt.zig");
 
 /// Horizontal Header Table

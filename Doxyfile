@@ -3,15 +3,29 @@
 DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = "libghostty"
 PROJECT_LOGO           = images/gnome/64.png
-INPUT                  = include/ghostty/vt.h
+INPUT                  = include/ghostty
 INPUT_ENCODING         = UTF-8
-RECURSIVE              = NO
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h
+EXAMPLE_PATH           = example
+EXAMPLE_RECURSIVE      = YES
+EXAMPLE_PATTERNS       = *
 FULL_PATH_NAMES        = NO
 STRIP_FROM_INC_PATH    = include
 SOURCE_BROWSER         = YES
 INLINE_SOURCES         = NO
 REFERENCES_RELATION    = YES
 REFERENCED_BY_RELATION = YES
+
+#---------------------------------------------------------------------------
+# Preprocessor
+#---------------------------------------------------------------------------
+
+# Enable preprocessing to handle #ifdef guards
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = __wasm__
 
 #---------------------------------------------------------------------------
 # C API Optimization
@@ -42,15 +56,19 @@ EXTRACT_LOCAL_CLASSES  = NO
 GENERATE_HTML          = YES
 HTML_OUTPUT            = zig-out/share/ghostty/doc/libghostty
 HTML_EXTRA_STYLESHEET  = dist/doxygen/ghostty.css
-HTML_EXTRA_FILES       = dist/doxygen/favicon.png
+HTML_EXTRA_FILES       = dist/doxygen/favicon.png \
+                         dist/doxygen/mobile-nav.js
 HTML_COLORSTYLE        = DARK
 HTML_CODE_FOLDING      = NO
+HTML_HEADER            = dist/doxygen/header.html
 LAYOUT_FILE            = DoxygenLayout.xml
 GENERATE_TREEVIEW      = YES
 HTML_DYNAMIC_SECTIONS  = YES
 SEARCHENGINE           = YES
 ALPHABETICAL_INDEX     = YES
 HTML_TIMESTAMP         = NO
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
 
 #---------------------------------------------------------------------------
 # Graphs and Diagrams

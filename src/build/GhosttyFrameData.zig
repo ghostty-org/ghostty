@@ -3,8 +3,6 @@
 const GhosttyFrameData = @This();
 
 const std = @import("std");
-const Config = @import("Config.zig");
-const SharedDeps = @import("SharedDeps.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 
 /// The output path for the compressed framedata zig file

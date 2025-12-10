@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const font = @import("../main.zig");
 
 /// SVG glyphs description table.

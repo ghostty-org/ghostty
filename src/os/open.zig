@@ -34,7 +34,7 @@ pub fn open(
         .macos => .init(
             switch (kind) {
                 .text => &.{ "open", "-t", url },
-                .unknown => &.{ "open", url },
+                .html, .unknown => &.{ "open", url },
             },
             alloc,
         ),

@@ -16,7 +16,7 @@
 const Atlas = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const fastmem = @import("../fastmem.zig");

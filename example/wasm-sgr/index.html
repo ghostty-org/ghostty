@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghostty VT SGR Parser - WebAssembly Example</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+        }
+        .input-section {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .input-section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            font-size: 14px;
+        }
+        .error {
+            background: #fee;
+            border-color: #faa;
+            color: #c00;
+        }
+        .status {
+            color: #666;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .attribute {
+            padding: 8px;
+            margin: 5px 0;
+            background: white;
+            border-left: 3px solid #0066cc;
+        }
+        .attribute-name {
+            font-weight: bold;
+            color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ghostty VT SGR Parser - WebAssembly Example</h1>
+    <p>This example demonstrates parsing terminal SGR (Select Graphic Rendition) sequences using the Ghostty VT WebAssembly module.</p>
+    
+    <div class="status" id="status">Loading WebAssembly module...</div>
+    
+    <div class="input-section">
+        <h3>SGR Sequence</h3>
+        <label for="sequence">Enter SGR sequence (numbers separated by ':' or ';'):</label>
+        <textarea id="sequence" rows="2" disabled>4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136</textarea>
+        <p style="font-size: 13px; color: #666; margin-top: 5px;">The parser runs live as you type.</p>
+    </div>
+    
+    <div id="output" class="output">Waiting for input...</div>
+
+    <p><strong>Note:</strong> This example must be served via HTTP (not opened directly as a file). See the README for instructions.</p>
+
+    <script>
+        let wasmInstance = null;
+        let wasmMemory = null;
+
+        async function loadWasm() {
+            try {
+                const response = await fetch('../../zig-out/bin/ghostty-vt.wasm');
+                const wasmBytes = await response.arrayBuffer();
+                
+                const wasmModule = await WebAssembly.instantiate(wasmBytes, {
+                    env: {
+                        log: (ptr, len) => {
+                            const bytes = new Uint8Array(wasmModule.instance.exports.memory.buffer, ptr, len);
+                            const text = new TextDecoder().decode(bytes);
+                            console.log('[wasm]', text);
+                        }
+                    }
+                });
+                
+                wasmInstance = wasmModule.instance;
+                wasmMemory = wasmInstance.exports.memory;
+                
+                return true;
+            } catch (e) {
+                console.error('Failed to load WASM:', e);
+                if (window.location.protocol === 'file:') {
+                    throw new Error('Cannot load WASM from file:// protocol. Please serve via HTTP (see README)');
+                }
+                return false;
+            }
+        }
+
+        function getBuffer() {
+            return wasmMemory.buffer;
+        }
+
+        // SGR attribute tag values from include/ghostty/vt/sgr.h
+        const SGR_ATTR_TAGS = {
+            UNSET: 0,
+            UNKNOWN: 1,
+            BOLD: 2,
+            RESET_BOLD: 3,
+            ITALIC: 4,
+            RESET_ITALIC: 5,
+            FAINT: 6,
+            UNDERLINE: 7,
+            RESET_UNDERLINE: 8,
+            UNDERLINE_COLOR: 9,
+            UNDERLINE_COLOR_256: 10,
+            RESET_UNDERLINE_COLOR: 11,
+            OVERLINE: 12,
+            RESET_OVERLINE: 13,
+            BLINK: 14,
+            RESET_BLINK: 15,
+            INVERSE: 16,
+            RESET_INVERSE: 17,
+            INVISIBLE: 18,
+            RESET_INVISIBLE: 19,
+            STRIKETHROUGH: 20,
+            RESET_STRIKETHROUGH: 21,
+            DIRECT_COLOR_FG: 22,
+            DIRECT_COLOR_BG: 23,
+            BG_8: 24,
+            FG_8: 25,
+            RESET_FG: 26,
+            RESET_BG: 27,
+            BRIGHT_BG_8: 28,
+            BRIGHT_FG_8: 29,
+            BG_256: 30,
+            FG_256: 31
+        };
+
+        // Underline style values
+        const UNDERLINE_STYLES = {
+            0: 'none',
+            1: 'single',
+            2: 'double',
+            3: 'curly',
+            4: 'dotted',
+            5: 'dashed'
+        };
+
+        function getTagName(tag) {
+            for (const [name, value] of Object.entries(SGR_ATTR_TAGS)) {
+                if (value === tag) return name;
+            }
+            return `UNKNOWN(${tag})`;
+        }
+
+        function parseSGR() {
+            const outputDiv = document.getElementById('output');
+            
+            try {
+                const sequenceText = document.getElementById('sequence').value.trim();
+                
+                if (!sequenceText) {
+                    outputDiv.className = 'output';
+                    outputDiv.textContent = 'Enter an SGR sequence to parse...';
+                    return;
+                }
+                
+                // Parse the raw sequence into parameters and separators
+                const params = [];
+                const separators = [];
+                let currentNum = '';
+                
+                for (let i = 0; i < sequenceText.length; i++) {
+                    const char = sequenceText[i];
+                    
+                    if (char === ':' || char === ';') {
+                        if (currentNum) {
+                            const num = parseInt(currentNum, 10);
+                            if (isNaN(num) || num < 0 || num > 65535) {
+                                throw new Error(`Invalid parameter: ${currentNum}`);
+                            }
+                            params.push(num);
+                            separators.push(char);
+                            currentNum = '';
+                        }
+                    } else if (char >= '0' && char <= '9') {
+                        currentNum += char;
+                    } else if (char !== ' ' && char !== '\t' && char !== '\n') {
+                        throw new Error(`Invalid character in sequence: '${char}'`);
+                    }
+                }
+                
+                // Don't forget the last number
+                if (currentNum) {
+                    const num = parseInt(currentNum, 10);
+                    if (isNaN(num) || num < 0 || num > 65535) {
+                        throw new Error(`Invalid parameter: ${currentNum}`);
+                    }
+                    params.push(num);
+                }
+                
+                if (params.length === 0) {
+                    outputDiv.className = 'output error';
+                    outputDiv.textContent = 'Error: No parameters found in sequence';
+                    return;
+                }
+                
+                // Create SGR parser
+                const parserPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+                const result = wasmInstance.exports.ghostty_sgr_new(0, parserPtrPtr);
+                
+                if (result !== 0) {
+                    throw new Error(`ghostty_sgr_new failed with result ${result}`);
+                }
+                
+                const parserPtr = new DataView(getBuffer()).getUint32(parserPtrPtr, true);
+                
+                // Allocate and set parameters
+                const paramsPtr = wasmInstance.exports.ghostty_wasm_alloc_u16_array(params.length);
+                const paramsView = new Uint16Array(getBuffer(), paramsPtr, params.length);
+                params.forEach((p, i) => paramsView[i] = p);
+                
+                // Allocate and set separators (or use null if empty)
+                let sepsPtr = 0;
+                if (separators.length > 0) {
+                    sepsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(separators.length);
+                    const sepsView = new Uint8Array(getBuffer(), sepsPtr, separators.length);
+                    separators.forEach((s, i) => sepsView[i] = s.charCodeAt(0));
+                }
+                
+                // Set parameters in parser
+                const setResult = wasmInstance.exports.ghostty_sgr_set_params(
+                    parserPtr,
+                    paramsPtr,
+                    sepsPtr,
+                    params.length
+                );
+                
+                if (setResult !== 0) {
+                    throw new Error(`ghostty_sgr_set_params failed with result ${setResult}`);
+                }
+                
+                // Build output
+                let output = 'Parsing SGR sequence:\n';
+                output += 'ESC[';
+                params.forEach((p, i) => {
+                    if (i > 0) output += separators[i - 1];
+                    output += p;
+                });
+                output += 'm\n\n';
+                
+                // Iterate through attributes
+                const attrPtr = wasmInstance.exports.ghostty_wasm_alloc_sgr_attribute();
+                let count = 0;
+                
+                while (wasmInstance.exports.ghostty_sgr_next(parserPtr, attrPtr)) {
+                    count++;
+                    
+                    // Use the new ghostty_sgr_attribute_tag getter function
+                    const tag = wasmInstance.exports.ghostty_sgr_attribute_tag(attrPtr);
+                    
+                    // Use ghostty_sgr_attribute_value to get a pointer to the value union
+                    const valuePtr = wasmInstance.exports.ghostty_sgr_attribute_value(attrPtr);
+                    
+                    output += `Attribute ${count}: `;
+                    
+                    switch (tag) {
+                        case SGR_ATTR_TAGS.UNDERLINE: {
+                            const view = new DataView(getBuffer(), valuePtr, 4);
+                            const style = view.getUint32(0, true);
+                            output += `Underline style = ${UNDERLINE_STYLES[style] || `unknown(${style})`}\n`;
+                            break;
+                        }
+                        
+                        case SGR_ATTR_TAGS.DIRECT_COLOR_FG: {
+                            // Use ghostty_color_rgb_get to extract RGB components
+                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            
+                            wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
+                            
+                            const r = new Uint8Array(getBuffer(), rPtr, 1)[0];
+                            const g = new Uint8Array(getBuffer(), gPtr, 1)[0];
+                            const b = new Uint8Array(getBuffer(), bPtr, 1)[0];
+                            
+                            output += `Foreground RGB = (${r}, ${g}, ${b})\n`;
+                            
+                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
+                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
+                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            break;
+                        }
+                        
+                        case SGR_ATTR_TAGS.DIRECT_COLOR_BG: {
+                            // Use ghostty_color_rgb_get to extract RGB components
+                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            
+                            wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
+                            
+                            const r = new Uint8Array(getBuffer(), rPtr, 1)[0];
+                            const g = new Uint8Array(getBuffer(), gPtr, 1)[0];
+                            const b = new Uint8Array(getBuffer(), bPtr, 1)[0];
+                            
+                            output += `Background RGB = (${r}, ${g}, ${b})\n`;
+                            
+                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
+                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
+                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            break;
+                        }
+                        
+                        case SGR_ATTR_TAGS.UNDERLINE_COLOR: {
+                            // Use ghostty_color_rgb_get to extract RGB components
+                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            
+                            wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
+                            
+                            const r = new Uint8Array(getBuffer(), rPtr, 1)[0];
+                            const g = new Uint8Array(getBuffer(), gPtr, 1)[0];
+                            const b = new Uint8Array(getBuffer(), bPtr, 1)[0];
+                            
+                            output += `Underline color RGB = (${r}, ${g}, ${b})\n`;
+                            
+                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
+                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
+                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            break;
+                        }
+                        
+                        case SGR_ATTR_TAGS.FG_8:
+                        case SGR_ATTR_TAGS.BG_8:
+                        case SGR_ATTR_TAGS.FG_256:
+                        case SGR_ATTR_TAGS.BG_256:
+                        case SGR_ATTR_TAGS.UNDERLINE_COLOR_256: {
+                            const view = new DataView(getBuffer(), valuePtr, 1);
+                            const color = view.getUint8(0);
+                            const colorType = tag === SGR_ATTR_TAGS.FG_8 ? 'Foreground 8-color' :
+                                            tag === SGR_ATTR_TAGS.BG_8 ? 'Background 8-color' :
+                                            tag === SGR_ATTR_TAGS.FG_256 ? 'Foreground 256-color' :
+                                            tag === SGR_ATTR_TAGS.BG_256 ? 'Background 256-color' :
+                                            'Underline 256-color';
+                            output += `${colorType} = ${color}\n`;
+                            break;
+                        }
+                        
+                        case SGR_ATTR_TAGS.BOLD:
+                            output += 'Bold\n';
+                            break;
+                        
+                        case SGR_ATTR_TAGS.ITALIC:
+                            output += 'Italic\n';
+                            break;
+                        
+                        case SGR_ATTR_TAGS.UNSET:
+                            output += 'Reset all attributes\n';
+                            break;
+                        
+                        case SGR_ATTR_TAGS.UNKNOWN:
+                            output += 'Unknown attribute\n';
+                            break;
+                        
+                        default:
+                            output += `Other attribute (tag=${getTagName(tag)})\n`;
+                            break;
+                    }
+                }
+                
+                output += `\nTotal attributes parsed: ${count}`;
+                
+                outputDiv.className = 'output';
+                outputDiv.textContent = output;
+                
+                // Cleanup
+                wasmInstance.exports.ghostty_wasm_free_sgr_attribute(attrPtr);
+                wasmInstance.exports.ghostty_sgr_free(parserPtr);
+                
+            } catch (e) {
+                console.error('Parse error:', e);
+                outputDiv.className = 'output error';
+                outputDiv.textContent = `Error: ${e.message}\n\nStack trace:\n${e.stack}`;
+            }
+        }
+
+        async function init() {
+            const statusDiv = document.getElementById('status');
+            const sequenceInput = document.getElementById('sequence');
+
+            try {
+                statusDiv.textContent = 'Loading WebAssembly module...';
+                
+                const loaded = await loadWasm();
+                if (!loaded) {
+                    throw new Error('Failed to load WebAssembly module');
+                }
+
+                statusDiv.textContent = '';
+                sequenceInput.disabled = false;
+                
+                // Parse live as user types
+                sequenceInput.addEventListener('input', parseSGR);
+                
+                // Parse the default example on load
+                parseSGR();
+            } catch (e) {
+                statusDiv.textContent = `Error: ${e.message}`;
+                statusDiv.style.color = '#c00';
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

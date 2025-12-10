@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const wuffs = @import("wuffs");
 
 const Renderer = @import("../renderer.zig").Renderer;

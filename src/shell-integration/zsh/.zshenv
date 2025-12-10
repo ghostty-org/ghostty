@@ -15,11 +15,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# This script is sourced automatically by zsh when ZDOTDIR is set to this
+# directory. It therefore assumes it's running within our shell integration
+# environment and should not be sourced manually (unlike ghostty-integration).
+#
 # This file can get sourced with aliases enabled. To avoid alias expansion
 # we quote everything that can be quoted. Some aliases will still break us
 # though.
 
-# Restore the original ZDOTDIR value.
+# Restore the original ZDOTDIR value if GHOSTTY_ZSH_ZDOTDIR is set.
+# Otherwise, unset the ZDOTDIR that was set during shell injection.
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
     'builtin' 'export' ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
     'builtin' 'unset' 'GHOSTTY_ZSH_ZDOTDIR'
@@ -43,12 +48,6 @@ fi
     [[ ! -r "$_ghostty_file" ]] || 'builtin' 'source' '--' "$_ghostty_file"
 } always {
     if [[ -o 'interactive' ]]; then
-        'builtin' 'autoload' '--' 'is-at-least'
-        'is-at-least' "5.1" || {
-            builtin echo "ZSH ${ZSH_VERSION} is too old for ghostty shell integration" > /dev/stderr
-            'builtin' 'unset' '_ghostty_file'
-            return
-        }
         # ${(%):-%x} is the path to the current file.
         # On top of it we add :A:h to get the directory.
         'builtin' 'typeset' _ghostty_file="${${(%):-%x}:A:h}"/ghostty-integration

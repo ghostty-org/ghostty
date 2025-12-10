@@ -8,8 +8,6 @@
 //! The goal is to have different implementations share as much of the core
 //! logic as possible, and to only reach out to platform-specific implementation
 //! code when absolutely necessary.
-const std = @import("std");
-const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
 
 const structs = @import("apprt/structs.zig");
@@ -28,6 +26,7 @@ pub const Target = action.Target;
 
 pub const ContentScale = structs.ContentScale;
 pub const Clipboard = structs.Clipboard;
+pub const ClipboardContent = structs.ClipboardContent;
 pub const ClipboardRequest = structs.ClipboardRequest;
 pub const ClipboardRequestType = structs.ClipboardRequestType;
 pub const ColorScheme = structs.ColorScheme;

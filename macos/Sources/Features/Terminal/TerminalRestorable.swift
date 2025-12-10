@@ -8,10 +8,12 @@ class TerminalRestorableState: Codable {
 
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let effectiveFullscreenMode: FullscreenMode?
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
+        self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -28,6 +30,7 @@ class TerminalRestorableState: Codable {
 
         self.surfaceTree = v.value.surfaceTree
         self.focusedSurface = v.value.focusedSurface
+        self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
     }
 
     func encode(with coder: NSCoder) {
@@ -109,6 +112,13 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
 
         completionHandler(window, nil)
+        guard let mode = state.effectiveFullscreenMode, mode != .native else {
+            // We let AppKit handle native fullscreen
+            return
+        }
+        // Give the window to AppKit first, then adjust its frame and style
+        // to minimise any visible frame changes.
+        c.toggleFullscreen(mode: mode)
     }
 
     /// This restores the focus state of the surfaceview within the given window. When restoring,

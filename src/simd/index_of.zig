@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const options = @import("build_options");
 
 extern "c" fn ghostty_simd_index_of(

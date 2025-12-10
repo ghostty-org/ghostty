@@ -11,7 +11,6 @@
 pub const Cache = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const CacheTable = @import("../../datastruct/main.zig").CacheTable;
@@ -41,7 +40,7 @@ const CellCacheTable = CacheTable(
     // I'd expect then an average of 256 frequently cached runs is a
     // safe guess most terminal screens.
     256,
-    // 8 items per bucket to give decent resilliency to important runs.
+    // 8 items per bucket to give decent resiliency to important runs.
     8,
 );
 

@@ -1,7 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const trace = @import("tracy").trace;
 const font = @import("../main.zig");
 const Face = font.Face;
 const Collection = font.Collection;

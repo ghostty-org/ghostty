@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 
 pub const scalar_decoder: Base64Decoder = .init(
     std.base64.standard_alphabet_chars,

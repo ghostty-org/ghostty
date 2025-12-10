@@ -12,8 +12,10 @@ struct FocusTerminalIntent: AppIntent {
     )
     var terminal: TerminalEntity
 
+#if compiler(>=6.2)
     @available(macOS 26.0, *)
     static var supportedModes: IntentModes = .background
+#endif
 
     @MainActor
     func perform() async throws -> some IntentResult {

@@ -1,6 +1,6 @@
 const std = @import("std");
 const options = @import("build_options");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const scalar_decoder = @import("base64_scalar.zig").scalar_decoder;
 
 const log = std.log.scoped(.simd_base64);

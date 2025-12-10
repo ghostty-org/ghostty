@@ -1,3 +1,7 @@
+const build_options = @import("terminal_options");
+const lib = @import("../lib/main.zig");
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+
 /// Modes for the ED CSI command.
 pub const EraseDisplay = enum(u8) {
     below = 0,
@@ -33,13 +37,16 @@ pub const TabClear = enum(u8) {
 };
 
 /// Style formats for terminal size reports.
-pub const SizeReportStyle = enum {
-    // XTWINOPS
-    csi_14_t,
-    csi_16_t,
-    csi_18_t,
-    csi_21_t,
-};
+pub const SizeReportStyle = lib.Enum(
+    lib_target,
+    &.{
+        // XTWINOPS
+        "csi_14_t",
+        "csi_16_t",
+        "csi_18_t",
+        "csi_21_t",
+    },
+);
 
 /// XTWINOPS CSI 22/23
 pub const TitlePushPop = struct {

@@ -3,8 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const builtin = @import("builtin");
+const assert = @import("../../quirks.zig").inlineAssert;
 const objc = @import("objc");
 
 const mtl = @import("api.zig");

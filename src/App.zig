@@ -5,21 +5,16 @@ const App = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const build_config = @import("build_config.zig");
 const apprt = @import("apprt.zig");
 const Surface = @import("Surface.zig");
-const tracy = @import("tracy");
 const input = @import("input.zig");
 const configpkg = @import("config.zig");
 const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
-const internal_os = @import("os/main.zig");
-const macos = @import("macos");
-const objc = @import("objc");
 
 const log = std.log.scoped(.app);
 

@@ -5,10 +5,11 @@ const DiskCache = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const xdg = @import("../../os/main.zig").xdg;
-const TempDir = @import("../../os/main.zig").TempDir;
+const internal_os = @import("../../os/main.zig");
+const xdg = internal_os.xdg;
+const TempDir = internal_os.TempDir;
 const Entry = @import("Entry.zig");
 
 // 512KB - sufficient for approximately 10k entries
@@ -69,7 +70,7 @@ pub fn add(
 
     // Create cache directory if needed
     if (std.fs.path.dirname(self.path)) |dir| {
-        std.fs.makeDirAbsolute(dir) catch |err| switch (err) {
+        std.fs.cwd().makePath(dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
@@ -180,13 +181,12 @@ pub fn contains(
     // Open our file
     const file = std.fs.openFileAbsolute(
         self.path,
-        .{ .mode = .read_write },
+        .{},
     ) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
     defer file.close();
-    try fixupPermissions(file);
 
     // Read existing entries
     var entries = try readEntries(alloc, file);
@@ -327,55 +327,34 @@ fn readEntries(
 
 // Supports both standalone hostnames and user@hostname format
 fn isValidCacheKey(key: []const u8) bool {
-    // 253 + 1 + 64 for user@hostname
-    if (key.len == 0 or key.len > 320) return false;
+    if (key.len == 0) return false;
 
     // Check for user@hostname format
-    if (std.mem.indexOf(u8, key, "@")) |at_pos| {
+    if (std.mem.indexOfScalar(u8, key, '@')) |at_pos| {
         const user = key[0..at_pos];
         const hostname = key[at_pos + 1 ..];
-        return isValidUser(user) and isValidHostname(hostname);
+        return isValidUser(user) and isValidHost(hostname);
     }
 
-    return isValidHostname(key);
+    return isValidHost(key);
 }
 
-// Basic hostname validation - accepts domains and IPs
-// (including IPv6 in brackets)
-fn isValidHostname(host: []const u8) bool {
-    if (host.len == 0 or host.len > 253) return false;
-
-    // Handle IPv6 addresses in brackets
-    if (host.len >= 4 and host[0] == '[' and host[host.len - 1] == ']') {
-        const ipv6_part = host[1 .. host.len - 1];
-        if (ipv6_part.len == 0) return false;
-        var has_colon = false;
-        for (ipv6_part) |c| {
-            switch (c) {
-                'a'...'f', 'A'...'F', '0'...'9' => {},
-                ':' => has_colon = true,
-                else => return false,
-            }
-        }
-        return has_colon;
+// Checks if a host is a valid hostname or IP address
+fn isValidHost(host: []const u8) bool {
+    // First check for valid hostnames because this is assumed to be the more
+    // likely ssh host format.
+    if (internal_os.hostname.isValid(host)) {
+        return true;
     }
 
-    // Standard hostname/domain validation
-    for (host) |c| {
-        switch (c) {
-            'a'...'z', 'A'...'Z', '0'...'9', '.', '-' => {},
-            else => return false,
-        }
-    }
-
-    // No leading/trailing dots or hyphens, no consecutive dots
-    if (host[0] == '.' or host[0] == '-' or
-        host[host.len - 1] == '.' or host[host.len - 1] == '-')
-    {
+    // We also accept valid IP addresses. In practice, IPv4 addresses are also
+    // considered valid hostnames due to their overlapping syntax, so we can
+    // simplify this check to be IPv6-specific.
+    if (std.net.Address.parseIp6(host, 0)) |_| {
+        return true;
+    } else |_| {
         return false;
     }
-
-    return std.mem.indexOf(u8, host, "..") == null;
 }
 
 fn isValidUser(user: []const u8) bool {
@@ -474,98 +453,73 @@ test "disk cache operations" {
     );
 }
 
-// Tests
-test "hostname validation - valid cases" {
+test isValidHost {
     const testing = std.testing;
-    try testing.expect(isValidHostname("example.com"));
-    try testing.expect(isValidHostname("sub.example.com"));
-    try testing.expect(isValidHostname("host-name.domain.org"));
-    try testing.expect(isValidHostname("192.168.1.1"));
-    try testing.expect(isValidHostname("a"));
-    try testing.expect(isValidHostname("1"));
+
+    // Valid hostnames
+    try testing.expect(isValidHost("localhost"));
+    try testing.expect(isValidHost("example.com"));
+    try testing.expect(isValidHost("sub.example.com"));
+
+    // IPv4 addresses
+    try testing.expect(isValidHost("127.0.0.1"));
+    try testing.expect(isValidHost("192.168.1.1"));
+
+    // IPv6 addresses
+    try testing.expect(isValidHost("::1"));
+    try testing.expect(isValidHost("2001:db8::1"));
+    try testing.expect(isValidHost("2001:db8:0:1:1:1:1:1"));
+    try testing.expect(!isValidHost("fe80::1%eth0")); // scopes not supported
+
+    // Invalid hosts
+    try testing.expect(!isValidHost(""));
+    try testing.expect(!isValidHost("host\nname"));
+    try testing.expect(!isValidHost(".example.com"));
+    try testing.expect(!isValidHost("host..domain"));
+    try testing.expect(!isValidHost("-hostname"));
+    try testing.expect(!isValidHost("hostname-"));
+    try testing.expect(!isValidHost("host name"));
+    try testing.expect(!isValidHost("host_name"));
+    try testing.expect(!isValidHost("host@domain"));
+    try testing.expect(!isValidHost("host:port"));
 }
 
-test "hostname validation - IPv6 addresses" {
+test isValidUser {
     const testing = std.testing;
-    try testing.expect(isValidHostname("[::1]"));
-    try testing.expect(isValidHostname("[2001:db8::1]"));
-    try testing.expect(!isValidHostname("[fe80::1%eth0]")); // Interface notation not supported
-    try testing.expect(!isValidHostname("[]")); // Empty IPv6
-    try testing.expect(!isValidHostname("[invalid]")); // No colons
-}
 
-test "hostname validation - invalid cases" {
-    const testing = std.testing;
-    try testing.expect(!isValidHostname(""));
-    try testing.expect(!isValidHostname("host\nname"));
-    try testing.expect(!isValidHostname(".example.com"));
-    try testing.expect(!isValidHostname("example.com."));
-    try testing.expect(!isValidHostname("host..domain"));
-    try testing.expect(!isValidHostname("-hostname"));
-    try testing.expect(!isValidHostname("hostname-"));
-    try testing.expect(!isValidHostname("host name"));
-    try testing.expect(!isValidHostname("host_name"));
-    try testing.expect(!isValidHostname("host@domain"));
-    try testing.expect(!isValidHostname("host:port"));
-
-    // Too long
-    const long_host = "a" ** 254;
-    try testing.expect(!isValidHostname(long_host));
-}
-
-test "user validation - valid cases" {
-    const testing = std.testing;
+    // Valid
     try testing.expect(isValidUser("user"));
-    try testing.expect(isValidUser("deploy"));
-    try testing.expect(isValidUser("test-user"));
+    try testing.expect(isValidUser("user-user"));
     try testing.expect(isValidUser("user_name"));
     try testing.expect(isValidUser("user.name"));
     try testing.expect(isValidUser("user123"));
-    try testing.expect(isValidUser("a"));
-}
 
-test "user validation - complex realistic cases" {
-    const testing = std.testing;
-    try testing.expect(isValidUser("git"));
-    try testing.expect(isValidUser("ubuntu"));
-    try testing.expect(isValidUser("root"));
-    try testing.expect(isValidUser("service.account"));
-    try testing.expect(isValidUser("user-with-dashes"));
-}
-
-test "user validation - invalid cases" {
-    const testing = std.testing;
+    // Invalid
     try testing.expect(!isValidUser(""));
     try testing.expect(!isValidUser("user name"));
-    try testing.expect(!isValidUser("user@domain"));
+    try testing.expect(!isValidUser("user@example"));
     try testing.expect(!isValidUser("user:group"));
     try testing.expect(!isValidUser("user\nname"));
-
-    // Too long
-    const long_user = "a" ** 65;
-    try testing.expect(!isValidUser(long_user));
+    try testing.expect(!isValidUser("a" ** 65)); // too long
 }
 
-test "cache key validation - hostname format" {
+test isValidCacheKey {
     const testing = std.testing;
+
+    // Valid
     try testing.expect(isValidCacheKey("example.com"));
     try testing.expect(isValidCacheKey("sub.example.com"));
     try testing.expect(isValidCacheKey("192.168.1.1"));
-    try testing.expect(isValidCacheKey("[::1]"));
-    try testing.expect(!isValidCacheKey(""));
-    try testing.expect(!isValidCacheKey(".invalid.com"));
-}
-
-test "cache key validation - user@hostname format" {
-    const testing = std.testing;
+    try testing.expect(isValidCacheKey("::1"));
     try testing.expect(isValidCacheKey("user@example.com"));
-    try testing.expect(isValidCacheKey("deploy@prod.server.com"));
-    try testing.expect(isValidCacheKey("test-user@192.168.1.1"));
-    try testing.expect(isValidCacheKey("user_name@host.domain.org"));
-    try testing.expect(isValidCacheKey("git@github.com"));
-    try testing.expect(isValidCacheKey("ubuntu@[::1]"));
+    try testing.expect(isValidCacheKey("user@192.168.1.1"));
+    try testing.expect(isValidCacheKey("user@::1"));
+
+    // Invalid
+    try testing.expect(!isValidCacheKey(""));
+    try testing.expect(!isValidCacheKey(".example.com"));
     try testing.expect(!isValidCacheKey("@example.com"));
     try testing.expect(!isValidCacheKey("user@"));
-    try testing.expect(!isValidCacheKey("user@@host"));
-    try testing.expect(!isValidCacheKey("user@.invalid.com"));
+    try testing.expect(!isValidCacheKey("user@@example"));
+    try testing.expect(!isValidCacheKey("user@.example.com"));
 }

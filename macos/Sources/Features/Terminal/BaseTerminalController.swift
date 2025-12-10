@@ -48,6 +48,9 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
+    
+    /// Set if the terminal view should show the update overlay.
+    @Published var updateOverlayIsVisible: Bool = false
 
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
@@ -566,23 +569,12 @@ class BaseTerminalController: NSWindowController,
         // Get the direction from the notification
         guard let directionAny = notification.userInfo?[Ghostty.Notification.SplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
-        
-        // Convert Ghostty.SplitFocusDirection to our SplitTree.FocusDirection
-        let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection
-        switch direction {
-        case .previous: focusDirection = .previous
-        case .next: focusDirection = .next
-        case .up: focusDirection = .spatial(.up)
-        case .down: focusDirection = .spatial(.down)
-        case .left: focusDirection = .spatial(.left)
-        case .right: focusDirection = .spatial(.right)
-        }
 
         // Find the node for the target surface
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
         
         // Find the next surface to focus
-        guard let nextSurface = surfaceTree.focusTarget(for: focusDirection, from: targetNode) else {
+        guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
             return
         }
 
@@ -818,7 +810,18 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    func fullscreenDidChange() {}
+    func fullscreenDidChange() {
+        guard let fullscreenStyle else { return }
+        
+        // When we enter fullscreen, we want to show the update overlay so that it
+        // is easily visible. For native fullscreen this is visible by showing the
+        // menubar but we don't want to rely on that.
+        if fullscreenStyle.isFullscreen {
+            updateOverlayIsVisible = true
+        } else {
+            updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+        }
+    }
 
     // MARK: Clipboard Confirmation
 
@@ -900,6 +903,28 @@ class BaseTerminalController: NSWindowController,
             fullscreenStyle = NativeFullscreen(window)
             fullscreenStyle?.delegate = self
         }
+        
+        // Set our update overlay state
+        updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+    }
+    
+    func defaultUpdateOverlayVisibility() -> Bool {
+        guard let window else { return true }
+        
+        // No titlebar we always show the update overlay because it can't support
+        // updates in the titlebar
+        guard window.styleMask.contains(.titled) else {
+            return true
+        }
+        
+        // If it's a non terminal window we can't trust it has an update accessory,
+        // so we always want to show the overlay.
+        guard let window = window as? TerminalWindow else {
+            return true
+        }
+        
+        // Show the overlay if the window isn't.
+        return !window.supportsUpdateAccessory
     }
 
     // MARK: NSWindowDelegate
@@ -1087,6 +1112,22 @@ class BaseTerminalController: NSWindowController,
     @IBAction func toggleCommandPalette(_ sender: Any?) {
         commandPaletteIsShowing.toggle()
     }
+    
+    @IBAction func find(_ sender: Any) {
+        focusedSurface?.find(sender)
+    }
+    
+    @IBAction func findNext(_ sender: Any) {
+        focusedSurface?.findNext(sender)
+    }
+    
+    @IBAction func findPrevious(_ sender: Any) {
+        focusedSurface?.findNext(sender)
+    }
+    
+    @IBAction func findHide(_ sender: Any) {
+        focusedSurface?.findHide(sender)
+    }
 
     @objc func resetTerminal(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
@@ -1108,6 +1149,18 @@ class BaseTerminalController: NSWindowController,
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
+        }
+    }
+}
+
+extension BaseTerminalController: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(findHide):
+            return focusedSurface?.searchState != nil
+
+        default:
+            return true
         }
     }
 }

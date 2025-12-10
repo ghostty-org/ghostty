@@ -100,7 +100,9 @@ fn mainActionImpl(
     try impl.run(writer, rand);
 
     // Always flush
-    try writer.flush();
+    writer.flush() catch |err| switch (err) {
+        error.WriteFailed => return,
+    };
 }
 
 test {

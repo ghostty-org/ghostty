@@ -1,6 +1,6 @@
 const std = @import("std");
 const table = @import("props_table.zig").table;
-const GraphemeBoundaryClass = @import("Properties.zig").GraphemeBoundaryClass;
+const GraphemeBoundaryClass = @import("props.zig").GraphemeBoundaryClass;
 
 /// Determines if there is a grapheme break between two codepoints. This
 /// must be called sequentially maintaining the state between calls.

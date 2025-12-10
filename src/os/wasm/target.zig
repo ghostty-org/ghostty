@@ -10,7 +10,7 @@ pub const Target = enum {
 };
 
 /// Our specific target platform.
-pub const target: ?Target = if (!builtin.target.isWasm()) null else target: {
+pub const target: ?Target = if (!builtin.target.cpu.arch.isWasm()) null else target: {
     const result = @as(Target, @enumFromInt(@intFromEnum(options.wasm_target)));
     // This maybe isn't necessary but I don't know if enums without a specific
     // tag type and value are guaranteed to be the same between build.zig

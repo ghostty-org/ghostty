@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
 const passwd = @import("passwd.zig");
 const posix = std.posix;
 const objc = @import("objc");

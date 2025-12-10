@@ -1,5 +1,30 @@
 import AppKit
 import GhosttyKit
+import UniformTypeIdentifiers
+
+extension NSPasteboard.PasteboardType {
+    /// Initialize a pasteboard type from a MIME type string
+    init?(mimeType: String) {
+        // Explicit mappings for common MIME types
+        switch mimeType {
+        case "text/plain":
+            self = .string
+            return
+        default:
+            break
+        }
+        
+        // Try to get UTType from MIME type
+        guard let utType = UTType(mimeType: mimeType) else {
+            // Fallback: use the MIME type directly as identifier
+            self.init(mimeType)
+            return
+        }
+        
+        // Use the UTType's identifier
+        self.init(utType.identifier)
+    }
+}
 
 extension NSPasteboard {
     /// The pasteboard to used for Ghostty selection.

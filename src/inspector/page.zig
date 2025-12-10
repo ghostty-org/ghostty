@@ -1,9 +1,7 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const cimgui = @import("cimgui");
 const terminal = @import("../terminal/main.zig");
-const inspector = @import("main.zig");
 const units = @import("units.zig");
 
 pub fn render(page: *const terminal.Page) void {

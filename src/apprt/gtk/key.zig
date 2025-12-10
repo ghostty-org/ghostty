@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_options = @import("build_options");
 
 const gdk = @import("gdk");
 const glib = @import("glib");

@@ -10,7 +10,6 @@
 //!
 
 const std = @import("std");
-const builtin = @import("builtin");
 const parser = @import("Parser.zig");
 const State = parser.State;
 const Action = parser.TransitionAction;

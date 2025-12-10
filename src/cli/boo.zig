@@ -3,10 +3,9 @@ const builtin = @import("builtin");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Allocator = std.mem.Allocator;
-const help_strings = @import("help_strings");
 const vaxis = @import("vaxis");
 
-const framedata = @embedFile("framedata");
+const framedata = @import("framedata").compressed;
 
 const vxfw = vaxis.vxfw;
 

@@ -57,7 +57,7 @@ pub const Options = struct {
             .keypad_key_application = t.modes.get(.keypad_keys),
             .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
             .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
-            .kitty_flags = t.screen.kitty_keyboard.current(),
+            .kitty_flags = t.screens.active.kitty_keyboard.current(),
 
             // These can't be known from the terminal state.
             .macos_option_as_alt = .false,
@@ -77,7 +77,7 @@ pub fn encode(
     event: key.KeyEvent,
     opts: Options,
 ) std.Io.Writer.Error!void {
-    // log.warn("KEYENCODER self={}", .{self.*});
+    //std.log.warn("KEYENCODER event={} opts={}", .{ event, opts });
     return if (opts.kitty_flags.int() != 0) try kitty(
         writer,
         event,
@@ -411,6 +411,22 @@ fn legacy(
         // ever be a multi-codepoint sequence that triggers this.
         if (it.nextCodepoint() != null) break :modify_other;
 
+        // The mods we encode for this are just the binding mods (shift, ctrl,
+        // super, alt unless it is actually option).
+        const mods = mods: {
+            var mods_binding = event.mods.binding();
+            if (comptime builtin.target.os.tag.isDarwin()) alt: {
+                switch (opts.macos_option_as_alt) {
+                    .false => {},
+                    .true => break :alt,
+                    .left => if (event.mods.sides.alt == .left) break :alt,
+                    .right => if (event.mods.sides.alt == .right) break :alt,
+                }
+                mods_binding.alt = false;
+            }
+            break :mods mods_binding;
+        };
+
         // This copies xterm's `ModifyOtherKeys` function that returns
         // whether modify other keys should be encoded for the given
         // input.
@@ -420,7 +436,7 @@ fn legacy(
                 break :should_modify true;
 
             // If we have anything other than shift pressed, encode.
-            var mods_no_shift = binding_mods;
+            var mods_no_shift = mods;
             mods_no_shift.shift = false;
             if (!mods_no_shift.empty()) break :should_modify true;
 
@@ -435,7 +451,7 @@ fn legacy(
 
         if (should_modify) {
             for (function_keys.modifiers, 2..) |modset, code| {
-                if (!binding_mods.equal(modset)) continue;
+                if (!mods.equal(modset)) continue;
                 return try writer.print(
                     "\x1B[27;{};{}~",
                     .{ code, codepoint },
@@ -1968,6 +1984,51 @@ test "legacy: ctrl+shift+char with modify other state 2" {
         .modify_other_keys_state_2 = true,
     });
     try testing.expectEqualStrings("\x1b[27;6;72~", writer.buffered());
+}
+
+test "legacy: ctrl+shift+char with modify other state 2 and consumed mods" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .key_h,
+        .mods = .{ .ctrl = true, .shift = true },
+        .consumed_mods = .{ .shift = true },
+        .utf8 = "H",
+    }, .{
+        .modify_other_keys_state_2 = true,
+    });
+    try testing.expectEqualStrings("\x1b[27;6;72~", writer.buffered());
+}
+
+test "legacy: alt+digit with modify other state 2" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .digit_8,
+        .mods = .{ .alt = true },
+        .consumed_mods = .{},
+        .utf8 = "8",
+    }, .{
+        .modify_other_keys_state_2 = true,
+        .macos_option_as_alt = .true,
+    });
+    try testing.expectEqualStrings("\x1b[27;3;56~", writer.buffered());
+}
+
+test "legacy: alt+digit with modify other state 2 and macos-option-as-alt = false" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try legacy(&writer, .{
+        .key = .digit_8,
+        .mods = .{ .alt = true },
+        .consumed_mods = .{ .alt = true },
+        .utf8 = "[", // common translation of option+8 with European keyboard layouts
+    }, .{
+        .modify_other_keys_state_2 = true,
+        .macos_option_as_alt = .false,
+    });
+    try testing.expectEqualStrings("[", writer.buffered());
 }
 
 test "legacy: fixterm awkward letters" {

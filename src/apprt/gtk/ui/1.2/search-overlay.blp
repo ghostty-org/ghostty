@@ -1,0 +1,94 @@
+using Gtk 4.0;
+using Gdk 4.0;
+using Adw 1;
+
+template $GhosttySearchOverlay: Adw.Bin {
+  visible: bind template.active;
+  halign-target: end;
+  valign-target: start;
+  halign: bind template.halign-target;
+  valign: bind template.valign-target;
+
+  GestureDrag {
+    button: 1;
+    propagation-phase: capture;
+    drag-end => $on_drag_end();
+  }
+
+  Adw.Bin {
+    Box container {
+      styles [
+        "background",
+        "search-overlay",
+      ]
+
+      orientation: horizontal;
+      spacing: 6;
+
+      SearchEntry search_entry {
+        placeholder-text: _("Find…");
+        width-chars: 20;
+        hexpand: true;
+        stop-search => $stop_search();
+        search-changed => $search_changed();
+        next-match => $next_match();
+        previous-match => $previous_match();
+
+        EventControllerKey {
+          // We need this so we capture before the SearchEntry.
+          propagation-phase: capture;
+          key-pressed => $search_entry_key_pressed();
+        }
+      }
+
+      Label {
+        styles [
+          "dim-label",
+        ]
+
+        label: bind $match_label_closure(template.has-search-selected, template.search-selected, template.has-search-total, template.search-total) as <string>;
+        width-chars: 6;
+        xalign: 1.0;
+      }
+
+      Box button_box {
+        orientation: horizontal;
+        spacing: 1;
+
+        styles [
+          "linked",
+        ]
+
+        Button prev_button {
+          icon-name: "go-up-symbolic";
+          tooltip-text: _("Previous Match");
+          clicked => $next_match();
+
+          cursor: Gdk.Cursor {
+            name: "pointer";
+          };
+        }
+
+        Button next_button {
+          icon-name: "go-down-symbolic";
+          tooltip-text: _("Next Match");
+          clicked => $previous_match();
+
+          cursor: Gdk.Cursor {
+            name: "pointer";
+          };
+        }
+      }
+
+      Button close_button {
+        icon-name: "window-close-symbolic";
+        tooltip-text: _("Close");
+        clicked => $stop_search();
+
+        cursor: Gdk.Cursor {
+          name: "pointer";
+        };
+      }
+    }
+  }
+}

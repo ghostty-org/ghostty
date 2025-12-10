@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const fastmem = @import("../fastmem.zig");
 
@@ -91,15 +91,24 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             self.full = self.head == self.tail;
         }
 
-        /// Append a slice to the buffer. If the buffer cannot fit the
-        /// entire slice then an error will be returned. It is up to the
-        /// caller to rotate the circular buffer if they want to overwrite
-        /// the oldest data.
-        pub fn appendSlice(
+        /// Append a single value to the buffer, assuming there is capacity.
+        pub fn appendAssumeCapacity(self: *Self, v: T) void {
+            assert(!self.full);
+            self.storage[self.head] = v;
+            self.head += 1;
+            if (self.head >= self.storage.len) self.head = 0;
+            self.full = self.head == self.tail;
+        }
+
+        /// Append a slice to the buffer.
+        pub fn appendSliceAssumeCapacity(
             self: *Self,
             slice: []const T,
-        ) Allocator.Error!void {
-            const storage = self.getPtrSlice(self.len(), slice.len);
+        ) void {
+            const storage = self.getPtrSlice(
+                self.len(),
+                slice.len,
+            );
             fastmem.copy(T, storage[0], slice[0..storage[0].len]);
             fastmem.copy(T, storage[1], slice[storage[0].len..]);
         }
@@ -456,7 +465,7 @@ test "CircBuf append slice" {
     var buf = try Buf.init(alloc, 5);
     defer buf.deinit(alloc);
 
-    try buf.appendSlice("hello");
+    buf.appendSliceAssumeCapacity("hello");
     {
         var it = buf.iterator(.forward);
         try testing.expect(it.next().?.* == 'h');
@@ -486,7 +495,7 @@ test "CircBuf append slice with wrap" {
     try testing.expect(!buf.full);
     try testing.expectEqual(@as(usize, 2), buf.len());
 
-    try buf.appendSlice("AB");
+    buf.appendSliceAssumeCapacity("AB");
     {
         var it = buf.iterator(.forward);
         try testing.expect(it.next().?.* == 0);

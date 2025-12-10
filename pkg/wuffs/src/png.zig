@@ -4,6 +4,8 @@ const c = @import("c.zig").c;
 const Error = @import("error.zig").Error;
 const check = @import("error.zig").check;
 const ImageData = @import("main.zig").ImageData;
+const maximum_image_size = @import("main.zig").maximum_image_size;
+const mul = std.math.mul;
 
 const log = std.log.scoped(.wuffs_png);
 
@@ -61,9 +63,20 @@ pub fn decode(alloc: Allocator, data: []const u8) Error!ImageData {
         height,
     );
 
+    const size: usize = try mul(
+        usize,
+        try mul(usize, width, height),
+        @sizeOf(c.wuffs_base__color_u32_argb_premul),
+    );
+
+    if (size > maximum_image_size) {
+        log.warn("image size {d} is larger than the maximum allowed ({d})", .{ size, maximum_image_size });
+        return error.Overflow;
+    }
+
     const destination = try alloc.alloc(
         u8,
-        width * height * @sizeOf(c.wuffs_base__color_u32_argb_premul),
+        size,
     );
     errdefer alloc.free(destination);
 
@@ -130,4 +143,9 @@ test "png_decode_FFFFFF" {
     try std.testing.expectEqual(1, data.width);
     try std.testing.expectEqual(1, data.height);
     try std.testing.expectEqualSlices(u8, &.{ 255, 255, 255, 255 }, data.data);
+}
+
+test "png: too big" {
+    const data = decode(std.testing.allocator, @embedFile("too_big.png"));
+    try std.testing.expectError(error.Overflow, data);
 }

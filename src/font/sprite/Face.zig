@@ -13,8 +13,7 @@
 const Face = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const wuffs = @import("wuffs");
 const z2d = @import("z2d");
@@ -30,6 +29,7 @@ metrics: font.Metrics,
 
 pub const DrawFnError =
     Allocator.Error ||
+    z2d.Path.Error ||
     z2d.painter.FillError ||
     z2d.painter.StrokeError ||
     error{

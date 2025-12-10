@@ -1,9 +1,7 @@
-const std = @import("std");
 const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
-const build_config = @import("../../../build_config.zig");
 const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;

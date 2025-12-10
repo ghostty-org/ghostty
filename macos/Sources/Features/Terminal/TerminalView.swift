@@ -31,6 +31,9 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
+    
+    /// The update overlay should be visible.
+    var updateOverlayIsVisible: Bool { get }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -42,7 +45,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
     // An optional delegate to receive information about terminal changes.
     weak var delegate: (any TerminalViewDelegate)? = nil
-
+    
     // The most recently focused surface, equal to focusedSurface when
     // it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView> = .init()
@@ -97,6 +100,8 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                             guard let size = newValue else { return }
                             self.delegate?.cellSizeDidChange(to: size)
                         }
+                        .frame(idealWidth: lastFocusedSurface.value?.initialSize?.width,
+                               idealHeight: lastFocusedSurface.value?.initialSize?.height)
                 }
                 // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
                 .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == "hidden" ? .top : [])
@@ -105,9 +110,33 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     TerminalCommandPaletteView(
                         surfaceView: surfaceView,
                         isPresented: $viewModel.commandPaletteIsShowing,
-                        ghosttyConfig: ghostty.config) { action in
+                        ghosttyConfig: ghostty.config,
+                        updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
                         self.delegate?.performAction(action, on: surfaceView)
                     }
+                }
+                
+                // Show update information above all else.
+                if viewModel.updateOverlayIsVisible {
+                    UpdateOverlay()
+                }
+            }
+            .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
+        }
+    }
+}
+
+fileprivate struct UpdateOverlay: View {
+    var body: some View {
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            VStack {
+                Spacer()
+                
+                HStack {
+                    Spacer()
+                    UpdatePill(model: appDelegate.updateViewModel)
+                        .padding(.bottom, 9)
+                        .padding(.trailing, 9)
                 }
             }
         }

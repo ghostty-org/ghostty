@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const glslang = @import("glslang");
@@ -80,9 +79,7 @@ pub fn loadFromFile(
         const file = try cwd.openFile(path, .{});
         defer file.close();
 
-        var buf: [4096]u8 = undefined;
-        var reader = file.reader(&buf);
-        break :src try reader.interface.readAlloc(
+        break :src try file.readToEndAlloc(
             alloc,
             4 * 1024 * 1024, // 4MB
         );

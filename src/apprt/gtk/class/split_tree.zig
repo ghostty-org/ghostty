@@ -1,6 +1,5 @@
 const std = @import("std");
-const build_config = @import("../../../build_config.zig");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const adw = @import("adw");
 const gio = @import("gio");
@@ -8,20 +7,15 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
-const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
-const input = @import("../../../input.zig");
-const CoreSurface = @import("../../../Surface.zig");
-const gtk_version = @import("../gtk_version.zig");
-const adw_version = @import("../adw_version.zig");
 const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
-const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
+const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -874,7 +868,9 @@ pub const SplitTree = extern struct {
         current: Surface.Tree.Node.Handle,
     ) *gtk.Widget {
         return switch (tree.nodes[current.idx()]) {
-            .leaf => |v| v.as(gtk.Widget),
+            .leaf => |v| gobject.ext.newInstance(SurfaceScrolledWindow, .{
+                .surface = v,
+            }).as(gtk.Widget),
             .split => |s| SplitTreeSplit.new(
                 current,
                 &s,

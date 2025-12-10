@@ -1,4 +1,3 @@
-const std = @import("std");
 const cimgui = @import("cimgui");
 const terminal = @import("../terminal/main.zig");
 
@@ -51,7 +50,7 @@ pub fn renderInTable(
     switch (cursor.style.fg_color) {
         .none => cimgui.c.igText("default"),
         .palette => |idx| {
-            const rgb = t.color_palette.colors[idx];
+            const rgb = t.colors.palette.current[idx];
             cimgui.c.igValue_Int("Palette", idx);
             var color: [3]f32 = .{
                 @as(f32, @floatFromInt(rgb.r)) / 255,
@@ -90,7 +89,7 @@ pub fn renderInTable(
     switch (cursor.style.bg_color) {
         .none => cimgui.c.igText("default"),
         .palette => |idx| {
-            const rgb = t.color_palette.colors[idx];
+            const rgb = t.colors.palette.current[idx];
             cimgui.c.igValue_Int("Palette", idx);
             var color: [3]f32 = .{
                 @as(f32, @floatFromInt(rgb.r)) / 255,

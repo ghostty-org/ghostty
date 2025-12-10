@@ -49,9 +49,17 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in {
           devShell.${system} = pkgs.callPackage ./nix/devShell.nix {
-            zig = zig.packages.${system}."0.15.1";
-            wraptest = pkgs.callPackage ./nix/wraptest.nix {};
+            zig = zig.packages.${system}."0.15.2";
+            wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
             zon2nix = zon2nix;
+
+            python3 = pkgs.python3.override {
+              self = pkgs.python3;
+              packageOverrides = pyfinal: pyprev: {
+                blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
+                ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
+              };
+            };
           };
 
           packages.${system} = let
@@ -107,10 +115,10 @@
       overlays = {
         default = self.overlays.releasefast;
         releasefast = final: prev: {
-          ghostty = self.packages.${prev.system}.ghostty-releasefast;
+          ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-releasefast;
         };
         debug = final: prev: {
-          ghostty = self.packages.${prev.system}.ghostty-debug;
+          ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
         };
       };
       create-vm = import ./nix/vm/create.nix;

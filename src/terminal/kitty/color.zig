@@ -16,6 +16,13 @@ pub const OSC = struct {
     /// We must reply with the same string terminator (ST) as used in the
     /// request.
     terminator: Terminator = .st,
+
+    /// We don't currently support encoding this to C in any way.
+    pub const C = void;
+
+    pub fn cval(_: OSC) C {
+        return {};
+    }
 };
 
 pub const Special = enum {
