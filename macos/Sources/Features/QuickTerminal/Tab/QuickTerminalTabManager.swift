@@ -155,8 +155,11 @@ class QuickTerminalTabManager: ObservableObject {
             selectNextTab()
         } else if tabIndex == GHOSTTY_GOTO_TAB_LAST.rawValue {
             selectTab(tabs[tabs.count - 1])
-        } else {
-            return
+        } else if tabIndex > 0 {
+            // Numeric tab index (1-indexed)
+            let arrayIndex = Int(tabIndex) - 1
+            guard arrayIndex < tabs.count else { return }
+            selectTab(tabs[arrayIndex])
         }
     }
 }
