@@ -99,6 +99,7 @@ in
       "-Dgtk-x11=${lib.boolToString enableX11}"
       "-Dgtk-wayland=${lib.boolToString enableWayland}"
       "-Dstrip=${lib.boolToString strip}"
+      "-fno-sys=highway"
     ];
 
     outputs = [
