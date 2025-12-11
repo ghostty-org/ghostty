@@ -17,8 +17,12 @@ class QuickTerminalTabManager: ObservableObject {
             self.controller?.surfaceTree = currentTab.surfaceTree
 
             DispatchQueue.main.async {
-                if let focused = currentTab.surfaceTree.first(where: { $0.focused }) {
-                    self.controller?.focusSurface(focused)
+                // Find the focused surface, or fallback to the first surface (for new tabs)
+                let surfaceToFocus = currentTab.surfaceTree.first(where: { $0.focused })
+                    ?? currentTab.surfaceTree.first
+
+                if let surface = surfaceToFocus {
+                    self.controller?.focusSurface(surface)
                     self.controller?.syncFocusToSurfaceTree()
                 }
 
