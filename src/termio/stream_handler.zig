@@ -70,6 +70,9 @@ pub const StreamHandler = struct {
     /// such as XTGETTCAP.
     dcs: terminal.dcs.Handler = .{},
 
+    /// The tmux control mode viewer state.
+    tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
+
     /// This is set to true when a message was written to the termio
     /// mailbox. This can be used by callers to determine if they need
     /// to wake up the termio thread.
@@ -81,9 +84,18 @@ pub const StreamHandler = struct {
 
     pub const Stream = terminal.Stream(StreamHandler);
 
+    /// True if we have tmux control mode built in.
+    pub const tmux_enabled = terminal.options.tmux_control_mode;
+
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
+        if (comptime tmux_enabled) tmux: {
+            const viewer = self.tmux_viewer orelse break :tmux;
+            viewer.deinit();
+            self.alloc.destroy(viewer);
+            self.tmux_viewer = null;
+        }
     }
 
     /// This queues a render operation with the renderer thread. The render
@@ -368,9 +380,73 @@ pub const StreamHandler = struct {
     fn dcsCommand(self: *StreamHandler, cmd: *terminal.dcs.Command) !void {
         // log.warn("DCS command: {}", .{cmd});
         switch (cmd.*) {
-            .tmux => |tmux| {
-                // TODO: process it
-                log.warn("tmux control mode event unimplemented cmd={}", .{tmux});
+            .tmux => |tmux| tmux: {
+                // If tmux control mode is disabled at the build level,
+                // then this whole block shouldn't be analyzed.
+                if (comptime !tmux_enabled) break :tmux;
+                log.info("tmux control mode event cmd={f}", .{tmux});
+
+                switch (tmux) {
+                    .enter => {
+                        // Setup our viewer state
+                        assert(self.tmux_viewer == null);
+                        const viewer = try self.alloc.create(terminal.tmux.Viewer);
+                        errdefer self.alloc.destroy(viewer);
+                        viewer.* = try .init(self.alloc);
+                        errdefer viewer.deinit();
+                        self.tmux_viewer = viewer;
+                        break :tmux;
+                    },
+
+                    .exit => if (self.tmux_viewer) |viewer| {
+                        // Free our viewer state
+                        viewer.deinit();
+                        self.alloc.destroy(viewer);
+                        self.tmux_viewer = null;
+                        break :tmux;
+                    },
+
+                    else => {},
+                }
+
+                assert(tmux != .enter);
+                assert(tmux != .exit);
+
+                const viewer = self.tmux_viewer orelse {
+                    // This can only really happen if we failed to
+                    // initialize the viewer on enter.
+                    log.info(
+                        "received tmux control mode command without viewer: {f}",
+                        .{tmux},
+                    );
+
+                    break :tmux;
+                };
+
+                for (viewer.next(.{ .tmux = tmux })) |action| {
+                    log.info("tmux viewer action={f}", .{action});
+                    switch (action) {
+                        .exit => {
+                            // We ignore this because we will fully exit when
+                            // our DCS connection ends. We may want to handle
+                            // this in the future to notify our GUI we're
+                            // disconnected though.
+                        },
+
+                        .command => |command| {
+                            assert(command.len > 0);
+                            assert(command[command.len - 1] == '\n');
+                            self.messageWriter(try termio.Message.writeReq(
+                                self.alloc,
+                                command,
+                            ));
+                        },
+
+                        .windows => {
+                            // TODO
+                        },
+                    }
+                }
             },
 
             .xtgettcap => |*gettcap| {

@@ -531,6 +531,30 @@ pub const Notification = union(enum) {
         session_id: usize,
         name: []const u8,
     },
+
+    pub fn format(self: Notification, writer: *std.Io.Writer) !void {
+        const T = Notification;
+        const info = @typeInfo(T).@"union";
+
+        try writer.writeAll(@typeName(T));
+        if (info.tag_type) |TagType| {
+            try writer.writeAll("{ .");
+            try writer.writeAll(@tagName(@as(TagType, self)));
+            try writer.writeAll(" = ");
+
+            inline for (info.fields) |u_field| {
+                if (self == @field(TagType, u_field.name)) {
+                    const value = @field(self, u_field.name);
+                    switch (u_field.type) {
+                        []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                        else => try writer.print("{any}", .{value}),
+                    }
+                }
+            }
+
+            try writer.writeAll(" }");
+        }
+    }
 };
 
 test "tmux begin/end empty" {

@@ -369,26 +369,6 @@ extension Ghostty {
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
 
-            // Observe our appearance so we can report the correct value to libghostty.
-            // This is the best way I know of to get appearance change notifications.
-            self.appearanceObserver = observe(\.effectiveAppearance, options: [.new, .initial]) { view, change in
-                guard let appearance = change.newValue else { return }
-                guard let surface = view.surface else { return }
-                let scheme: ghostty_color_scheme_e
-                switch (appearance.name) {
-                case .aqua, .vibrantLight:
-                    scheme = GHOSTTY_COLOR_SCHEME_LIGHT
-
-                case .darkAqua, .vibrantDark:
-                    scheme = GHOSTTY_COLOR_SCHEME_DARK
-
-                default:
-                    return
-                }
-
-                ghostty_surface_set_color_scheme(surface, scheme)
-            }
-
             // The UTTypes that can be dragged onto this view.
             registerForDraggedTypes(Array(Self.dropTypes))
         }

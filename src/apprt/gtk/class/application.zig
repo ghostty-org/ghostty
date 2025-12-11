@@ -1583,7 +1583,7 @@ pub const Application = extern struct {
             .dark;
         log.debug("style manager changed scheme={}", .{scheme});
 
-        const priv = self.private();
+        const priv: *Private = self.private();
         const core_app = priv.core_app;
         core_app.colorSchemeEvent(self.rt(), scheme) catch |err| {
             log.warn("error updating app color scheme err={}", .{err});
@@ -1595,6 +1595,26 @@ pub const Application = extern struct {
                     .{err},
                 );
             };
+        }
+
+        if (gtk_version.atLeast(4, 20, 0)) {
+            const gtk_scheme: gtk.InterfaceColorScheme = switch (scheme) {
+                .light => gtk.InterfaceColorScheme.light,
+                .dark => gtk.InterfaceColorScheme.dark,
+            };
+            var value = gobject.ext.Value.newFrom(gtk_scheme);
+            gobject.Object.setProperty(
+                priv.css_provider.as(gobject.Object),
+                "prefers-color-scheme",
+                &value,
+            );
+            for (priv.custom_css_providers.items) |css_provider| {
+                gobject.Object.setProperty(
+                    css_provider.as(gobject.Object),
+                    "prefers-color-scheme",
+                    &value,
+                );
+            }
         }
     }
 

@@ -538,6 +538,11 @@ fn actionCommands(action: Action.Key) []const Command {
                 .title = "Close Other Tabs",
                 .description = "Close all tabs in this window except the current one.",
             },
+            .{
+                .action = .{ .close_tab = .right },
+                .title = "Close Tabs to the Right",
+                .description = "Close all tabs to the right of the current one.",
+            },
         },
 
         .close_window => comptime &.{.{

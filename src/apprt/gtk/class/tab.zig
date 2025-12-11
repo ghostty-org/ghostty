@@ -347,6 +347,7 @@ pub const Tab = extern struct {
         switch (mode) {
             .this => tab_view.closePage(page),
             .other => tab_view.closeOtherPages(page),
+            .right => tab_view.closePagesAfter(page),
         }
     }
 

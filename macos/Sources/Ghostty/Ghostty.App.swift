@@ -861,6 +861,13 @@ extension Ghostty {
                     )
                     return
 
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseTabsOnTheRight,
+                        object: surfaceView
+                    )
+                    return
+
                 default:
                     assertionFailure()
                 }

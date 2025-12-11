@@ -26,6 +26,8 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
+
+    private var tabMenuObserver: NSObjectProtocol? = nil
     
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -53,6 +55,17 @@ class TerminalWindow: NSWindow {
     override func awakeFromNib() {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
+
+        // This is fragile, but there doesn't seem to be an official API for customizing
+        // native tab bar menus.
+        tabMenuObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name(rawValue: "NSMenuWillOpenNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] n in
+            guard let self, let menu = n.object as? NSMenu else { return }
+            self.configureTabContextMenuIfNeeded(menu)
+        }
         
         // This is required so that window restoration properly creates our tabs
         // again. I'm not sure why this is required. If you don't do this, then
@@ -202,6 +215,8 @@ class TerminalWindow: NSWindow {
     /// added.
     static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
 
+    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+
     func findTitlebarView() -> NSView? {
         // Find our tab bar. If it doesn't exist we don't do anything.
         //
@@ -276,6 +291,52 @@ class TerminalWindow: NSWindow {
             }
         }
     }
+
+    private func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
+        guard isTabContextMenu(menu) else { return }
+        
+        // Get the target from an existing menu item. The native tab context menu items
+        // target the specific window/controller that was right-clicked, not the focused one.
+        // We need to use that same target so validation and action use the correct tab.
+        let targetController = menu.items
+            .first { $0.action == NSSelectorFromString("performClose:") }
+            .flatMap { $0.target as? NSWindow }
+            .flatMap { $0.windowController as? TerminalController }
+
+        // Close tabs to the right
+        let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
+        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
+        item.target = targetController
+        item.setImageIfDesired(systemSymbolName: "xmark")
+        if !menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) &&
+           !menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
+            menu.addItem(item)
+        }
+        
+        // Other close items should have the xmark to match Safari on macOS 26
+        for menuItem in menu.items {
+            if menuItem.action == NSSelectorFromString("performClose:") ||
+               menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
+                menuItem.setImageIfDesired(systemSymbolName: "xmark")
+            }
+        }
+    }
+
+    private func isTabContextMenu(_ menu: NSMenu) -> Bool {
+        guard NSApp.keyWindow === self else { return false }
+        
+        // These are the target selectors, at least for macOS 26.
+        let tabContextSelectors: Set<String> = [
+            "performClose:",
+            "performCloseOtherTabs:",
+            "moveTabToNewWindow:",
+            "toggleTabOverview:"
+        ]
+        
+        let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
+        return !selectorNames.isDisjoint(with: tabContextSelectors)
+    }
+
 
     // MARK: Tab Key Equivalents
 
@@ -419,6 +480,7 @@ class TerminalWindow: NSWindow {
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
         guard isVisible else { return }
+        defer { updateColorSchemeForSurfaceTree() }
 
         // Basic properties
         appearance = surfaceConfig.windowAppearance
@@ -481,6 +543,10 @@ class TerminalWindow: NSWindow {
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
     }
 
+    func updateColorSchemeForSurfaceTree() {
+        terminalController?.updateColorSchemeForSurfaceTree()
+    }
+
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
         guard let x, let y else {
@@ -511,6 +577,12 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.closeButton)?.isHidden = true
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
+    }
+
+    deinit {
+        if let observer = tabMenuObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     // MARK: Config

@@ -719,15 +719,19 @@ pub fn addSimd(
     }
 
     // Highway
-    if (b.lazyDependency("highway", .{
-        .target = target,
-        .optimize = optimize,
-    })) |highway_dep| {
-        m.linkLibrary(highway_dep.artifact("highway"));
-        if (static_libs) |v| try v.append(
-            b.allocator,
-            highway_dep.artifact("highway").getEmittedBin(),
-        );
+    if (b.systemIntegrationOption("highway", .{ .default = false })) {
+        m.linkSystemLibrary("libhwy", dynamic_link_opts);
+    } else {
+        if (b.lazyDependency("highway", .{
+            .target = target,
+            .optimize = optimize,
+        })) |highway_dep| {
+            m.linkLibrary(highway_dep.artifact("highway"));
+            if (static_libs) |v| try v.append(
+                b.allocator,
+                highway_dep.artifact("highway").getEmittedBin(),
+            );
+        }
     }
 
     // utfcpp - This is used as a dependency on our hand-written C++ code
@@ -746,6 +750,7 @@ pub fn addSimd(
     m.addIncludePath(b.path("src"));
     {
         // From hwy/detect_targets.h
+        const HWY_AVX10_2: c_int = 1 << 3;
         const HWY_AVX3_SPR: c_int = 1 << 4;
         const HWY_AVX3_ZEN4: c_int = 1 << 6;
         const HWY_AVX3_DL: c_int = 1 << 7;
@@ -756,7 +761,7 @@ pub fn addSimd(
         // The performance difference between AVX2 and AVX512 is not
         // significant for our use case and AVX512 is very rare on consumer
         // hardware anyways.
-        const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+        const HWY_DISABLED_TARGETS: c_int = HWY_AVX10_2 | HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
 
         m.addCSourceFiles(.{
             .files = &.{

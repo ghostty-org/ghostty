@@ -72,6 +72,9 @@ class BaseTerminalController: NSWindowController,
     /// The previous frame information from the window
     private var savedFrame: SavedFrame? = nil
 
+    /// Cache previously applied appearance to avoid unnecessary updates
+    private var appliedColorScheme: ghostty_color_scheme_e?
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
@@ -1162,5 +1165,36 @@ extension BaseTerminalController: NSMenuItemValidation {
         default:
             return true
         }
+    }
+	
+    // MARK: - Surface Color Scheme
+
+    /// Update the surface tree's color scheme only when it actually changes.
+    ///
+    /// Calling ``ghostty_surface_set_color_scheme`` triggers
+    /// ``syncAppearance(_:)`` via notification,
+    /// so we avoid redundant calls.
+    func updateColorSchemeForSurfaceTree() {
+        /// Derive the target scheme from `window-theme` or system appearance.
+        /// We set the scheme on surfaces so they pick the correct theme
+        /// and let ``syncAppearance(_:)`` update the window accordingly.
+        ///
+        /// Using App's effectiveAppearance here to prevent incorrect updates.
+        let themeAppearance = NSApplication.shared.effectiveAppearance
+        let scheme: ghostty_color_scheme_e
+        if themeAppearance.isDark {
+            scheme = GHOSTTY_COLOR_SCHEME_DARK
+        } else {
+            scheme = GHOSTTY_COLOR_SCHEME_LIGHT
+        }
+        guard scheme != appliedColorScheme else {
+            return
+        }
+        for surfaceView in surfaceTree {
+            if let surface = surfaceView.surface {
+                ghostty_surface_set_color_scheme(surface, scheme)
+            }
+        }
+        appliedColorScheme = scheme
     }
 }

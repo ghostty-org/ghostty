@@ -3,11 +3,20 @@ const Ascii = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const synthetic = @import("../main.zig");
+const Bytes = @import("../Bytes.zig");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
 pub const Options = struct {};
+
+fn checkAsciiAlphabet(c: u8) bool {
+    return switch (c) {
+        ' ' => false,
+        else => std.ascii.isPrint(c),
+    };
+}
+
+pub const ascii = Bytes.generateAlphabet(checkAsciiAlphabet);
 
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
@@ -23,12 +32,10 @@ pub fn destroy(self: *Ascii, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn run(self: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
-    _ = self;
-
-    var gen: synthetic.Bytes = .{
+pub fn run(_: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
+    var gen: Bytes = .{
         .rand = rand,
-        .alphabet = synthetic.Bytes.Alphabet.ascii,
+        .alphabet = ascii,
     };
 
     while (true) {

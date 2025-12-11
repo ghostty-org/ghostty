@@ -767,6 +767,8 @@ pub const CloseTabMode = enum(c_int) {
     this,
     /// Close all other tabs.
     other,
+    /// Close all tabs to the right of the current tab.
+    right,
 };
 
 pub const CommandFinished = struct {
