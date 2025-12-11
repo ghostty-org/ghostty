@@ -293,6 +293,13 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    override func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
+        super.focusedSurfaceDidChange(to: to)
+
+        // Update the current tab's title subscription to track the newly focused surface
+        tabManager.currentTab?.updateFocusedSurface(to)
+    }
+
     override func closeSurface(
         _ node: SplitTree<Ghostty.SurfaceView>.Node,
         withConfirmation: Bool = true
