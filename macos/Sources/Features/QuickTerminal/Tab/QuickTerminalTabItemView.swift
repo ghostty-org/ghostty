@@ -87,8 +87,7 @@ struct QuickTerminalTabItemView: View {
         Text(shortcut.description)
             .font(.system(size: Constants.shortcutFontSize))
             .foregroundColor(.secondary)
-            .opacity(isHovering ? 0 : 0.7)
-            .animation(.easeInOut, value: isHovering)
+            .opacity(0.7)
     }
 }
 
