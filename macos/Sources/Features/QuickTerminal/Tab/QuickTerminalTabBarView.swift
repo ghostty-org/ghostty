@@ -32,11 +32,23 @@ struct QuickTerminalTabBarView: View {
 
     @ViewBuilder private func renderTabBar() -> some View {
         GeometryReader { geometry in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(tabManager.tabs, content: renderTabItem)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(tabManager.tabs) { tab in
+                            renderTabItem(tab)
+                                .id(tab.id)
+                        }
+                    }
+                    .frame(minWidth: geometry.size.width)
                 }
-                .frame(minWidth: geometry.size.width)
+                .onChange(of: tabManager.currentTab?.id) { newTabId in
+                    if let tabId = newTabId {
+                        withAnimation {
+                            proxy.scrollTo(tabId, anchor: .center)
+                        }
+                    }
+                }
             }
         }
     }
