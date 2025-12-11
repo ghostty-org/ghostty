@@ -632,7 +632,7 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        // no-op, this is never called, since the window is an NSPanel without a title bar
+        tabManager.addNewTab()
     }
 
     @IBAction func toggleGhosttyFullScreen(_ sender: Any) {
