@@ -304,7 +304,7 @@ pub const Window = extern struct {
         if (priv.config) |config_obj| {
             const config = config_obj.get();
             if (config.maximize) self.as(gtk.Window).maximize();
-            if (config.fullscreen) self.as(gtk.Window).fullscreen();
+            if (config.fullscreen != .false) self.as(gtk.Window).fullscreen();
 
             // If we have an explicit title set, we set that immediately
             // so that any applications inspecting the window states see
