@@ -35,8 +35,8 @@ struct QuickTerminalTabBarView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
-                        ForEach(tabManager.tabs) { tab in
-                            renderTabItem(tab)
+                        ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                            renderTabItem(tab, index: index)
                                 .id(tab.id)
                         }
                     }
@@ -72,7 +72,11 @@ struct QuickTerminalTabBarView: View {
             .help("Create a new Tab")
     }
 
-    @ViewBuilder private func renderTabItem(_ tab: QuickTerminalTab) -> some View {
+    @ViewBuilder private func renderTabItem(_ tab: QuickTerminalTab, index: Int) -> some View {
+        // Look up the keyboard shortcut for goto_tab:N (1-indexed)
+        let tabNumber = index + 1
+        let shortcut = tabNumber <= 9 ? tabManager.config?.keyboardShortcut(for: "goto_tab:\(tabNumber)") : nil
+
         DraggableTabView(
             content: QuickTerminalTabItemView(
                 tab: tab,
@@ -84,7 +88,8 @@ struct QuickTerminalTabBarView: View {
                     } else {
                         tabManager.closeTab(tab)
                     }
-                }
+                },
+                shortcut: shortcut
             )
             .contextMenu {
                 Button("Close Tab") {

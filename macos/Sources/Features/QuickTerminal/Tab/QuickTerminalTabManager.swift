@@ -56,6 +56,11 @@ class QuickTerminalTabManager: ObservableObject {
         tabs.firstIndex { $0.id == currentTab?.id }
     }
 
+    /// Access to the Ghostty config for keybinding lookups
+    var config: Ghostty.Config? {
+        controller?.ghostty.config
+    }
+
     init(controller: QuickTerminalController) {
         self.controller = controller
         addNewTab()

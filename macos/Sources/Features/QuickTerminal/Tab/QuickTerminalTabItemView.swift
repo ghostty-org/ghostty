@@ -6,6 +6,7 @@ struct QuickTerminalTabItemView: View {
     let isHighlighted: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let shortcut: KeyboardShortcut?
 
     @State private var isHovering = false
     @State private var isHoveringCloseButton = false
@@ -32,6 +33,9 @@ struct QuickTerminalTabItemView: View {
         HStack(spacing: Constants.horizontalSpacing) {
             renderCloseButton()
             renderTitle()
+            if let shortcut = shortcut {
+                renderShortcut(shortcut)
+            }
         }
         .padding(.horizontal, Constants.horizontalPadding)
         .frame(height: Constants.height)
@@ -78,6 +82,14 @@ struct QuickTerminalTabItemView: View {
             .truncationMode(.tail)
             .frame(minWidth: 0, maxWidth: .infinity)
     }
+
+    @ViewBuilder private func renderShortcut(_ shortcut: KeyboardShortcut) -> some View {
+        Text(shortcut.description)
+            .font(.system(size: Constants.shortcutFontSize))
+            .foregroundColor(.secondary)
+            .opacity(isHovering ? 0 : 0.7)
+            .animation(.easeInOut, value: isHovering)
+    }
 }
 
 extension QuickTerminalTabItemView {
@@ -89,6 +101,7 @@ extension QuickTerminalTabItemView {
         static let closeButtonPadding: CGFloat = 2
         static let closeButtonCornerRadius: CGSize = .init(width: 4, height: 4)
         static let closeButtonFontSize: CGFloat = 10
+        static let shortcutFontSize: CGFloat = 11
         static let titleLineLimit: Int = 1
     }
 }
