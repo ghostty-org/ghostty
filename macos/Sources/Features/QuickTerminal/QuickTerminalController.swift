@@ -33,9 +33,6 @@ class QuickTerminalController: BaseTerminalController {
     /// Tracks if we're currently handling a manual resize to prevent recursion
     private var isHandlingResize: Bool = false
 
-    /// Set to true during window restoration to skip automatic animateIn
-    var isRestoring: Bool = false
-
     // The tab manager for the quick terminal
     private(set) lazy var tabManager: QuickTerminalTabManager = {
         let manager = QuickTerminalTabManager(controller: self)
@@ -123,10 +120,12 @@ class QuickTerminalController: BaseTerminalController {
         // window close so we can animate out.
         window.delegate = self
 
-        // Enable window restoration for the quick terminal
-        window.isRestorable = true
-        window.restorationClass = QuickTerminalWindowRestoration.self
-        window.identifier = .init(String(describing: QuickTerminalWindowRestoration.self))
+        // The quick terminal uses UserDefaults-based restoration instead of macOS
+        // window restoration. This is because macOS window restoration only works
+        // for visible windows, and the quick terminal is often hidden when the app
+        // quits. Using UserDefaults ensures consistent restoration regardless of
+        // visibility state.
+        window.isRestorable = false
 
         // Setup our configured appearance that we support.
         syncAppearance()
@@ -153,13 +152,6 @@ class QuickTerminalController: BaseTerminalController {
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = nil
-        }
-
-        // During restoration, we don't animate in - the window stays hidden
-        // until the user explicitly toggles the quick terminal.
-        guard !isRestoring else {
-            isRestoring = false
-            return
         }
 
         // Animate the window in
@@ -260,11 +252,6 @@ class QuickTerminalController: BaseTerminalController {
             let newOrigin = position.verticallyCenteredOrigin(for: window, on: screen)
             window.setFrameOrigin(newOrigin)
         }
-    }
-
-    func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
-        let data = QuickTerminalRestorableState(from: self, tabManager: tabManager)
-        data.encode(with: state)
     }
 
     // MARK: Base Controller Overrides

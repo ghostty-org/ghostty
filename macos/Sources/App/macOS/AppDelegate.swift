@@ -1110,17 +1110,6 @@ class AppDelegate: NSObject,
         quickController.toggle()
     }
 
-    /// Restores the quick terminal with saved state from window restoration.
-    /// - Parameter state: The saved quick terminal state to restore
-    func restoreQuickTerminal(with state: QuickTerminalRestorableState) {
-        // Set the restoration flag before triggering window load
-        // This prevents automatic animateIn during windowDidLoad
-        quickController.isRestoring = true
-
-        // Restore the tabs from saved state
-        quickController.tabManager.restoreTabs(from: state.tabs, currentIndex: state.currentTabIndex)
-    }
-
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
         // If we have focus, then we hide all windows.
