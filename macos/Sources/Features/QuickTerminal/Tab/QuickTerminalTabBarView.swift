@@ -1,4 +1,12 @@
 import SwiftUI
+import UniformTypeIdentifiers
+
+extension UTType {
+    /// Custom UTType for quick terminal tab drag and drop operations.
+    /// This prevents tab UUIDs from being pasted into the terminal when
+    /// a tab is accidentally dropped onto the terminal surface.
+    static let quickTerminalTab = UTType(exportedAs: "com.mitchellh.ghostty.quickterminal.tab")
+}
 
 struct QuickTerminalTabBarView: View {
     @ObservedObject var tabManager: QuickTerminalTabManager
@@ -80,10 +88,16 @@ struct QuickTerminalTabBarView: View {
         .frame(maxWidth: .infinity)
         .onDrag {
             tabManager.draggedTab = tab
-            return NSItemProvider(object: tab.id.uuidString as NSString)
+            let provider = NSItemProvider()
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.quickTerminalTab.identifier, visibility: .ownProcess) { completion in
+                let data = tab.id.uuidString.data(using: .utf8)
+                completion(data, nil)
+                return nil
+            }
+            return provider
         }
         .onDrop(
-            of: [.text],
+            of: [.quickTerminalTab],
             delegate: QuickTerminalTabDropDelegate(
                 item: tab,
                 tabManager: tabManager,
