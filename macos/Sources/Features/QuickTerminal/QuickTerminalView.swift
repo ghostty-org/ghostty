@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct QuickTerminalView: View {
     let ghostty: Ghostty.App
@@ -16,6 +17,14 @@ struct QuickTerminalView: View {
                 viewModel: controller,
                 delegate: controller,
             )
+            .onDrop(of: [.quickTerminalTab], isTargeted: nil) { _ in
+                // Tab dropped on terminal surface - move to new window
+                if let tab = tabManager.draggedTab {
+                    tabManager.moveTabToNewWindow(tab)
+                    return true
+                }
+                return false
+            }
         }
     }
 }

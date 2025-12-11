@@ -116,6 +116,8 @@ struct QuickTerminalTabDropDelegate: DropDelegate {
     let currentTab: QuickTerminalTab?
 
     func performDrop(info: DropInfo) -> Bool {
+        // Clear the dragged tab state since drop was successful
+        tabManager.draggedTab = nil
         return true
     }
 
@@ -130,6 +132,10 @@ struct QuickTerminalTabDropDelegate: DropDelegate {
             let guardedDest = dest > source ? dest + 1 : dest
             tabManager.moveTab(from: IndexSet(integer: source), to: guardedDest)
         }
+    }
+
+    func dropExited(info: DropInfo) {
+        // Don't clear draggedTab here - let the event monitor handle drops outside the window
     }
 }
 
