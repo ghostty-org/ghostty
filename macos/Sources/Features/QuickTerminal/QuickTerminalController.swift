@@ -33,8 +33,11 @@ class QuickTerminalController: BaseTerminalController {
     /// Tracks if we're currently handling a manual resize to prevent recursion
     private var isHandlingResize: Bool = false
 
+    /// Set to true during window restoration to skip automatic animateIn
+    var isRestoring: Bool = false
+
     // The tab manager for the quick terminal
-    private lazy var tabManager: QuickTerminalTabManager = {
+    private(set) lazy var tabManager: QuickTerminalTabManager = {
         let manager = QuickTerminalTabManager(controller: self)
         return manager
     }()
@@ -120,9 +123,10 @@ class QuickTerminalController: BaseTerminalController {
         // window close so we can animate out.
         window.delegate = self
 
-        // The quick window is not restorable (yet!). "Yet" because in theory we can
-        // make this restorable, but it isn't currently implemented.
-        window.isRestorable = false
+        // Enable window restoration for the quick terminal
+        window.isRestorable = true
+        window.restorationClass = QuickTerminalWindowRestoration.self
+        window.identifier = .init(String(describing: QuickTerminalWindowRestoration.self))
 
         // Setup our configured appearance that we support.
         syncAppearance()
@@ -149,6 +153,13 @@ class QuickTerminalController: BaseTerminalController {
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = nil
+        }
+
+        // During restoration, we don't animate in - the window stays hidden
+        // until the user explicitly toggles the quick terminal.
+        guard !isRestoring else {
+            isRestoring = false
+            return
         }
 
         // Animate the window in
@@ -249,6 +260,11 @@ class QuickTerminalController: BaseTerminalController {
             let newOrigin = position.verticallyCenteredOrigin(for: window, on: screen)
             window.setFrameOrigin(newOrigin)
         }
+    }
+
+    func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
+        let data = QuickTerminalRestorableState(from: self, tabManager: tabManager)
+        data.encode(with: state)
     }
 
     // MARK: Base Controller Overrides
@@ -372,7 +388,8 @@ class QuickTerminalController: BaseTerminalController {
 
         // If our surface tree is empty then we initialize a new terminal. The surface
         // tree can be empty if for example we run "exit" in the terminal and force
-        // animate out.
+        // animate out. Note: session restoration from UserDefaults happens earlier
+        // in QuickTerminalTabManager.init.
         if surfaceTree.isEmpty,
            let ghostty_app = ghostty.app {
             var config = Ghostty.SurfaceConfiguration()
@@ -659,6 +676,24 @@ class QuickTerminalController: BaseTerminalController {
         // restore any global dock state. I think deinit should be called which
         // would call this anyways but I can't be sure so I will do this too.
         hiddenDock = nil
+
+        // Save the quick terminal state for restoration on next launch.
+        // This handles the case where the quick terminal is hidden (not visible
+        // to macOS window restoration).
+        saveState()
+    }
+
+    /// Saves the current quick terminal state to UserDefaults.
+    func saveState() {
+        // Check if restoration is disabled
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           appDelegate.ghostty.config.windowSaveState == "never" {
+            QuickTerminalRestorableState.clearUserDefaults()
+            return
+        }
+
+        let state = QuickTerminalRestorableState(from: self, tabManager: tabManager)
+        state.saveToUserDefaults()
     }
 
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {

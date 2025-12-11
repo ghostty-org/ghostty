@@ -67,7 +67,55 @@ class QuickTerminalTabManager: ObservableObject {
 
     init(controller: QuickTerminalController) {
         self.controller = controller
-        addNewTab()
+
+        // Check if restoration is enabled and if there's saved state
+        let shouldRestore = controller.ghostty.config.windowSaveState != "never"
+
+        if shouldRestore,
+           let savedState = QuickTerminalRestorableState.loadFromUserDefaults(),
+           !savedState.tabs.isEmpty {
+            // Restore tabs from saved state
+            for state in savedState.tabs {
+                let tab = QuickTerminalTab(surfaceTree: state.surfaceTree, title: state.title)
+                tabs.append(tab)
+            }
+
+            // Select the previously current tab
+            if savedState.currentTabIndex < tabs.count {
+                selectTab(tabs[savedState.currentTabIndex])
+            } else if let first = tabs.first {
+                selectTab(first)
+            }
+
+            // Clear saved state after restoration
+            QuickTerminalRestorableState.clearUserDefaults()
+        } else {
+            // No saved state or restoration disabled - create default tab
+            addNewTab()
+        }
+    }
+
+    /// Restores tabs from saved state. This replaces any existing tabs.
+    /// - Parameters:
+    ///   - tabStates: The saved tab states to restore
+    ///   - currentIndex: The index of the tab that should be selected
+    func restoreTabs(from tabStates: [QuickTerminalTabState], currentIndex: Int) {
+        // Clear existing tabs without triggering close logic
+        tabs.removeAll()
+        currentTab = nil
+
+        // Restore each tab from state
+        for state in tabStates {
+            let tab = QuickTerminalTab(surfaceTree: state.surfaceTree, title: state.title)
+            tabs.append(tab)
+        }
+
+        // Select the previously current tab
+        if currentIndex < tabs.count {
+            selectTab(tabs[currentIndex])
+        } else if let first = tabs.first {
+            selectTab(first)
+        }
     }
 
     deinit {
