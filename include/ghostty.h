@@ -510,6 +510,7 @@ typedef enum {
   GHOSTTY_GOTO_SPLIT_LEFT,
   GHOSTTY_GOTO_SPLIT_DOWN,
   GHOSTTY_GOTO_SPLIT_RIGHT,
+  GHOSTTY_GOTO_SPLIT_RECENT,
 } ghostty_action_goto_split_e;
 
 // apprt.action.ResizeSplit.Direction

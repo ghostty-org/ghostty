@@ -153,6 +153,9 @@ pub const SplitTree = extern struct {
         /// tree change states.
         last_focused: WeakRef(Surface) = .empty,
 
+        /// Previously focused surface, used for recent navigation.
+        recent_focused: WeakRef(Surface) = .empty,
+
         /// The source that we use to rebuild the tree. This is also
         /// used to debounce updates.
         rebuild_source: ?c_uint = null,
@@ -343,6 +346,37 @@ pub const SplitTree = extern struct {
         return true;
     }
 
+    /// Move focus to the most recently focused surface (if any).
+    fn gotoRecent(self: *Self) bool {
+        const tree = self.getTree() orelse return false;
+        const active = self.getActiveSurfaceHandle() orelse return false;
+
+        const recent_surface = self.private().recent_focused.get() orelse return false;
+        defer recent_surface.unref();
+
+        const recent_handle = handleForSurface(tree, recent_surface) orelse return false;
+
+        // Don't do anything if we're already on the recent surface.
+        if (recent_handle == active) return false;
+
+        const surface = tree.nodes[recent_handle.idx()].leaf;
+        surface.grabFocus();
+        return true;
+    }
+
+    /// Move focus according to an apprt GotoSplit direction.
+    pub fn gotoSplit(self: *Self, to: apprt.action.GotoSplit) bool {
+        return switch (to) {
+            .recent => self.gotoRecent(),
+            .previous => self.goto(.previous_wrapped),
+            .next => self.goto(.next_wrapped),
+            .up => self.goto(.{ .spatial = .up }),
+            .down => self.goto(.{ .spatial = .down }),
+            .left => self.goto(.{ .spatial = .left }),
+            .right => self.goto(.{ .spatial = .right }),
+        };
+    }
+
     fn disconnectSurfaceHandlers(self: *Self) void {
         const tree = self.getTree() orelse return;
         var it = tree.iterator();
@@ -449,6 +483,41 @@ pub const SplitTree = extern struct {
         return surface;
     }
 
+    fn handleForSurface(
+        tree: *const Surface.Tree,
+        surface: *Surface,
+    ) ?Surface.Tree.Node.Handle {
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (entry.view == surface) return entry.handle;
+        }
+
+        return null;
+    }
+
+    fn pruneCachedFocus(self: *Self, tree: ?*Surface.Tree) void {
+        const priv = self.private();
+        const active_tree = tree orelse {
+            priv.last_focused.set(null);
+            priv.recent_focused.set(null);
+            return;
+        };
+
+        if (priv.last_focused.get()) |v| {
+            defer v.unref();
+            if (handleForSurface(active_tree, v) == null) {
+                priv.last_focused.set(null);
+            }
+        }
+
+        if (priv.recent_focused.get()) |v| {
+            defer v.unref();
+            if (handleForSurface(active_tree, v) == null) {
+                priv.recent_focused.set(null);
+            }
+        }
+    }
+
     /// Returns whether any of the surfaces in the tree have a parent.
     /// This is important because we can only rebuild the widget tree
     /// when every surface has no parent.
@@ -515,6 +584,7 @@ pub const SplitTree = extern struct {
             self.connectSurfaceHandlers();
         }
 
+        self.pruneCachedFocus(priv.tree);
         self.as(gobject.Object).notifyByPspec(properties.tree.impl.param_spec);
     }
 
@@ -550,6 +620,7 @@ pub const SplitTree = extern struct {
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
         priv.last_focused.set(null);
+        priv.recent_focused.set(null);
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});
@@ -740,11 +811,22 @@ pub const SplitTree = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
+        const priv = self.private();
+
         // We never CLEAR our last_focused because the property is specifically
         // the last focused surface. We let the weakref clear itself when
         // the surface is destroyed.
         if (!surface.getFocused()) return;
-        self.private().last_focused.set(surface);
+        const last_focused = priv.last_focused.get();
+        defer if (last_focused) |v| v.unref();
+
+        if (last_focused) |v| {
+            if (v != surface) {
+                priv.recent_focused.set(v);
+            }
+        }
+
+        priv.last_focused.set(surface);
 
         // Our active surface probably changed
         self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
