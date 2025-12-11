@@ -73,41 +73,35 @@ struct QuickTerminalTabBarView: View {
     }
 
     @ViewBuilder private func renderTabItem(_ tab: QuickTerminalTab) -> some View {
-        QuickTerminalTabItemView(
-            tab: tab,
-            isHighlighted: tabManager.currentTab?.id == tab.id,
-            onSelect: { tabManager.selectTab(tab) },
-            onClose: {
-                if NSEvent.modifierFlags.contains(.option) {
-                    tabManager.closeAllTabs(except: tab)
-                } else {
-                    tabManager.closeTab(tab)
-                }
-            },
-        )
-        .contextMenu {
-            Button("Close Tab") {
-                tabManager.closeTab(tab)
-            }
-            Button("Close Other Tabs") {
-                tabManager.tabs.forEach { otherTab in
-                    if otherTab.id != tab.id {
-                        tabManager.closeTab(otherTab)
+        DraggableTabView(
+            content: QuickTerminalTabItemView(
+                tab: tab,
+                isHighlighted: tabManager.currentTab?.id == tab.id,
+                onSelect: { tabManager.selectTab(tab) },
+                onClose: {
+                    if NSEvent.modifierFlags.contains(.option) {
+                        tabManager.closeAllTabs(except: tab)
+                    } else {
+                        tabManager.closeTab(tab)
                     }
                 }
-            }
-        }
+            )
+            .contextMenu {
+                Button("Close Tab") {
+                    tabManager.closeTab(tab)
+                }
+                Button("Close Other Tabs") {
+                    tabManager.tabs.forEach { otherTab in
+                        if otherTab.id != tab.id {
+                            tabManager.closeTab(otherTab)
+                        }
+                    }
+                }
+            },
+            tab: tab,
+            tabManager: tabManager
+        )
         .frame(maxWidth: .infinity)
-        .onDrag {
-            tabManager.draggedTab = tab
-            let provider = NSItemProvider()
-            provider.registerDataRepresentation(forTypeIdentifier: UTType.quickTerminalTab.identifier, visibility: .ownProcess) { completion in
-                let data = tab.id.uuidString.data(using: .utf8)
-                completion(data, nil)
-                return nil
-            }
-            return provider
-        }
         .onDrop(
             of: [.quickTerminalTab],
             delegate: QuickTerminalTabDropDelegate(
