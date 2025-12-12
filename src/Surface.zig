@@ -5183,7 +5183,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .prompt_surface_title => return try self.rt_app.performAction(
             .{ .surface = self },
             .prompt_title,
-            {},
+            .surface,
+        ),
+
+        .prompt_tab_title => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .prompt_title,
+            .tab,
         ),
 
         .clear_screen => {

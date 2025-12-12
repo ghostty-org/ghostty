@@ -519,6 +519,11 @@ pub const Action = union(enum) {
     /// version can be found by running `ghostty +version`.
     prompt_surface_title,
 
+    /// Change the title of the current tab/window via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the tab.
+    prompt_tab_title,
+
     /// Create a new split in the specified direction.
     ///
     /// Valid arguments:
@@ -1191,6 +1196,7 @@ pub const Action = union(enum) {
             .reset_font_size,
             .set_font_size,
             .prompt_surface_title,
+            .prompt_tab_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,

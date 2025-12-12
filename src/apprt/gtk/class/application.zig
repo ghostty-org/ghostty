@@ -693,7 +693,7 @@ pub const Application = extern struct {
 
             .progress_report => return Action.progressReport(target, value),
 
-            .prompt_title => return Action.promptTitle(target),
+            .prompt_title => return Action.promptTitle(target, value),
 
             .quit => self.quit(),
 
@@ -2250,12 +2250,18 @@ const Action = struct {
         };
     }
 
-    pub fn promptTitle(target: apprt.Target) bool {
-        switch (target) {
-            .app => return false,
-            .surface => |v| {
-                v.rt_surface.surface.promptTitle();
-                return true;
+    pub fn promptTitle(target: apprt.Target, value: apprt.action.PromptTitle) bool {
+        switch (value) {
+            .surface => switch (target) {
+                .app => return false,
+                .surface => |v| {
+                    v.rt_surface.surface.promptTitle();
+                    return true;
+                },
+            },
+            .tab => {
+                // GTK does not yet support tab title prompting
+                return false;
             },
         }
     }

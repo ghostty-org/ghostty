@@ -189,8 +189,9 @@ pub const Action = union(Key) {
     set_title: SetTitle,
 
     /// Set the title of the target to a prompted value. It is up to
-    /// the apprt to prompt.
-    prompt_title,
+    /// the apprt to prompt. The value specifies whether to prompt for the
+    /// surface title or the tab title.
+    prompt_title: PromptTitle,
 
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
@@ -534,6 +535,12 @@ pub const QuitTimer = enum(c_int) {
 pub const MouseVisibility = enum(c_int) {
     visible,
     hidden,
+};
+
+/// Whether to prompt for the surface title or tab title.
+pub const PromptTitle = enum(c_int) {
+    surface,
+    tab,
 };
 
 pub const MouseOverLink = struct {

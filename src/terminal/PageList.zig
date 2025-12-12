@@ -1220,7 +1220,7 @@ const ReflowCursor = struct {
                 // with graphemes then we increase capacity.
                 if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
                     try self.adjustCapacity(list, .{
-                        .hyperlink_bytes = cap.grapheme_bytes * 2,
+                        .grapheme_bytes = cap.grapheme_bytes * 2,
                     });
                 }
 
@@ -10757,4 +10757,87 @@ test "PageList clears history" {
         .y = 0,
         .x = 0,
     }, s.getTopLeft(.active));
+}
+
+test "PageList resize reflow grapheme map capacity exceeded" {
+    // This test verifies that when reflowing content with many graphemes,
+    // the grapheme map capacity is correctly increased when needed.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
+
+    // Get the grapheme capacity from the page. We need more than this many
+    // graphemes in a single destination page to trigger capacity increase
+    // during reflow. Since each source page can only hold this many graphemes,
+    // we create two source pages with graphemes that will merge into one
+    // destination page.
+    const grapheme_capacity = s.pages.first.?.data.graphemeCapacity();
+    // Use slightly more than half the capacity per page, so combined they
+    // exceed the capacity of a single destination page.
+    const graphemes_per_page = grapheme_capacity / 2 + grapheme_capacity / 4;
+
+    // Grow to the capacity of the first page and add more rows
+    // so that we have two pages total.
+    {
+        const page = &s.pages.first.?.data;
+        page.pauseIntegrityChecks(true);
+        for (page.size.rows..page.capacity.rows) |_| {
+            _ = try s.grow();
+        }
+        page.pauseIntegrityChecks(false);
+        try testing.expectEqual(@as(usize, 1), s.totalPages());
+        try s.growRows(graphemes_per_page);
+        try testing.expectEqual(@as(usize, 2), s.totalPages());
+
+        // We now have two pages.
+        try testing.expect(s.pages.first.? != s.pages.last.?);
+        try testing.expectEqual(s.pages.last.?, s.pages.first.?.next);
+    }
+
+    // Add graphemes to both pages. We add graphemes to rows at the END of the
+    // first page, and graphemes to rows at the START of the second page.
+    // When reflowing to 2 columns, these rows will wrap and stay together
+    // on the same destination page, requiring capacity increase.
+
+    // Add graphemes to the end of the first page (last rows)
+    {
+        const page = &s.pages.first.?.data;
+        const start_row = page.size.rows - graphemes_per_page;
+        for (0..graphemes_per_page) |i| {
+            const y = start_row + i;
+            const rac = page.getRowAndCell(0, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'A' },
+            };
+            try page.appendGrapheme(rac.row, rac.cell, @as(u21, @intCast(0x0301)));
+        }
+    }
+
+    // Add graphemes to the beginning of the second page
+    {
+        const page = &s.pages.last.?.data;
+        const count = @min(graphemes_per_page, page.size.rows);
+        for (0..count) |y| {
+            const rac = page.getRowAndCell(0, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'B' },
+            };
+            try page.appendGrapheme(rac.row, rac.cell, @as(u21, @intCast(0x0302)));
+        }
+    }
+
+    // Resize to fewer columns to trigger reflow.
+    // The graphemes from both pages will be copied to destination pages.
+    // They will all end up in a contiguous region of the destination.
+    // If the bug exists (hyperlink_bytes increased instead of grapheme_bytes),
+    // this will fail with GraphemeMapOutOfMemory when we exceed capacity.
+    try s.resize(.{ .cols = 2, .reflow = true });
+
+    // Verify the resize succeeded
+    try testing.expectEqual(@as(usize, 2), s.cols);
 }
