@@ -1901,9 +1901,7 @@ pub const CAPI = struct {
 
     /// Stops the child process by sending it the kill command (SIGHUP).
     export fn ghostty_surface_process_stop(surface: *Surface) void {
-        switch (surface.core_surface.io.backend) {
-            .exec => |*exec| exec.subprocess.stop(),
-        }
+        surface.core_surface.stopProcess();
     }
 
     /// Returns true if the surface has a selection.
