@@ -13,7 +13,7 @@ struct QuickTerminalTabItemView: View {
 
     private var backgroundColor: Color {
         if isHighlighted {
-            Color(NSColor.windowBackgroundColor)
+            Color.white.opacity(0.15)
         } else if isHovering {
             Color(NSColor.underPageBackgroundColor)
         } else {

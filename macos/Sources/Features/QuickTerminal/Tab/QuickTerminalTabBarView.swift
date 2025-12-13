@@ -213,10 +213,9 @@ private class QuickTerminalTabContextMenuView: NSView {
     var tabManager: QuickTerminalTabManager?
     var onChangeTitle: (() -> Void)?
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        // Return nil to let clicks pass through to the underlying SwiftUI view.
-        // The context menu still works because menu(for:) is called separately.
-        return nil
+    override func mouseDown(with event: NSEvent) {
+        // Forward left clicks to the superview so SwiftUI can handle them.
+        superview?.mouseDown(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
