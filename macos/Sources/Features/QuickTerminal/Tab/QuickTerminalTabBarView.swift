@@ -241,6 +241,16 @@ private class QuickTerminalTabContextMenuView: NSView {
         changeTitleItem.image = NSImage(systemSymbolName: "pencil.line", accessibilityDescription: nil)
         menu.addItem(changeTitleItem)
 
+        // Tab Color with palette
+        let colorPaletteItem = NSMenuItem()
+        colorPaletteItem.view = makeTabColorPaletteView(
+            selectedColor: tab.tabColor
+        ) { [weak tab] color in
+            tab?.tabColor = color
+            menu.cancelTracking()
+        }
+        menu.addItem(colorPaletteItem)
+
         return menu
     }
 
@@ -260,6 +270,22 @@ private class QuickTerminalTabContextMenuView: NSView {
 
     @objc private func changeTitle() {
         onChangeTitle?()
+    }
+
+    private func makeTabColorPaletteView(
+        selectedColor: TerminalTabColor,
+        selectionHandler: @escaping (TerminalTabColor) -> Void
+    ) -> NSView {
+        // Shift left to better align with icon-bearing menu items.
+        // TabColorMenuView has 12px built-in leading padding; we reduce it slightly.
+        let wrappedView = TabColorMenuView(
+            selectedColor: selectedColor,
+            onSelect: selectionHandler
+        ).padding(.leading, -4)
+
+        let hostingView = NSHostingView(rootView: wrappedView)
+        hostingView.frame.size = hostingView.intrinsicContentSize
+        return hostingView
     }
 }
 

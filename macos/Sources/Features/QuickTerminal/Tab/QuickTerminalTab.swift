@@ -16,6 +16,9 @@ class QuickTerminalTab: ObservableObject, Identifiable {
         }
     }
 
+    /// The tab color for visual identification
+    @Published var tabColor: TerminalTabColor = .none
+
     let id = UUID()
     var surfaceTree: SplitTree<Ghostty.SurfaceView>
 

@@ -33,6 +33,7 @@ struct QuickTerminalTabItemView: View {
         HStack(spacing: Constants.horizontalSpacing) {
             renderCloseButton()
             renderTitle()
+            renderColorIndicator()
             if let shortcut = shortcut {
                 renderShortcut(shortcut)
             }
@@ -75,6 +76,14 @@ struct QuickTerminalTabItemView: View {
         .animation(.easeInOut, value: isHovering)
     }
 
+    @ViewBuilder private func renderColorIndicator() -> some View {
+        if let color = tab.tabColor.displayColor {
+            Circle()
+                .fill(Color(color))
+                .frame(width: Constants.colorIndicatorSize, height: Constants.colorIndicatorSize)
+        }
+    }
+
     @ViewBuilder private func renderTitle() -> some View {
         Text(tab.title)
             .foregroundColor(isHighlighted ? .primary : .secondary)
@@ -101,6 +110,7 @@ extension QuickTerminalTabItemView {
         static let closeButtonCornerRadius: CGSize = .init(width: 4, height: 4)
         static let closeButtonFontSize: CGFloat = 10
         static let shortcutFontSize: CGFloat = 11
+        static let colorIndicatorSize: CGFloat = 6
         static let titleLineLimit: Int = 1
     }
 }

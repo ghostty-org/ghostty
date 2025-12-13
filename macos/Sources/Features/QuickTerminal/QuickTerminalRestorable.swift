@@ -5,23 +5,26 @@ struct QuickTerminalTabState: Codable {
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
     let title: String
     let titleOverride: String?
+    let tabColor: TerminalTabColor
 
     enum CodingKeys: String, CodingKey {
-        case surfaceTree, title, titleOverride
+        case surfaceTree, title, titleOverride, tabColor
     }
 
-    init(surfaceTree: SplitTree<Ghostty.SurfaceView>, title: String, titleOverride: String?) {
+    init(surfaceTree: SplitTree<Ghostty.SurfaceView>, title: String, titleOverride: String?, tabColor: TerminalTabColor) {
         self.surfaceTree = surfaceTree
         self.title = title
         self.titleOverride = titleOverride
+        self.tabColor = tabColor
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         surfaceTree = try container.decode(SplitTree<Ghostty.SurfaceView>.self, forKey: .surfaceTree)
         title = try container.decode(String.self, forKey: .title)
-        // Provide default for new field to handle old saved state
+        // Provide defaults for new fields to handle old saved state
         titleOverride = try container.decodeIfPresent(String.self, forKey: .titleOverride)
+        tabColor = try container.decodeIfPresent(TerminalTabColor.self, forKey: .tabColor) ?? .none
     }
 }
 
@@ -43,7 +46,8 @@ class QuickTerminalRestorableState: Codable {
             QuickTerminalTabState(
                 surfaceTree: tab.surfaceTree,
                 title: tab.title,
-                titleOverride: tab.titleOverride
+                titleOverride: tab.titleOverride,
+                tabColor: tab.tabColor
             )
         }
         self.currentTabIndex = tabManager.currentTabIndex ?? 0

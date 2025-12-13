@@ -78,6 +78,7 @@ class QuickTerminalTabManager: ObservableObject {
             for state in savedState.tabs {
                 let tab = QuickTerminalTab(surfaceTree: state.surfaceTree, title: state.title)
                 tab.titleOverride = state.titleOverride
+                tab.tabColor = state.tabColor
                 tabs.append(tab)
             }
 
@@ -109,6 +110,7 @@ class QuickTerminalTabManager: ObservableObject {
         for state in tabStates {
             let tab = QuickTerminalTab(surfaceTree: state.surfaceTree, title: state.title)
             tab.titleOverride = state.titleOverride
+            tab.tabColor = state.tabColor
             tabs.append(tab)
         }
 
