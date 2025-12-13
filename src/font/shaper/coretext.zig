@@ -377,11 +377,21 @@ pub const Shaper = struct {
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
-        // This keeps track of the current offsets within a single cell.
+        // This keeps track of the current offsets within a run.
+        var run_offset: struct {
+            x: f64 = 0,
+            y: f64 = 0,
+        } = .{};
+
+        // This keeps track of the current offsets within a cell.
         var cell_offset: struct {
             cluster: u32 = 0,
             x: f64 = 0,
             y: f64 = 0,
+
+            // For debugging positions, turn this on:
+            //start_index: usize = 0,
+            //end_index: usize = 0,
         } = .{};
 
         // Clear our cell buf and make sure we have enough room for the whole
@@ -411,15 +421,18 @@ pub const Shaper = struct {
             // Get our glyphs and positions
             const glyphs = ctrun.getGlyphsPtr() orelse try ctrun.getGlyphs(alloc);
             const advances = ctrun.getAdvancesPtr() orelse try ctrun.getAdvances(alloc);
+            const positions = ctrun.getPositionsPtr() orelse try ctrun.getPositions(alloc);
             const indices = ctrun.getStringIndicesPtr() orelse try ctrun.getStringIndices(alloc);
             assert(glyphs.len == advances.len);
+            assert(glyphs.len == positions.len);
             assert(glyphs.len == indices.len);
 
             for (
                 glyphs,
                 advances,
+                positions,
                 indices,
-            ) |glyph, advance, index| {
+            ) |glyph, advance, position, index| {
                 // Our cluster is also our cell X position. If the cluster changes
                 // then we need to reset our current cell offsets.
                 const cluster = state.codepoints.items[index].cluster;
@@ -431,20 +444,74 @@ pub const Shaper = struct {
                     // wait for that.
                     if (cell_offset.cluster > cluster) break :pad;
 
-                    cell_offset = .{ .cluster = cluster };
+                    cell_offset = .{
+                        .cluster = cluster,
+                        .x = run_offset.x,
+                        .y = run_offset.y,
+
+                        // For debugging positions, turn this on:
+                        //.start_index = index,
+                        //.end_index = index,
+                    };
+
+                    // For debugging positions, turn this on:
+                    //} else {
+                    //    if (index < cell_offset.start_index) {
+                    //        cell_offset.start_index = index;
+                    //    }
+                    //    if (index > cell_offset.end_index) {
+                    //        cell_offset.end_index = index;
+                    //    }
                 }
+
+                const x_offset = position.x - cell_offset.x;
+                const y_offset = position.y - cell_offset.y;
+
+                // For debugging positions, turn this on:
+                //const advance_x_offset = run_offset.x - cell_offset.x;
+                //const advance_y_offset = run_offset.y - cell_offset.y;
+                //const x_offset_diff = x_offset - advance_x_offset;
+                //const y_offset_diff = y_offset - advance_y_offset;
+
+                //if (@abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001) {
+                //    var allocating = std.Io.Writer.Allocating.init(alloc);
+                //    const writer = &allocating.writer;
+                //    const codepoints = state.codepoints.items[cell_offset.start_index .. cell_offset.end_index + 1];
+                //    for (codepoints) |cp| {
+                //        if (cp.codepoint == 0) continue; // Skip surrogate pair padding
+                //        try writer.print("\\u{{{x}}}", .{cp.codepoint});
+                //    }
+                //    try writer.writeAll(" → ");
+                //    for (codepoints) |cp| {
+                //        if (cp.codepoint == 0) continue; // Skip surrogate pair padding
+                //        try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
+                //    }
+                //    const formatted_cps = try allocating.toOwnedSlice();
+
+                //    log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
+                //        cluster,
+                //        x_offset,
+                //        y_offset,
+                //        advance_x_offset,
+                //        advance_y_offset,
+                //        x_offset_diff,
+                //        y_offset_diff,
+                //        state.codepoints.items[index].codepoint,
+                //        formatted_cps,
+                //    });
+                //}
 
                 self.cell_buf.appendAssumeCapacity(.{
                     .x = @intCast(cluster),
-                    .x_offset = @intFromFloat(@round(cell_offset.x)),
-                    .y_offset = @intFromFloat(@round(cell_offset.y)),
+                    .x_offset = @intFromFloat(@round(x_offset)),
+                    .y_offset = @intFromFloat(@round(y_offset)),
                     .glyph_index = glyph,
                 });
 
-                // Add our advances to keep track of our current cell offsets.
+                // Add our advances to keep track of our run offsets.
                 // Advances apply to the NEXT cell.
-                cell_offset.x += advance.width;
-                cell_offset.y += advance.height;
+                run_offset.x += advance.width;
+                run_offset.y += advance.height;
             }
         }
 
@@ -1268,7 +1335,7 @@ test "shape with empty cells in between" {
     }
 }
 
-test "shape Chinese characters" {
+test "shape Combining characters" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1285,6 +1352,9 @@ test "shape Chinese characters" {
     // Make a screen with some data
     var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
 
     var s = t.vtStream();
     defer s.deinit();
@@ -1333,6 +1403,9 @@ test "shape Devanagari string" {
     var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
+    // Disable grapheme clustering
+    t.modes.set(.grapheme_cluster, false);
+
     var s = t.vtStream();
     defer s.deinit();
     try s.nextSlice("अपार्टमेंट");
@@ -1363,6 +1436,62 @@ test "shape Devanagari string" {
     try testing.expectEqual(@as(u16, 6), cells[7].x);
 
     try testing.expect(try it.next(alloc) == null);
+}
+
+test "shape Tai Tham vowels (position differs from advance)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Tai Tham for this to work, if we can't find
+    // Noto Sans Tai Tham, which is a system font on macOS, we just skip the
+    // test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Tai Tham",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+    buf_idx += try std.unicode.utf8Encode(0x1a2F, buf[buf_idx..]); // ᨯ
+    buf_idx += try std.unicode.utf8Encode(0x1a70, buf[buf_idx..]); //  ᩰ
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        const cell_width = run.grid.metrics.cell_width;
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+
+        // The first glyph renders in the next cell
+        try testing.expectEqual(@as(i16, @intCast(cell_width)), cells[0].x_offset);
+        try testing.expectEqual(@as(i16, 0), cells[1].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
 }
 
 test "shape box glyphs" {
