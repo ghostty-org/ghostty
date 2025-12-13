@@ -213,6 +213,12 @@ private class QuickTerminalTabContextMenuView: NSView {
     var tabManager: QuickTerminalTabManager?
     var onChangeTitle: (() -> Void)?
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Return nil to let clicks pass through to the underlying SwiftUI view.
+        // The context menu still works because menu(for:) is called separately.
+        return nil
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let tab = tab, let tabManager = tabManager else { return nil }
         return buildMenu(for: tab, tabManager: tabManager)
