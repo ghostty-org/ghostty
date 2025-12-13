@@ -95,7 +95,7 @@ struct QuickTerminalTabItemView: View {
     @ViewBuilder private func renderShortcut(_ shortcut: KeyboardShortcut) -> some View {
         Text(shortcut.description)
             .font(.system(size: Constants.shortcutFontSize))
-            .foregroundColor(.secondary)
+            .foregroundColor(isHighlighted ? .primary : .secondary)
             .opacity(0.7)
     }
 }
