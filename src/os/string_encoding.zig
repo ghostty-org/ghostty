@@ -265,3 +265,16 @@ test "percent 7" {
     @memcpy(&src, s);
     try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
 }
+
+/// Is the given character valid in URI percent encoding?
+fn isValidChar(c: u8) bool {
+    return switch (c) {
+        ' ', ';', '=' => false,
+        else => return std.ascii.isPrint(c),
+    };
+}
+
+/// Write data to the writer after URI percent encoding.
+pub fn urlPercentEncode(writer: *std.Io.Writer, data: []const u8) std.Io.Writer.Error!void {
+    try std.Uri.Component.percentEncode(writer, data, isValidChar);
+}

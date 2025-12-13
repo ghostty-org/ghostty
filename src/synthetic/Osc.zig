@@ -5,12 +5,23 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Generator = @import("Generator.zig");
 const Bytes = @import("Bytes.zig");
+const urlPercentEncode = @import("../os/string_encoding.zig").urlPercentEncode;
 
 /// Valid OSC request kinds that can be generated.
 pub const ValidKind = enum {
     change_window_title,
     prompt_start,
     prompt_end,
+    end_of_input,
+    end_of_command,
+    rxvt_notify,
+    mouse_shape,
+    clipboard_operation,
+    report_pwd,
+    hyperlink_start,
+    hyperlink_end,
+    conemu_progress,
+    iterm2_notification,
 };
 
 /// Invalid OSC request kinds that can be generated.
@@ -55,6 +66,9 @@ fn checkOscAlphabet(c: u8) bool {
 
 /// The alphabet for random bytes in OSCs (omitting 0x1B and 0x07).
 pub const osc_alphabet = Bytes.generateAlphabet(checkOscAlphabet);
+pub const ascii_alphabet = Bytes.generateAlphabet(std.ascii.isPrint);
+pub const alphabetic_alphabet = Bytes.generateAlphabet(std.ascii.isAlphabetic);
+pub const alphanumeric_alphabet = Bytes.generateAlphabet(std.ascii.isAlphanumeric);
 
 pub fn generator(self: *Osc) Generator {
     return .init(self, next);
@@ -142,6 +156,115 @@ fn nextUnwrappedValidExact(self: *const Osc, writer: *std.Io.Writer, k: ValidKin
         .prompt_end => prompt_end: {
             if (max_len < 4) break :prompt_end;
             try writer.writeAll("133;B"); // End prompt
+        },
+
+        .end_of_input => end_of_input: {
+            if (max_len < 5) break :end_of_input;
+            var remaining = max_len;
+            try writer.writeAll("133;C"); // End prompt
+            remaining -= 5;
+            if (self.rand.boolean()) cmdline: {
+                const prefix = ";cmdline_url=";
+                if (remaining < prefix.len + 1) break :cmdline;
+                try writer.writeAll(prefix);
+                remaining -= prefix.len;
+                var buf: [128]u8 = undefined;
+                var w: std.Io.Writer = .fixed(&buf);
+                try self.bytes().newAlphabet(ascii_alphabet).atMost(@min(remaining, buf.len)).format(&w);
+                try urlPercentEncode(writer, w.buffered());
+                remaining -= w.buffered().len;
+            }
+        },
+
+        .end_of_command => end_of_command: {
+            if (max_len < 4) break :end_of_command;
+            try writer.writeAll("133;D"); // End prompt
+            if (self.rand.boolean()) exit_code: {
+                if (max_len < 7) break :exit_code;
+                try writer.print(";{d}", .{self.rand.int(u8)});
+            }
+        },
+
+        .mouse_shape => mouse_shape: {
+            if (max_len < 4) break :mouse_shape;
+            try writer.print("22;{f}", .{self.bytes().newAlphabet(alphabetic_alphabet).atMost(@min(32, max_len - 3))}); // Start prompt
+        },
+
+        .rxvt_notify => rxvt_notify: {
+            const prefix = "777;notify;";
+            if (max_len < prefix.len) break :rxvt_notify;
+            var remaining = max_len;
+            try writer.writeAll(prefix);
+            remaining -= prefix.len;
+            remaining -= try self.bytes().newAlphabet(kv_alphabet).atMost(@min(remaining - 2, 32)).write(writer);
+            try writer.writeByte(';');
+            remaining -= 1;
+            remaining -= try self.bytes().newAlphabet(osc_alphabet).atMost(remaining).write(writer);
+        },
+
+        .clipboard_operation => {
+            try writer.writeAll("52;");
+            var remaining = max_len - 3;
+            if (self.rand.boolean()) {
+                remaining -= try self.bytes().newAlphabet(alphabetic_alphabet).atMost(1).write(writer);
+            }
+            try writer.writeByte(';');
+            remaining -= 1;
+            if (self.rand.boolean()) {
+                remaining -= try self.bytes().newAlphabet(osc_alphabet).atMost(remaining).write(writer);
+            }
+        },
+
+        .report_pwd => report_pwd: {
+            const prefix = "7;file://localhost";
+            if (max_len < prefix.len) break :report_pwd;
+            var remaining = max_len;
+            try writer.writeAll(prefix);
+            remaining -= prefix.len;
+            for (0..self.rand.intRangeAtMost(usize, 2, 5)) |_| {
+                try writer.writeByte('/');
+                remaining -= 1;
+                remaining -= try self.bytes().newAlphabet(alphanumeric_alphabet).atMost(@min(16, remaining)).write(writer);
+            }
+        },
+
+        .hyperlink_start => {
+            try writer.writeAll("8;");
+            if (self.rand.boolean()) {
+                try writer.print("id={f}", .{self.bytes().newAlphabet(alphanumeric_alphabet).atMost(16)});
+            }
+            try writer.writeAll(";https://localhost");
+            for (0..self.rand.intRangeAtMost(usize, 2, 5)) |_| {
+                try writer.print("/{f}", .{self.bytes().newAlphabet(alphanumeric_alphabet).atMost(16)});
+            }
+        },
+
+        .hyperlink_end => hyperlink_end: {
+            if (max_len < 3) break :hyperlink_end;
+            try writer.writeAll("8;;");
+        },
+
+        .conemu_progress => {
+            try writer.writeAll("9;");
+            switch (self.rand.intRangeAtMost(u3, 0, 4)) {
+                0, 3 => |c| {
+                    try writer.print(";{d}", .{c});
+                },
+                1, 2, 4 => |c| {
+                    if (self.rand.boolean()) {
+                        try writer.print(";{d}", .{c});
+                    } else {
+                        try writer.print(";{d};{d}", .{ c, self.rand.intRangeAtMost(u8, 0, 100) });
+                    }
+                },
+                else => unreachable,
+            }
+        },
+
+        .iterm2_notification => iterm2_notification: {
+            if (max_len < 3) break :iterm2_notification;
+            // add a prefix to ensure that this is not interpreted as a ConEmu OSC
+            try writer.print("9;_{f}", .{self.bytes().newAlphabet(ascii_alphabet).atMost(max_len - 3)});
         },
     }
 }
