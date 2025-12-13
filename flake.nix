@@ -49,93 +49,101 @@
     zon2nix,
     home-manager,
     ...
-  }:
-    builtins.foldl' nixpkgs.lib.recursiveUpdate {} (
-      builtins.map (
-        system: let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in {
-          devShells.${system}.default = pkgs.callPackage ./nix/devShell.nix {
-            zig = zig.packages.${system}."0.15.2";
-            wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
-            zon2nix = zon2nix;
+  }: let
+    inherit (nixpkgs) lib legacyPackages;
 
-            python3 = pkgs.python3.override {
-              self = pkgs.python3;
-              packageOverrides = pyfinal: pyprev: {
-                blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
-                ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
-              };
-            };
+    # Our supported systems are the same supported systems as the Zig binaries.
+    platforms = lib.attrNames zig.packages;
+
+    # It's not always possible to build Ghostty with Nix for each system,
+    # one such example being macOS due to missing Swift 6 and xcodebuild
+    # support in the Nix ecosystem. Therefore for things like package outputs
+    # we need to limit the attributes we expose.
+    buildablePlatforms = lib.filter (p: !(lib.systems.elaborate p).isDarwin) platforms;
+
+    forAllPlatforms = f: lib.genAttrs platforms (s: f legacyPackages.${s});
+    forBuildablePlatforms = f: lib.genAttrs buildablePlatforms (s: f legacyPackages.${s});
+  in {
+    devShell = forAllPlatforms (pkgs:
+      pkgs.callPackage ./nix/devShell.nix {
+        zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.15.2";
+        wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
+        zon2nix = zon2nix;
+
+        python3 = pkgs.python3.override {
+          self = pkgs.python3;
+          packageOverrides = pyfinal: pyprev: {
+            blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
+            ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
           };
-
-          packages.${system} = let
-            mkArgs = optimize: {
-              inherit optimize;
-
-              revision = self.shortRev or self.dirtyShortRev or "dirty";
-            };
-          in rec {
-            deps = pkgs.callPackage ./build.zig.zon.nix {};
-            ghostty-debug = pkgs.callPackage ./nix/package.nix (mkArgs "Debug");
-            ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkArgs "ReleaseSafe");
-            ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkArgs "ReleaseFast");
-
-            ghostty = ghostty-releasefast;
-            default = ghostty;
-          };
-
-          formatter.${system} = pkgs.alejandra;
-
-          checks.${system} = import ./nix/tests.nix {
-            inherit home-manager nixpkgs self system;
-          };
-
-          apps.${system} = let
-            runVM = (
-              module: let
-                vm = import ./nix/vm/create.nix {
-                  inherit system module nixpkgs;
-                  overlay = self.overlays.debug;
-                };
-                program = pkgs.writeShellScript "run-ghostty-vm" ''
-                  SHARED_DIR=$(pwd)
-                  export SHARED_DIR
-
-                  ${pkgs.lib.getExe vm.config.system.build.vm} "$@"
-                '';
-              in {
-                type = "app";
-                program = "${program}";
-                meta = {
-                  description = "start a vm from ${toString module}";
-                };
-              }
-            );
-          in {
-            wayland-cinnamon = runVM ./nix/vm/wayland-cinnamon.nix;
-            wayland-gnome = runVM ./nix/vm/wayland-gnome.nix;
-            wayland-plasma6 = runVM ./nix/vm/wayland-plasma6.nix;
-            x11-cinnamon = runVM ./nix/vm/x11-cinnamon.nix;
-            x11-gnome = runVM ./nix/vm/x11-gnome.nix;
-            x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
-            x11-xfce = runVM ./nix/vm/x11-xfce.nix;
-          };
-        }
-        # Our supported systems are the same supported systems as the Zig binaries.
-      ) (builtins.attrNames zig.packages)
-    )
-    // {
-      overlays = {
-        default = self.overlays.releasefast;
-        releasefast = final: prev: {
-          ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-releasefast;
         };
-        debug = final: prev: {
-          ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
+      });
+
+    packages =
+      forAllPlatforms (pkgs: {
+        # Deps are needed for environmental setup on macOS
+        deps = pkgs.callPackage ./build.zig.zon.nix {};
+      })
+      // forBuildablePlatforms (pkgs: let
+        mkArgs = optimize: {
+          inherit optimize;
+          revision = self.shortRev or self.dirtyShortRev or "dirty";
         };
+      in rec {
+        ghostty-debug = pkgs.callPackage ./nix/package.nix (mkArgs "Debug");
+        ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkArgs "ReleaseSafe");
+        ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkArgs "ReleaseFast");
+
+        ghostty = ghostty-releasefast;
+        default = ghostty;
+      });
+
+    formatter = forAllPlatforms (pkgs: pkgs.alejandra);
+
+    apps = forBuildablePlatforms (pkgs: let
+      runVM = module: desc: let
+        vm = import ./nix/vm/create.nix {
+          inherit (pkgs.stdenv.hostPlatform) system;
+          inherit module nixpkgs;
+          overlay = self.overlays.debug;
+        };
+        program = pkgs.writeShellScript "run-ghostty-vm" ''
+          SHARED_DIR=$(pwd)
+          export SHARED_DIR
+
+          ${pkgs.lib.getExe vm.config.system.build.vm} "$@"
+        '';
+      in {
+        type = "app";
+        program = "${program}";
+        meta.description = "start a vm from ${toString module}";
+      };
+    in {
+      wayland-cinnamon = runVM ./nix/vm/wayland-cinnamon.nix;
+      wayland-gnome = runVM ./nix/vm/wayland-gnome.nix;
+      wayland-plasma6 = runVM ./nix/vm/wayland-plasma6.nix;
+      x11-cinnamon = runVM ./nix/vm/x11-cinnamon.nix;
+      x11-gnome = runVM ./nix/vm/x11-gnome.nix;
+      x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
+      x11-xfce = runVM ./nix/vm/x11-xfce.nix;
+    });
+
+    checks = forAllPlatforms (pkgs:
+      import ./nix/tests.nix {
+        inherit home-manager nixpkgs self;
+        inherit (pkgs.stdenv.hostPlatform) system;
+      });
+
+    overlays = {
+      default = self.overlays.releasefast;
+      releasefast = final: prev: {
+        ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-releasefast;
+      };
+      debug = final: prev: {
+        ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
       };
     };
+  };
 
   nixConfig = {
     extra-substituters = ["https://ghostty.cachix.org"];
