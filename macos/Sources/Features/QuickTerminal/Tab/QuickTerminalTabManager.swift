@@ -211,12 +211,18 @@ class QuickTerminalTabManager: ObservableObject {
             withSurfaceTree: tab.surfaceTree
         )
 
+        // Transfer tab title and color to the new controller/window
+        newController.titleOverride = tab.titleOverride
+
         // Show the new window first (this triggers window loading)
         newController.showWindow(nil)
 
         // Position the window after showing. We need to do this in async to ensure
         // any window cascading or layout passes have completed first.
         if let newWindow = newController.window {
+            // Transfer tab color to the new window
+            (newWindow as? TerminalWindow)?.tabColor = tab.tabColor
+
             let windowSize = newWindow.frame.size
             // Position so the top center of the title bar is at the drop point
             let newOrigin = NSPoint(
@@ -407,8 +413,14 @@ class QuickTerminalTabManager: ObservableObject {
             withSurfaceTree: tab.surfaceTree
         )
 
+        // Transfer tab title and color to the new controller/window
+        newController.titleOverride = tab.titleOverride
+
         // Add the new window as a tab to the target window
         if let newWindow = newController.window {
+            // Transfer tab color to the new window
+            (newWindow as? TerminalWindow)?.tabColor = tab.tabColor
+
             targetWindow.addTabbedWindow(newWindow, ordered: .above)
             newWindow.makeKeyAndOrderFront(nil)
         }
