@@ -1423,6 +1423,10 @@ extension Ghostty {
             item.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
             item = menu.addItem(withTitle: "Split Up", action: #selector(splitUp(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
+            if canSeparatePane {
+                item = menu.addItem(withTitle: "Separate", action: #selector(separateTab(_:)), keyEquivalent: "")
+                item.setImageIfDesired(systemSymbolName: "menubar.arrow.up.rectangle")
+            }
 
             menu.addItem(.separator())
             item = menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
@@ -1541,6 +1545,65 @@ extension Ghostty {
         @IBAction func splitUp(_ sender: Any) {
             guard let surface = self.surface else { return }
             ghostty_surface_split(surface, GHOSTTY_SPLIT_DIRECTION_UP)
+        }
+
+        /// Moves the currently focused pane into a new tab when possible.
+        @IBAction func separateTab(_ sender: Any) {
+            guard canSeparatePane,
+                  let controller = window?.windowController as? TerminalController,
+                  let parentWindow = controller.window,
+                  let delegate = NSApplication.shared.delegate as? AppDelegate else { return }
+
+            if let fullscreenStyle = controller.fullscreenStyle,
+               fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs {
+                let alert = NSAlert()
+                alert.messageText = "Cannot Create New Tab"
+                alert.informativeText = "New tabs are unsupported while in non-native fullscreen. Exit fullscreen and try again."
+                alert.addButton(withTitle: "OK")
+                alert.alertStyle = .warning
+                alert.beginSheetModal(for: parentWindow)
+                return
+            }
+
+            guard let detachResult = controller.detachSurface(self, recordUndo: false) else { return }
+
+            let undoManager = controller.undoManager
+            undoManager?.beginUndoGrouping()
+
+            controller.registerDetachUndo(detachResult)
+
+            guard let newController = TerminalController.newTab(
+                delegate.ghostty,
+                from: parentWindow,
+                withSurfaceTree: detachResult.detachedTree
+            ) else {
+                controller.restoreDetachedSurface(detachResult)
+                undoManager?.removeAllActions(withTarget: controller)
+                undoManager?.endUndoGrouping()
+                return
+            }
+
+            newController.focusSurface(self)
+
+            if let undoManager {
+                undoManager.setActionName("Separate Terminal")
+                undoManager.endUndoGrouping()
+            }
+        }
+
+        /// Programmatically detaches this surface into a new tab.
+        ///
+        /// This exists so callers outside the traditional AppKit action chain
+        /// (for example SwiftUI views or tooling consuming GhosttyKit) can trigger
+        /// the same behavior exposed by the `Separate Tab` menu item.
+        func separateIntoNewTab() {
+            separateTab(self)
+        }
+
+        /// Returns true when the view can be detached into a separate tab.
+        var canSeparatePane: Bool {
+            guard let controller = window?.windowController as? BaseTerminalController else { return false }
+            return controller.canDetachSurface(self)
         }
 
         @objc func resetTerminal(_ sender: Any) {
