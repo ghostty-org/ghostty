@@ -189,8 +189,9 @@ pub const Action = union(Key) {
     set_title: SetTitle,
 
     /// Set the title of the target to a prompted value. It is up to
-    /// the apprt to prompt.
-    prompt_title,
+    /// the apprt to prompt. The value specifies whether to prompt for the
+    /// surface title or the tab title.
+    prompt_title: PromptTitle,
 
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
@@ -313,6 +314,9 @@ pub const Action = union(Key) {
     /// The currently selected search match index (1-based).
     search_selected: SearchSelected,
 
+    /// The readonly state of the surface has changed.
+    readonly: Readonly,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -374,6 +378,7 @@ pub const Action = union(Key) {
         end_search,
         search_total,
         search_selected,
+        readonly,
     };
 
     /// Sync with: ghostty_action_u
@@ -531,9 +536,20 @@ pub const QuitTimer = enum(c_int) {
     stop,
 };
 
+pub const Readonly = enum(c_int) {
+    off,
+    on,
+};
+
 pub const MouseVisibility = enum(c_int) {
     visible,
     hidden,
+};
+
+/// Whether to prompt for the surface title or tab title.
+pub const PromptTitle = enum(c_int) {
+    surface,
+    tab,
 };
 
 pub const MouseOverLink = struct {
@@ -767,6 +783,8 @@ pub const CloseTabMode = enum(c_int) {
     this,
     /// Close all other tabs.
     other,
+    /// Close all tabs to the right of the current tab.
+    right,
 };
 
 pub const CommandFinished = struct {

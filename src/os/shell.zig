@@ -1,6 +1,83 @@
 const std = @import("std");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
+
+/// Builder for constructing space-separated shell command strings.
+/// Uses a caller-provided allocator (typically with stackFallback).
+pub const ShellCommandBuilder = struct {
+    buffer: std.Io.Writer.Allocating,
+
+    pub fn init(allocator: Allocator) ShellCommandBuilder {
+        return .{ .buffer = .init(allocator) };
+    }
+
+    pub fn deinit(self: *ShellCommandBuilder) void {
+        self.buffer.deinit();
+    }
+
+    /// Append an argument to the command with automatic space separation.
+    pub fn appendArg(self: *ShellCommandBuilder, arg: []const u8) (Allocator.Error || Writer.Error)!void {
+        if (arg.len == 0) return;
+        if (self.buffer.written().len > 0) {
+            try self.buffer.writer.writeByte(' ');
+        }
+        try self.buffer.writer.writeAll(arg);
+    }
+
+    /// Get the final null-terminated command string, transferring ownership to caller.
+    /// Calling deinit() after this is safe but unnecessary.
+    pub fn toOwnedSlice(self: *ShellCommandBuilder) Allocator.Error![:0]const u8 {
+        return try self.buffer.toOwnedSliceSentinel(0);
+    }
+};
+
+test ShellCommandBuilder {
+    // Empty command
+    {
+        var cmd = ShellCommandBuilder.init(testing.allocator);
+        defer cmd.deinit();
+        try testing.expectEqualStrings("", cmd.buffer.written());
+    }
+
+    // Single arg
+    {
+        var cmd = ShellCommandBuilder.init(testing.allocator);
+        defer cmd.deinit();
+        try cmd.appendArg("bash");
+        try testing.expectEqualStrings("bash", cmd.buffer.written());
+    }
+
+    // Multiple args
+    {
+        var cmd = ShellCommandBuilder.init(testing.allocator);
+        defer cmd.deinit();
+        try cmd.appendArg("bash");
+        try cmd.appendArg("--posix");
+        try cmd.appendArg("-l");
+        try testing.expectEqualStrings("bash --posix -l", cmd.buffer.written());
+    }
+
+    // Empty arg
+    {
+        var cmd = ShellCommandBuilder.init(testing.allocator);
+        defer cmd.deinit();
+        try cmd.appendArg("bash");
+        try cmd.appendArg("");
+        try testing.expectEqualStrings("bash", cmd.buffer.written());
+    }
+
+    // toOwnedSlice
+    {
+        var cmd = ShellCommandBuilder.init(testing.allocator);
+        try cmd.appendArg("bash");
+        try cmd.appendArg("--posix");
+        const result = try cmd.toOwnedSlice();
+        defer testing.allocator.free(result);
+        try testing.expectEqualStrings("bash --posix", result);
+        try testing.expectEqual(@as(u8, 0), result[result.len]);
+    }
+}
 
 /// Writer that escapes characters that shells treat specially to reduce the
 /// risk of injection attacks or other such weirdness. Specifically excludes

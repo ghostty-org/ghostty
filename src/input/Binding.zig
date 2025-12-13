@@ -519,6 +519,11 @@ pub const Action = union(enum) {
     /// version can be found by running `ghostty +version`.
     prompt_surface_title,
 
+    /// Change the title of the current tab/window via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the tab.
+    prompt_tab_title,
+
     /// Create a new split in the specified direction.
     ///
     /// Valid arguments:
@@ -546,6 +551,16 @@ pub const Action = union(enum) {
     /// the current tab, hiding other splits. The tab or tab bar would also
     /// reflect this by displaying an icon indicating the zoomed state.
     toggle_split_zoom,
+
+    /// Toggle read-only mode for the current surface.
+    ///
+    /// When a surface is in read-only mode:
+    ///   - No input is sent to the PTY (mouse events, key encoding)
+    ///   - Input can still be used at the terminal level to make selections,
+    ///     copy/paste (keybinds), scroll, etc.
+    ///   - Warn before quit is always enabled in this state even if an active
+    ///     process is not running
+    toggle_readonly,
 
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
@@ -600,9 +615,8 @@ pub const Action = union(enum) {
     /// of the `confirm-close-surface` configuration setting.
     close_surface,
 
-    /// Close the current tab and all splits therein _or_ close all tabs and
-    /// splits thein of tabs _other_ than the current tab, depending on the
-    /// mode.
+    /// Close the current tab and all splits therein, close all other tabs, or
+    /// close every tab to the right of the current one depending on the mode.
     ///
     /// If the mode is not specified, defaults to closing the current tab.
     ///
@@ -1005,6 +1019,7 @@ pub const Action = union(enum) {
     pub const CloseTabMode = enum {
         this,
         other,
+        right,
 
         pub const default: CloseTabMode = .this;
     };
@@ -1191,6 +1206,7 @@ pub const Action = union(enum) {
             .reset_font_size,
             .set_font_size,
             .prompt_surface_title,
+            .prompt_tab_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -1235,6 +1251,7 @@ pub const Action = union(enum) {
             .new_split,
             .goto_split,
             .toggle_split_zoom,
+            .toggle_readonly,
             .resize_split,
             .equalize_splits,
             .inspector,

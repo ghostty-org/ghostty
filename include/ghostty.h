@@ -573,6 +573,12 @@ typedef enum {
   GHOSTTY_QUIT_TIMER_STOP,
 } ghostty_action_quit_timer_e;
 
+// apprt.action.Readonly
+typedef enum {
+  GHOSTTY_READONLY_OFF,
+  GHOSTTY_READONLY_ON,
+} ghostty_action_readonly_e;
+
 // apprt.action.DesktopNotification.C
 typedef struct {
   const char* title;
@@ -583,6 +589,12 @@ typedef struct {
 typedef struct {
   const char* title;
 } ghostty_action_set_title_s;
+
+// apprt.action.PromptTitle
+typedef enum {
+  GHOSTTY_PROMPT_TITLE_SURFACE,
+  GHOSTTY_PROMPT_TITLE_TAB,
+} ghostty_action_prompt_title_e;
 
 // apprt.action.Pwd.C
 typedef struct {
@@ -714,6 +726,7 @@ typedef struct {
 typedef enum {
   GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS,
   GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER,
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT,
 } ghostty_action_close_tab_mode_e;
 
 // apprt.surface.Message.ChildExited
@@ -830,7 +843,8 @@ typedef enum {
   GHOSTTY_ACTION_END_SEARCH,
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
-} ghostty_action_tag_e;
+  GHOSTTY_ACTION_READONLY,
+  } ghostty_action_tag_e;
 
 typedef union {
   ghostty_action_split_direction_e new_split;
@@ -846,6 +860,7 @@ typedef union {
   ghostty_action_inspector_e inspector;
   ghostty_action_desktop_notification_s desktop_notification;
   ghostty_action_set_title_s set_title;
+  ghostty_action_prompt_title_e prompt_title;
   ghostty_action_pwd_s pwd;
   ghostty_action_mouse_shape_e mouse_shape;
   ghostty_action_mouse_visibility_e mouse_visibility;
@@ -866,6 +881,7 @@ typedef union {
   ghostty_action_start_search_s start_search;
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
+  ghostty_action_readonly_e readonly;
 } ghostty_action_u;
 
 typedef struct {

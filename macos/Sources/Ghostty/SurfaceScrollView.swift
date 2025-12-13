@@ -34,10 +34,15 @@ class SurfaceScrollView: NSView {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
+        // Always use the overlay style. See mouseMoved for how we make
+        // it usable without a scroll wheel or gestures.
+        scrollView.scrollerStyle = .overlay
         // hide default background to show blur effect properly
         scrollView.drawsBackground = false
-        // don't let the content view clip it's subviews, to enable the
+        // don't let the content view clip its subviews, to enable the
         // surface to draw the background behind non-overlay scrollers
+        // (we currently only use overlay scrollers, but might as well
+        // configure the views correctly in case we change our mind)
         scrollView.contentView.clipsToBounds = false
         
         // The document view is what the scrollview is actually going
@@ -107,7 +112,10 @@ class SurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil,
-            queue: .main
+            // Since this observer is used to immediately override the event
+            // that produced the notification, we let it run synchronously on
+            // the posting thread.
+            queue: nil
         ) { [weak self] _ in
             self?.handleScrollerStyleChange()
         })
@@ -176,10 +184,10 @@ class SurfaceScrollView: NSView {
     private func synchronizeAppearance() {
         let scrollbarConfig = surfaceView.derivedConfig.scrollbar
         scrollView.hasVerticalScroller = scrollbarConfig != .never
-        scrollView.verticalScroller?.controlSize = .small
         let hasLightBackground = OSColor(surfaceView.derivedConfig.backgroundColor).isLightColor
         // Make sure the scroller’s appearance matches the surface's background color.
         scrollView.appearance = NSAppearance(named: hasLightBackground ? .aqua : .darkAqua)
+        updateTrackingAreas()
     }
 
     /// Positions the surface view to fill the currently visible rectangle.
@@ -240,6 +248,7 @@ class SurfaceScrollView: NSView {
 
     /// Handles scrollbar style changes
     private func handleScrollerStyleChange() {
+        scrollView.scrollerStyle = .overlay
         synchronizeCoreSurface()
     }
 
@@ -349,5 +358,33 @@ class SurfaceScrollView: NSView {
             return documentGridHeight + padding
         }
         return contentHeight
+    }
+
+    // MARK: Mouse events
+
+    override func mouseMoved(with: NSEvent) {
+        // When the OS preferred style is .legacy, the user should be able to
+        // click and drag the scroller without using scroll wheels or gestures,
+        // so we flash it when the mouse is moved over the scrollbar area.
+        guard NSScroller.preferredScrollerStyle == .legacy else { return }
+        scrollView.flashScrollers()
+    }
+
+    override func updateTrackingAreas() {
+        // To update our tracking area we just recreate it all.
+        trackingAreas.forEach { removeTrackingArea($0) }
+
+        super.updateTrackingAreas()
+
+        // Our tracking area is the scroller frame
+        guard let scroller = scrollView.verticalScroller else { return }
+        addTrackingArea(NSTrackingArea(
+            rect: convert(scroller.bounds, from: scroller),
+            options: [
+                .mouseMoved,
+                .activeInKeyWindow,
+            ],
+            owner: self,
+            userInfo: nil))
     }
 }

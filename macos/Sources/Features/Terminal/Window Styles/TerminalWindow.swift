@@ -7,10 +7,10 @@ import GhosttyKit
 class TerminalWindow: NSWindow {
     /// Posted when a terminal window awakes from nib.
     static let terminalDidAwake = Notification.Name("TerminalWindowDidAwake")
-    
+
     /// Posted when a terminal window will close
     static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
-    
+
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -20,13 +20,23 @@ class TerminalWindow: NSWindow {
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
-    
+
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
+
+    /// Visual indicator that mirrors the selected tab color.
+    private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
+        let view = NSHostingView(rootView: TabColorIndicatorView(tabColor: tabColor))
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
     
+    /// Sets up our tab context menu
+    private var tabMenuObserver: NSObjectProtocol? = nil
+
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
     var supportsUpdateAccessory: Bool {
@@ -38,7 +48,17 @@ class TerminalWindow: NSWindow {
     var terminalController: TerminalController? {
         windowController as? TerminalController
     }
-    
+
+    /// The color assigned to this window's tab. Setting this updates the tab color indicator
+    /// and marks the window's restorable state as dirty.
+    var tabColor: TerminalTabColor = .none {
+        didSet {
+            guard tabColor != oldValue else { return }
+            tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
+            invalidateRestorableState()
+        }
+    }
+
     // MARK: NSWindow Overrides
 
     override var toolbar: NSToolbar? {
@@ -53,7 +73,18 @@ class TerminalWindow: NSWindow {
     override func awakeFromNib() {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
-        
+
+        // This is fragile, but there doesn't seem to be an official API for customizing
+        // native tab bar menus.
+        tabMenuObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name(rawValue: "NSMenuWillOpenNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] n in
+            guard let self, let menu = n.object as? NSMenu else { return }
+            self.configureTabContextMenuIfNeeded(menu)
+        }
+
         // This is required so that window restoration properly creates our tabs
         // again. I'm not sure why this is required. If you don't do this, then
         // tabs restore as separate windows.
@@ -61,14 +92,14 @@ class TerminalWindow: NSWindow {
         DispatchQueue.main.async {
             self.tabbingMode = .automatic
         }
-        
+
         // All new windows are based on the app config at the time of creation.
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
         let config = appDelegate.ghostty.config
 
         // Setup our initial config
         derivedConfig = .init(config)
-        
+
         // If there is a hardcoded title in the configuration, we set that
         // immediately. Future `set_title` apprt actions will override this
         // if necessary but this ensures our window loads with the proper
@@ -103,7 +134,7 @@ class TerminalWindow: NSWindow {
                 }))
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
-            
+
             // Create update notification accessory
             if supportsUpdateAccessory {
                 updateAccessory.layoutAttribute = .right
@@ -119,9 +150,16 @@ class TerminalWindow: NSWindow {
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues
         // where buttons were not clickable.
-        let stackView = NSStackView(views: [keyEquivalentLabel, resetZoomTabButton])
+        tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
+
+        let stackView = NSStackView()
+        stackView.orientation = .horizontal
         stackView.setHuggingPriority(.defaultHigh, for: .horizontal)
-        stackView.spacing = 3
+        stackView.spacing = 4
+        stackView.alignment = .centerY
+        stackView.addArrangedSubview(tabColorIndicator)
+        stackView.addArrangedSubview(keyEquivalentLabel)
+        stackView.addArrangedSubview(resetZoomTabButton)
         tab.accessoryView = stackView
 
         // Get our saved level
@@ -132,7 +170,7 @@ class TerminalWindow: NSWindow {
     // still become key/main and receive events.
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
-    
+
     override func close() {
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
@@ -264,7 +302,7 @@ class TerminalWindow: NSWindow {
         if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
             removeTitlebarAccessoryViewController(at: idx)
         }
-        
+
         // We don't need to do this with the update accessory. I don't know why but
         // everything works fine.
     }
@@ -419,6 +457,7 @@ class TerminalWindow: NSWindow {
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
         guard isVisible else { return }
+        defer { updateColorSchemeForSurfaceTree() }
 
         // Basic properties
         appearance = surfaceConfig.windowAppearance
@@ -481,9 +520,13 @@ class TerminalWindow: NSWindow {
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
     }
 
+    func updateColorSchemeForSurfaceTree() {
+        terminalController?.updateColorSchemeForSurfaceTree()
+    }
+
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
-        guard let x, let y else {
+        guard x != nil, y != nil else {
             if (!LastWindowPosition.shared.restore(self)) {
                 center()
             }
@@ -502,7 +545,7 @@ class TerminalWindow: NSWindow {
             center()
             return
         }
-        
+
         let frame = terminalController.adjustForWindowPosition(frame: frame, on: screen)
         setFrameOrigin(frame.origin)
     }
@@ -512,7 +555,13 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
     }
-    
+
+    deinit {
+        if let observer = tabMenuObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
     // MARK: Config
 
     struct DerivedConfig {
@@ -579,12 +628,12 @@ extension TerminalWindow {
             }
         }
     }
-    
+
     /// A pill-shaped button that displays update status and provides access to update actions.
     struct UpdateAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         @ObservedObject var model: UpdateViewModel
-        
+
         var body: some View {
             // We use the same top/trailing padding so that it hugs the same.
             UpdatePill(model: model)
@@ -593,4 +642,121 @@ extension TerminalWindow {
         }
     }
 
+}
+
+/// A small circle indicator displayed in the tab accessory view that shows
+/// the user-assigned tab color. When no color is set, the view is hidden.
+private struct TabColorIndicatorView: View {
+    /// The tab color to display.
+    let tabColor: TerminalTabColor
+
+    var body: some View {
+        if let color = tabColor.displayColor {
+            Circle()
+                .fill(Color(color))
+                .frame(width: 6, height: 6)
+        } else {
+            Circle()
+                .fill(Color.clear)
+                .frame(width: 6, height: 6)
+                .hidden()
+        }
+    }
+}
+
+// MARK: - Tab Context Menu
+
+extension TerminalWindow {
+    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.changeTitleMenuItem")
+    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
+
+    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
+
+    func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
+        guard isTabContextMenu(menu) else { return }
+
+        // Get the target from an existing menu item. The native tab context menu items
+        // target the specific window/controller that was right-clicked, not the focused one.
+        // We need to use that same target so validation and action use the correct tab.
+        let targetController = menu.items
+            .first { $0.action == NSSelectorFromString("performClose:") }
+            .flatMap { $0.target as? NSWindow }
+            .flatMap { $0.windowController as? TerminalController }
+
+        // Close tabs to the right
+        let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
+        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
+        item.target = targetController
+        item.setImageIfDesired(systemSymbolName: "xmark")
+        if menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) == nil,
+           menu.insertItem(item, after: NSSelectorFromString("performClose:")) == nil {
+            menu.addItem(item)
+        }
+
+        // Other close items should have the xmark to match Safari on macOS 26
+        for menuItem in menu.items {
+            if menuItem.action == NSSelectorFromString("performClose:") ||
+                menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
+                menuItem.setImageIfDesired(systemSymbolName: "xmark")
+            }
+        }
+
+        appendTabModifierSection(to: menu, target: targetController)
+    }
+
+    private func isTabContextMenu(_ menu: NSMenu) -> Bool {
+        guard NSApp.keyWindow === self else { return false }
+
+        // These selectors must all exist for it to be a tab context menu.
+        let requiredSelectors: Set<String> = [
+            "performClose:",
+            "performCloseOtherTabs:",
+            "moveTabToNewWindow:",
+            "toggleTabOverview:"
+        ]
+
+        let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
+        return requiredSelectors.isSubset(of: selectorNames)
+    }
+
+    private func appendTabModifierSection(to menu: NSMenu, target: TerminalController?) {
+        menu.removeItems(withIdentifiers: [
+            Self.tabColorSeparatorIdentifier,
+            Self.changeTitleMenuItemIdentifier,
+            Self.tabColorPaletteIdentifier
+        ])
+
+        let separator = NSMenuItem.separator()
+        separator.identifier = Self.tabColorSeparatorIdentifier
+        menu.addItem(separator)
+
+        // Change Title...
+        let changeTitleItem = NSMenuItem(title: "Change Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
+        changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
+        changeTitleItem.target = target
+        changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
+        menu.addItem(changeTitleItem)
+
+        let paletteItem = NSMenuItem()
+        paletteItem.identifier = Self.tabColorPaletteIdentifier
+        paletteItem.view = makeTabColorPaletteView(
+            selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
+        ) { [weak target] color in
+            (target?.window as? TerminalWindow)?.tabColor = color
+        }
+        menu.addItem(paletteItem)
+    }
+}
+
+private func makeTabColorPaletteView(
+    selectedColor: TerminalTabColor,
+    selectionHandler: @escaping (TerminalTabColor) -> Void
+) -> NSView {
+    let hostingView = NSHostingView(rootView: TabColorMenuView(
+        selectedColor: selectedColor,
+        onSelect: selectionHandler
+    ))
+    hostingView.frame.size = hostingView.intrinsicContentSize
+    return hostingView
 }

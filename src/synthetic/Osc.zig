@@ -35,19 +35,26 @@ p_valid: f64 = 1.0,
 p_valid_kind: std.enums.EnumArray(ValidKind, f64) = .initFill(1.0),
 p_invalid_kind: std.enums.EnumArray(InvalidKind, f64) = .initFill(1.0),
 
-/// The alphabet for random bytes (omitting 0x1B and 0x07).
-const bytes_alphabet: []const u8 = alphabet: {
-    var alphabet: [256]u8 = undefined;
-    for (0..alphabet.len) |i| {
-        if (i == 0x1B or i == 0x07) {
-            alphabet[i] = @intCast(i + 1);
-        } else {
-            alphabet[i] = @intCast(i);
-        }
-    }
-    const result = alphabet;
-    break :alphabet &result;
-};
+fn checkKvAlphabet(c: u8) bool {
+    return switch (c) {
+        std.ascii.control_code.esc, std.ascii.control_code.bel, ';', '=' => false,
+        else => std.ascii.isPrint(c),
+    };
+}
+
+/// The alphabet for random bytes in OSC key/value pairs (omitting 0x1B,
+/// 0x07, ';', '=').
+pub const kv_alphabet = Bytes.generateAlphabet(checkKvAlphabet);
+
+fn checkOscAlphabet(c: u8) bool {
+    return switch (c) {
+        std.ascii.control_code.esc, std.ascii.control_code.bel => false,
+        else => true,
+    };
+}
+
+/// The alphabet for random bytes in OSCs (omitting 0x1B and 0x07).
+pub const osc_alphabet = Bytes.generateAlphabet(checkOscAlphabet);
 
 pub fn generator(self: *Osc) Generator {
     return .init(self, next);
@@ -99,35 +106,43 @@ fn nextUnwrapped(self: *Osc, writer: *std.Io.Writer, max_len: usize) Generator.E
 
 fn nextUnwrappedValidExact(self: *const Osc, writer: *std.Io.Writer, k: ValidKind, max_len: usize) Generator.Error!void {
     switch (k) {
-        .change_window_title => {
-            try writer.writeAll("0;"); // Set window title
-            var bytes_gen = self.bytes();
-            try bytes_gen.next(writer, max_len - 2);
+        .change_window_title => change_window_title: {
+            if (max_len < 3) break :change_window_title;
+            try writer.print("0;{f}", .{self.bytes().atMost(max_len - 3)}); // Set window title
         },
 
-        .prompt_start => {
+        .prompt_start => prompt_start: {
+            if (max_len < 4) break :prompt_start;
+            var remaining = max_len;
+
             try writer.writeAll("133;A"); // Start prompt
+            remaining -= 4;
 
             // aid
-            if (self.rand.boolean()) {
-                var bytes_gen = self.bytes();
-                bytes_gen.max_len = 16;
+            if (self.rand.boolean()) aid: {
+                if (remaining < 6) break :aid;
                 try writer.writeAll(";aid=");
-                try bytes_gen.next(writer, max_len);
+                remaining -= 5;
+                remaining -= try self.bytes().newAlphabet(kv_alphabet).atMost(@min(16, remaining)).write(writer);
             }
 
             // redraw
-            if (self.rand.boolean()) {
+            if (self.rand.boolean()) redraw: {
+                if (remaining < 9) break :redraw;
                 try writer.writeAll(";redraw=");
                 if (self.rand.boolean()) {
                     try writer.writeAll("1");
                 } else {
                     try writer.writeAll("0");
                 }
+                remaining -= 9;
             }
         },
 
-        .prompt_end => try writer.writeAll("133;B"), // End prompt
+        .prompt_end => prompt_end: {
+            if (max_len < 4) break :prompt_end;
+            try writer.writeAll("133;B"); // End prompt
+        },
     }
 }
 
@@ -139,14 +154,11 @@ fn nextUnwrappedInvalidExact(
 ) Generator.Error!void {
     switch (k) {
         .random => {
-            var bytes_gen = self.bytes();
-            try bytes_gen.next(writer, max_len);
+            try self.bytes().atMost(max_len).format(writer);
         },
 
         .good_prefix => {
-            try writer.writeAll("133;");
-            var bytes_gen = self.bytes();
-            try bytes_gen.next(writer, max_len - 4);
+            try writer.print("133;{f}", .{self.bytes().atMost(max_len - 4)});
         },
     }
 }
@@ -154,7 +166,7 @@ fn nextUnwrappedInvalidExact(
 fn bytes(self: *const Osc) Bytes {
     return .{
         .rand = self.rand,
-        .alphabet = bytes_alphabet,
+        .alphabet = osc_alphabet,
     };
 }
 

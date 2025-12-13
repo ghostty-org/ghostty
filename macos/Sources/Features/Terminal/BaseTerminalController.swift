@@ -72,11 +72,23 @@ class BaseTerminalController: NSWindowController,
     /// The previous frame information from the window
     private var savedFrame: SavedFrame? = nil
 
+    /// Cache previously applied appearance to avoid unnecessary updates
+    private var appliedColorScheme: ghostty_color_scheme_e?
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
+
+    /// An override title for the tab/window set by the user via prompt_tab_title.
+    /// When set, this takes precedence over the computed title from the terminal.
+    var titleOverride: String? = nil {
+        didSet { applyTitleToWindow() }
+    }
+
+    /// The last computed title from the focused surface (without the override).
+    private var lastComputedTitle: String = "👻"
 
     /// The time that undo/redo operations that contain running ptys are valid for.
     var undoExpiration: Duration {
@@ -320,6 +332,37 @@ class BaseTerminalController: NSWindowController,
 
         // Store our alert so we only ever show one.
         self.alert = alert
+    }
+
+    /// Prompt the user to change the tab/window title.
+    func promptTabTitle() {
+        guard let window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Change Tab Title"
+        alert.informativeText = "Leave blank to restore the default."
+        alert.alertStyle = .informational
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.stringValue = titleOverride ?? window.title
+        alert.accessoryView = textField
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.window.initialFirstResponder = textField
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            guard response == .alertFirstButtonReturn else { return }
+
+            let newTitle = textField.stringValue
+            if newTitle.isEmpty {
+                self.titleOverride = nil
+            } else {
+                self.titleOverride = newTitle
+            }
+        }
     }
 
     /// Close a surface from a view.
@@ -715,10 +758,13 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func titleDidChange(to: String) {
+        lastComputedTitle = to
+        applyTitleToWindow()
+    }
+
+    private func applyTitleToWindow() {
         guard let window else { return }
-        
-        // Set the main window title
-        window.title = to
+        window.title = titleOverride ?? lastComputedTitle
     }
     
     func pwdDidChange(to: URL?) {
@@ -1014,6 +1060,10 @@ class BaseTerminalController: NSWindowController,
         window.performClose(sender)
     }
 
+    @IBAction func changeTabTitle(_ sender: Any) {
+        promptTabTitle()
+    }
+
     @IBAction func splitRight(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
@@ -1162,5 +1212,36 @@ extension BaseTerminalController: NSMenuItemValidation {
         default:
             return true
         }
+    }
+	
+    // MARK: - Surface Color Scheme
+
+    /// Update the surface tree's color scheme only when it actually changes.
+    ///
+    /// Calling ``ghostty_surface_set_color_scheme`` triggers
+    /// ``syncAppearance(_:)`` via notification,
+    /// so we avoid redundant calls.
+    func updateColorSchemeForSurfaceTree() {
+        /// Derive the target scheme from `window-theme` or system appearance.
+        /// We set the scheme on surfaces so they pick the correct theme
+        /// and let ``syncAppearance(_:)`` update the window accordingly.
+        ///
+        /// Using App's effectiveAppearance here to prevent incorrect updates.
+        let themeAppearance = NSApplication.shared.effectiveAppearance
+        let scheme: ghostty_color_scheme_e
+        if themeAppearance.isDark {
+            scheme = GHOSTTY_COLOR_SCHEME_DARK
+        } else {
+            scheme = GHOSTTY_COLOR_SCHEME_LIGHT
+        }
+        guard scheme != appliedColorScheme else {
+            return
+        }
+        for surfaceView in surfaceTree {
+            if let surface = surfaceView.surface {
+                ghostty_surface_set_color_scheme(surface, scheme)
+            }
+        }
+        appliedColorScheme = scheme
     }
 }

@@ -523,7 +523,7 @@ extension Ghostty {
                 setTitle(app, target: target, v: action.action.set_title)
 
             case GHOSTTY_ACTION_PROMPT_TITLE:
-                return promptTitle(app, target: target)
+                return promptTitle(app, target: target, v: action.action.prompt_title)
 
             case GHOSTTY_ACTION_PWD:
                 pwdChanged(app, target: target, v: action.action.pwd)
@@ -587,6 +587,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_RING_BELL:
                 ringBell(app, target: target)
+
+            case GHOSTTY_ACTION_READONLY:
+                setReadonly(app, target: target, v: action.action.readonly)
 
             case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
                 checkForUpdates(app)
@@ -861,6 +864,13 @@ extension Ghostty {
                     )
                     return
 
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseTabsOnTheRight,
+                        object: surfaceView
+                    )
+                    return
+
                 default:
                     assertionFailure()
                 }
@@ -996,6 +1006,31 @@ extension Ghostty {
                 NotificationCenter.default.post(
                     name: .ghosttyBellDidRing,
                     object: surfaceView
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func setReadonly(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_readonly_e) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("set readonly does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyDidChangeReadonly,
+                    object: surfaceView,
+                    userInfo: [
+                        SwiftUI.Notification.Name.ReadonlyKey: v == GHOSTTY_READONLY_ON,
+                    ]
                 )
 
             default:
@@ -1350,22 +1385,50 @@ extension Ghostty {
 
         private static func promptTitle(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) -> Bool {
-            switch (target.tag) {
-            case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set title prompt does nothing with an app target")
-                return false
+            target: ghostty_target_s,
+            v: ghostty_action_prompt_title_e) -> Bool {
+            let promptTitle = Action.PromptTitle(v)
+            switch promptTitle {
+            case .surface:
+                switch (target.tag) {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("set title prompt does nothing with an app target")
+                    return false
 
-            case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return false }
-                guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                surfaceView.promptTitle()
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    surfaceView.promptTitle()
+                    return true
 
-            default:
-                assertionFailure()
+                default:
+                    assertionFailure()
+                    return false
+                }
+
+            case .tab:
+                switch (target.tag) {
+                case GHOSTTY_TARGET_APP:
+                    guard let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                          let controller = window.windowController as? BaseTerminalController
+                    else { return false }
+                    controller.promptTabTitle()
+                    return true
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let window = surfaceView.window,
+                          let controller = window.windowController as? BaseTerminalController
+                    else { return false }
+                    controller.promptTabTitle()
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
             }
-
-            return true
         }
 
         private static func pwdChanged(

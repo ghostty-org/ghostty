@@ -603,6 +603,7 @@ class QuickTerminalController: BaseTerminalController {
     private func syncAppearance() {
         guard let window else { return }
 
+        defer { updateColorSchemeForSurfaceTree() }
         // Change the collection behavior of the window depending on the configuration.
         window.collectionBehavior = derivedConfig.quickTerminalSpaceBehavior.collectionBehavior
 
