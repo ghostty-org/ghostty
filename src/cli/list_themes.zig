@@ -196,6 +196,31 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     return 0;
 }
 
+fn resolveAutoThemePath(alloc: std.mem.Allocator) ![]u8 {
+    const main_cfg_path = try Config.preferredDefaultFilePath(alloc);
+    defer alloc.free(main_cfg_path);
+
+    const base_dir = std.fs.path.dirname(main_cfg_path) orelse return error.BadPathName;
+    return try std.fs.path.join(alloc, &.{ base_dir, "auto", "theme.ghostty" });
+}
+
+fn writeAutoThemeFile(alloc: std.mem.Allocator, theme_name: []const u8) !void {
+    const auto_path = try resolveAutoThemePath(alloc);
+    defer alloc.free(auto_path);
+
+    if (std.fs.path.dirname(auto_path)) |dir| {
+        try std.fs.cwd().makePath(dir);
+    }
+
+    var f = try std.fs.createFileAbsolute(auto_path, .{ .truncate = true });
+    defer f.close();
+
+    var buf: [128]u8 = undefined;
+    var w = f.writer(&buf);
+    try w.interface.print("theme = {s}\n", .{theme_name});
+    try w.interface.flush();
+}
+
 const Event = union(enum) {
     key_press: vaxis.Key,
     mouse: vaxis.Mouse,
@@ -487,6 +512,9 @@ const Preview = struct {
                             self.should_quit = true;
                         if (key.matchesAny(&.{ vaxis.Key.escape, vaxis.Key.enter, vaxis.Key.kp_enter }, .{}))
                             self.mode = .normal;
+                        if (key.matches('w', .{})) {
+                            self.saveSelectedTheme();
+                        }
                     },
                 }
             },
@@ -698,7 +726,7 @@ const Preview = struct {
             .help => {
                 win.hideCursor();
                 const width = 60;
-                const height = 20;
+                const height = 22;
                 const child = win.child(
                     .{
                         .x_off = win.width / 2 -| width / 2,
@@ -733,6 +761,7 @@ const Preview = struct {
                     .{ .keys = "/", .help = "Start search." },
                     .{ .keys = "^X, ^/", .help = "Clear search." },
                     .{ .keys = "⏎", .help = "Save theme or close search window." },
+                    .{ .keys = "w", .help = "Write theme to auto config file." },
                 };
 
                 for (key_help, 0..) |help, captured_i| {
@@ -809,6 +838,9 @@ const Preview = struct {
                     try std.fmt.allocPrint(alloc, "theme = {s}", .{theme.theme}),
                     "",
                     "Save the configuration file and then reload it to apply the new theme.",
+                    "",
+                    "Or press 'w' to write an auto theme file.",
+                    "",
                     "For more details on configuration and themes, visit the Ghostty documentation:",
                     "",
                     "https://ghostty.org/docs/config/reference",
@@ -1656,6 +1688,18 @@ const Preview = struct {
                 .col_offset = win.width / 2 - 7,
             });
         }
+    }
+
+    fn saveSelectedTheme(self: *Preview) void {
+        if (self.filtered.items.len == 0)
+            return;
+
+        const idx = self.filtered.items[self.current];
+        const theme = self.themes[idx];
+
+        writeAutoThemeFile(self.allocator, theme.theme) catch {
+            return;
+        };
     }
 };
 

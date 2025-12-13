@@ -24,6 +24,13 @@
 # reloaded while running; some only apply to new windows and others may require
 # a full restart to take effect.
 
+# Auto theme include
+# ==================
+# This include makes it easy to pick a theme via `ghostty +list-themes`:
+# press Enter on a theme, then 'w' to write the auto theme file.
+# This path is relative to this config file.
+config-file = ?auto/theme.ghostty
+
 # Config syntax crash course
 # ==========================
 # # The config file consists of simple key-value pairs,
