@@ -86,6 +86,10 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.2 removed the "desktop" option and renamed it to "detect".
     // The semantics also changed slightly but this is the correct mapping.
     .{ "gtk-single-instance", compatGtkSingleInstance },
+
+    // Ghostty 1.3 rename the "window" option to "new-window".
+    // See: https://github.com/ghostty-org/ghostty/pull/9764
+    .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 });
 
 /// The font families to use.
@@ -2911,7 +2915,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
-///   * `window` - Create a new window unconditionally.
+///   * `new-window` - Create a new window unconditionally.
 ///
 /// The default value is `new-tab`.
 ///
@@ -4443,6 +4447,23 @@ fn compatBoldIsBright(
     }
 
     return true;
+}
+
+fn compatMacOSDockDropBehavior(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "macos-dock-drop-behavior"));
+
+    if (std.mem.eql(u8, value orelse "", "window")) {
+        self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
 }
 
 /// Add a diagnostic message to the config with the given string.
@@ -7875,7 +7896,7 @@ pub const WindowNewTabPosition = enum {
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
     @"new-tab",
-    window,
+    @"new-window",
 };
 
 /// See window-show-tab-bar
@@ -9488,6 +9509,25 @@ test "compatibility: removed bold-is-bright" {
         try testing.expectEqual(
             BoldColor.bright,
             cfg.@"bold-color",
+        );
+    }
+}
+
+test "compatibility: window new-window" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--macos-dock-drop-behavior=window",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+        try testing.expectEqual(
+            MacOSDockDropBehavior.@"new-window",
+            cfg.@"macos-dock-drop-behavior",
         );
     }
 }
