@@ -12,6 +12,8 @@ struct QuickTerminalTabBarView: View {
     @ObservedObject var tabManager: QuickTerminalTabManager
 
     @State private var isHoveringNewTabButton = false
+    @State private var tabBeingRenamed: QuickTerminalTab?
+    @State private var renameText: String = ""
 
     private var newTabButtonBackgroundColor: Color {
         if isHoveringNewTabButton {
@@ -28,6 +30,16 @@ struct QuickTerminalTabBarView: View {
         }
         .frame(height: Constants.height)
         .background(Color(NSColor.controlBackgroundColor))
+        .sheet(item: $tabBeingRenamed) { tab in
+            RenameTabSheet(
+                title: $renameText,
+                onCancel: { tabBeingRenamed = nil },
+                onConfirm: {
+                    tab.titleOverride = renameText.isEmpty ? nil : renameText
+                    tabBeingRenamed = nil
+                }
+            )
+        }
     }
 
     @ViewBuilder private func renderTabBar() -> some View {
@@ -91,18 +103,14 @@ struct QuickTerminalTabBarView: View {
                 },
                 shortcut: shortcut
             )
-            .contextMenu {
-                Button("Close Tab") {
-                    tabManager.closeTab(tab)
+            .modifier(QuickTerminalTabContextMenu(
+                tab: tab,
+                tabManager: tabManager,
+                onChangeTitle: {
+                    renameText = tab.titleOverride ?? tab.title
+                    tabBeingRenamed = tab
                 }
-                Button("Close Other Tabs") {
-                    tabManager.tabs.forEach { otherTab in
-                        if otherTab.id != tab.id {
-                            tabManager.closeTab(otherTab)
-                        }
-                    }
-                }
-            },
+            )),
             tab: tab,
             tabManager: tabManager
         )
@@ -155,5 +163,135 @@ extension QuickTerminalTabBarView {
         static let height: CGFloat = 24
         static let addNewTabButtonHorizontalPadding: CGFloat = 8
         static let addNewTabButtonSize: CGFloat = 50
+    }
+}
+
+// MARK: - Context Menu
+
+/// A view modifier that adds an AppKit-based context menu to a view.
+/// This allows us to use custom views like the color palette in the menu.
+private struct QuickTerminalTabContextMenu: ViewModifier {
+    let tab: QuickTerminalTab
+    let tabManager: QuickTerminalTabManager
+    let onChangeTitle: () -> Void
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            QuickTerminalTabContextMenuHelper(
+                tab: tab,
+                tabManager: tabManager,
+                onChangeTitle: onChangeTitle
+            )
+        }
+    }
+}
+
+/// NSViewRepresentable that handles right-click to show custom NSMenu
+private struct QuickTerminalTabContextMenuHelper: NSViewRepresentable {
+    let tab: QuickTerminalTab
+    let tabManager: QuickTerminalTabManager
+    let onChangeTitle: () -> Void
+
+    func makeNSView(context: Context) -> QuickTerminalTabContextMenuView {
+        let view = QuickTerminalTabContextMenuView()
+        view.tab = tab
+        view.tabManager = tabManager
+        view.onChangeTitle = onChangeTitle
+        return view
+    }
+
+    func updateNSView(_ nsView: QuickTerminalTabContextMenuView, context: Context) {
+        nsView.tab = tab
+        nsView.tabManager = tabManager
+        nsView.onChangeTitle = onChangeTitle
+    }
+}
+
+/// Custom NSView that shows context menu on right-click
+private class QuickTerminalTabContextMenuView: NSView {
+    var tab: QuickTerminalTab?
+    var tabManager: QuickTerminalTabManager?
+    var onChangeTitle: (() -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let tab = tab, let tabManager = tabManager else { return nil }
+        return buildMenu(for: tab, tabManager: tabManager)
+    }
+
+    private func buildMenu(for tab: QuickTerminalTab, tabManager: QuickTerminalTabManager) -> NSMenu {
+        let menu = NSMenu()
+
+        // Close Tab
+        let closeItem = NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "")
+        closeItem.target = self
+        closeItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
+        menu.addItem(closeItem)
+
+        // Close Other Tabs
+        let closeOthersItem = NSMenuItem(title: "Close Other Tabs", action: #selector(closeOtherTabs), keyEquivalent: "")
+        closeOthersItem.target = self
+        closeOthersItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
+        menu.addItem(closeOthersItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Change Title...
+        let changeTitleItem = NSMenuItem(title: "Change Title...", action: #selector(changeTitle), keyEquivalent: "")
+        changeTitleItem.target = self
+        changeTitleItem.image = NSImage(systemSymbolName: "pencil.line", accessibilityDescription: nil)
+        menu.addItem(changeTitleItem)
+
+        return menu
+    }
+
+    @objc private func closeTab() {
+        guard let tab = tab else { return }
+        tabManager?.closeTab(tab)
+    }
+
+    @objc private func closeOtherTabs() {
+        guard let tab = tab, let tabManager = tabManager else { return }
+        tabManager.tabs.forEach { otherTab in
+            if otherTab.id != tab.id {
+                tabManager.closeTab(otherTab)
+            }
+        }
+    }
+
+    @objc private func changeTitle() {
+        onChangeTitle?()
+    }
+}
+
+// MARK: - Rename Tab Sheet
+
+private struct RenameTabSheet: View {
+    @Binding var title: String
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Change Tab Title")
+                .font(.headline)
+
+            TextField("Tab title", text: $title)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 250)
+
+            Text("Leave blank to restore the default.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+
+                Button("OK", action: onConfirm)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 300)
     }
 }

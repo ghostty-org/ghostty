@@ -4,6 +4,25 @@ import Cocoa
 struct QuickTerminalTabState: Codable {
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
     let title: String
+    let titleOverride: String?
+
+    enum CodingKeys: String, CodingKey {
+        case surfaceTree, title, titleOverride
+    }
+
+    init(surfaceTree: SplitTree<Ghostty.SurfaceView>, title: String, titleOverride: String?) {
+        self.surfaceTree = surfaceTree
+        self.title = title
+        self.titleOverride = titleOverride
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        surfaceTree = try container.decode(SplitTree<Ghostty.SurfaceView>.self, forKey: .surfaceTree)
+        title = try container.decode(String.self, forKey: .title)
+        // Provide default for new field to handle old saved state
+        titleOverride = try container.decodeIfPresent(String.self, forKey: .titleOverride)
+    }
 }
 
 /// The state stored for quick terminal restoration via UserDefaults.
@@ -23,7 +42,8 @@ class QuickTerminalRestorableState: Codable {
         self.tabs = tabManager.tabs.map { tab in
             QuickTerminalTabState(
                 surfaceTree: tab.surfaceTree,
-                title: tab.title
+                title: tab.title,
+                titleOverride: tab.titleOverride
             )
         }
         self.currentTabIndex = tabManager.currentTabIndex ?? 0

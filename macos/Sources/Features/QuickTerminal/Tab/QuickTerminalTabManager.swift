@@ -77,6 +77,7 @@ class QuickTerminalTabManager: ObservableObject {
             // Restore tabs from saved state
             for state in savedState.tabs {
                 let tab = QuickTerminalTab(surfaceTree: state.surfaceTree, title: state.title)
+                tab.titleOverride = state.titleOverride
                 tabs.append(tab)
             }
 
@@ -107,6 +108,7 @@ class QuickTerminalTabManager: ObservableObject {
         // Restore each tab from state
         for state in tabStates {
             let tab = QuickTerminalTab(surfaceTree: state.surfaceTree, title: state.title)
+            tab.titleOverride = state.titleOverride
             tabs.append(tab)
         }
 
