@@ -22,6 +22,9 @@ const configpkg = @import("../config.zig");
 
 const log = std.log.scoped(.io_exec);
 
+/// Mutex state argument for queueMessage.
+pub const MutexState = enum { locked, unlocked };
+
 /// Allocator
 alloc: Allocator,
 
@@ -380,7 +383,7 @@ pub fn threadExit(self: *Termio, data: *ThreadData) void {
 pub fn queueMessage(
     self: *Termio,
     msg: termio.Message,
-    mutex: enum { locked, unlocked },
+    mutex: MutexState,
 ) void {
     self.mailbox.send(msg, switch (mutex) {
         .locked => self.renderer_state.mutex,

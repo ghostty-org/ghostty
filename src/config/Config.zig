@@ -2842,7 +2842,7 @@ keybind: Keybinds = .{},
 /// also known as the traffic lights, that allow you to close, miniaturize, and
 /// zoom the window.
 ///
-/// This setting has no effect when `window-decoration = false` or
+/// This setting has no effect when `window-decoration = none` or
 /// `macos-titlebar-style = hidden`, as the window buttons are always hidden in
 /// these modes.
 ///
@@ -2883,7 +2883,7 @@ keybind: Keybinds = .{},
 /// macOS 14 does not have this issue and any other macOS version has not
 /// been tested.
 ///
-/// The "hidden" style hides the titlebar. Unlike `window-decoration = false`,
+/// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
 /// existing windows in buggy ways.
@@ -3222,7 +3222,7 @@ else
 /// manager's simple titlebar. The behavior of this option will vary with your
 /// window manager.
 ///
-/// This option does nothing when `window-decoration` is false or when running
+/// This option does nothing when `window-decoration` is none or when running
 /// under macOS.
 @"gtk-titlebar": bool = true,
 

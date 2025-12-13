@@ -120,6 +120,9 @@ struct TabColorMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
+            Text("Tab Color")
+                .padding(.bottom, 2)
+            
             ForEach(Self.paletteRows, id: \.self) { row in
                 HStack(spacing: 2) {
                     ForEach(row, id: \.self) { color in

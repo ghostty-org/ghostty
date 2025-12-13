@@ -127,6 +127,20 @@ extension Ghostty.Action {
             }
         }
     }
+
+    enum PromptTitle {
+        case surface
+        case tab
+
+        init(_ c: ghostty_action_prompt_title_e) {
+            switch c {
+            case GHOSTTY_PROMPT_TITLE_TAB:
+                self = .tab
+            default:
+                self = .surface
+            }
+        }
+    }
 }
 
 // Putting the initializer in an extension preserves the automatic one.

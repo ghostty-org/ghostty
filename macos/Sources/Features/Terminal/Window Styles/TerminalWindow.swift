@@ -668,8 +668,9 @@ private struct TabColorIndicatorView: View {
 
 extension TerminalWindow {
     private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.changeTitleMenuItem")
     private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
-    private static let tabColorHeaderIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorHeader")
+
     private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
 
     func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
@@ -701,14 +702,14 @@ extension TerminalWindow {
             }
         }
 
-        appendTabColorSection(to: menu, target: targetController)
+        appendTabModifierSection(to: menu, target: targetController)
     }
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
         guard NSApp.keyWindow === self else { return false }
 
-        // These are the target selectors, at least for macOS 26.
-        let tabContextSelectors: Set<String> = [
+        // These selectors must all exist for it to be a tab context menu.
+        let requiredSelectors: Set<String> = [
             "performClose:",
             "performCloseOtherTabs:",
             "moveTabToNewWindow:",
@@ -716,13 +717,13 @@ extension TerminalWindow {
         ]
 
         let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
-        return !selectorNames.isDisjoint(with: tabContextSelectors)
+        return requiredSelectors.isSubset(of: selectorNames)
     }
 
-    private func appendTabColorSection(to menu: NSMenu, target: TerminalController?) {
+    private func appendTabModifierSection(to menu: NSMenu, target: TerminalController?) {
         menu.removeItems(withIdentifiers: [
             Self.tabColorSeparatorIdentifier,
-            Self.tabColorHeaderIdentifier,
+            Self.changeTitleMenuItemIdentifier,
             Self.tabColorPaletteIdentifier
         ])
 
@@ -730,17 +731,17 @@ extension TerminalWindow {
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
 
-        let headerItem = NSMenuItem()
-        headerItem.identifier = Self.tabColorHeaderIdentifier
-        headerItem.title = "Tab Color"
-        headerItem.isEnabled = false
-        headerItem.setImageIfDesired(systemSymbolName: "eyedropper")
-        menu.addItem(headerItem)
+        // Change Title...
+        let changeTitleItem = NSMenuItem(title: "Change Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
+        changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
+        changeTitleItem.target = target
+        changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
+        menu.addItem(changeTitleItem)
 
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
         paletteItem.view = makeTabColorPaletteView(
-            selectedColor: tabColor
+            selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
         ) { [weak target] color in
             (target?.window as? TerminalWindow)?.tabColor = color
         }
