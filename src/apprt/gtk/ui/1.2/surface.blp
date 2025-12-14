@@ -175,6 +175,25 @@ Overlay terminal_page {
     }
   }
 
+  [overlay]
+  // Apply unfocused-window-fill and unfocused-window-opacity when window loses focus
+  // This dims all surfaces in an unfocused window
+  Revealer {
+    reveal-child: bind $should_unfocused_window_be_shown(template.window-active) as <bool>;
+    transition-duration: 0;
+    // This is all necessary so that the Revealer itself doesn't override
+    // any input events from the other overlays.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    DrawingArea {
+      styles [
+        "unfocused-window",
+      ]
+    }
+  }
+
   DropTarget drop_target {
     drop => $drop();
     actions: copy;

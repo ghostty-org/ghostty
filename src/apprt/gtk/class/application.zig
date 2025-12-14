@@ -852,6 +852,24 @@ pub const Application = extern struct {
             unfocused_fill.b,
         });
 
+        // Only generate unfocused-window CSS if the feature is enabled (opacity < 1.0)
+        if (config.@"unfocused-window-opacity" < 1.0) {
+            const unfocused_window_fill: CoreConfig.Color = config.@"unfocused-window-fill" orelse config.background;
+
+            try writer.print(
+                \\widget.unfocused-window {{
+                \\ opacity: {d:.2};
+                \\ background-color: rgb({d},{d},{d});
+                \\}}
+                \\
+            , .{
+                1.0 - config.@"unfocused-window-opacity",
+                unfocused_window_fill.r,
+                unfocused_window_fill.g,
+                unfocused_window_fill.b,
+            });
+        }
+
         if (config.@"split-divider-color") |color| {
             try writer.print(
                 \\.window .split paned > separator {{

@@ -1,9 +1,11 @@
 # Implementation Plan: Window Dimming on Focus Loss
 
 ## Overview
+
 Add window dimming functionality that dims ALL surfaces in a window when it loses focus and returns to normal appearance when it gains focus. This feature will be controlled by a new configuration option `unfocused-window-opacity` with a default value of 0 (disabled).
 
 ## Requirements Summary
+
 - Dim all surfaces when window loses focus (windowDidResignKey)
 - Return to normal when window gains focus (windowDidBecomeKey)
 - Use semi-transparent black rectangle overlay (same approach as split dimming)
@@ -35,6 +37,7 @@ Add the new configuration field with documentation:
 ```
 
 **Rationale:**
+
 - Uses `f64` type to match existing opacity configurations
 - Default value of 0 disables the feature (no breaking changes)
 - Documentation follows the pattern of `unfocused-split-opacity`
@@ -55,6 +58,7 @@ Add clamping logic to ensure valid values:
 ```
 
 **Rationale:**
+
 - Only clamps if value > 0 (preserves "0 = disabled" semantic)
 - Uses same range as split opacity (0.15 to 1.0) for consistency
 - Prevents unusable values while allowing explicit disabling
@@ -77,6 +81,7 @@ Add Swift accessor to expose config value to UI layer:
 ```
 
 **Rationale:**
+
 - Returns 0 (disabled) if config not loaded
 - **Critical:** Uses `1 - opacity` transformation to convert from "opacity when unfocused" to "overlay opacity"
   - Example: config value 0.7 (70% opaque) → returns 0.3 (30% overlay opacity for dimming)
@@ -105,6 +110,7 @@ Add the window dimming overlay in the ZStack:
 ```
 
 **Rationale:**
+
 - Uses existing `windowFocus` state (already tracked via NSWindow notifications at lines 79-91)
 - Placed AFTER split dimming for proper visual layering
 - Uses `Color.black` as specified (simple black overlay)
@@ -115,49 +121,56 @@ Add the window dimming overlay in the ZStack:
 ## Visual Behavior
 
 ### Layering Effects
+
 - **Window focused, split focused:** No dimming
 - **Window focused, split unfocused:** Only split dimming (existing behavior)
 - **Window unfocused, split focused:** Only window dimming (new)
 - **Window unfocused, split unfocused:** Both overlays stack (intentional - shows clear hierarchy)
 
 ### Why Layering Works
+
 - Window overlay (black) + split overlay (configurable color) = stronger dimming for unfocused splits in unfocused windows
 - Provides clear visual hierarchy: window focus > split focus
 - Each effect is independently controlled and can be disabled
 
 ## Files Modified
 
-| File | Lines Added | Description |
-|------|-------------|-------------|
-| `src/config/Config.zig` | ~12 | Config field definition |
-| `src/config/Config.zig` | ~4 | Value clamping in finalize() |
-| `macos/Sources/Ghostty/Ghostty.Config.swift` | ~8 | Swift accessor property |
-| `macos/Sources/Ghostty/SurfaceView.swift` | ~11 | Window dimming overlay |
+| File                                         | Lines Added | Description                  |
+| -------------------------------------------- | ----------- | ---------------------------- |
+| `src/config/Config.zig`                      | ~12         | Config field definition      |
+| `src/config/Config.zig`                      | ~4          | Value clamping in finalize() |
+| `macos/Sources/Ghostty/Ghostty.Config.swift` | ~8          | Swift accessor property      |
+| `macos/Sources/Ghostty/SurfaceView.swift`    | ~11         | Window dimming overlay       |
 
 **Total:** ~35 lines of new code
 
 ## Testing Considerations
 
 ### Basic Functionality
+
 1. Set `unfocused-window-opacity = 0.3` in config
 2. Open Ghostty and click to another application → verify black dimming appears
 3. Click back to Ghostty → verify dimming disappears instantly
 
 ### Default Disabled State
+
 1. Remove/comment out config option
 2. Restart Ghostty and click away → verify NO dimming occurs
 
 ### Interaction with Split Dimming
+
 1. Set both `unfocused-window-opacity = 0.3` and `unfocused-split-opacity = 0.7`
 2. Create splits and test all focus combinations
 3. Verify that unfocused splits in unfocused windows show both effects (stronger dimming)
 
 ### Multiple Windows
+
 1. Open two Ghostty windows
 2. Click between them → verify only unfocused window dims
 3. Click to third application → verify both Ghostty windows dim
 
 ### Value Clamping
+
 1. Test edge values: -0.5 (disabled), 0.1 (clamps to 0.15), 1.5 (clamps to 1.0)
 2. Verify 1.0 shows maximum dimming (not disabled)
 
@@ -168,4 +181,3 @@ Add the window dimming overlay in the ZStack:
 3. **Independent from split dimming:** Both can be active, allowing fine-grained control
 4. **Additive layering:** Multiple overlays stack naturally for compound states
 5. **Reuse existing state:** `windowFocus` already tracked, no new notification handlers needed
-

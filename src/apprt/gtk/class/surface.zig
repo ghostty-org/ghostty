@@ -305,6 +305,24 @@ pub const Surface = extern struct {
             );
         };
 
+        pub const @"window-active" = struct {
+            pub const name = "window-active";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = true,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "window_active",
+                    ),
+                },
+            );
+        };
+
         pub const hadjustment = struct {
             pub const name = "hadjustment";
             const impl = gobject.ext.defineProperty(
@@ -608,6 +626,9 @@ pub const Surface = extern struct {
         // unfocused-split-* options
         is_split: bool = false,
 
+        // True if the parent window is active (has focus)
+        window_active: bool = true,
+
         action_group: ?*gio.SimpleActionGroup = null,
 
         // Gtk.Scrollable interface adjustments
@@ -723,6 +744,24 @@ pub const Surface = extern struct {
         is_split: c_int,
     ) callconv(.c) c_int {
         return @intFromBool(focused == 0 and is_split != 0);
+    }
+
+    /// Callback used to determine whether unfocused-window-fill / unfocused-window-opacity
+    /// should be applied to the surface
+    fn closureShouldUnfocusedWindowBeShown(
+        self: *Self,
+        window_active: c_int,
+    ) callconv(.c) c_int {
+        // Only show overlay if window is not active AND opacity is less than 1.0
+        // (1.0 means fully opaque window = no dimming effect)
+        const priv = self.private();
+        const config = priv.config orelse return 0;
+        const opacity = config.get().@"unfocused-window-opacity";
+
+        // Don't show overlay if opacity is 1.0 (disabled)
+        if (opacity >= 1.0) return 0;
+
+        return @intFromBool(window_active == 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -2927,6 +2966,47 @@ pub const Surface = extern struct {
         // create a strong reference back to ourself and we want to be
         // able to release that in unrealize.
         priv.im_context.as(gtk.IMContext).setClientWidget(self.as(gtk.Widget));
+
+        // Connect to window's is-active property to track focus
+        self.connectWindowActiveSignal();
+    }
+
+    fn connectWindowActiveSignal(self: *Self) void {
+        const widget = self.as(gtk.Widget);
+
+        // Get the parent window using getAncestor
+        const window = ext.getAncestor(Window, widget) orelse return;
+
+        // Get initial window active state
+        const priv = self.private();
+        priv.window_active = window.as(gtk.Window).isActive() != 0;
+
+        // Connect to notify::is-active signal
+        _ = gobject.Object.signals.notify.connect(
+            window.as(gobject.Object).as(gobject.Object),
+            *Self,
+            windowActiveChanged,
+            self,
+            .{},
+        );
+    }
+
+    fn windowActiveChanged(
+        _: *gobject.Object,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        // Get window from widget ancestor
+        const widget = self.as(gtk.Widget);
+        const window = ext.getAncestor(Window, widget) orelse return;
+        const is_active = window.as(gtk.Window).isActive() != 0;
+
+        if (priv.window_active != is_active) {
+            priv.window_active = is_active;
+            self.as(gobject.Object).notify("window-active");
+        }
     }
 
     fn glareaUnrealize(
@@ -3299,6 +3379,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("should_unfocused_window_be_shown", &closureShouldUnfocusedWindowBeShown);
             class.bindTemplateCallback("search_stop", &searchStop);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);
@@ -3322,6 +3403,7 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+                properties.@"window-active".impl,
 
                 // For Gtk.Scrollable
                 properties.hadjustment.impl,
