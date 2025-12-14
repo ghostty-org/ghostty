@@ -618,6 +618,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle whether mouse events are reported to terminal applications.",
         }},
 
+        .toggle_macos_option_as_alt => comptime &.{.{
+            .action = .toggle_macos_option_as_alt,
+            .title = "Toggle Option as Alt on macOS",
+            .description = "Toggle whether the macOS Option keys act as Alt",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
