@@ -755,6 +755,16 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     toggle_visibility,
 
+    /// Toggle the window background opacity between transparent and opaque.
+    ///
+    /// This does nothing when `background-opacity` is set to 1 or above.
+    ///
+    /// When `background-opacity` is less than 1, this action will either make
+    /// the window transparent or not depending on its current transparency state.
+    ///
+    /// Only implemented on macOS.
+    toggle_background_opacity,
+
     /// Check for updates.
     ///
     /// Only implemented on macOS.
@@ -1240,6 +1250,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
             .crash,

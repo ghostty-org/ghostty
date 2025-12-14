@@ -78,6 +78,9 @@ class BaseTerminalController: NSWindowController,
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
+    /// Track whether background is forced opaque (true) or using config transparency (false)
+    var isBackgroundOpaque: Bool = false
+
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
@@ -805,6 +808,19 @@ class BaseTerminalController: NSWindowController,
         _ = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(len - 1))
         }
+    }
+
+    // MARK: Background Opacity
+
+    /// Toggle the background opacity between transparent and opaque states.
+    /// Do nothing if the configured background-opacity is >= 1 (already opaque).
+    /// Subclasses should override this to add platform-specific checks and sync appearance.
+    func toggleBackgroundOpacity() {
+        // Do nothing if config is already fully opaque
+        guard ghostty.config.backgroundOpacity < 1 else { return }
+
+        // Toggle between transparent and opaque
+        isBackgroundOpaque.toggle()
     }
 
     // MARK: Fullscreen

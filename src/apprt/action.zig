@@ -115,6 +115,9 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
+    /// Toggle the window background opacity. This currently only works on macOS.
+    toggle_background_opacity,
+
     /// Moves a tab by a relative offset.
     ///
     /// Adjusts the tab position based on `offset` (e.g., -1 for left, +1
@@ -335,6 +338,7 @@ pub const Action = union(Key) {
         toggle_quick_terminal,
         toggle_command_palette,
         toggle_visibility,
+        toggle_background_opacity,
         move_tab,
         goto_tab,
         goto_split,
