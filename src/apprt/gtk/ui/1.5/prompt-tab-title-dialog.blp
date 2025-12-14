@@ -1,0 +1,19 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyPromptTabTitleDialog: Adw.AlertDialog {
+  heading: _("Change Tab Title");
+  body: _("Leave blank to restore the default.");
+
+  responses [
+    cancel: _("Cancel"),
+    ok: _("OK") suggested,
+  ]
+
+  default-response: "ok";
+  focus-widget: entry;
+
+  extra-child: Entry entry {
+    activates-default: true;
+  };
+}

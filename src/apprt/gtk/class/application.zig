@@ -34,6 +34,7 @@ const Config = @import("config.zig").Config;
 const Surface = @import("surface.zig").Surface;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Window = @import("window.zig").Window;
+const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
@@ -2326,8 +2327,21 @@ const Action = struct {
                 },
             },
             .tab => {
-                // GTK does not yet support tab title prompting
-                return false;
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const tab = ext.getAncestor(
+                            Tab,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a tab, ignoring prompt_tab_title", .{});
+                            return false;
+                        };
+                        tab.promptTabTitle();
+                        return true;
+                    },
+                }
             },
         }
     }

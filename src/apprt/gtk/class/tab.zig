@@ -14,6 +14,8 @@ const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
+const TabDialog = @import("prompt_tab_title_dialog.zig")
+    .PromptTabTitleDialog;
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -125,6 +127,18 @@ pub const Tab = extern struct {
                 },
             );
         };
+        pub const @"title-override" = struct {
+            pub const name = "title-override";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("title_override"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -147,6 +161,9 @@ pub const Tab = extern struct {
 
         /// The title of this tab. This is usually bound to the active surface.
         title: ?[:0]const u8 = null,
+
+        /// The manually overridden title from `promptTabTitle`.
+        title_override: ?[:0]const u8 = null,
 
         /// The tooltip of this tab. This is usually bound to the active surface.
         tooltip: ?[:0]const u8 = null,
@@ -198,6 +215,7 @@ pub const Tab = extern struct {
         const actions = [_]ext.actions.Action(Self){
             .init("close", actionClose, s_param_type),
             .init("ring-bell", actionRingBell, null),
+            .init("prompt-tab-title", actionPromptTabTitle, null),
         };
 
         _ = ext.actions.addAsGroup(Self, self, "tab", &actions);
@@ -205,6 +223,42 @@ pub const Tab = extern struct {
 
     //---------------------------------------------------------------
     // Properties
+
+    /// Overridden title. This will be generally be shown over the title
+    /// unless this is unset (null).
+    pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
+        priv.title_override = null;
+        if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
+        self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
+    }
+    fn tabDialogSet(
+        _: *TabDialog,
+        title_ptr: [*:0]const u8,
+        self: *Self,
+    ) callconv(.c) void {
+        const title = std.mem.span(title_ptr);
+        self.setTitleOverride(if (title.len == 0) null else title);
+    }
+    pub fn promptTabTitle(self: *Self) void {
+        const priv = self.private();
+        const dialog = gobject.ext.newInstance(
+            TabDialog,
+            .{
+                .@"initial-value" = priv.title_override orelse priv.title,
+            },
+        );
+        _ = TabDialog.signals.set.connect(
+            dialog,
+            *Self,
+            tabDialogSet,
+            self,
+            .{},
+        );
+
+        dialog.present(self.as(gtk.Widget));
+    }
 
     /// Get the currently active surface. See the "active-surface" property.
     /// This does not ref the value.
@@ -351,6 +405,14 @@ pub const Tab = extern struct {
         }
     }
 
+    fn actionPromptTabTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        self.promptTabTitle();
+    }
+
     fn actionRingBell(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -372,7 +434,8 @@ pub const Tab = extern struct {
         _: *Self,
         config_: ?*Config,
         terminal_: ?[*:0]const u8,
-        override_: ?[*:0]const u8,
+        surface_override_: ?[*:0]const u8,
+        tab_override: ?[*:0]const u8,
         zoomed_: c_int,
         bell_ringing_: c_int,
         _: *gobject.ParamSpec,
@@ -380,7 +443,8 @@ pub const Tab = extern struct {
         const zoomed = zoomed_ != 0;
         const bell_ringing = bell_ringing_ != 0;
 
-        // Our plain title is the overridden title if it exists, otherwise
+        // Our plain title is the manually tab overriden title if it exists,
+        // otherwise the overridden title if it exists, otherwise
         // the terminal title if it exists, otherwise a default string.
         const plain = plain: {
             const default = "Ghostty";
@@ -389,7 +453,8 @@ pub const Tab = extern struct {
                 break :title config.get().title orelse null;
             };
 
-            const plain = override_ orelse
+            const plain = tab_override orelse
+                surface_override_ orelse
                 terminal_ orelse
                 config_title orelse
                 break :plain default;
@@ -453,6 +518,7 @@ pub const Tab = extern struct {
                 properties.@"split-tree".impl,
                 properties.@"surface-tree".impl,
                 properties.title.impl,
+                properties.@"title-override".impl,
                 properties.tooltip.impl,
             });
 
