@@ -161,8 +161,12 @@ pub const Tab = extern struct {
     /// ever created for a tab. If a surface was already created this does
     /// nothing.
     pub fn setParent(self: *Self, parent: *CoreSurface) void {
+        self.setParentWithContext(parent, .tab);
+    }
+
+    pub fn setParentWithContext(self: *Self, parent: *CoreSurface, context: apprt.surface.NewSurfaceContext) void {
         if (self.getActiveSurface()) |surface| {
-            surface.setParent(parent);
+            surface.setParent(parent, context);
         }
     }
 
