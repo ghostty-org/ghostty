@@ -33,6 +33,13 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
+
+    home-manager = {
+      url = "github:nix-community/home-manager?ref=release-25.05";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
   };
 
   outputs = {
@@ -40,6 +47,7 @@
     nixpkgs,
     zig,
     zon2nix,
+    home-manager,
     ...
   }:
     builtins.foldl' nixpkgs.lib.recursiveUpdate {} (
@@ -47,7 +55,7 @@
         system: let
           pkgs = nixpkgs.legacyPackages.${system};
         in {
-          devShell.${system} = pkgs.callPackage ./nix/devShell.nix {
+          devShells.${system}.default = pkgs.callPackage ./nix/devShell.nix {
             zig = zig.packages.${system}."0.15.2";
             wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
             zon2nix = zon2nix;
@@ -79,6 +87,10 @@
 
           formatter.${system} = pkgs.alejandra;
 
+          checks.${system} = import ./nix/tests.nix {
+            inherit home-manager nixpkgs self system;
+          };
+
           apps.${system} = let
             runVM = (
               module: let
@@ -95,6 +107,9 @@
               in {
                 type = "app";
                 program = "${program}";
+                meta = {
+                  description = "start a vm from ${toString module}";
+                };
               }
             );
           in {
@@ -120,11 +135,6 @@
           ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
         };
       };
-      create-vm = import ./nix/vm/create.nix;
-      create-cinnamon-vm = import ./nix/vm/create-cinnamon.nix;
-      create-gnome-vm = import ./nix/vm/create-gnome.nix;
-      create-plasma6-vm = import ./nix/vm/create-plasma6.nix;
-      create-xfce-vm = import ./nix/vm/create-xfce.nix;
     };
 
   nixConfig = {

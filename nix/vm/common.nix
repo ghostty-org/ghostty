@@ -4,9 +4,6 @@
 
   documentation.nixos.enable = false;
 
-  networking.hostName = "ghostty";
-  networking.domain = "mitchellh.com";
-
   virtualisation.vmVariant = {
     virtualisation.memorySize = 2048;
   };
@@ -28,17 +25,11 @@
   users.groups.ghostty = {};
 
   users.users.ghostty = {
+    isNormalUser = true;
     description = "Ghostty";
     group = "ghostty";
     extraGroups = ["wheel"];
-    isNormalUser = true;
-    initialPassword = "ghostty";
-  };
-
-  environment.etc = {
-    "xdg/autostart/com.mitchellh.ghostty.desktop" = {
-      source = "${pkgs.ghostty}/share/applications/com.mitchellh.ghostty.desktop";
-    };
+    hashedPassword = "";
   };
 
   environment.systemPackages = [
@@ -61,6 +52,7 @@
 
   services.displayManager = {
     autoLogin = {
+      enable = true;
       user = "ghostty";
     };
   };
