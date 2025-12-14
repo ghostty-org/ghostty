@@ -116,7 +116,20 @@ fn kitty(
         }
     }
 
-    const all_mods = event.mods;
+    const all_mods = mods: {
+        var mods_binding = event.mods;
+        if (comptime builtin.target.os.tag.isDarwin()) alt: {
+            switch (opts.macos_option_as_alt) {
+                .false => {},
+                .true => break :alt,
+                .left => if (event.mods.sides.alt == .left) break :alt,
+                .right => if (event.mods.sides.alt == .right) break :alt,
+            }
+            mods_binding.alt = false;
+        }
+        break :mods mods_binding;
+    };
+
     const effective_mods = event.effectiveMods();
     const binding_mods = effective_mods.binding();
 
