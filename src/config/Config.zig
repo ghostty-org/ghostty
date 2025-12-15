@@ -927,6 +927,15 @@ palette: Palette = .{},
 ///     reasonable for a good looking blur. Higher blur intensities may
 ///     cause strange rendering and performance issues.
 ///
+/// On macOS 26.0 and later, there are additional special values that
+/// can be set to use the native macOS glass effects:
+///
+///   * `macos-glass-regular` - Standard glass effect with some opacity
+///   * `macos-glass-clear` - Highly transparent glass effect
+///
+/// If the macOS values are set, then this implies `background-blur = true`
+/// on non-macOS platforms.
+///
 /// Supported on macOS and on some Linux desktop environments, including:
 ///
 ///   * KDE Plasma (Wayland and X11)
@@ -8341,6 +8350,8 @@ pub const AutoUpdate = enum {
 pub const BackgroundBlur = union(enum) {
     false,
     true,
+    @"macos-glass-regular",
+    @"macos-glass-clear",
     radius: u8,
 
     pub fn parseCLI(self: *BackgroundBlur, input: ?[]const u8) !void {
@@ -8350,14 +8361,35 @@ pub const BackgroundBlur = union(enum) {
             return;
         };
 
-        self.* = if (cli.args.parseBool(input_)) |b|
-            if (b) .true else .false
-        else |_|
-            .{ .radius = std.fmt.parseInt(
-                u8,
-                input_,
-                0,
-            ) catch return error.InvalidValue };
+        // Try to parse normal bools
+        if (cli.args.parseBool(input_)) |b| {
+            self.* = if (b) .true else .false;
+            return;
+        } else |_| {}
+
+        // Try to parse enums
+        if (std.meta.stringToEnum(
+            std.meta.Tag(BackgroundBlur),
+            input_,
+        )) |v| switch (v) {
+            inline else => |tag| tag: {
+                // We can only parse void types
+                const info = std.meta.fieldInfo(BackgroundBlur, tag);
+                if (info.type != void) break :tag;
+                self.* = @unionInit(
+                    BackgroundBlur,
+                    @tagName(tag),
+                    {},
+                );
+                return;
+            },
+        };
+
+        self.* = .{ .radius = std.fmt.parseInt(
+            u8,
+            input_,
+            0,
+        ) catch return error.InvalidValue };
     }
 
     pub fn enabled(self: BackgroundBlur) bool {
@@ -8365,14 +8397,24 @@ pub const BackgroundBlur = union(enum) {
             .false => false,
             .true => true,
             .radius => |v| v > 0,
+
+            // We treat these as true because they both imply some blur!
+            // This has the effect of making the standard blur happen on
+            // Linux.
+            .@"macos-glass-regular", .@"macos-glass-clear" => true,
         };
     }
 
-    pub fn cval(self: BackgroundBlur) u8 {
+    pub fn cval(self: BackgroundBlur) i16 {
         return switch (self) {
             .false => 0,
             .true => 20,
             .radius => |v| v,
+            // I hate sentinel values like this but this is only for
+            // our macOS application currently. We can switch to a proper
+            // tagged union if we ever need to.
+            .@"macos-glass-regular" => -1,
+            .@"macos-glass-clear" => -2,
         };
     }
 
@@ -8384,6 +8426,8 @@ pub const BackgroundBlur = union(enum) {
             .false => try formatter.formatEntry(bool, false),
             .true => try formatter.formatEntry(bool, true),
             .radius => |v| try formatter.formatEntry(u8, v),
+            .@"macos-glass-regular" => try formatter.formatEntry([]const u8, "macos-glass-regular"),
+            .@"macos-glass-clear" => try formatter.formatEntry([]const u8, "macos-glass-clear"),
         }
     }
 
@@ -8402,6 +8446,12 @@ pub const BackgroundBlur = union(enum) {
 
         try v.parseCLI("42");
         try testing.expectEqual(42, v.radius);
+
+        try v.parseCLI("macos-glass-regular");
+        try testing.expectEqual(.@"macos-glass-regular", v);
+
+        try v.parseCLI("macos-glass-clear");
+        try testing.expectEqual(.@"macos-glass-clear", v);
 
         try testing.expectError(error.InvalidValue, v.parseCLI(""));
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));

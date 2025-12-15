@@ -56,7 +56,7 @@ extension Ghostty {
         case app
         case zig_run
     }
-    
+
     /// Returns the mechanism that launched the app. This is based on an env var so
     /// its up to the env var being set in the correct circumstance.
     static var launchSource: LaunchSource {
@@ -65,7 +65,7 @@ extension Ghostty {
             // source. If its unset we assume we're in a CLI environment.
             return .cli
         }
-        
+
         // If the env var is set but its unknown then we default back to the app.
         return LaunchSource(rawValue: envValue) ?? .app
     }
@@ -76,17 +76,17 @@ extension Ghostty {
 extension Ghostty {
     class AllocatedString {
         private let cString: ghostty_string_s
-        
+
         init(_ c: ghostty_string_s) {
             self.cString = c
         }
-        
+
         var string: String {
             guard let ptr = cString.ptr else { return "" }
             let data = Data(bytes: ptr, count: Int(cString.len))
             return String(data: data, encoding: .utf8) ?? ""
         }
-        
+
         deinit {
             ghostty_string_free(cString)
         }
