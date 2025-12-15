@@ -18,13 +18,6 @@ test/cases/**/*.actual.png
 flatpak/builddir/
 flatpak/repo/
 
-
-dist/Ghostty.app/
-dist/include/
-dist/lib/
-dist/share/
-
-
 glad.zip
 /Box_test.ppm
 /Box_test_diff.ppm
