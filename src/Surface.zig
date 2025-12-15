@@ -607,6 +607,9 @@ pub fn init(
         };
         errdefer env.deinit();
 
+        // don't leak GHOSTTY_LOG to any subprocesses
+        env.remove("GHOSTTY_LOG");
+
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,
