@@ -123,6 +123,9 @@ extension Ghostty {
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
 
+        /// True when the surface is in readonly mode.
+        @Published private(set) var readonly: Bool = false
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
@@ -332,6 +335,11 @@ extension Ghostty {
                 self,
                 selector: #selector(ghosttyBellDidRing(_:)),
                 name: .ghosttyBellDidRing,
+                object: self)
+            center.addObserver(
+                self,
+                selector: #selector(ghosttyDidChangeReadonly(_:)),
+                name: .ghosttyDidChangeReadonly,
                 object: self)
             center.addObserver(
                 self,
@@ -701,6 +709,11 @@ extension Ghostty {
         @objc private func ghosttyBellDidRing(_ notification: SwiftUI.Notification) {
             // Bell state goes to true
             bell = true
+        }
+
+        @objc private func ghosttyDidChangeReadonly(_ notification: SwiftUI.Notification) {
+            guard let value = notification.userInfo?[SwiftUI.Notification.Name.ReadonlyKey] as? Bool else { return }
+            readonly = value
         }
 
         @objc private func windowDidChangeScreen(notification: SwiftUI.Notification) {
@@ -1416,6 +1429,9 @@ extension Ghostty {
             item.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise")
             item = menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "scope")
+            item = menu.addItem(withTitle: "Terminal Read-only", action: #selector(toggleReadonly(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "eye.fill")
+            item.state = readonly ? .on : .off
             menu.addItem(.separator())
             item = menu.addItem(withTitle: "Change Tab Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "pencil.line")
@@ -1494,6 +1510,14 @@ extension Ghostty {
         @IBAction func findHide(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "end_search"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        @IBAction func toggleReadonly(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "toggle_readonly"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
@@ -1974,6 +1998,10 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             
         case #selector(findHide):
             return searchState != nil
+
+        case #selector(toggleReadonly):
+            item.state = readonly ? .on : .off
+            return true
 
         default:
             return true

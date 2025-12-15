@@ -1219,7 +1219,7 @@ pub fn index(self: *Terminal) !void {
             // this check.
             !self.screens.active.blankCell().isZero())
         {
-            self.scrollUp(1);
+            try self.scrollUp(1);
             return;
         }
 
@@ -1398,7 +1398,7 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
 /// The new lines are created according to the current SGR state.
 ///
 /// Does not change the (absolute) cursor position.
-pub fn scrollUp(self: *Terminal, count: usize) void {
+pub fn scrollUp(self: *Terminal, count: usize) !void {
     // Preserve our x/y to restore.
     const old_x = self.screens.active.cursor.x;
     const old_y = self.screens.active.cursor.y;
@@ -1406,6 +1406,32 @@ pub fn scrollUp(self: *Terminal, count: usize) void {
     defer {
         self.screens.active.cursorAbsolute(old_x, old_y);
         self.screens.active.cursor.pending_wrap = old_wrap;
+    }
+
+    // If our scroll region is at the top and we have no left/right
+    // margins then we move the scrolled out text into the scrollback.
+    if (self.scrolling_region.top == 0 and
+        self.scrolling_region.left == 0 and
+        self.scrolling_region.right == self.cols - 1)
+    {
+        // Scrolling dirties the images because it updates their placements pins.
+        if (comptime build_options.kitty_graphics) {
+            self.screens.active.kitty_images.dirty = true;
+        }
+
+        // Clamp count to the scroll region height.
+        const region_height = self.scrolling_region.bottom + 1;
+        const adjusted_count = @min(count, region_height);
+
+        // TODO: Create an optimized version that can scroll N times
+        // This isn't critical because in most cases, scrollUp is used
+        // with count=1, but it's still a big optimization opportunity.
+
+        // Move our cursor to the bottom of the scroll region so we can
+        // use the cursorScrollAbove function to create scrollback
+        self.screens.active.cursorAbsolute(0, self.scrolling_region.bottom);
+        for (0..adjusted_count) |_| try self.screens.active.cursorScrollAbove();
+        return;
     }
 
     // Move to the top of the scroll region
@@ -5635,14 +5661,16 @@ test "Terminal: scrollUp simple" {
     t.setCursorPos(2, 2);
 
     const cursor = t.screens.active.cursor;
-    t.clearDirty();
-    t.scrollUp(1);
+    const viewport_before = t.screens.active.pages.getTopLeft(.viewport);
+    try t.scrollUp(1);
     try testing.expectEqual(cursor.x, t.screens.active.cursor.x);
     try testing.expectEqual(cursor.y, t.screens.active.cursor.y);
 
-    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
-    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
-    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+    // Viewport should have moved. Our entire page should've scrolled!
+    // The viewport moving will cause our render state to make the full
+    // frame as dirty.
+    const viewport_after = t.screens.active.pages.getTopLeft(.viewport);
+    try testing.expect(!viewport_before.eql(viewport_after));
 
     {
         const str = try t.plainString(testing.allocator);
@@ -5666,7 +5694,7 @@ test "Terminal: scrollUp moves hyperlink" {
     try t.linefeed();
     try t.printString("GHI");
     t.setCursorPos(2, 2);
-    t.scrollUp(1);
+    try t.scrollUp(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -5717,7 +5745,7 @@ test "Terminal: scrollUp clears hyperlink" {
     try t.linefeed();
     try t.printString("GHI");
     t.setCursorPos(2, 2);
-    t.scrollUp(1);
+    try t.scrollUp(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -5755,7 +5783,7 @@ test "Terminal: scrollUp top/bottom scroll region" {
     t.setCursorPos(1, 1);
 
     t.clearDirty();
-    t.scrollUp(1);
+    try t.scrollUp(1);
 
     // This is dirty because the cursor moves from this row
     try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
@@ -5787,7 +5815,7 @@ test "Terminal: scrollUp left/right scroll region" {
 
     const cursor = t.screens.active.cursor;
     t.clearDirty();
-    t.scrollUp(1);
+    try t.scrollUp(1);
     try testing.expectEqual(cursor.x, t.screens.active.cursor.x);
     try testing.expectEqual(cursor.y, t.screens.active.cursor.y);
 
@@ -5819,7 +5847,7 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
     t.scrolling_region.left = 1;
     t.scrolling_region.right = 3;
     t.setCursorPos(2, 2);
-    t.scrollUp(1);
+    try t.scrollUp(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -5919,7 +5947,7 @@ test "Terminal: scrollUp preserves pending wrap" {
     try t.print('B');
     t.setCursorPos(3, 5);
     try t.print('C');
-    t.scrollUp(1);
+    try t.scrollUp(1);
     try t.print('X');
 
     {
@@ -5940,7 +5968,7 @@ test "Terminal: scrollUp full top/bottom region" {
     t.setTopAndBottomMargin(2, 5);
 
     t.clearDirty();
-    t.scrollUp(4);
+    try t.scrollUp(4);
 
     // This is dirty because the cursor moves from this row
     try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
@@ -5966,7 +5994,7 @@ test "Terminal: scrollUp full top/bottomleft/right scroll region" {
     t.setLeftAndRightMargin(2, 4);
 
     t.clearDirty();
-    t.scrollUp(4);
+    try t.scrollUp(4);
 
     // This is dirty because the cursor moves from this row
     try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
@@ -5979,6 +6007,143 @@ test "Terminal: scrollUp full top/bottomleft/right scroll region" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("top\n\n\n\nA   E", str);
+    }
+}
+
+test "Terminal: scrollUp creates scrollback in primary screen" {
+    // When in primary screen with full-width scroll region at top,
+    // scrollUp (CSI S) should push lines into scrollback like xterm.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5, .max_scrollback = 10 });
+    defer t.deinit(alloc);
+
+    // Fill the screen with content
+    try t.printString("AAAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("BBBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("CCCCC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DDDDD");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("EEEEE");
+
+    t.clearDirty();
+
+    // Scroll up by 1, which should push "AAAAA" into scrollback
+    try t.scrollUp(1);
+
+    // The cursor row (new empty row) should be dirty
+    try testing.expect(t.screens.active.cursor.page_row.dirty);
+
+    // The active screen should now show BBBBB through EEEEE plus one blank line
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("BBBBB\nCCCCC\nDDDDD\nEEEEE", str);
+    }
+
+    // Now scroll to the top to see scrollback - AAAAA should be there
+    t.screens.active.scroll(.{ .top = {} });
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        // Should see AAAAA in scrollback
+        try testing.expectEqualStrings("AAAAA\nBBBBB\nCCCCC\nDDDDD\nEEEEE", str);
+    }
+}
+
+test "Terminal: scrollUp with max_scrollback zero" {
+    // When max_scrollback is 0, scrollUp should still work but not retain history
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5, .max_scrollback = 0 });
+    defer t.deinit(alloc);
+
+    try t.printString("AAAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("BBBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("CCCCC");
+
+    try t.scrollUp(1);
+
+    // Active screen should show scrolled content
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("BBBBB\nCCCCC", str);
+    }
+
+    // Scroll to top - should be same as active since no scrollback
+    t.screens.active.scroll(.{ .top = {} });
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("BBBBB\nCCCCC", str);
+    }
+}
+
+test "Terminal: scrollUp with max_scrollback zero and top margin" {
+    // When max_scrollback is 0 and top margin is set, should use deleteLines path
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5, .max_scrollback = 0 });
+    defer t.deinit(alloc);
+
+    try t.printString("AAAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("BBBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("CCCCC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DDDDD");
+
+    // Set top margin (not at row 0)
+    t.setTopAndBottomMargin(2, 5);
+
+    try t.scrollUp(1);
+
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        // First row preserved, rest scrolled
+        try testing.expectEqualStrings("AAAAA\nCCCCC\nDDDDD", str);
+    }
+}
+
+test "Terminal: scrollUp with max_scrollback zero and left/right margin" {
+    // When max_scrollback is 0 with left/right margins, uses deleteLines path
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 10, .max_scrollback = 0 });
+    defer t.deinit(alloc);
+
+    try t.printString("AAAAABBBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("CCCCCDDDDD");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("EEEEEFFFFF");
+
+    // Set left/right margins (columns 2-6, 1-indexed = indices 1-5)
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(2, 6);
+
+    try t.scrollUp(1);
+
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        // cols 1-5 scroll, col 0 and cols 6+ preserved
+        try testing.expectEqualStrings("ACCCCDBBBB\nCEEEEFDDDD\nE     FFFF", str);
     }
 }
 

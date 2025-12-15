@@ -708,8 +708,8 @@ extension TerminalWindow {
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
         guard NSApp.keyWindow === self else { return false }
 
-        // These are the target selectors, at least for macOS 26.
-        let tabContextSelectors: Set<String> = [
+        // These selectors must all exist for it to be a tab context menu.
+        let requiredSelectors: Set<String> = [
             "performClose:",
             "performCloseOtherTabs:",
             "moveTabToNewWindow:",
@@ -717,7 +717,7 @@ extension TerminalWindow {
         ]
 
         let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
-        return !selectorNames.isDisjoint(with: tabContextSelectors)
+        return requiredSelectors.isSubset(of: selectorNames)
     }
 
     private func appendTabModifierSection(to menu: NSMenu, target: TerminalController?) {

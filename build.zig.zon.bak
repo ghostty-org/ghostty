@@ -15,13 +15,13 @@
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "https://deps.files.ghostty.org/vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
+            .url = "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
             .hash = "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS",
             .lazy = true,
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://deps.files.ghostty.org/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T.tar.gz",
+            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz",
             .hash = "z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T",
             .lazy = true,
         },
@@ -39,7 +39,7 @@
         },
         .uucode = .{
             // jacobsandlund/uucode
-            .url = "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
+            .url = "https://github.com/jacobsandlund/uucode/archive/31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
             .hash = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
         },
         .zig_wayland = .{
@@ -50,14 +50,14 @@
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://deps.files.ghostty.org/zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
+            .url = "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
             .hash = "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh",
             .lazy = true,
         },
         .gobject = .{
             // https://github.com/ghostty-org/zig-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst",
+            .url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.7.0-2025-11-08-23-1/ghostty-gobject-0.7.0-2025-11-08-23-1.tar.zst",
             .hash = "gobject-0.3.0-Skun7ANLnwDvEfIpVmohcppXgOvg_I6YOJFmPIsKfXk-",
             .lazy = true,
         },
@@ -116,7 +116,7 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/iterm2_themes-release-20251201-150531-bfb3ee1.tgz",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251201-150531-bfb3ee1/ghostty-themes.tgz",
             .hash = "N-V-__8AANFEAwCzzNzNs3Gaq8pzGNl2BbeyFBwTyO5iZJL-",
             .lazy = true,
         },

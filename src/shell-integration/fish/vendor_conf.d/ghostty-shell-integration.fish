@@ -90,7 +90,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
             if test "$sudo_has_sudoedit_flags" = "yes"
                 command sudo $argv
             else
-                command sudo TERMINFO="$TERMINFO" $argv
+                command sudo --preserve-env=TERMINFO $argv
             end
         end
     end

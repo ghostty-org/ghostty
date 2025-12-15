@@ -512,6 +512,12 @@ typedef enum {
   GHOSTTY_GOTO_SPLIT_RIGHT,
 } ghostty_action_goto_split_e;
 
+// apprt.action.GotoWindow
+typedef enum {
+  GHOSTTY_GOTO_WINDOW_PREVIOUS,
+  GHOSTTY_GOTO_WINDOW_NEXT,
+} ghostty_action_goto_window_e;
+
 // apprt.action.ResizeSplit.Direction
 typedef enum {
   GHOSTTY_RESIZE_SPLIT_UP,
@@ -572,6 +578,12 @@ typedef enum {
   GHOSTTY_QUIT_TIMER_START,
   GHOSTTY_QUIT_TIMER_STOP,
 } ghostty_action_quit_timer_e;
+
+// apprt.action.Readonly
+typedef enum {
+  GHOSTTY_READONLY_OFF,
+  GHOSTTY_READONLY_ON,
+} ghostty_action_readonly_e;
 
 // apprt.action.DesktopNotification.C
 typedef struct {
@@ -794,6 +806,7 @@ typedef enum {
   GHOSTTY_ACTION_MOVE_TAB,
   GHOSTTY_ACTION_GOTO_TAB,
   GHOSTTY_ACTION_GOTO_SPLIT,
+  GHOSTTY_ACTION_GOTO_WINDOW,
   GHOSTTY_ACTION_RESIZE_SPLIT,
   GHOSTTY_ACTION_EQUALIZE_SPLITS,
   GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM,
@@ -837,6 +850,7 @@ typedef enum {
   GHOSTTY_ACTION_END_SEARCH,
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
+  GHOSTTY_ACTION_READONLY,
   } ghostty_action_tag_e;
 
 typedef union {
@@ -845,6 +859,7 @@ typedef union {
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;
+  ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;
   ghostty_action_size_limit_s size_limit;
   ghostty_action_initial_size_s initial_size;
@@ -874,6 +889,7 @@ typedef union {
   ghostty_action_start_search_s start_search;
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
+  ghostty_action_readonly_e readonly;
 } ghostty_action_u;
 
 typedef struct {

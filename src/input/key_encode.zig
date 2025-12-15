@@ -178,7 +178,7 @@ fn kitty(
             // Quote ("report all" mode):
             // Note that all keys are reported as escape codes, including Enter,
             // Tab, Backspace etc.
-            if (effective_mods.empty()) {
+            if (binding_mods.empty()) {
                 switch (event.key) {
                     .enter => return try writer.writeByte('\r'),
                     .tab => return try writer.writeByte('\t'),
@@ -1311,7 +1311,48 @@ test "kitty: enter, backspace, tab" {
         try testing.expectEqualStrings("\x1b[9;1:3u", writer.buffered());
     }
 }
-//
+
+test "kitty: shift+backspace emits CSI u" {
+    // Backspace with shift modifier should emit CSI u sequence, not raw 0x7F.
+    // This is important for programs that want to distinguish shift+backspace.
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .backspace,
+        .mods = .{ .shift = true },
+        .utf8 = "",
+    }, .{
+        .kitty_flags = .{ .disambiguate = true },
+    });
+    try testing.expectEqualStrings("\x1b[127;2u", writer.buffered());
+}
+
+test "kitty: shift+enter emits CSI u" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .enter,
+        .mods = .{ .shift = true },
+        .utf8 = "",
+    }, .{
+        .kitty_flags = .{ .disambiguate = true },
+    });
+    try testing.expectEqualStrings("\x1b[13;2u", writer.buffered());
+}
+
+test "kitty: shift+tab emits CSI u" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .key = .tab,
+        .mods = .{ .shift = true },
+        .utf8 = "",
+    }, .{
+        .kitty_flags = .{ .disambiguate = true },
+    });
+    try testing.expectEqualStrings("\x1b[9;2u", writer.buffered());
+}
+
 test "kitty: enter with all flags" {
     var buf: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);

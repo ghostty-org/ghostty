@@ -255,7 +255,7 @@ _ghostty_deferred_init() {
         if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
           builtin command sudo "$@";
         else
-          builtin command sudo TERMINFO="$TERMINFO" "$@";
+          builtin command sudo --preserve-env=TERMINFO "$@";
         fi
       }
     fi

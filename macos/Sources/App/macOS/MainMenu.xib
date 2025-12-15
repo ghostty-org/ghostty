@@ -47,6 +47,7 @@
                 <outlet property="menuPreviousSplit" destination="Lic-px-1wg" id="Rto-CG-yRe"/>
                 <outlet property="menuQuickTerminal" destination="1pv-LF-NBJ" id="glN-5B-IGi"/>
                 <outlet property="menuQuit" destination="4sb-4s-VLi" id="qYN-S1-6UW"/>
+                <outlet property="menuReadonly" destination="xpe-ia-Yjw" id="MMT-Sl-AfD"/>
                 <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
@@ -326,6 +327,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="changeTitle:" target="-1" id="XuL-QB-Q9l"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Terminal Read-only" id="xpe-ia-Yjw">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleReadonly:" target="-1" id="Gqx-wT-K9v"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="Vkj-tP-dMZ"/>

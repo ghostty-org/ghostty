@@ -259,8 +259,9 @@ fn setupBash(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !?config.Command {
-    var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 2);
-    defer args.deinit(alloc);
+    var stack_fallback = std.heap.stackFallback(4096, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    defer cmd.deinit();
 
     // Iterator that yields each argument in the original command line.
     // This will allocate once proportionate to the command line length.
@@ -269,9 +270,9 @@ fn setupBash(
 
     // Start accumulating arguments with the executable and initial flags.
     if (iter.next()) |exe| {
-        try args.append(alloc, try alloc.dupeZ(u8, exe));
+        try cmd.appendArg(exe);
     } else return null;
-    try args.append(alloc, "--posix");
+    try cmd.appendArg("--posix");
 
     // Stores the list of intercepted command line flags that will be passed
     // to our shell integration script: --norc --noprofile
@@ -304,17 +305,17 @@ fn setupBash(
             if (std.mem.indexOfScalar(u8, arg, 'c') != null) {
                 return null;
             }
-            try args.append(alloc, try alloc.dupeZ(u8, arg));
+            try cmd.appendArg(arg);
         } else if (std.mem.eql(u8, arg, "-") or std.mem.eql(u8, arg, "--")) {
             // All remaining arguments should be passed directly to the shell
             // command. We shouldn't perform any further option processing.
-            try args.append(alloc, try alloc.dupeZ(u8, arg));
+            try cmd.appendArg(arg);
             while (iter.next()) |remaining_arg| {
-                try args.append(alloc, try alloc.dupeZ(u8, remaining_arg));
+                try cmd.appendArg(remaining_arg);
             }
             break;
         } else {
-            try args.append(alloc, try alloc.dupeZ(u8, arg));
+            try cmd.appendArg(arg);
         }
     }
     try env.put("GHOSTTY_BASH_INJECT", buf[0..inject.end]);
@@ -352,8 +353,11 @@ fn setupBash(
     );
     try env.put("ENV", integ_dir);
 
-    // Join the accumulated arguments to form the final command string.
-    return .{ .shell = try std.mem.joinZ(alloc, " ", args.items) };
+    // Get the command string from the builder, then copy it to the arena
+    // allocator. The stackFallback allocator's memory becomes invalid after
+    // this function returns, so we must copy to the arena.
+    const cmd_str = try cmd.toOwnedSlice();
+    return .{ .shell = try alloc.dupeZ(u8, cmd_str) };
 }
 
 test "bash" {

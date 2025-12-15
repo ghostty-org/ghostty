@@ -31,7 +31,7 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/ghostty-org/zig-gobject/releases/download/0.7.0-2025-11-08-23-1/ghostty-gobject-0.7.0-2025-11-08-23-1.tar.zst",
+    "url": "https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst",
     "dest": "vendor/p/gobject-0.3.0-Skun7ANLnwDvEfIpVmohcppXgOvg_I6YOJFmPIsKfXk-",
     "sha256": "d9bd4306f0081d8e4b848b6adfeabd2fab49822ee2b679eb4801dcedf5d60c48"
   },
@@ -61,7 +61,7 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251201-150531-bfb3ee1/ghostty-themes.tgz",
+    "url": "https://deps.files.ghostty.org/iterm2_themes-release-20251201-150531-bfb3ee1.tgz",
     "dest": "vendor/p/N-V-__8AANFEAwCzzNzNs3Gaq8pzGNl2BbeyFBwTyO5iZJL-",
     "sha256": "e5078f050952b33f56dabe334d2dd00fe70301ec8e6e1479d44d80909dd92149"
   },
@@ -139,13 +139,13 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/jacobsandlund/uucode/archive/31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
+    "url": "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
     "dest": "vendor/p/uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
     "sha256": "4b3a581a1806e01e8bb9ff1e4f7e6c28ba1b0b18e6c04ba8d53c24d237aef60e"
   },
   {
     "type": "archive",
-    "url": "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
+    "url": "https://deps.files.ghostty.org/vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
     "dest": "vendor/p/vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS",
     "sha256": "2e72332bc89c5b541ec6e6bd48769e1f3fb757c4006f3d1af940b54f9b088ef6"
   },
@@ -169,13 +169,13 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz",
+    "url": "https://deps.files.ghostty.org/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T.tar.gz",
     "dest": "vendor/p/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T",
     "sha256": "f90a824685f0ac5035fe5fa85af615c8055e6c6422b401503618bd537115af10"
   },
   {
     "type": "archive",
-    "url": "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
+    "url": "https://deps.files.ghostty.org/zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
     "dest": "vendor/p/zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh",
     "sha256": "3b015d928af04e9e26272bc15eb4dbb4d9a9d469eb6d290a0ddae673b77c4568"
   },
