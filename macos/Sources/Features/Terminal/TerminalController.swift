@@ -61,6 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// This will be set to the initial frame of the window from the xib on load.
     private var initialFrame: NSRect? = nil
 
+    /// Event monitor for sidebar tab switching (Cmd+1-9)
+    private var sidebarTabEventMonitor: Any? = nil
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -143,6 +146,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
+
+        // Remove sidebar tab event monitor if it exists
+        if let monitor = sidebarTabEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     // MARK: Base Controller Overrides
@@ -924,6 +932,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // use whatever the latest app-level config is.
         let config = ghostty.config
 
+        // If sidebar mode is enabled, disable native tabbing since we manage tabs in the sidebar
+        if config.macosTabSidebar {
+            window.tabbingMode = .disallowed
+
+            // Add event monitor for Cmd+1-9 tab switching in sidebar mode
+            sidebarTabEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                return self?.handleSidebarTabKeyEvent(event) ?? event
+            }
+        }
+
         // Setting all three of these is required for restoration to work.
         window.isRestorable = restorable
         if (restorable) {
@@ -1331,6 +1349,44 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabEnum = tabEnumAny as? ghostty_action_goto_tab_e else { return }
         let tabIndex: Int32 = tabEnum.rawValue
 
+        // Handle sidebar mode - switch between surfaces instead of native tabs
+        if ghostty.config.macosTabSidebar {
+            let surfaces = Array(surfaceTree)
+            guard surfaces.count > 1 else { return }
+
+            // Find current surface index
+            guard let currentIndex = surfaces.firstIndex(where: { $0 == focusedSurface }) else { return }
+
+            let finalIndex: Int
+            if tabIndex <= 0 {
+                if tabIndex == GHOSTTY_GOTO_TAB_PREVIOUS.rawValue {
+                    finalIndex = currentIndex == 0 ? surfaces.count - 1 : currentIndex - 1
+                } else if tabIndex == GHOSTTY_GOTO_TAB_NEXT.rawValue {
+                    finalIndex = currentIndex == surfaces.count - 1 ? 0 : currentIndex + 1
+                } else if tabIndex == GHOSTTY_GOTO_TAB_LAST.rawValue {
+                    finalIndex = surfaces.count - 1
+                } else {
+                    return
+                }
+            } else {
+                // The configured value is 1-indexed
+                finalIndex = min(Int(tabIndex - 1), surfaces.count - 1)
+            }
+
+            guard finalIndex >= 0 && finalIndex < surfaces.count else { return }
+            let targetSurface = surfaces[finalIndex]
+            // Post notification for TerminalView to handle the tab selection
+            NotificationCenter.default.post(
+                name: Ghostty.Notification.ghosttySelectSidebarTab,
+                object: self,
+                userInfo: [
+                    Ghostty.Notification.SidebarTabSurfaceIDKey: targetSurface.id
+                ]
+            )
+            return
+        }
+
+        // Standard native tab handling
         guard let windowController = window.windowController else { return }
         guard let tabGroup = windowController.window?.tabGroup else { return }
         let tabbedWindows = tabGroup.windows
@@ -1371,6 +1427,48 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard finalIndex >= 0 else { return }
         let targetWindow = tabbedWindows[finalIndex]
         targetWindow.makeKeyAndOrderFront(nil)
+    }
+
+    /// Handles Cmd+1-9 key events for sidebar tab switching
+    private func handleSidebarTabKeyEvent(_ event: NSEvent) -> NSEvent? {
+        // Only handle if this window is key
+        guard window?.isKeyWindow == true else { return event }
+
+        // Must have command modifier and no other modifiers (except shift for Cmd+9)
+        guard event.modifierFlags.contains(.command) else { return event }
+        let otherMods: NSEvent.ModifierFlags = [.control, .option]
+        guard event.modifierFlags.isDisjoint(with: otherMods) else { return event }
+
+        // Check for digit keys 1-9
+        guard let chars = event.charactersIgnoringModifiers,
+              let char = chars.first,
+              char >= "1" && char <= "9" else { return event }
+
+        let surfaces = Array(surfaceTree)
+        guard surfaces.count > 1 else { return event }
+
+        let tabIndex: Int
+        if char == "9" {
+            // Cmd+9 goes to last tab
+            tabIndex = surfaces.count - 1
+        } else {
+            // Cmd+1-8 goes to that tab (1-indexed)
+            tabIndex = Int(char.asciiValue! - Character("1").asciiValue!)
+            guard tabIndex < surfaces.count else { return event }
+        }
+
+        let targetSurface = surfaces[tabIndex]
+        // Post notification for TerminalView to handle the tab selection
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttySelectSidebarTab,
+            object: self,
+            userInfo: [
+                Ghostty.Notification.SidebarTabSurfaceIDKey: targetSurface.id
+            ]
+        )
+
+        // Consume the event
+        return nil
     }
 
     @objc private func onCloseTab(notification: SwiftUI.Notification) {

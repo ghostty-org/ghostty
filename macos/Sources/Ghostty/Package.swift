@@ -429,6 +429,10 @@ extension Ghostty.Notification {
     static let ghosttyGotoTab = Notification.Name("com.mitchellh.ghostty.gotoTab")
     static let GotoTabKey = ghosttyGotoTab.rawValue
 
+    /// Select sidebar tab. Has surface UUID in the userinfo.
+    static let ghosttySelectSidebarTab = Notification.Name("com.mitchellh.ghostty.selectSidebarTab")
+    static let SidebarTabSurfaceIDKey = "surfaceID"
+
     /// New tab. Has base surface config requested in userinfo.
     static let ghosttyNewTab = Notification.Name("com.mitchellh.ghostty.newTab")
 

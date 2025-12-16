@@ -799,6 +799,19 @@ class AppDelegate: NSObject,
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let config = configAny as? Ghostty.SurfaceConfiguration
 
+        // In sidebar mode, create a split instead of a native tab
+        if ghostty.config.macosTabSidebar {
+            NotificationCenter.default.post(
+                name: Ghostty.Notification.ghosttyNewSplit,
+                object: surfaceView,
+                userInfo: [
+                    "direction": GHOSTTY_SPLIT_DIRECTION_RIGHT,
+                    Ghostty.Notification.NewSurfaceConfigKey: config as Any
+                ].compactMapValues { $0 }
+            )
+            return
+        }
+
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
 

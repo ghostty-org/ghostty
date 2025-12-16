@@ -1085,9 +1085,16 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
-                    // Similar to goto_split (see comment there) about our performability,
-                    // we should make this more accurate later.
-                    guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    // Check if sidebar mode is enabled - if so, check for multiple surfaces instead of tabs
+                    if let controller = surfaceView.window?.windowController as? BaseTerminalController,
+                       controller.ghostty.config.macosTabSidebar {
+                        // In sidebar mode, we need at least 2 surfaces to switch between
+                        guard controller.surfaceTree.count > 1 else { return false }
+                    } else {
+                        // Similar to goto_split (see comment there) about our performability,
+                        // we should make this more accurate later.
+                        guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    }
 
                     NotificationCenter.default.post(
                         name: Notification.ghosttyGotoTab,

@@ -2892,6 +2892,23 @@ keybind: Keybinds = .{},
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
+/// Whether to use a sidebar for tabs instead of the native macOS tab bar.
+/// When enabled, tabs are shown in a vertical column on the left side of
+/// the window with live thumbnail previews. The sidebar takes 50% of the
+/// window width and automatically adjusts the number of columns to fit
+/// all tabs without scrolling.
+///
+/// Valid values are:
+///
+///   * `false` - Use native macOS tab bar (default)
+///   * `true` - Use sidebar with tab previews
+///
+/// This option is only supported on macOS and has no effect on other
+/// platforms.
+///
+/// Changing this option at runtime only applies to new windows.
+@"macos-tab-sidebar": bool = false,
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app
