@@ -25,7 +25,7 @@ freebsd_tests_task:
           x11-toolkits/gtk4-layer-shell \
           x11-toolkits/libadwaita
   zig_install_script:
-    - ZIG_VERSION=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon)
+    - ZIG_VERSION=$(sed -n -E 's/^[[:space:]]*\.?minimum_zig_version[[:space:]]*="([^"]+)".*/\1/p' build.zig.zon)
     - fetch -o /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-freebsd-${ZIG_VERSION}.tar.xz"
     - install -d /opt/zig
     - tar -xf /tmp/zig.tar.xz -C /opt/zig --strip-components 1
