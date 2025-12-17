@@ -48,14 +48,18 @@ pub fn processName(pid: std.c.pid_t, buf: []u8) ?[]const u8 {
 pub fn isAgentCliProcessName(name: []const u8) bool {
     // Keep this intentionally small and explicit; we'll expand to per-agent
     // icons later.
-    const known = [_][]const u8{
+    const known_prefixes = [_][]const u8{
+        // Common binary names (and variants) for the CLIs we care about.
+        //
+        // Note: these are prefix matches (case-insensitive) because many
+        // package managers install with suffixes like `-cli` or `-code`.
         "gemini",
         "codex",
         "claude",
     };
 
-    for (known) |k| {
-        if (std.ascii.eqlIgnoreCase(name, k)) return true;
+    for (known_prefixes) |k| {
+        if (std.ascii.startsWithIgnoreCase(name, k)) return true;
     }
 
     return false;
