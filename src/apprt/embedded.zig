@@ -1542,6 +1542,12 @@ pub const CAPI = struct {
         return surface.core_surface.child_exited;
     }
 
+    /// Returns true if a supported "agent CLI" is currently the foreground
+    /// process for this surface (best-effort).
+    export fn ghostty_surface_agent_running(surface: *Surface) bool {
+        return surface.core_surface.agentCliRunning();
+    }
+
     /// Returns true if the surface has a selection.
     export fn ghostty_surface_has_selection(surface: *Surface) bool {
         return surface.core_surface.hasSelection();

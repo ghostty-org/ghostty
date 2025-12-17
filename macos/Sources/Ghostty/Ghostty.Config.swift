@@ -157,6 +157,14 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        var titleAgentIndicator: Bool {
+            guard let config = self.config else { return false }
+            var v = false
+            let key = "title-agent-indicator"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         var windowSaveState: String {
             guard let config = self.config else { return "" }
             var v: UnsafePointer<Int8>? = nil

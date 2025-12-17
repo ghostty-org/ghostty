@@ -75,6 +75,21 @@ pub const Surface = extern struct {
             );
         };
 
+        /// True when we detect that a supported "agent CLI" (gemini/codex/claude)
+        /// is currently running in the foreground for this surface.
+        pub const @"agent-running" = struct {
+            pub const name = "agent-running";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = C.privateShallowFieldAccessor("agent_running"),
+                },
+            );
+        };
+
         pub const config = struct {
             pub const name = "config";
             const impl = gobject.ext.defineProperty(
@@ -587,10 +602,16 @@ pub const Surface = extern struct {
         // Progress bar
         progress_bar_timer: ?c_uint = null,
 
+        // Poll timer for updating `agent-running`.
+        agent_poll_timer: ?c_uint = null,
+
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
         // false by a parent widget.
         bell_ringing: bool = false,
+
+        // True when an agent CLI is detected as the foreground process.
+        agent_running: bool = false,
 
         /// True if this surface is in an error state. This is currently
         /// a simple boolean with no additional information on WHAT the
@@ -1716,6 +1737,13 @@ pub const Surface = extern struct {
             priv.progress_bar_timer = null;
         }
 
+        if (priv.agent_poll_timer) |timer| {
+            if (glib.Source.remove(timer) == 0) {
+                log.warn("unable to remove agent poll timer", .{});
+            }
+            priv.agent_poll_timer = null;
+        }
+
         if (priv.idle_rechild) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove idle source", .{});
@@ -2022,6 +2050,58 @@ pub const Surface = extern struct {
                 "overlay-valign",
                 &valign,
             );
+        }
+
+        // title-agent-indicator (best-effort; disabled by default)
+        if (config.@"title-agent-indicator") {
+            self.ensureAgentPollTimer();
+        } else {
+            self.stopAgentPollTimer();
+        }
+    }
+
+    fn ensureAgentPollTimer(self: *Self) void {
+        const priv = self.private();
+        if (priv.agent_poll_timer != null) return;
+
+        // Poll relatively infrequently; we only use this to keep UI state
+        // updated even if the terminal title doesn't change.
+        priv.agent_poll_timer = glib.timeoutAdd(750, onAgentPollTimer, self);
+
+        // Prime the state so enabling the flag updates quickly.
+        self.pollAgentRunning();
+    }
+
+    fn stopAgentPollTimer(self: *Self) void {
+        const priv = self.private();
+        if (priv.agent_poll_timer) |timer| {
+            _ = glib.Source.remove(timer);
+            priv.agent_poll_timer = null;
+        }
+
+        if (priv.agent_running) {
+            priv.agent_running = false;
+            self.as(gobject.Object).notifyByPspec(properties.@"agent-running".impl.param_spec);
+        }
+    }
+
+    fn onAgentPollTimer(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        self.pollAgentRunning();
+
+        return 1;
+    }
+
+    fn pollAgentRunning(self: *Self) void {
+        const priv = self.private();
+
+        const config = if (priv.config) |c| c.get() else return;
+        if (!config.@"title-agent-indicator") return;
+
+        const next = if (priv.core_surface) |core_surface| core_surface.agentCliRunning() else false;
+        if (next != priv.agent_running) {
+            priv.agent_running = next;
+            self.as(gobject.Object).notifyByPspec(properties.@"agent-running".impl.param_spec);
         }
     }
 
@@ -3301,6 +3381,7 @@ pub const Surface = extern struct {
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.@"bell-ringing".impl,
+                properties.@"agent-running".impl,
                 properties.config.impl,
                 properties.@"child-exited".impl,
                 properties.@"default-size".impl,

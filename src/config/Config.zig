@@ -2772,6 +2772,15 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"bell-features": BellFeatures = .{},
 
+/// When enabled, Ghostty will try to detect if the foreground process running
+/// in a surface is a supported "agent CLI" (currently: `gemini`, `codex`,
+/// `claude`). If so, Ghostty will prepend a sparkle emoji (✨) to the tab title.
+///
+/// This is best-effort and OS-dependent.
+///
+/// Available since: 1.2.0
+@"title-agent-indicator": bool = false,
+
 /// If `audio` is an enabled bell feature, this is a path to an audio file. If
 /// the path is not absolute, it is considered relative to the directory of the
 /// configuration file that it is referenced from, or from the current working

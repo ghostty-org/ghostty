@@ -375,10 +375,12 @@ pub const Tab = extern struct {
         override_: ?[*:0]const u8,
         zoomed_: c_int,
         bell_ringing_: c_int,
+        agent_running_: c_int,
         _: *gobject.ParamSpec,
     ) callconv(.c) ?[*:0]const u8 {
         const zoomed = zoomed_ != 0;
         const bell_ringing = bell_ringing_ != 0;
+        const agent_running = agent_running_ != 0;
 
         // Our plain title is the overridden title if it exists, otherwise
         // the terminal title if it exists, otherwise a default string.
@@ -408,6 +410,11 @@ pub const Tab = extern struct {
         // Use an allocator to build up our string as we write it.
         var buf: std.Io.Writer.Allocating = .init(Application.default().allocator());
         defer buf.deinit();
+
+        // If an agent CLI is running, prefix with a sparkle emoji.
+        if (agent_running and config.@"title-agent-indicator") {
+            buf.writer.writeAll("✨ ") catch {};
+        }
 
         // If our bell is ringing, then we prefix the bell icon to the title.
         if (bell_ringing and config.@"bell-features".title) {

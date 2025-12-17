@@ -34,6 +34,7 @@ const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
 const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
+const foreground_process = @import("os/foreground_process.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
 
@@ -921,6 +922,33 @@ pub fn needsConfirmQuit(self: *Surface) bool {
             break :true !self.io.terminal.cursorIsAtPrompt();
         },
     };
+}
+
+/// Returns true if we can detect that a supported "agent CLI" is currently the
+/// foreground process for this surface.
+///
+/// This is intentionally best-effort (and behind a UI config flag) because
+/// foreground process detection is OS-dependent and may fail in some
+/// sandboxing/permission scenarios.
+pub fn agentCliRunning(self: *Surface) bool {
+    if (comptime builtin.os.tag == .windows) return false;
+    if (comptime builtin.os.tag == .ios) return false;
+
+    // Only exec is supported today; other backends can return false.
+    const pty_master_fd: std.posix.fd_t = switch (self.io.backend) {
+        .exec => |exec| blk: {
+            const pty = exec.subprocess.pty orelse return false;
+            break :blk pty.master;
+        },
+    };
+
+    var name_buf: [256]u8 = undefined;
+    const name = foreground_process.foregroundProcessNameFromPtyMaster(
+        pty_master_fd,
+        name_buf[0..],
+    ) orelse return false;
+
+    return foreground_process.isAgentCliProcessName(name);
 }
 
 /// Called from the app thread to handle mailbox messages to our specific

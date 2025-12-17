@@ -766,9 +766,8 @@ class BaseTerminalController: NSWindowController,
         if let titleSurface = focusedSurface ?? lastFocusedSurface,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
-            titleSurface.$title
-                .combineLatest(titleSurface.$bell)
-                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
+            Publishers.CombineLatest3(titleSurface.$title, titleSurface.$bell, titleSurface.$agentRunning)
+                .map { [weak self] in self?.computeTitle(title: $0, bell: $1, agentRunning: $2) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -777,13 +776,18 @@ class BaseTerminalController: NSWindowController,
         }
     }
     
-    private func computeTitle(title: String, bell: Bool) -> String {
-        var result = title
-        if (bell && ghostty.config.bellFeatures.contains(.title)) {
-            result = "🔔 \(result)"
+    private func computeTitle(title: String, bell: Bool, agentRunning: Bool) -> String {
+        var prefixes: [String] = []
+
+        if agentRunning && ghostty.config.titleAgentIndicator {
+            prefixes.append("✨")
+        }
+        if bell && ghostty.config.bellFeatures.contains(.title) {
+            prefixes.append("🔔")
         }
 
-        return result
+        if prefixes.isEmpty { return title }
+        return prefixes.joined(separator: " ") + " " + title
     }
 
     private func titleDidChange(to: String) {

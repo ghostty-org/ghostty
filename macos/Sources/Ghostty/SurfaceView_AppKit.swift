@@ -123,6 +123,13 @@ extension Ghostty {
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
 
+        /// True when an "agent CLI" (gemini/codex/claude) is detected as the
+        /// foreground process for this surface.
+        ///
+        /// This is best-effort and is only used when enabled by config
+        /// (`title-agent-indicator`).
+        @Published private(set) var agentRunning: Bool = false
+
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
 
@@ -219,6 +226,9 @@ extension Ghostty {
         
         // Timer to remove progress report after 15 seconds
         private var progressReportTimer: Timer?
+
+        // Timer to periodically update `agentRunning`.
+        private var agentRunningTimer: Timer?
 
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
@@ -377,6 +387,11 @@ extension Ghostty {
             }
             self.surfaceModel = Ghostty.Surface(cSurface: surface)
 
+            // Poll the foreground process name periodically so we can update UI
+            // indicators (tab title prefix) even if the terminal title itself
+            // doesn't change.
+            startAgentRunningTimer()
+
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
 
@@ -413,6 +428,39 @@ extension Ghostty {
             
             // Cancel progress report timer
             progressReportTimer?.invalidate()
+
+            // Cancel agent running timer
+            agentRunningTimer?.invalidate()
+        }
+
+        private func startAgentRunningTimer() {
+            guard agentRunningTimer == nil else { return }
+
+            // Poll relatively infrequently; this is lightweight but shouldn't
+            // run on every frame.
+            agentRunningTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
+                self?.refreshAgentRunning()
+            }
+
+            // Prime the state immediately.
+            refreshAgentRunning()
+        }
+
+        private func refreshAgentRunning() {
+            guard let surface else {
+                if agentRunning { agentRunning = false }
+                return
+            }
+
+            // Skip work unless explicitly enabled.
+            let enabled = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config.titleAgentIndicator ?? false
+            if !enabled {
+                if agentRunning { agentRunning = false }
+                return
+            }
+
+            let next = ghostty_surface_agent_running(surface)
+            if next != agentRunning { agentRunning = next }
         }
 
         func focusDidChange(_ focused: Bool) {
