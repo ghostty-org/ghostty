@@ -33,3 +33,5 @@ freebsd_tests_task:
     - zig version
   test_script:
     - zig build test
+    - zig build
+    - ./zig-out/bin/ghostty +version
