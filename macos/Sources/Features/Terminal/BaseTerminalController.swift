@@ -447,6 +447,89 @@ class BaseTerminalController: NSWindowController,
         )
     }
 
+    /// Snapshot capturing both sides of a detach operation. The split tree rooted at the
+    /// requested surface is stored in `detachedTree`, while `remainingTree` represents the
+    /// layout left behind after removal. The original `previousTree` and focus bookkeeping
+    /// let callers restore or redo the exact state as part of an undo cycle.
+    struct DetachedSurface {
+        let detachedTree: SplitTree<Ghostty.SurfaceView>
+        let remainingTree: SplitTree<Ghostty.SurfaceView>
+        let previousTree: SplitTree<Ghostty.SurfaceView>
+        let previousFocus: Ghostty.SurfaceView?
+        let nextFocus: Ghostty.SurfaceView?
+    }
+
+    /// Returns whether the provided surface view can be separated from the current tree.
+    func canDetachSurface(_ view: Ghostty.SurfaceView) -> Bool {
+        guard surfaceTree.count > 1, let root = surfaceTree.root else { return false }
+        return root.node(view: view) != nil
+    }
+
+    /// Detaches `view` into its own split tree and returns the snapshot representing the detached
+    /// and remaining trees. When `recordUndo` is true the undo stack is updated to reflect the
+    /// separation.
+    @discardableResult
+    func detachSurface(_ view: Ghostty.SurfaceView, recordUndo: Bool = false) -> DetachedSurface? {
+        guard canDetachSurface(view),
+              let root = surfaceTree.root,
+              let node = root.node(view: view) else { return nil }
+
+        let previousTree = surfaceTree
+        let oldFocus = focusedSurface
+        let containsFocusedSurface = node.contains { $0 == oldFocus }
+        let nextFocus = containsFocusedSurface ? findNextFocusTargetAfterClosing(node: node) : nil
+        let detachedTree = SplitTree(root: node, zoomed: nil)
+        let remainingTree = surfaceTree.remove(node)
+
+        let apply: () -> Void = {
+            self.replaceSurfaceTree(
+                remainingTree,
+                moveFocusTo: containsFocusedSurface ? nextFocus : nil,
+                moveFocusFrom: containsFocusedSurface ? oldFocus : nil,
+                undoAction: recordUndo ? "Separate Terminal" : nil
+            )
+        }
+
+        if recordUndo, let undoManager {
+            apply()
+        } else if let undoManager {
+            undoManager.disableUndoRegistration {
+                apply()
+            }
+        } else {
+            apply()
+        }
+
+        return DetachedSurface(
+            detachedTree: detachedTree,
+            remainingTree: remainingTree,
+            previousTree: previousTree,
+            previousFocus: oldFocus,
+            nextFocus: nextFocus
+        )
+    }
+
+    /// Restores the tree to the pre-detach state captured in `snapshot`.
+    func restoreDetachedSurface(_ snapshot: DetachedSurface) {
+        if let undoManager {
+            undoManager.disableUndoRegistration {
+                replaceSurfaceTree(
+                    snapshot.previousTree,
+                    moveFocusTo: snapshot.previousFocus,
+                    moveFocusFrom: focusedSurface,
+                    undoAction: nil
+                )
+            }
+        } else {
+            replaceSurfaceTree(
+                snapshot.previousTree,
+                moveFocusTo: snapshot.previousFocus,
+                moveFocusFrom: focusedSurface,
+                undoAction: nil
+            )
+        }
+    }
+
     private func replaceSurfaceTree(
         _ newTree: SplitTree<Ghostty.SurfaceView>,
         moveFocusTo newView: Ghostty.SurfaceView? = nil,
@@ -489,6 +572,52 @@ class BaseTerminalController: NSWindowController,
                         undoAction: undoAction)
                 }
             }
+        }
+    }
+
+    /// Applies the remaining-tree portion of `snapshot` without modifying the undo stack.
+    private func applyDetachedSurface(_ snapshot: DetachedSurface) {
+        if let undoManager {
+            undoManager.disableUndoRegistration {
+                replaceSurfaceTree(
+                    snapshot.remainingTree,
+                    moveFocusTo: snapshot.nextFocus,
+                    moveFocusFrom: focusedSurface,
+                    undoAction: nil
+                )
+            }
+        } else {
+            replaceSurfaceTree(
+                snapshot.remainingTree,
+                moveFocusTo: snapshot.nextFocus,
+                moveFocusFrom: focusedSurface,
+                undoAction: nil
+            )
+        }
+    }
+
+    /// Registers an undo entry that restores `snapshot` and installs a redo handler.
+    func registerDetachUndo(_ snapshot: DetachedSurface) {
+        guard let undoManager else { return }
+        undoManager.setActionName("Separate Terminal")
+        undoManager.registerUndo(
+            withTarget: self,
+            expiresAfter: undoExpiration
+        ) { target in
+            target.restoreDetachedSurface(snapshot)
+            target.registerDetachRedo(snapshot)
+        }
+    }
+
+    /// Registers the redo side of the detach undo pair.
+    private func registerDetachRedo(_ snapshot: DetachedSurface) {
+        guard let undoManager else { return }
+        undoManager.registerUndo(
+            withTarget: self,
+            expiresAfter: undoExpiration
+        ) { target in
+            target.applyDetachedSurface(snapshot)
+            target.registerDetachUndo(snapshot)
         }
     }
 
