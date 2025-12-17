@@ -10,19 +10,20 @@ freebsd_tests_task:
     CIRRUS_CLONE_DEPTH: 1
   install_script:
     - pkg update -f
-    - pkg install -y \
-      ca_root_nss \
-      curl \
-      blueprint-compiler \
-      gettext \
-      git \
-      pkgconf \
-      wayland \
-      hs-pandoc \
-      jetbrains-mono \
-      gtk4 \
-      gtk4-layer-shell \
-      libadwaita
+    - |
+        pkg install -y \
+          ca_root_nss \
+          curl \
+          devel/blueprint-compiler \
+          devel/gettext \
+          devel/git \
+          devel/pkgconf \
+          graphics/wayland \
+          textproc/hs-pandoc \
+          x11-fonts/jetbrains-mono \
+          x11-toolkits/gtk40 \
+          x11-toolkits/gtk4-layer-shell \
+          x11-toolkits/libadwaita
   zig_install_script:
     - ZIG_VERSION=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon)
     - fetch -o /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-freebsd-${ZIG_VERSION}.tar.xz"
