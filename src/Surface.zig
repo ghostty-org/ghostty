@@ -942,13 +942,7 @@ pub fn agentCliRunning(self: *Surface) bool {
         },
     };
 
-    var name_buf: [256]u8 = undefined;
-    const name = foreground_process.foregroundProcessNameFromPtyMaster(
-        pty_master_fd,
-        name_buf[0..],
-    ) orelse return false;
-
-    return foreground_process.isAgentCliProcessName(name);
+    return foreground_process.isAgentCliFromPtyMaster(pty_master_fd);
 }
 
 /// Called from the app thread to handle mailbox messages to our specific

@@ -389,8 +389,8 @@ extension Ghostty {
 
             // Poll the foreground process name periodically so we can update UI
             // indicators (tab title prefix) even if the terminal title itself
-            // doesn't change.
-            startAgentRunningTimer()
+            // doesn't change. This is only enabled when configured.
+            updateAgentRunningTimer()
 
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
@@ -444,6 +444,22 @@ extension Ghostty {
 
             // Prime the state immediately.
             refreshAgentRunning()
+        }
+
+        private func stopAgentRunningTimer() {
+            agentRunningTimer?.invalidate()
+            agentRunningTimer = nil
+
+            if agentRunning { agentRunning = false }
+        }
+
+        private func updateAgentRunningTimer() {
+            let enabled = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config.titleAgentIndicator ?? false
+            if enabled {
+                startAgentRunningTimer()
+            } else {
+                stopAgentRunningTimer()
+            }
         }
 
         private func refreshAgentRunning() {
@@ -737,6 +753,7 @@ extension Ghostty {
             // Update our derived config
             DispatchQueue.main.async { [weak self] in
                 self?.derivedConfig = DerivedConfig(config)
+                self?.updateAgentRunningTimer()
             }
         }
 
