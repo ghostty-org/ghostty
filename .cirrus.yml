@@ -32,4 +32,4 @@ freebsd_tests_task:
     - ln -sf /opt/zig/zig /usr/local/bin/zig
     - zig version
   test_script:
-    - zig build -Dapp-runtime=none test
+    - zig build test
