@@ -820,6 +820,22 @@ palette: Palette = .{},
 /// the mouse is shown again when a new window, tab, or split is created.
 @"mouse-hide-while-typing": bool = false,
 
+/// Hide the mouse after a period of mouse inactivity (no mouse movement).
+/// When set, the mouse is hidden once it has been idle for at least this long
+/// and becomes visible again when the mouse is used (button, movement, etc.).
+/// Typing does not affect the idle timer for this configuration; once the
+/// mouse has been idle long enough to hide, it will remain hidden while
+/// typing until the mouse is moved again.
+///
+/// Set this to a duration such as `5s` to hide the mouse 5 seconds after the
+/// last mouse movement. The default value of `0` disables this behavior.
+///
+/// This is not mutually exclusive with `mouse-hide-while-typing`; both can be
+/// enabled at the same time.
+///
+/// Available since 1.3.0
+@"mouse-hide-after": Duration = .{ .duration = 0 },
+
 /// When to scroll the surface to the bottom. The format of this is a list of
 /// options to enable separated by commas. If you prefix an option with `no-`
 /// then it is disabled. If you omit an option, its default value is used.

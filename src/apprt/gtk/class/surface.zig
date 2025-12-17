@@ -587,6 +587,11 @@ pub const Surface = extern struct {
         // Progress bar
         progress_bar_timer: ?c_uint = null,
 
+        /// Timer source id for `mouse-hide-after` idle hiding. When non-null,
+        /// a one-shot GLib timeout is scheduled to hide the mouse after the
+        /// configured idle duration.
+        mouse_hide_after_timer: ?c_uint = null,
+
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
         // false by a parent widget.
@@ -908,6 +913,23 @@ pub const Surface = extern struct {
         const priv = self.private();
         priv.progress_bar_timer = null;
         self.setProgressReport(.{ .state = .remove });
+        return @intFromBool(glib.SOURCE_REMOVE);
+    }
+
+    /// Timer callback for `mouse-hide-after`. Hides the mouse after a period
+    /// of no mouse movement by delegating to the core surface.
+    fn mouseHideAfterTimer(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse
+            return @intFromBool(glib.SOURCE_REMOVE)));
+        const priv = self.private();
+
+        // Clear our timer handle first to avoid reusing it.
+        priv.mouse_hide_after_timer = null;
+
+        if (priv.core_surface) |surface| {
+            surface.maybeHideMouseAfterIdle();
+        }
+
         return @intFromBool(glib.SOURCE_REMOVE);
     }
 
@@ -1720,6 +1742,13 @@ pub const Surface = extern struct {
                 log.warn("unable to remove progress bar timer", .{});
             }
             priv.progress_bar_timer = null;
+        }
+
+        if (priv.mouse_hide_after_timer) |timer| {
+            if (glib.Source.remove(timer) == 0) {
+                log.warn("unable to remove mouse hide-after timer", .{});
+            }
+            priv.mouse_hide_after_timer = null;
         }
 
         if (priv.idle_rechild) |v| {
@@ -2659,6 +2688,25 @@ pub const Surface = extern struct {
 
         // Our pos changed, update
         priv.cursor_pos = pos;
+
+        // Reset `mouse-hide-after` idle timer if configured.
+        if (priv.mouse_hide_after_timer) |timer| {
+            if (glib.Source.remove(timer) == 0) {
+                log.warn("unable to remove mouse hide-after timer", .{});
+            }
+            priv.mouse_hide_after_timer = null;
+        }
+        if (priv.config) |config_obj| {
+            const cfg = config_obj.get();
+            const ms = cfg.@"mouse-hide-after".asMilliseconds();
+            if (ms > 0) {
+                priv.mouse_hide_after_timer = glib.timeoutAdd(
+                    ms,
+                    mouseHideAfterTimer,
+                    self,
+                );
+            }
+        }
 
         // Notify the callback
         if (priv.core_surface) |surface| {

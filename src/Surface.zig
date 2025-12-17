@@ -243,6 +243,9 @@ const Mouse = struct {
     /// True if the mouse is hidden
     hidden: bool = false,
 
+    /// The last time we observed mouse movement
+    last_move_time: ?std.time.Instant = null,
+
     /// True if the mouse position is currently over a link.
     over_link: bool = false,
 
@@ -298,6 +301,7 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
+    mouse_hide_after: Duration,
     mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
@@ -373,6 +377,7 @@ const DerivedConfig = struct {
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
+            .mouse_hide_after = config.@"mouse-hide-after",
             .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
@@ -1537,6 +1542,23 @@ fn modsChanged(self: *Surface, mods: input.Mods) void {
     }
 }
 
+/// Hide the mouse if `mouse-hide-after` is configured and the mouse has been
+/// idle (no movement) for at least that duration.
+pub fn maybeHideMouseAfterIdle(self: *Surface) void {
+    if (self.config.mouse_hide_after.duration == 0 or self.mouse.hidden) return;
+
+    const now = std.time.Instant.now() catch {
+        return;
+    };
+
+    const last = self.mouse.last_move_time orelse return;
+
+    const since = now.since(last);
+    if (since >= self.config.mouse_hide_after.duration) {
+        self.hideMouse();
+    }
+}
+
 /// Call this whenever the mouse moves or mods changed. The time
 /// at which this is called may matter for the correctness of other
 /// mouse events (see cursorPosCallback) but this is shared logic
@@ -2558,6 +2580,10 @@ pub fn keyCallback(
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
+
+    // If the mouse has been idle long enough, hide it. Typing does not reset
+    // the idle timer; we only track mouse movement for this.
+    self.maybeHideMouseAfterIdle();
 
     // Setup our inspector event if we have an inspector.
     var insp_ev: ?inspectorpkg.key.Event = if (self.inspector != null) ev: {
@@ -4372,6 +4398,12 @@ pub fn cursorPosCallback(
     defer crash.sentry.thread_state = null;
 
     // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
+
+    // Any cursor position update is considered mouse movement and resets the
+    // idle timer used by `mouse-hide-after`.
+    if (std.time.Instant.now()) |now| {
+        self.mouse.last_move_time = now;
+    } else |_| {}
 
     // If the position is negative, it is outside our viewport and
     // we need to clear any hover states.
