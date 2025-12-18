@@ -78,6 +78,7 @@ pub fn build(b: *std.Build) !void {
         try flags.appendSlice(b.allocator, &.{
             "-fmath-errno",
             "-fno-exceptions",
+            "-fPIC",
         });
     }
 
