@@ -10,7 +10,6 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
-        .pic = true,
     });
 
     const lib = b.addLibrary(.{
@@ -18,7 +17,6 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .pic = true,
         }),
         .linkage = .static,
     });
@@ -113,7 +111,6 @@ pub fn build(b: *std.Build) !void {
                 .root_source_file = b.path("main.zig"),
                 .target = target,
                 .optimize = optimize,
-                .pic = true,
             }),
         });
         test_exe.linkLibrary(lib);
