@@ -56,9 +56,6 @@ pub const StreamHandler = struct {
     /// The clipboard write access configuration.
     clipboard_write: configpkg.ClipboardAccess,
 
-    /// The scroll-to-bottom behavior configuration.
-    scroll_to_bottom_on_output: bool,
-
     //---------------------------------------------------------------
     // Internal state
 
@@ -115,7 +112,6 @@ pub const StreamHandler = struct {
         self.enquiry_response = config.enquiry_response;
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
-        self.scroll_to_bottom_on_output = config.scroll_to_bottom.output;
 
         // If our cursor is the default, then we update it immediately.
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
@@ -579,11 +575,6 @@ pub const StreamHandler = struct {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
-
-        // If configured, scroll to bottom on output so the user sees new content
-        if (self.scroll_to_bottom_on_output) {
-            try self.terminal.scrollViewport(.bottom);
-        }
     }
 
     pub inline fn reverseIndex(self: *StreamHandler) !void {
