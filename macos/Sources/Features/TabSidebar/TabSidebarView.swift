@@ -37,44 +37,45 @@ struct TabSidebarView: View {
     let onCloseTab: (UUID) -> Void
     let onSelectTab: (UUID) -> Void
 
-    /// Calculates the optimal number of columns to fit all tabs without scrolling
+    /// Fixed column count based on number of tabs
     private var columnCount: Int {
-        guard tabItems.count > 0 else { return 1 }
-
-        // Get the aspect ratio from the first preview
-        guard let firstItem = tabItems.first,
-              let preview = previewManager.previews[firstItem.surfaceID],
-              preview.size.width > 0, preview.size.height > 0 else {
-            return 1
+        let count = tabItems.count
+        if count <= 4 {
+            return 2
+        } else if count <= 9 {
+            return 3
+        } else {
+            return 4
         }
+    }
 
-        let previewAspectRatio = preview.size.width / preview.size.height
-        let padding: CGFloat = 16 // horizontal padding
-        let spacing: CGFloat = 8  // spacing between items
-        let verticalPadding: CGFloat = 24 // top and bottom padding
-        let titleHeight: CGFloat = 20 // approximate height for title + padding
-        let buttonHeight: CGFloat = 50 // height for the New Tab button area
+    /// Calculate the optimal item height to fill available space without scrolling
+    private var itemSize: CGSize {
+        let cols = columnCount
+        let rows = Int(ceil(Double(tabItems.count) / Double(cols)))
 
-        let availableHeight = sidebarHeight - verticalPadding - buttonHeight
+        let horizontalPadding: CGFloat = 16 // 8 on each side
+        let verticalPadding: CGFloat = 24   // 12 on top and bottom
+        let spacing: CGFloat = 8
+        let buttonHeight: CGFloat = 50      // New Tab button area
+        let titleHeight: CGFloat = 24       // Title + spacing
+        let itemPadding: CGFloat = 12       // 6 on each side
 
-        // Find the minimum number of columns that fits all tabs without scrolling
-        for columns in 1...12 {
-            let totalHSpacing = spacing * CGFloat(columns - 1)
-            let columnWidth = (sidebarWidth - padding - totalHSpacing) / CGFloat(columns)
-            let previewHeight = columnWidth / previewAspectRatio
-            let itemHeight = previewHeight + titleHeight + 12 // 12 for item padding
+        // Calculate available width per item
+        let totalHSpacing = spacing * CGFloat(cols - 1)
+        let availableWidth = sidebarWidth - horizontalPadding - totalHSpacing
+        let itemWidth = availableWidth / CGFloat(cols)
 
-            let rows = ceil(Double(tabItems.count) / Double(columns))
-            let totalVSpacing = spacing * CGFloat(rows - 1)
-            let totalContentHeight = itemHeight * CGFloat(rows) + totalVSpacing
+        // Calculate available height per item
+        let totalVSpacing = spacing * CGFloat(rows - 1)
+        let availableHeight = sidebarHeight - verticalPadding - buttonHeight - totalVSpacing
+        let itemHeight = availableHeight / CGFloat(rows)
 
-            // If all items fit in the available height, use this column count
-            if totalContentHeight <= availableHeight {
-                return columns
-            }
-        }
+        // Preview height is item height minus title and padding
+        let previewHeight = itemHeight - titleHeight - itemPadding
+        let previewWidth = itemWidth - itemPadding
 
-        return 12 // Maximum columns
+        return CGSize(width: previewWidth, height: previewHeight)
     }
 
     private var columns: [GridItem] {
@@ -83,23 +84,24 @@ struct TabSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab list with scroll
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(tabItems) { item in
-                        TabSidebarItemView(
-                            item: item,
-                            preview: previewManager.previews[item.surfaceID],
-                            isSelected: item.surfaceID == selectedSurfaceID,
-                            onSelect: { onSelectTab(item.surfaceID) },
-                            onClose: { onCloseTab(item.surfaceID) },
-                            onNewTab: onNewTab
-                        )
-                    }
+            // Tab grid (no scroll - items sized to fit)
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(tabItems) { item in
+                    TabSidebarItemView(
+                        item: item,
+                        preview: previewManager.previews[item.surfaceID],
+                        previewSize: itemSize,
+                        isSelected: item.surfaceID == selectedSurfaceID,
+                        onSelect: { onSelectTab(item.surfaceID) },
+                        onClose: { onCloseTab(item.surfaceID) },
+                        onNewTab: onNewTab
+                    )
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 12)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 12)
+
+            Spacer()
 
             Divider()
 
@@ -130,6 +132,7 @@ struct TabSidebarView: View {
 struct TabSidebarItemView: View {
     let item: SidebarTabItem
     let preview: NSImage?
+    let previewSize: CGSize
     let isSelected: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
@@ -143,7 +146,7 @@ struct TabSidebarItemView: View {
             // Preview thumbnail
             ZStack(alignment: .topTrailing) {
                 previewImage
-                    .frame(maxWidth: .infinity)
+                    .frame(width: previewSize.width, height: previewSize.height)
                     .clipped()
                     .cornerRadius(6)
 
@@ -221,7 +224,7 @@ struct TabSidebarItemView: View {
         if let preview = preview {
             Image(nsImage: preview)
                 .resizable()
-                .aspectRatio(contentMode: .fit)
+                .aspectRatio(contentMode: .fill)
         } else {
             Rectangle()
                 .fill(Color.gray.opacity(0.3))

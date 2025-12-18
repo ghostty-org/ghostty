@@ -20,7 +20,36 @@ extension NSView {
 
 extension NSView {
     /// Take a screenshot of just this view.
+    /// Uses CGWindowListCreateImage for Metal-backed views which don't support bitmapImageRepForCachingDisplay.
     func screenshot() -> NSImage? {
+        // For views in a window, use CGWindowListCreateImage which works with Metal
+        if let window = self.window, let cgWindowId = window.cgWindowId {
+            // Convert view bounds to screen coordinates
+            let viewFrameInWindow = convert(bounds, to: nil)
+            let viewFrameOnScreen = window.convertToScreen(viewFrameInWindow)
+
+            // CGWindowListCreateImage uses top-left origin coordinate system
+            guard let mainScreen = NSScreen.main else { return nil }
+            let flippedY = mainScreen.frame.maxY - viewFrameOnScreen.maxY
+            let captureRect = CGRect(
+                x: viewFrameOnScreen.origin.x,
+                y: flippedY,
+                width: viewFrameOnScreen.width,
+                height: viewFrameOnScreen.height
+            )
+
+            // Capture just this window's content in the specified rect
+            guard let cgImage = CGWindowListCreateImage(
+                captureRect,
+                .optionIncludingWindow,
+                cgWindowId,
+                [.boundsIgnoreFraming, .nominalResolution]
+            ) else { return nil }
+
+            return NSImage(cgImage: cgImage, size: bounds.size)
+        }
+
+        // Fallback for views not in a window
         guard let bitmapRep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
         cacheDisplay(in: bounds, to: bitmapRep)
         let image = NSImage(size: bounds.size)
