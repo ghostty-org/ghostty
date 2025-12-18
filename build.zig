@@ -318,8 +318,3 @@ pub fn build(b: *std.Build) !void {
         try translations_step.addError("cannot update translations when i18n is disabled", .{});
     }
 }
-
-/// Marker used by Config.zig to detect if ghostty is the build root.
-/// This avoids running logic such as Git tag checking when Ghostty
-/// is used as a dependency.
-pub const _ghostty_build_root = true;

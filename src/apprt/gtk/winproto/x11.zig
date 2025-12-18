@@ -173,6 +173,12 @@ pub const Window = struct {
 
     blur_region: Region = .{},
 
+    // Cache last applied values to avoid redundant X11 property updates.
+    // Redundant property updates seem to cause some visual glitches
+    // with some window managers: https://github.com/ghostty-org/ghostty/pull/8075
+    last_applied_blur_region: ?Region = null,
+    last_applied_decoration_hints: ?MotifWMHints = null,
+
     pub fn init(
         alloc: Allocator,
         app: *App,
@@ -255,30 +261,42 @@ pub const Window = struct {
         const gtk_widget = self.apprt_window.as(gtk.Widget);
         const config = if (self.apprt_window.getConfig()) |v| v.get() else return;
 
+        // When blur is disabled, remove the property if it was previously set
+        const blur = config.@"background-blur";
+        if (!blur.enabled()) {
+            if (self.last_applied_blur_region != null) {
+                try self.deleteProperty(self.app.atoms.kde_blur);
+                self.last_applied_blur_region = null;
+            }
+
+            return;
+        }
+
         // Transform surface coordinates to device coordinates.
         const scale = gtk_widget.getScaleFactor();
         self.blur_region.width = gtk_widget.getWidth() * scale;
         self.blur_region.height = gtk_widget.getHeight() * scale;
 
-        const blur = config.@"background-blur";
+        // Only update X11 properties when the blur region actually changes
+        if (self.last_applied_blur_region) |last| {
+            if (std.meta.eql(self.blur_region, last)) return;
+        }
+
         log.debug("set blur={}, window xid={}, region={}", .{
             blur,
             self.x11_surface.getXid(),
             self.blur_region,
         });
 
-        if (blur.enabled()) {
-            try self.changeProperty(
-                Region,
-                self.app.atoms.kde_blur,
-                c.XA_CARDINAL,
-                ._32,
-                .{ .mode = .replace },
-                &self.blur_region,
-            );
-        } else {
-            try self.deleteProperty(self.app.atoms.kde_blur);
-        }
+        try self.changeProperty(
+            Region,
+            self.app.atoms.kde_blur,
+            c.XA_CARDINAL,
+            ._32,
+            .{ .mode = .replace },
+            &self.blur_region,
+        );
+        self.last_applied_blur_region = self.blur_region;
     }
 
     fn syncDecorations(self: *Window) !void {
@@ -307,6 +325,11 @@ pub const Window = struct {
             .auto, .client, .none => false,
         };
 
+        // Only update decoration hints when they actually change
+        if (self.last_applied_decoration_hints) |last| {
+            if (std.meta.eql(hints, last)) return;
+        }
+
         try self.changeProperty(
             MotifWMHints,
             self.app.atoms.motif_wm_hints,
@@ -315,6 +338,7 @@ pub const Window = struct {
             .{ .mode = .replace },
             &hints,
         );
+        self.last_applied_decoration_hints = hints;
     }
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {

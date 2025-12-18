@@ -561,6 +561,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             vsync: bool,
             colorspace: configpkg.Config.WindowColorspace,
             blending: configpkg.Config.AlphaBlending,
+            background_blur: configpkg.Config.BackgroundBlur,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -633,6 +634,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .vsync = config.@"window-vsync",
                     .colorspace = config.@"window-colorspace",
                     .blending = config.@"alpha-blending",
+                    .background_blur = config.@"background-blur",
                     .arena = arena,
                 };
             }
@@ -716,6 +718,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         options.config.background.r,
                         options.config.background.g,
                         options.config.background.b,
+                        // Note that if we're on macOS with glass effects
+                        // we'll disable background opacity but we handle
+                        // that in updateFrame.
                         @intFromFloat(@round(options.config.background_opacity * 255.0)),
                     },
                     .bools = .{
@@ -1294,6 +1299,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.terminal_state.colors.background.g,
                     self.terminal_state.colors.background.b,
                     @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                };
+
+                // If we're on macOS and have glass styles, we remove
+                // the background opacity because the glass effect handles
+                // it.
+                if (comptime builtin.os.tag == .macos) switch (self.config.background_blur) {
+                    .@"macos-glass-regular",
+                    .@"macos-glass-clear",
+                    => self.uniforms.bg_color[3] = 0,
+
+                    else => {},
                 };
             }
         }

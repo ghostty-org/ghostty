@@ -78,10 +78,16 @@ on the Fish startup process, see the
 
 ### Zsh
 
-For `zsh`, Ghostty sets `ZDOTDIR` so that it loads our configuration
-from the `zsh` directory. The existing `ZDOTDIR` is retained so that
-after loading the Ghostty shell integration the normal Zsh loading
-sequence occurs.
+Automatic [Zsh](https://www.zsh.org/) integration works by temporarily setting
+`ZDOTDIR` to our `zsh` directory. An existing `ZDOTDIR` environment variable
+value will be retained and restored after our shell integration scripts are
+run.
+
+However, if `ZDOTDIR` is set in a system-wide file like `/etc/zshenv`, it will
+override Ghostty's `ZDOTDIR` value, preventing the shell integration from being
+loaded. In this case, the shell integration needs to be loaded manually.
+
+To load the Zsh shell integration manually:
 
 ```zsh
 if [[ -n $GHOSTTY_RESOURCES_DIR ]]; then

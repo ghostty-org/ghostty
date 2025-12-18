@@ -612,6 +612,9 @@ pub fn init(
         };
         errdefer env.deinit();
 
+        // don't leak GHOSTTY_LOG to any subprocesses
+        env.remove("GHOSTTY_LOG");
+
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,
@@ -2054,6 +2057,29 @@ pub fn pwd(
     defer self.renderer_state.mutex.unlock();
     const terminal_pwd = self.io.terminal.getPwd() orelse return null;
     return try alloc.dupe(u8, terminal_pwd);
+}
+
+/// Resolves a relative file path to an absolute path using the terminal's pwd.
+fn resolvePathForOpening(
+    self: *Surface,
+    path: []const u8,
+) Allocator.Error!?[]const u8 {
+    if (!std.fs.path.isAbsolute(path)) {
+        const terminal_pwd = self.io.terminal.getPwd() orelse {
+            return null;
+        };
+
+        const resolved = try std.fs.path.resolve(self.alloc, &.{ terminal_pwd, path });
+
+        std.fs.accessAbsolute(resolved, .{}) catch {
+            self.alloc.free(resolved);
+            return null;
+        };
+
+        return resolved;
+    }
+
+    return null;
 }
 
 /// Returns the x/y coordinate of where the IME (Input Method Editor)
@@ -4288,7 +4314,12 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try self.openUrl(.{ .kind = .unknown, .url = str });
+
+            const resolved_path = try self.resolvePathForOpening(str);
+            defer if (resolved_path) |p| self.alloc.free(p);
+
+            const url_to_open = resolved_path orelse str;
+            try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
         },
 
         ._open_osc8 => {
@@ -5522,6 +5553,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_command_palette,
+            {},
+        ),
+
+        .toggle_background_opacity => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_background_opacity,
             {},
         ),
 

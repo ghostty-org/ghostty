@@ -18,63 +18,6 @@ struct TerminalCommandPaletteView: View {
     /// The callback when an action is submitted.
     var onAction: ((String) -> Void)
 
-    // The commands available to the command palette.
-    private var commandOptions: [CommandOption] {
-        var options: [CommandOption] = []
-        
-        // Add update command if an update is installable. This must always be the first so
-        // it is at the top.
-        if let updateViewModel, updateViewModel.state.isInstallable {
-            // We override the update available one only because we want to properly
-            // convey it'll go all the way through.
-            let title: String
-            if case .updateAvailable = updateViewModel.state {
-                title = "Update Ghostty and Restart"
-            } else {
-                title = updateViewModel.text
-            }
-            
-            options.append(CommandOption(
-                title: title,
-                description: updateViewModel.description,
-                leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
-                badge: updateViewModel.badge,
-                emphasis: true
-            ) {
-                (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
-            })
-        }
-        
-        // Add cancel/skip update command if the update is installable
-        if let updateViewModel, updateViewModel.state.isInstallable {
-            options.append(CommandOption(
-                title: "Cancel or Skip Update",
-                description: "Dismiss the current update process"
-            ) {
-                updateViewModel.state.cancel()
-            })
-        }
-        
-        // Add terminal commands
-        guard let surface = surfaceView.surfaceModel else { return options }
-        do {
-            let terminalCommands = try surface.commands().map { c in
-                return CommandOption(
-                    title: c.title,
-                    description: c.description,
-                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList
-                ) {
-                    onAction(c.action)
-                }
-            }
-            options.append(contentsOf: terminalCommands)
-        } catch {
-            return options
-        }
-        
-        return options
-    }
-
     var body: some View {
         ZStack {
             if isPresented {
@@ -116,6 +59,121 @@ struct TerminalCommandPaletteView: View {
             }
         }
     }
+    
+    /// All commands available in the command palette, combining update and terminal options.
+    private var commandOptions: [CommandOption] {
+        var options: [CommandOption] = []
+        // Updates always appear first
+        options.append(contentsOf: updateOptions)
+        
+        // Sort the rest. We replace ":" with a character that sorts before space
+        // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
+        // for stable ordering when titles are equal.
+        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
+            let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
+            let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
+            let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
+            if comparison != .orderedSame {
+                return comparison == .orderedAscending
+            }
+            // Tie-breaker: use sortKey if both have one
+            if let aSortKey = a.sortKey, let bSortKey = b.sortKey {
+                return aSortKey < bSortKey
+            }
+            return false
+        })
+        return options
+    }
+
+    /// Commands for installing or canceling available updates.
+    private var updateOptions: [CommandOption] {
+        var options: [CommandOption] = []
+
+        guard let updateViewModel, updateViewModel.state.isInstallable else {
+            return options
+        }
+
+        // We override the update available one only because we want to properly
+        // convey it'll go all the way through.
+        let title: String
+        if case .updateAvailable = updateViewModel.state {
+            title = "Update Ghostty and Restart"
+        } else {
+            title = updateViewModel.text
+        }
+
+        options.append(CommandOption(
+            title: title,
+            description: updateViewModel.description,
+            leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
+            badge: updateViewModel.badge,
+            emphasis: true
+        ) {
+            (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
+        })
+
+        options.append(CommandOption(
+            title: "Cancel or Skip Update",
+            description: "Dismiss the current update process"
+        ) {
+            updateViewModel.state.cancel()
+        })
+
+        return options
+    }
+
+    /// Commands exposed by the terminal surface.
+    private var terminalOptions: [CommandOption] {
+        guard let surface = surfaceView.surfaceModel else { return [] }
+        do {
+            return try surface.commands().map { c in
+                CommandOption(
+                    title: c.title,
+                    description: c.description,
+                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList,
+                ) {
+                    onAction(c.action)
+                }
+            }
+        } catch {
+            return []
+        }
+    }
+
+    /// Commands for jumping to other terminal surfaces.
+    private var jumpOptions: [CommandOption] {
+        TerminalController.all.flatMap { controller -> [CommandOption] in
+            guard let window = controller.window else { return [] }
+
+            let color = (window as? TerminalWindow)?.tabColor
+            let displayColor = color != TerminalTabColor.none ? color : nil
+
+            return controller.surfaceTree.map { surface in
+                let title = surface.title.isEmpty ? window.title : surface.title
+                let displayTitle = title.isEmpty ? "Untitled" : title
+                let pwd = surface.pwd?.abbreviatedPath
+                let subtitle: String? = if let pwd, !displayTitle.contains(pwd) {
+                    pwd
+                } else {
+                    nil
+                }
+
+                return CommandOption(
+                    title: "Focus: \(displayTitle)",
+                    subtitle: subtitle,
+                    leadingIcon: "rectangle.on.rectangle",
+                    leadingColor: displayColor?.displayColor.map { Color($0) },
+                    sortKey: AnySortKey(ObjectIdentifier(surface))
+                ) {
+                    NotificationCenter.default.post(
+                        name: Ghostty.Notification.ghosttyPresentTerminal,
+                        object: surface
+                    )
+                }
+            }
+        }
+    }
+
 }
 
 /// This is done to ensure that the given view is in the responder chain.

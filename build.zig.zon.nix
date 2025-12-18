@@ -166,7 +166,7 @@ in
       name = "N-V-__8AANFEAwCzzNzNs3Gaq8pzGNl2BbeyFBwTyO5iZJL-";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/iterm2_themes-release-20251201-150531-bfb3ee1.tgz";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251201-150531-bfb3ee1/ghostty-themes.tgz";
         hash = "sha256-5QePBQlSsz9W2r4zTS3QD+cDAeyObhR51E2AkJ3ZIUk=";
       };
     }

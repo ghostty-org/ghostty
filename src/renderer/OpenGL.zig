@@ -137,15 +137,7 @@ fn prepareContext(getProcAddress: anytype) !void {
     errdefer gl.glad.unload();
     log.info("loaded OpenGL {}.{}", .{ major, minor });
 
-    // Enable debug output for the context.
-    try gl.enable(gl.c.GL_DEBUG_OUTPUT);
-
-    // Register our debug message callback with the OpenGL context.
-    gl.glad.context.DebugMessageCallback.?(glDebugMessageCallback, null);
-
-    // Enable SRGB framebuffer for linear blending support.
-    try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
-
+    // Need to check version before trying to enable it
     if (major < MIN_VERSION_MAJOR or
         (major == MIN_VERSION_MAJOR and minor < MIN_VERSION_MINOR))
     {
@@ -155,6 +147,15 @@ fn prepareContext(getProcAddress: anytype) !void {
         );
         return error.OpenGLOutdated;
     }
+
+    // Enable debug output for the context.
+    try gl.enable(gl.c.GL_DEBUG_OUTPUT);
+
+    // Register our debug message callback with the OpenGL context.
+    gl.glad.context.DebugMessageCallback.?(glDebugMessageCallback, null);
+
+    // Enable SRGB framebuffer for linear blending support.
+    try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
 }
 
 /// This is called early right after surface creation.

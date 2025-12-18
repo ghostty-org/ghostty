@@ -37,16 +37,33 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Run zig fetch
-        id: zig_fetch
+      - name: Download colorschemes
+        id: download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Get the latest release from iTerm2-Color-Schemes
           RELEASE_INFO=$(gh api repos/mbadolato/iTerm2-Color-Schemes/releases/latest)
           TAG_NAME=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
-          nix develop -c zig fetch --save="iterm2_themes" "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/${TAG_NAME}/ghostty-themes.tgz"
+          FILENAME="ghostty-themes-${TAG_NAME}.tgz"
+          mkdir -p upload
+          curl -L -o "upload/${FILENAME}" "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/${TAG_NAME}/ghostty-themes.tgz"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Upload to R2
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
+        with:
+          r2-account-id: ${{ secrets.CF_R2_DEPS_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.CF_R2_DEPS_AWS_KEY }}
+          r2-secret-access-key: ${{ secrets.CF_R2_DEPS_SECRET_KEY }}
+          r2-bucket: ghostty-deps
+          source-dir: upload
+          destination-dir: ./
+
+      - name: Run zig fetch
+        run: |
+          nix develop -c zig fetch --save="iterm2_themes" "https://deps.files.ghostty.org/${{ steps.download.outputs.filename }}"
 
       - name: Update zig cache hash
         run: |
@@ -75,5 +92,5 @@ jobs:
             build.zig.zon.json
             flatpak/zig-packages.json
           body: |
-            Upstream release: https://github.com/mbadolato/iTerm2-Color-Schemes/releases/tag/${{ steps.zig_fetch.outputs.tag_name }}
+            Upstream release: https://github.com/mbadolato/iTerm2-Color-Schemes/releases/tag/${{ steps.download.outputs.tag_name }}
           labels: dependencies

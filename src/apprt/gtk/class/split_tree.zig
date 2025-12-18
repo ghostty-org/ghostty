@@ -340,6 +340,35 @@ pub const SplitTree = extern struct {
         const surface = tree.nodes[target.idx()].leaf;
         surface.grabFocus();
 
+        // We also need to setup our last_focused to this because if we
+        // trigger a tree change like below, the grab focus above never
+        // actually triggers in time to set this and this ensures we
+        // grab focus to the right thing.
+        const old_last_focused = self.private().last_focused.get();
+        defer if (old_last_focused) |v| v.unref(); // unref strong ref from get
+        self.private().last_focused.set(surface);
+        errdefer self.private().last_focused.set(old_last_focused);
+
+        if (tree.zoomed != null) {
+            const app = Application.default();
+            const config_obj = app.getConfig();
+            defer config_obj.unref();
+            const config = config_obj.get();
+
+            if (!config.@"split-preserve-zoom".navigation) {
+                tree.zoomed = null;
+            } else {
+                tree.zoom(target);
+            }
+
+            // When the zoom state changes our tree state changes and
+            // we need to send the proper notifications to trigger
+            // relayout.
+            const object = self.as(gobject.Object);
+            object.notifyByPspec(properties.tree.impl.param_spec);
+            object.notifyByPspec(properties.@"is-zoomed".impl.param_spec);
+        }
+
         return true;
     }
 

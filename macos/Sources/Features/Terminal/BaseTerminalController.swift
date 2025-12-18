@@ -78,6 +78,9 @@ class BaseTerminalController: NSWindowController,
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
+    /// Track whether background is forced opaque (true) or using config transparency (false)
+    var isBackgroundOpaque: Bool = false
+
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
@@ -191,6 +194,11 @@ class BaseTerminalController: NSWindowController,
             self,
             selector: #selector(ghosttyDidResizeSplit(_:)),
             name: Ghostty.Notification.didResizeSplit,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidPresentTerminal(_:)),
+            name: Ghostty.Notification.ghosttyPresentTerminal,
             object: nil)
 
         // Listen for local events that we need to know of outside of
@@ -621,9 +629,14 @@ class BaseTerminalController: NSWindowController,
             return
         }
 
-        // Remove the zoomed state for this surface tree.
         if surfaceTree.zoomed != nil {
-            surfaceTree = .init(root: surfaceTree.root, zoomed: nil)
+            if derivedConfig.splitPreserveZoom.contains(.navigation) {
+                surfaceTree = SplitTree(
+                    root: surfaceTree.root,
+                    zoomed: surfaceTree.root?.node(view: nextSurface))
+            } else {
+                surfaceTree = SplitTree(root: surfaceTree.root, zoomed: nil)
+            }
         }
 
         // Move focus to the next surface
@@ -690,6 +703,22 @@ class BaseTerminalController: NSWindowController,
         } catch {
             Ghostty.logger.warning("failed to resize split: \(error)")
         }
+    }
+
+    @objc private func ghosttyDidPresentTerminal(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+
+        // Bring the window to front and focus the surface.
+        window?.makeKeyAndOrderFront(nil)
+        
+        // We use a small delay to ensure this runs after any UI cleanup
+        // (e.g., command palette restoring focus to its original surface).
+        Ghostty.moveFocus(to: target)
+        Ghostty.moveFocus(to: target, delay: 0.1)
+
+        // Show a brief highlight to help the user locate the presented terminal.
+        target.highlight()
     }
 
     // MARK: Local Events
@@ -807,6 +836,35 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    // MARK: Appearance
+
+    /// Toggle the background opacity between transparent and opaque states.
+    /// Do nothing if the configured background-opacity is >= 1 (already opaque).
+    /// Subclasses should override this to add platform-specific checks and sync appearance.
+    func toggleBackgroundOpacity() {
+        // Do nothing if config is already fully opaque
+        guard ghostty.config.backgroundOpacity < 1 else { return }
+        
+        // Do nothing if in fullscreen (transparency doesn't apply in fullscreen)
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+
+        // Toggle between transparent and opaque
+        isBackgroundOpaque.toggle()
+        
+        // Update our appearance
+        syncAppearance()
+    }
+    
+    /// Override this to resync any appearance related properties. This will be called automatically
+    /// when certain window properties change that affect appearance. The list below should be updated
+    /// as we add new things:
+    ///
+    ///  - ``toggleBackgroundOpacity``
+    func syncAppearance() {
+        // Purposely a no-op. This lets subclasses override this and we can call
+        // it virtually from here.
+    }
+
     // MARK: Fullscreen
 
     /// Toggle fullscreen for the given mode.
@@ -867,6 +925,9 @@ class BaseTerminalController: NSWindowController,
         } else {
             updateOverlayIsVisible = defaultUpdateOverlayVisibility()
         }
+        
+        // Always resync our appearance
+        syncAppearance()
     }
 
     // MARK: Clipboard Confirmation
@@ -1188,17 +1249,20 @@ class BaseTerminalController: NSWindowController,
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
+        let splitPreserveZoom: Ghostty.Config.SplitPreserveZoom
 
         init() {
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
+            self.splitPreserveZoom = .init()
         }
 
         init(_ config: Ghostty.Config) {
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
+            self.splitPreserveZoom = config.splitPreserveZoom
         }
     }
 }
