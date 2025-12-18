@@ -44,4 +44,13 @@ class QuickTerminalWindow: NSPanel {
         // https://github.com/ghostty-org/ghostty/pull/8026
         super.setFrame(initialFrame ?? frameRect, display: flag)
     }
+    
+    // Apply rounded corners to match macOS window design
+    func setupRoundedCorners(cornerRadius: CGFloat = 16) {
+        guard let contentView = self.contentView else { return }
+        
+        contentView.wantsLayer = true
+        contentView.layer?.cornerRadius = cornerRadius
+        contentView.layer?.masksToBounds = true
+    }
 }
