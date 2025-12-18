@@ -31,6 +31,11 @@ pub fn build(b: *std.Build) !void {
         "-fno-sanitize=undefined",
         "-fno-sanitize-trap=undefined",
     });
+    if (target.result.os.tag != .windows) {
+        try flags.appendSlice(b.allocator, &.{
+            "-fPIC",
+        });
+    }
 
     lib.addCSourceFiles(.{
         .flags = flags.items,
