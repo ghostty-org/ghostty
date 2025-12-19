@@ -9,6 +9,9 @@ struct TerminalCommandPaletteView: View {
     /// result in the view disappearing.
     @Binding var isPresented: Bool
 
+    /// Set this to true for the jump palette mode (only focus action).
+    @Binding var isJumpPalette: Bool
+
     /// The configuration so we can lookup keyboard shortcuts.
     @ObservedObject var ghosttyConfig: Ghostty.Config
     
@@ -30,6 +33,7 @@ struct TerminalCommandPaletteView: View {
 
                         CommandPaletteView(
                             isPresented: $isPresented,
+                            isJumpPalette: $isJumpPalette,
                             backgroundColor: ghosttyConfig.backgroundColor,
                             options: commandOptions
                         )
@@ -58,13 +62,18 @@ struct TerminalCommandPaletteView: View {
     /// All commands available in the command palette, combining update and terminal options.
     private var commandOptions: [CommandOption] {
         var options: [CommandOption] = []
-        // Updates always appear first
-        options.append(contentsOf: updateOptions)
-        
+
+        if !isJumpPalette {
+            // Updates always appear first
+            options.append(contentsOf: updateOptions)
+        }
+
+        let restOptions = isJumpPalette ? jumpOptions : jumpOptions + terminalOptions;
+
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
+        options.append(contentsOf: restOptions.sorted { a, b in
             let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
             let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
             let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
@@ -154,7 +163,7 @@ struct TerminalCommandPaletteView: View {
                 }
 
                 return CommandOption(
-                    title: "Focus: \(displayTitle)",
+                    title: isJumpPalette ? displayTitle : "Focus: \(displayTitle)",
                     subtitle: subtitle,
                     leadingIcon: "rectangle.on.rectangle",
                     leadingColor: displayColor?.displayColor.map { Color($0) },
