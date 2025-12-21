@@ -132,11 +132,8 @@ class QuickTerminalController: BaseTerminalController {
         // window close so we can animate out.
         window.delegate = self
 
-        // The quick terminal uses UserDefaults-based restoration instead of macOS
-        // window restoration. This is because macOS window restoration only works
-        // for visible windows, and the quick terminal is often hidden when the app
-        // quits. Using UserDefaults ensures consistent restoration regardless of
-        // visibility state.
+        // The quick window is restored by `screenStateCache`.
+        // We disable this for better control
         window.isRestorable = false
 
         // Setup our configured appearance that we support.
