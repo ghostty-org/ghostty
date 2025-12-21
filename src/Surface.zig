@@ -3362,7 +3362,35 @@ pub fn scrollCallback(
 
         // If we're scrolling up or down, then send a mouse event.
         if (self.isMouseReporting()) {
-            for (0..@abs(y.delta)) |_| {
+            if (!scroll_mods.precision) {
+                // Discrete wheel input: emit wheel events based on the configured discrete
+                // multiplier, but ignore the raw OS tick magnitude (which may already be scaled).
+                // This keeps TUIs stable (default 3 wheel events per detent) and avoids cases like
+                // 3×3 => 9 when both OS tick magnitude and Ghostty multiplier apply.
+                // See the `mouse-scroll-multiplier` config docs for rationale, and:
+                // - https://github.com/ghostty-org/ghostty/discussions/8875
+                // - https://github.com/ghostty-org/ghostty/pull/8907
+                if (yoff != 0 or xoff != 0) {
+                    // This is intentionally derived only from the configured multiplier: we ignore raw
+                    // OS tick magnitudes (some systems report values >1 per detent) and we use the
+                    // scroll sign to pick up/down/left/right.
+                    const steps_isize: isize = @intFromFloat(@round(self.config.mouse_scroll_multiplier.discrete));
+                    const steps: usize = @intCast(@max(@abs(steps_isize), 1));
+                    const pos = try self.rt_surface.getCursorPos();
+                    if (yoff != 0) {
+                        const button: input.MouseButton = if (yoff > 0) .four else .five;
+                        for (0..steps) |_| try self.mouseReport(button, .press, self.mouse.mods, pos);
+                    }
+                    if (xoff != 0) {
+                        const button: input.MouseButton = if (xoff > 0) .six else .seven;
+                        for (0..steps) |_| try self.mouseReport(button, .press, self.mouse.mods, pos);
+                    }
+                }
+
+                return;
+            }
+
+            for (0..y.magnitude()) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (y.direction()) {
                     .up_right => .four,
@@ -3370,7 +3398,7 @@ pub fn scrollCallback(
                 }, .press, self.mouse.mods, pos);
             }
 
-            for (0..@abs(x.delta)) |_| {
+            for (0..x.magnitude()) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (x.direction()) {
                     .up_right => .six,

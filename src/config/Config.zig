@@ -888,6 +888,18 @@ palette: Palette = .{},
 /// to all scrolling devices. Specifying a prefix was introduced in Ghostty
 /// 1.2.1.
 ///
+/// Note: when a terminal application enables mouse reporting and the incoming
+/// scroll is discrete (not precision), the discrete multiplier also affects how
+/// many wheel events Ghostty reports to the application. In that mode, Ghostty
+/// treats `discrete` as an event count (rounded to the nearest integer, minimum
+/// 1) and ignores the raw
+/// OS tick magnitude (some systems report values >1 per detent), to avoid
+/// sending unexpectedly many events (e.g. 3×3 => 9).
+///
+/// See:
+/// - https://github.com/ghostty-org/ghostty/discussions/8875
+/// - https://github.com/ghostty-org/ghostty/pull/8907
+///
 /// The value will be clamped to [0.01, 10,000]. Both of these are extreme
 /// and you're likely to have a bad experience if you set either extreme.
 ///
