@@ -257,17 +257,19 @@ fn select(self: *Thread, sel: ScreenSearch.Select) !void {
     self.opts.mutex.lock();
     defer self.opts.mutex.unlock();
 
+    _ = try screen_search.select(sel);
+
     // The selection will trigger a selection change notification
     // if it did change.
-    if (try screen_search.select(sel)) scroll: {
-        if (screen_search.selected) |m| {
-            // Selection changed, let's scroll the viewport to see it
-            // since we have the lock anyways.
-            const screen = self.opts.terminal.screens.get(
-                s.last_screen.key,
-            ) orelse break :scroll;
-            screen.scroll(.{ .pin = m.highlight.start.* });
-        }
+    if (screen_search.selected) |m| {
+        // Selection changed, let's scroll the viewport to see it
+        // since we have the lock anyways.
+        const screen = self.opts.terminal.screens.get(
+            s.last_screen.key,
+        ) orelse return;
+        screen.scroll(.{ .pin = m.highlight.start.* });
+        s.viewport.reset();
+        s.stale_viewport_matches = true;
     }
 }
 
