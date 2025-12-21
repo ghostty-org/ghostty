@@ -65,14 +65,14 @@ class QuickTerminalTabManager: ObservableObject {
         controller?.ghostty.config
     }
 
-    init(controller: QuickTerminalController) {
+    init(controller: QuickTerminalController, restorationState: QuickTerminalRestorableState? = nil) {
         self.controller = controller
 
-        // Check if restoration is enabled and if there's saved state
+        // Check if restoration is enabled
         let shouldRestore = controller.ghostty.config.windowSaveState != "never"
 
         if shouldRestore,
-           let savedState = QuickTerminalRestorableState.loadFromUserDefaults(),
+           let savedState = restorationState,
            !savedState.tabs.isEmpty {
             // Restore tabs from saved state
             for state in savedState.tabs {
@@ -88,9 +88,6 @@ class QuickTerminalTabManager: ObservableObject {
             } else if let first = tabs.first {
                 selectTab(first)
             }
-
-            // Clear saved state after restoration
-            QuickTerminalRestorableState.clearUserDefaults()
         } else {
             // No saved state or restoration disabled - create default tab
             addNewTab()

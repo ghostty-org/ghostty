@@ -8,6 +8,8 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+const build_config = @import("../../../build_config.zig");
+const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const cgroup = @import("../cgroup.zig");
@@ -659,6 +661,8 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
+            .goto_window => return Action.gotoWindow(value),
+
             .goto_tab => return Action.gotoTab(target, value),
 
             .initial_size => return Action.initialSize(target, value),
@@ -737,6 +741,7 @@ pub const Application = extern struct {
             .close_all_windows,
             .float_window,
             .toggle_visibility,
+            .toggle_background_opacity,
             .cell_size,
             .key_sequence,
             .render_inspector,
@@ -2014,6 +2019,69 @@ const Action = struct {
         }
     }
 
+    pub fn gotoWindow(direction: apprt.action.GotoWindow) bool {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        // The window we're starting from is typically our active window.
+        const starting: *glib.List = @as(?*glib.List, glist.findCustom(
+            null,
+            findActiveWindow,
+        )) orelse glist;
+
+        // Go forward or backwards in the list until we find a valid
+        // window that is visible.
+        var current_: ?*glib.List = starting;
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
+        // If we reached here, we didn't find a valid window to focus.
+        // Wrap around.
+        current_ = switch (direction) {
+            .next => glist,
+            .previous => last: {
+                var end: *glib.List = glist;
+                while (end.f_next) |next| end = next;
+                break :last end;
+            },
+        };
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            if (current_ == starting) break;
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
+        return false;
+    }
+
+    fn gotoWindowMaybe(gtk_window: *gtk.Window) bool {
+        // If it is already active skip it.
+        if (gtk_window.isActive() != 0) return false;
+        // If it is hidden, skip it.
+        if (gtk_window.as(gtk.Widget).isVisible() == 0) return false;
+        // If it isn't a Ghostty window, skip it.
+        const window = gobject.ext.cast(
+            Window,
+            gtk_window,
+        ) orelse return false;
+
+        // Focus our active surface
+        const surface = window.getActiveSurface() orelse return false;
+        gtk.Window.present(gtk_window);
+        surface.grabFocus();
+        return true;
+    }
+
     pub fn initialSize(
         target: apprt.Target,
         value: apprt.action.InitialSize,
@@ -2612,7 +2680,9 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
         /// disable it.
         @"vulkan-disable": bool = false,
     } = .{
-        .opengl = config.@"gtk-opengl-debug",
+        // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
+        // to enable OpenGL debugging.
+        .opengl = state.logging.stderr and config.@"gtk-opengl-debug",
     };
 
     var gdk_disable: struct {

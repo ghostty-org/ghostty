@@ -74,6 +74,8 @@ fn writeTriggerKey(
                 try writer.print("{u}", .{cp});
             }
         },
+
+        .catch_all => return false,
     }
 
     return true;

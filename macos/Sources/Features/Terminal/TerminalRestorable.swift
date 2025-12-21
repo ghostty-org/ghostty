@@ -1,10 +1,47 @@
 import Cocoa
 
+protocol TerminalRestorable: Codable {
+    static var selfKey: String { get }
+    static var versionKey: String { get }
+    static var version: Int { get }
+    init(copy other: Self)
+
+    /// Returns a base configuration to use when restoring terminal surfaces.
+    /// Override this to provide custom environment variables or other configuration.
+    var baseConfig: Ghostty.SurfaceConfiguration? { get }
+}
+
+extension TerminalRestorable {
+    static var selfKey: String { "state" }
+    static var versionKey: String { "version" }
+
+    /// Default implementation returns nil (no custom base config).
+    var baseConfig: Ghostty.SurfaceConfiguration? { nil }
+
+    init?(coder aDecoder: NSCoder) {
+        // If the version doesn't match then we can't decode. In the future we can perform
+        // version upgrading or something but for now we only have one version so we
+        // don't bother.
+        guard aDecoder.decodeInteger(forKey: Self.versionKey) == Self.version else {
+            return nil
+        }
+
+        guard let v = aDecoder.decodeObject(of: CodableBridge<Self>.self, forKey: Self.selfKey) else {
+            return nil
+        }
+
+        self.init(copy: v.value)
+    }
+
+    func encode(with coder: NSCoder) {
+        coder.encode(Self.version, forKey: Self.versionKey)
+        coder.encode(CodableBridge(self), forKey: Self.selfKey)
+    }
+}
+
 /// The state stored for terminal window restoration.
-class TerminalRestorableState: Codable {
-    static let selfKey = "state"
-    static let versionKey = "version"
-    static let version: Int = 7
+class TerminalRestorableState: TerminalRestorable {
+    class var version: Int { 7 }
 
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
@@ -20,28 +57,12 @@ class TerminalRestorableState: Codable {
         self.titleOverride = controller.titleOverride
     }
 
-    init?(coder aDecoder: NSCoder) {
-        // If the version doesn't match then we can't decode. In the future we can perform
-        // version upgrading or something but for now we only have one version so we
-        // don't bother.
-        guard aDecoder.decodeInteger(forKey: Self.versionKey) == Self.version else {
-            return nil
-        }
-
-        guard let v = aDecoder.decodeObject(of: CodableBridge<Self>.self, forKey: Self.selfKey) else {
-            return nil
-        }
-
-        self.surfaceTree = v.value.surfaceTree
-        self.focusedSurface = v.value.focusedSurface
-        self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
-        self.tabColor = v.value.tabColor
-        self.titleOverride = v.value.titleOverride
-    }
-
-    func encode(with coder: NSCoder) {
-        coder.encode(Self.version, forKey: Self.versionKey)
-        coder.encode(CodableBridge(self), forKey: Self.selfKey)
+    required init(copy other: TerminalRestorableState) {
+        self.surfaceTree = other.surfaceTree
+        self.focusedSurface = other.focusedSurface
+        self.effectiveFullscreenMode = other.effectiveFullscreenMode
+        self.tabColor = other.tabColor
+        self.titleOverride = other.titleOverride
     }
 }
 
@@ -170,3 +191,5 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
     }
 }
+
+

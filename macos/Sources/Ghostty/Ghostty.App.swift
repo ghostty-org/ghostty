@@ -501,6 +501,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 return gotoSplit(app, target: target, direction: action.action.goto_split)
 
+            case GHOSTTY_ACTION_GOTO_WINDOW:
+                return gotoWindow(app, target: target, direction: action.action.goto_window)
+
             case GHOSTTY_ACTION_RESIZE_SPLIT:
                 resizeSplit(app, target: target, resize: action.action.resize_split)
 
@@ -570,6 +573,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
                 toggleVisibility(app, target: target)
 
+            case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
+                toggleBackgroundOpacity(app, target: target)
+
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
                 
@@ -621,11 +627,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_SEARCH_SELECTED:
                 searchSelected(app, target: target, v: action.action.search_selected)
 
+            case GHOSTTY_ACTION_PRESENT_TERMINAL:
+                return presentTerminal(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
-                fallthrough
-            case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 fallthrough
             case GHOSTTY_ACTION_SIZE_LIMIT:
                 fallthrough
@@ -836,6 +843,30 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func presentTerminal(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) -> Bool {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyPresentTerminal,
+                    object: surfaceView
+                )
+                return true
+
+            default:
+                assertionFailure()
+                return false
             }
         }
 
@@ -1156,6 +1187,64 @@ extension Ghostty {
                 }
         }
 
+        private static func gotoWindow(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_goto_window_e
+        ) -> Bool {
+            // Collect candidate windows: visible terminal windows that are either
+            // standalone or the currently selected tab in their tab group. This
+            // treats each native tab group as a single "window" for navigation
+            // purposes, since goto_tab handles per-tab navigation.
+            let candidates: [NSWindow] = NSApplication.shared.windows.filter { window in
+                guard window.windowController is BaseTerminalController else { return false }
+                guard window.isVisible, !window.isMiniaturized else { return false }
+                // For native tabs, only include the selected tab in each group
+                if let group = window.tabGroup, group.selectedWindow !== window {
+                    return false
+                }
+                return true
+            }
+
+            // Need at least two windows to navigate between
+            guard candidates.count > 1 else { return false }
+
+            // Find starting index from the current key/main window
+            let startIndex = candidates.firstIndex(where: { $0.isKeyWindow })
+                ?? candidates.firstIndex(where: { $0.isMainWindow })
+                ?? 0
+
+            let step: Int
+            switch direction {
+            case GHOSTTY_GOTO_WINDOW_NEXT:
+                step = 1
+            case GHOSTTY_GOTO_WINDOW_PREVIOUS:
+                step = -1
+            default:
+                return false
+            }
+
+            // Iterate with wrap-around until we find a valid window or return to start
+            let count = candidates.count
+            var index = (startIndex + step + count) % count
+
+            while index != startIndex {
+                let candidate = candidates[index]
+                if candidate.isVisible, !candidate.isMiniaturized {
+                    candidate.makeKeyAndOrderFront(nil)
+                    // Also focus the terminal surface within the window
+                    if let controller = candidate.windowController as? BaseTerminalController,
+                       let surface = controller.focusedSurface {
+                        Ghostty.moveFocus(to: surface)
+                    }
+                    return true
+                }
+                index = (index + step + count) % count
+            }
+
+            return false
+        }
+
         private static func resizeSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1315,6 +1404,27 @@ extension Ghostty {
                 if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
                     appDelegate.syncFloatOnTopMenu(window)
                 }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleBackgroundOpacity(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle background opacity does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                    let surfaceView = self.surfaceView(from: surface),
+                    let controller = surfaceView.window?.windowController as? BaseTerminalController else { return }
+
+                controller.toggleBackgroundOpacity()
 
             default:
                 assertionFailure()

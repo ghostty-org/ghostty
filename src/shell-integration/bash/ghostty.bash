@@ -103,7 +103,7 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
     if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
       builtin command sudo "$@";
     else
-      builtin command sudo TERMINFO="$TERMINFO" "$@";
+      builtin command sudo --preserve-env=TERMINFO "$@";
     fi
   }
 fi

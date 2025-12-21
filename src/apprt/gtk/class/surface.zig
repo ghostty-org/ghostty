@@ -1658,13 +1658,7 @@ pub const Surface = extern struct {
         };
         priv.drop_target.setGtypes(&drop_target_types, drop_target_types.len);
 
-        // Initialize our GLArea. We only set the values we can't set
-        // in our blueprint file.
-        const gl_area = priv.gl_area;
-        gl_area.setRequiredVersion(
-            renderer.OpenGL.MIN_VERSION_MAJOR,
-            renderer.OpenGL.MIN_VERSION_MINOR,
-        );
+        // Setup properties we can't set from our Blueprint file.
         self.as(gtk.Widget).setCursorFromName("text");
 
         // Initialize our config

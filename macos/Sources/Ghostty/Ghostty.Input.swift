@@ -32,6 +32,10 @@ extension Ghostty {
             guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
             key = KeyEquivalent(Character(scalar))
 
+        case GHOSTTY_TRIGGER_CATCH_ALL:
+            // catch_all matches any key, so it can't be represented as a KeyboardShortcut
+            return nil
+
         default:
             return nil
         }

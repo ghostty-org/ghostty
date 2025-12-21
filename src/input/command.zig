@@ -479,6 +479,19 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .goto_window => comptime &.{
+            .{
+                .action = .{ .goto_window = .previous },
+                .title = "Focus Window: Previous",
+                .description = "Focus the previous window, if any.",
+            },
+            .{
+                .action = .{ .goto_window = .next },
+                .title = "Focus Window: Next",
+                .description = "Focus the next window, if any.",
+            },
+        },
+
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
@@ -605,6 +618,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle whether mouse events are reported to terminal applications.",
         }},
 
+        .toggle_background_opacity => comptime &.{.{
+            .action = .toggle_background_opacity,
+            .title = "Toggle Background Opacity",
+            .description = "Toggle the background opacity of a window that started transparent.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
@@ -652,6 +671,10 @@ fn actionCommands(action: Action.Key) []const Command {
         .write_scrollback_file,
         .goto_tab,
         .resize_split,
+        .activate_key_table,
+        .activate_key_table_once,
+        .deactivate_key_table,
+        .deactivate_all_key_tables,
         .crash,
         => comptime &.{},
 

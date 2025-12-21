@@ -97,7 +97,7 @@
       if (not (has-value $arg =)) { break }
     }
 
-    if (not $sudoedit) { set args = [ TERMINFO=$E:TERMINFO $@args ] }
+    if (not $sudoedit) { set args = [ --preserve-env=TERMINFO $@args ] }
     (external sudo) $@args
   }
 

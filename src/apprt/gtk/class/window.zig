@@ -793,7 +793,7 @@ pub const Window = extern struct {
 
     /// Get the currently active surface. See the "active-surface" property.
     /// This does not ref the value.
-    fn getActiveSurface(self: *Self) ?*Surface {
+    pub fn getActiveSurface(self: *Self) ?*Surface {
         const tab = self.getSelectedTab() orelse return null;
         return tab.getActiveSurface();
     }

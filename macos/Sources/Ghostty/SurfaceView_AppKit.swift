@@ -126,6 +126,9 @@ extension Ghostty {
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
 
+        /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
+        @Published private(set) var highlighted: Bool = false
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
@@ -1520,6 +1523,14 @@ extension Ghostty {
             let action = "toggle_readonly"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        /// Triggers a brief highlight animation on this surface.
+        func highlight() {
+            highlighted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.highlighted = false
             }
         }
 

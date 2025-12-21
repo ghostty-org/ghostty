@@ -219,20 +219,14 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     else version: {
         const app_version = try std.SemanticVersion.parse(appVersion);
 
-        // Detect if ghostty is being built as a dependency by checking if the
-        // build root has our marker. When used as a dependency, we skip git
-        // detection entirely to avoid reading the downstream project's git state.
-        const is_dependency = !@hasDecl(
-            @import("root"),
-            "_ghostty_build_root",
-        );
-        if (is_dependency) {
-            break :version .{
-                .major = app_version.major,
-                .minor = app_version.minor,
-                .patch = app_version.patch,
-            };
-        }
+        // Is ghostty a dependency? If so, skip git detection.
+        // @src().file won't resolve from b.build_root unless ghostty
+        // is the project being built.
+        b.build_root.handle.access(@src().file, .{}) catch break :version .{
+            .major = app_version.major,
+            .minor = app_version.minor,
+            .patch = app_version.patch,
+        };
 
         // If no explicit version is given, we try to detect it from git.
         const vsn = GitVersion.detect(b) catch |err| switch (err) {

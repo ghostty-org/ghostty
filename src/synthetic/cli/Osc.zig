@@ -10,6 +10,14 @@ const log = std.log.scoped(.@"terminal-stream-bench");
 pub const Options = struct {
     /// Probability of generating a valid value.
     @"p-valid": f64 = 0.5,
+
+    style: enum {
+        /// Write all OSC data, including ESC ] and ST for end-to-end tests
+        streaming,
+        /// Only write data, prefixed with a length, used for testing just the
+        /// OSC parser.
+        parser,
+    } = .streaming,
 };
 
 opts: Options,
@@ -40,9 +48,21 @@ pub fn run(self: *Osc, writer: *std.Io.Writer, rand: std.Random) !void {
         var fixed: std.Io.Writer = .fixed(&buf);
         try gen.next(&fixed, buf.len);
         const data = fixed.buffered();
-        writer.writeAll(data) catch |err| switch (err) {
-            error.WriteFailed => return,
-        };
+        switch (self.opts.style) {
+            .streaming => {
+                writer.writeAll(data) catch |err| switch (err) {
+                    error.WriteFailed => return,
+                };
+            },
+            .parser => {
+                writer.writeInt(usize, data.len - 3, .little) catch |err| switch (err) {
+                    error.WriteFailed => return,
+                };
+                writer.writeAll(data[2 .. data.len - 1]) catch |err| switch (err) {
+                    error.WriteFailed => return,
+                };
+            },
+        }
     }
 }
 

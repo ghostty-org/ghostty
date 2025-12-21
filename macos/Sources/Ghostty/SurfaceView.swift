@@ -49,7 +49,7 @@ extension Ghostty {
 
         // True if we're hovering over the left URL view, so we can show it on the right.
         @State private var isHoveringURLLeft: Bool = false
-
+        
         #if canImport(AppKit)
         // Observe SecureInput to detect when its enabled
         @ObservedObject private var secureInput = SecureInput.shared
@@ -219,6 +219,9 @@ extension Ghostty {
                     BellBorderOverlay(bell: surfaceView.bell)
                 }
 
+                // Show a highlight effect when this surface needs attention
+                HighlightOverlay(highlighted: surfaceView.highlighted)
+
                 // If our surface is not healthy, then we render an error view over it.
                 if (!surfaceView.healthy) {
                     Rectangle().fill(ghostty.config.backgroundColor)
@@ -242,6 +245,7 @@ extension Ghostty {
                     }
                 }
             }
+
         }
     }
 
@@ -761,6 +765,62 @@ extension Ghostty {
                 .allowsHitTesting(false)
                 .opacity(bell ? 1.0 : 0.0)
                 .animation(.easeInOut(duration: 0.3), value: bell)
+        }
+    }
+
+    /// Visual overlay that briefly highlights a surface to draw attention to it.
+    /// Uses a soft, soothing highlight with a pulsing border effect.
+    struct HighlightOverlay: View {
+        let highlighted: Bool
+        
+        @State private var borderPulse: Bool = false
+
+        var body: some View {
+            ZStack {
+                Rectangle()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [
+                                Color.accentColor.opacity(0.12),
+                                Color.accentColor.opacity(0.03),
+                                Color.clear
+                            ]),
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 2000
+                        )
+                    )
+
+                Rectangle()
+                    .strokeBorder(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.accentColor.opacity(0.8),
+                                Color.accentColor.opacity(0.5),
+                                Color.accentColor.opacity(0.8)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: borderPulse ? 4 : 2
+                    )
+                    .shadow(color: Color.accentColor.opacity(borderPulse ? 0.8 : 0.6), radius: borderPulse ? 12 : 8, x: 0, y: 0)
+                    .shadow(color: Color.accentColor.opacity(borderPulse ? 0.5 : 0.3), radius: borderPulse ? 24 : 16, x: 0, y: 0)
+            }
+            .allowsHitTesting(false)
+            .opacity(highlighted ? 1.0 : 0.0)
+            .animation(.easeOut(duration: 0.4), value: highlighted)
+            .onChange(of: highlighted) { newValue in
+                if newValue {
+                    withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+                        borderPulse = true
+                    }
+                } else {
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        borderPulse = false
+                    }
+                }
+            }
         }
     }
 

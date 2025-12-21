@@ -317,12 +317,14 @@ typedef struct {
 typedef enum {
   GHOSTTY_TRIGGER_PHYSICAL,
   GHOSTTY_TRIGGER_UNICODE,
+  GHOSTTY_TRIGGER_CATCH_ALL,
 } ghostty_input_trigger_tag_e;
 
 typedef union {
   ghostty_input_key_e translated;
   ghostty_input_key_e physical;
   uint32_t unicode;
+  // catch_all has no payload
 } ghostty_input_trigger_key_u;
 
 typedef struct {
@@ -511,6 +513,12 @@ typedef enum {
   GHOSTTY_GOTO_SPLIT_DOWN,
   GHOSTTY_GOTO_SPLIT_RIGHT,
 } ghostty_action_goto_split_e;
+
+// apprt.action.GotoWindow
+typedef enum {
+  GHOSTTY_GOTO_WINDOW_PREVIOUS,
+  GHOSTTY_GOTO_WINDOW_NEXT,
+} ghostty_action_goto_window_e;
 
 // apprt.action.ResizeSplit.Direction
 typedef enum {
@@ -797,9 +805,11 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
   GHOSTTY_ACTION_TOGGLE_VISIBILITY,
+  GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
   GHOSTTY_ACTION_MOVE_TAB,
   GHOSTTY_ACTION_GOTO_TAB,
   GHOSTTY_ACTION_GOTO_SPLIT,
+  GHOSTTY_ACTION_GOTO_WINDOW,
   GHOSTTY_ACTION_RESIZE_SPLIT,
   GHOSTTY_ACTION_EQUALIZE_SPLITS,
   GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM,
@@ -852,6 +862,7 @@ typedef union {
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;
+  ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;
   ghostty_action_size_limit_s size_limit;
   ghostty_action_initial_size_s initial_size;
