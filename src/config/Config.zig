@@ -6177,6 +6177,13 @@ pub const Keybinds = struct {
                 .{ .inspector = .toggle },
             );
 
+            // Toggle cwd overlay
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '.' }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .toggle_cwd_overlay = {} },
+            );
+
             // Terminal
             try self.set.put(
                 alloc,
@@ -6510,6 +6517,13 @@ pub const Keybinds = struct {
                 alloc,
                 .{ .key = .{ .unicode = 'i' }, .mods = .{ .alt = true, .super = true } },
                 .{ .inspector = .toggle },
+            );
+
+            // Toggle cwd overlay
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '.' }, .mods = .{ .super = true } },
+                .{ .toggle_cwd_overlay = {} },
             );
 
             // Alternate keybind, common to Mac programs

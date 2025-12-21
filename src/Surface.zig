@@ -5597,6 +5597,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
+        .toggle_cwd_overlay => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_cwd_overlay,
+            {},
+        ),
+
         .close_surface => self.close(),
 
         .close_window => return try self.rt_app.performAction(

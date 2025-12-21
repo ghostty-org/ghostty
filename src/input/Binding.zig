@@ -585,6 +585,12 @@ pub const Action = union(enum) {
     /// Valid arguments: `toggle`, `show`, `hide`.
     inspector: InspectorMode,
 
+    /// Toggle the current working directory overlay.
+    ///
+    /// Shows a small overlay displaying the current working directory
+    /// of the focused terminal surface.
+    toggle_cwd_overlay,
+
     /// Show the GTK inspector.
     ///
     /// Has no effect on macOS.
@@ -1310,6 +1316,7 @@ pub const Action = union(enum) {
             .resize_split,
             .equalize_splits,
             .inspector,
+            .toggle_cwd_overlay,
             => .surface,
         };
     }
