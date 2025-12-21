@@ -624,6 +624,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the background opacity of a window that started transparent.",
         }},
 
+        .toggle_cwd_overlay => comptime &.{.{
+            .action = .toggle_cwd_overlay,
+            .title = "Toggle CWD Overlay",
+            .description = "Toggle the current working directory overlay.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
