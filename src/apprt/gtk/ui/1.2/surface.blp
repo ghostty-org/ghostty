@@ -117,6 +117,28 @@ Overlay terminal_page {
   $GhosttyResizeOverlay resize_overlay {}
 
   [overlay]
+  Revealer cwd_overlay {
+    reveal-child: bind template.show-cwd-overlay;
+    transition-type: crossfade;
+    transition-duration: 150;
+    halign: center;
+    valign: end;
+    margin-bottom: 8;
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    Label {
+      styles [
+        "background",
+        "cwd-overlay",
+      ]
+
+      label: bind template.pwd;
+    }
+  }
+
+  [overlay]
   Label url_left {
     styles [
       "background",

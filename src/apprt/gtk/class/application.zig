@@ -669,6 +669,8 @@ pub const Application = extern struct {
 
             .inspector => return Action.controlInspector(target, value),
 
+            .toggle_cwd_overlay => return Action.toggleCwdOverlay(target),
+
             .mouse_over_link => Action.mouseOverLink(target, value),
             .mouse_shape => Action.mouseShape(target, value),
             .mouse_visibility => Action.mouseVisibility(target, value),
@@ -2647,6 +2649,15 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().controlInspector(value);
+            },
+        }
+    }
+
+    pub fn toggleCwdOverlay(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().toggleCwdOverlay();
             },
         }
     }

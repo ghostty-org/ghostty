@@ -35,6 +35,17 @@ label.url-overlay.right {
 }
 
 /*
+ * GhosttySurface cwd overlay
+ */
+label.cwd-overlay {
+  padding: 6px 12px;
+  border-radius: 6px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+/*
  * GhosttySurface search overlay
  */
 .search-overlay {

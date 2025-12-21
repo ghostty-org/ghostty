@@ -360,6 +360,24 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"show-cwd-overlay" = struct {
+            pub const name = "show-cwd-overlay";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "show_cwd_overlay",
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -608,6 +626,9 @@ pub const Surface = extern struct {
         // unfocused-split-* options
         is_split: bool = false,
 
+        // True if the cwd overlay should be shown
+        show_cwd_overlay: bool = false,
+
         action_group: ?*gio.SimpleActionGroup = null,
 
         // Gtk.Scrollable interface adjustments
@@ -769,6 +790,14 @@ pub const Surface = extern struct {
             .hide => {},
         }
 
+        return true;
+    }
+
+    /// Toggle the cwd overlay visibility.
+    pub fn toggleCwdOverlay(self: *Self) bool {
+        const priv = self.private();
+        priv.show_cwd_overlay = !priv.show_cwd_overlay;
+        self.as(gobject.Object).notifyByPspec(properties.@"show-cwd-overlay".impl.param_spec);
         return true;
     }
 
@@ -3316,6 +3345,7 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+                properties.@"show-cwd-overlay".impl,
 
                 // For Gtk.Scrollable
                 properties.hadjustment.impl,
