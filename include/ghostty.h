@@ -460,6 +460,69 @@ typedef struct {
   size_t len;
 } ghostty_config_command_list_s;
 
+// config.StatusBarWidget
+typedef enum {
+  GHOSTTY_STATUS_BAR_WIDGET_TIME,
+  GHOSTTY_STATUS_BAR_WIDGET_CWD,
+  GHOSTTY_STATUS_BAR_WIDGET_PWD,
+  GHOSTTY_STATUS_BAR_WIDGET_SIZE,
+  GHOSTTY_STATUS_BAR_WIDGET_MODIFIERS,
+  GHOSTTY_STATUS_BAR_WIDGET_PENDING_KEY,
+  GHOSTTY_STATUS_BAR_WIDGET_CPU,
+  GHOSTTY_STATUS_BAR_WIDGET_MEMORY,
+  GHOSTTY_STATUS_BAR_WIDGET_CURSOR_POS,
+} ghostty_status_bar_widget_kind_e;
+
+typedef struct {
+  ghostty_status_bar_widget_kind_e kind;
+  const char* name;
+  const char* format;
+  const char* style;
+  const char* style_range;
+} ghostty_status_bar_widget_s;
+
+typedef struct {
+  const ghostty_status_bar_widget_s* widgets;
+  size_t len;
+} ghostty_config_status_bar_widget_list_s;
+
+// config.StatusBarStyle
+typedef struct {
+  const char* name;
+  ghostty_config_color_s fg;
+  bool has_fg;
+  bool bold;
+  bool has_bold;
+  float size;
+  bool has_size;
+} ghostty_status_bar_style_s;
+
+typedef struct {
+  const ghostty_status_bar_style_s* styles;
+  size_t len;
+} ghostty_config_status_bar_style_list_s;
+
+// config.StatusBarStyleRangeEntry
+typedef struct {
+  float min;
+  bool has_min;
+  float max;
+  bool has_max;
+  const char* style;
+} ghostty_status_bar_style_range_entry_s;
+
+// config.StatusBarStyleRange
+typedef struct {
+  const char* name;
+  const ghostty_status_bar_style_range_entry_s* entries;
+  size_t len;
+} ghostty_status_bar_style_range_s;
+
+typedef struct {
+  const ghostty_status_bar_style_range_s* ranges;
+  size_t len;
+} ghostty_config_status_bar_style_range_list_s;
+
 // config.Palette
 typedef struct {
   ghostty_config_color_s colors[256];
@@ -848,6 +911,7 @@ typedef enum {
   GHOSTTY_ACTION_SCROLLBAR,
   GHOSTTY_ACTION_RENDER,
   GHOSTTY_ACTION_INSPECTOR,
+  GHOSTTY_ACTION_TOGGLE_STATUS_BAR,
   GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
   GHOSTTY_ACTION_RENDER_INSPECTOR,
   GHOSTTY_ACTION_DESKTOP_NOTIFICATION,

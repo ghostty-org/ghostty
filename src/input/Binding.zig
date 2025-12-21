@@ -613,6 +613,11 @@ pub const Action = union(enum) {
     /// Valid arguments: `toggle`, `show`, `hide`.
     inspector: InspectorMode,
 
+    /// Toggle the status bar overlay.
+    ///
+    /// Shows a configurable status bar for the focused terminal surface.
+    toggle_status_bar,
+
     /// Show the GTK inspector.
     ///
     /// Has no effect on macOS.
@@ -1338,6 +1343,7 @@ pub const Action = union(enum) {
             .resize_split,
             .equalize_splits,
             .inspector,
+            .toggle_status_bar,
             => .surface,
         };
     }

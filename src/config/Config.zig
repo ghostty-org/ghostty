@@ -21,6 +21,7 @@ const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
+const CommaSplitter = @import("../cli/CommaSplitter.zig");
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
@@ -2161,6 +2162,58 @@ keybind: Keybinds = .{},
 ///
 /// Available since 1.0.0
 @"resize-overlay-duration": Duration = .{ .duration = 750 * std.time.ns_per_ms },
+
+/// Widgets for the status bar overlay. This is a repeatable configuration.
+///
+/// The format is `kind[:param=value,...]`. Supported kinds are:
+///   - `time`
+///   - `cwd`
+///   - `pwd`
+///   - `size`
+///   - `modifiers`
+///   - `pending_key`
+///   - `cpu`
+///   - `memory`
+///   - `cursor_pos` (not yet implemented)
+///
+/// Supported params:
+///   - `name`   : the widget identifier used in `status-bar`
+///   - `format` : a strftime format string (only for `time`)
+///   - `style`  : the style name used in `status-bar-style`
+///   - `style-range` : the range name used in `status-bar-style-range`
+///
+/// Example: `status-bar-widget = time:format=%H:%M,name=clock`
+@"status-bar-widget": RepeatableStatusBarWidget = .{},
+
+/// Styles for status bar widgets. This is a repeatable configuration.
+///
+/// The format is `name=<name>,param=value,...`. Supported params are:
+///   - `name`  : required style name
+///   - `fg`    : foreground color (hex or X11 color name)
+///   - `bold`  : true/false
+///   - `size`  : font size in points
+///
+/// Example: `status-bar-style = name=alert,fg=#ff6b6b,bold=true`
+@"status-bar-style": RepeatableStatusBarStyle = .{},
+
+/// Range styles for status bar widgets. This is a repeatable configuration.
+///
+/// The format is `name=<name>,range=<min>..<max>=<style>,...`. Supported params:
+///   - `name`  : required range name
+///   - `range` : a numeric range mapped to a style name
+///
+/// Ranges are inclusive and evaluated in order. Use an empty min or max to
+/// indicate an open range. A single number is treated as an exact match.
+///
+/// Example:
+///   `status-bar-style-range = name=cpu,range=0..40=ok,range=40..80=warn,range=80..=hot`
+@"status-bar-style-range": RepeatableStatusBarStyleRange = .{},
+
+/// Layout for the status bar overlay. Use widget names separated by whitespace.
+/// Use `<->` to split the layout into left and right sections.
+///
+/// Example: `status-bar = time <-> cwd`
+@"status-bar": [:0]const u8 = "cwd",
 
 /// If true, when there are multiple split panes, the mouse selects the pane
 /// that is focused. This only applies to the currently focused window; e.g.
@@ -6266,6 +6319,13 @@ pub const Keybinds = struct {
                 .{ .inspector = .toggle },
             );
 
+            // Toggle status bar
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '.' }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .toggle_status_bar = {} },
+            );
+
             // Terminal
             try self.set.put(
                 alloc,
@@ -6599,6 +6659,13 @@ pub const Keybinds = struct {
                 alloc,
                 .{ .key = .{ .unicode = 'i' }, .mods = .{ .alt = true, .super = true } },
                 .{ .inspector = .toggle },
+            );
+
+            // Toggle status bar
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '.' }, .mods = .{ .super = true } },
+                .{ .toggle_status_bar = {} },
             );
 
             // Alternate keybind, common to Mac programs
@@ -8304,6 +8371,943 @@ pub const RepeatableCommand = struct {
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Foo,action:ignore");
         try testing.expectEqual(@as(usize, 1), list.cval().len);
+
+        try list.parseCLI(alloc, "");
+        try testing.expectEqual(@as(usize, 0), list.cval().len);
+    }
+};
+
+/// A single status bar widget definition.
+pub const StatusBarWidget = struct {
+    const Self = @This();
+
+    pub const Kind = enum(c_int) {
+        time,
+        cwd,
+        pwd,
+        size,
+        modifiers,
+        pending_key,
+        cpu,
+        memory,
+        cursor_pos,
+    };
+
+    kind: Kind,
+    name: ?[:0]const u8 = null,
+    format: ?[:0]const u8 = null,
+    style: ?[:0]const u8 = null,
+    style_range: ?[:0]const u8 = null,
+
+    /// C representation for status bar widgets.
+    pub const C = extern struct {
+        kind: Kind,
+        name: ?[*:0]const u8,
+        format: ?[*:0]const u8,
+        style: ?[*:0]const u8,
+        style_range: ?[*:0]const u8,
+    };
+
+    pub fn cval(self: Self) C {
+        return .{
+            .kind = self.kind,
+            .name = if (self.name) |v| @ptrCast(v.ptr) else null,
+            .format = if (self.format) |v| @ptrCast(v.ptr) else null,
+            .style = if (self.style) |v| @ptrCast(v.ptr) else null,
+            .style_range = if (self.style_range) |v| @ptrCast(v.ptr) else null,
+        };
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        return .{
+            .kind = self.kind,
+            .name = if (self.name) |v| try alloc.dupeZ(u8, v) else null,
+            .format = if (self.format) |v| try alloc.dupeZ(u8, v) else null,
+            .style = if (self.style) |v| try alloc.dupeZ(u8, v) else null,
+            .style_range = if (self.style_range) |v| try alloc.dupeZ(u8, v) else null,
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (self.kind != other.kind) return false;
+        if (!stringOptEqual(self.name, other.name)) return false;
+        if (!stringOptEqual(self.format, other.format)) return false;
+        if (!stringOptEqual(self.style, other.style)) return false;
+        if (!stringOptEqual(self.style_range, other.style_range)) return false;
+        return true;
+    }
+
+    fn stringOptEqual(a: ?[:0]const u8, b: ?[:0]const u8) bool {
+        if (a == null and b == null) return true;
+        if (a == null or b == null) return false;
+        return std.mem.eql(u8, a.?, b.?);
+    }
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const raw = input orelse return error.ValueRequired;
+        const trimmed = std.mem.trim(u8, raw, cli.args.whitespace);
+        if (trimmed.len == 0) return error.ValueRequired;
+
+        const split_idx = std.mem.indexOfScalar(u8, trimmed, ':');
+        const kind_str = if (split_idx) |idx| trimmed[0..idx] else trimmed;
+        const params_str = if (split_idx) |idx| trimmed[idx + 1 ..] else null;
+
+        const kind = parseKind(kind_str) orelse return error.InvalidValue;
+        var result: StatusBarWidget = .{ .kind = kind };
+
+        if (params_str) |params| {
+            var iter: CommaSplitter = .init(params);
+            while (iter.next() catch return error.InvalidValue) |entry_raw| {
+                const entry = std.mem.trim(u8, entry_raw, cli.args.whitespace);
+                if (entry.len == 0) continue;
+
+                const eq_idx = std.mem.indexOfScalar(u8, entry, '=') orelse return error.InvalidValue;
+                const key = std.mem.trim(u8, entry[0..eq_idx], cli.args.whitespace);
+                const value_raw = std.mem.trim(u8, entry[eq_idx + 1 ..], cli.args.whitespace);
+
+                // Decode quoted strings if necessary.
+                var buf: std.Io.Writer.Allocating = .init(alloc);
+                defer buf.deinit();
+                const value = value: {
+                    if (value_raw.len >= 2 and value_raw[0] == '"' and value_raw[value_raw.len - 1] == '"') {
+                        const parsed = try std.zig.string_literal.parseWrite(&buf.writer, value_raw);
+                        if (parsed == .failure) return error.InvalidValue;
+                        break :value buf.written();
+                    }
+                    break :value value_raw;
+                };
+
+                if (std.mem.eql(u8, key, "name")) {
+                    result.name = try alloc.dupeZ(u8, value);
+                } else if (std.mem.eql(u8, key, "format")) {
+                    result.format = try alloc.dupeZ(u8, value);
+                } else if (std.mem.eql(u8, key, "style")) {
+                    result.style = try alloc.dupeZ(u8, value);
+                } else if (std.mem.eql(u8, key, "style-range") or std.mem.eql(u8, key, "style_range")) {
+                    result.style_range = try alloc.dupeZ(u8, value);
+                } else {
+                    return error.InvalidValue;
+                }
+            }
+        }
+
+        self.* = result;
+    }
+
+    pub fn formatEntry(self: Self, writer: *std.Io.Writer) !void {
+        try writer.writeAll(@tagName(self.kind));
+        var first = true;
+
+        if (self.format) |fmt| {
+            try writer.print("{s}format:\"{f}\"", .{
+                if (first) ":" else ",",
+                std.zig.fmtString(fmt),
+            });
+            first = false;
+        }
+
+        if (self.name) |name| {
+            try writer.print("{s}name:\"{f}\"", .{
+                if (first) ":" else ",",
+                std.zig.fmtString(name),
+            });
+            first = false;
+        }
+
+        if (self.style) |style| {
+            try writer.print("{s}style:\"{f}\"", .{
+                if (first) ":" else ",",
+                std.zig.fmtString(style),
+            });
+            first = false;
+        }
+
+        if (self.style_range) |style_range| {
+            try writer.print("{s}style-range:\"{f}\"", .{
+                if (first) ":" else ",",
+                std.zig.fmtString(style_range),
+            });
+            first = false;
+        }
+    }
+
+    pub fn parseKind(input: []const u8) ?Kind {
+        if (std.mem.eql(u8, input, "modifier_state")) return .modifiers;
+        if (std.mem.eql(u8, input, "mods")) return .modifiers;
+        if (std.mem.eql(u8, input, "terminal_size")) return .size;
+        if (std.mem.eql(u8, input, "term_size")) return .size;
+        if (std.mem.eql(u8, input, "mem")) return .memory;
+        return std.meta.stringToEnum(Kind, input);
+    }
+
+    test "StatusBarWidget parseCLI style-range" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var widget: StatusBarWidget = undefined;
+        try widget.parseCLI(alloc, "cpu:name=cpu,style-range=cpu_range,style=hot");
+
+        try testing.expectEqual(Kind.cpu, widget.kind);
+        try testing.expectEqualStrings("cpu", std.mem.sliceTo(widget.name.?, 0));
+        try testing.expectEqualStrings("cpu_range", std.mem.sliceTo(widget.style_range.?, 0));
+        try testing.expectEqualStrings("hot", std.mem.sliceTo(widget.style.?, 0));
+
+        var widget_alias: StatusBarWidget = undefined;
+        try widget_alias.parseCLI(alloc, "cpu:style_range=alt");
+        try testing.expectEqualStrings("alt", std.mem.sliceTo(widget_alias.style_range.?, 0));
+    }
+
+    test "StatusBarWidget formatEntry style-range" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var widget: StatusBarWidget = undefined;
+        try widget.parseCLI(alloc, "cpu:style_range=cpu_range");
+
+        var buf: [128]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try widget.formatEntry(&writer);
+        try testing.expectEqualSlices(u8, "cpu:style-range:\"cpu_range\"", writer.buffered());
+    }
+
+    test "StatusBarWidget parseCLI invalid key" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var widget: StatusBarWidget = undefined;
+        try testing.expectError(error.InvalidValue, widget.parseCLI(alloc, "cpu:bogus=1"));
+    }
+};
+
+/// Repeatable list of status bar widgets.
+pub const RepeatableStatusBarWidget = struct {
+    const Self = @This();
+
+    value: std.ArrayListUnmanaged(StatusBarWidget) = .empty,
+    value_c: std.ArrayListUnmanaged(StatusBarWidget.C) = .empty,
+
+    /// ghostty_config_status_bar_widget_list_s
+    pub const C = extern struct {
+        widgets: [*]StatusBarWidget.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .widgets = self.value_c.items.ptr,
+            .len = self.value_c.items.len,
+        };
+    }
+
+    pub fn parseCLI(
+        self: *Self,
+        alloc: Allocator,
+        input_: ?[]const u8,
+    ) !void {
+        const input = input_ orelse return error.ValueRequired;
+
+        if (input.len == 0) {
+            self.value.clearRetainingCapacity();
+            self.value_c.clearRetainingCapacity();
+            return;
+        }
+
+        try self.value.ensureUnusedCapacity(alloc, 1);
+        try self.value_c.ensureUnusedCapacity(alloc, 1);
+
+        var widget: StatusBarWidget = undefined;
+        try widget.parseCLI(alloc, input);
+
+        self.value.appendAssumeCapacity(widget);
+        self.value_c.appendAssumeCapacity(widget.cval());
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        var value = try std.ArrayListUnmanaged(StatusBarWidget).initCapacity(
+            alloc,
+            self.value.items.len,
+        );
+        var value_c = try std.ArrayListUnmanaged(StatusBarWidget.C).initCapacity(
+            alloc,
+            self.value_c.items.len,
+        );
+        errdefer {
+            value.deinit(alloc);
+            value_c.deinit(alloc);
+        }
+
+        for (self.value.items) |item| {
+            const cloned = try item.clone(alloc);
+            value.appendAssumeCapacity(cloned);
+            value_c.appendAssumeCapacity(cloned.cval());
+        }
+
+        return .{
+            .value = value,
+            .value_c = value_c,
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (self.value.items.len != other.value.items.len) return false;
+        for (self.value.items, other.value.items) |a, b| {
+            if (!a.equal(b)) return false;
+        }
+        return true;
+    }
+
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        if (self.value.items.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        for (self.value.items) |item| {
+            var buf: [512]u8 = undefined;
+            var writer: std.Io.Writer = .fixed(&buf);
+
+            item.formatEntry(&writer) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, writer.buffered());
+        }
+    }
+};
+
+/// A single status bar style definition.
+pub const StatusBarStyle = struct {
+    const Self = @This();
+
+    name: [:0]const u8,
+    fg: ?Color = null,
+    bold: ?bool = null,
+    size: ?f32 = null,
+
+    /// C representation for status bar styles.
+    pub const C = extern struct {
+        name: [*:0]const u8,
+        fg: Color.C,
+        has_fg: bool,
+        bold: bool,
+        has_bold: bool,
+        size: f32,
+        has_size: bool,
+    };
+
+    pub fn cval(self: Self) C {
+        return .{
+            .name = @ptrCast(self.name.ptr),
+            .fg = if (self.fg) |v| v.cval() else .{ .r = 0, .g = 0, .b = 0 },
+            .has_fg = self.fg != null,
+            .bold = self.bold orelse false,
+            .has_bold = self.bold != null,
+            .size = self.size orelse 0,
+            .has_size = self.size != null,
+        };
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        return .{
+            .name = try alloc.dupeZ(u8, self.name),
+            .fg = self.fg,
+            .bold = self.bold,
+            .size = self.size,
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (!std.mem.eql(u8, self.name, other.name)) return false;
+        if (!colorOptEqual(self.fg, other.fg)) return false;
+        if (self.bold != other.bold) return false;
+        if (self.size != other.size) return false;
+        return true;
+    }
+
+    fn colorOptEqual(a: ?Color, b: ?Color) bool {
+        if (a == null and b == null) return true;
+        if (a == null or b == null) return false;
+        return a.?.equal(b.?);
+    }
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const raw = input orelse return error.ValueRequired;
+        const trimmed = std.mem.trim(u8, raw, cli.args.whitespace);
+        if (trimmed.len == 0) return error.ValueRequired;
+
+        var result: StatusBarStyle = .{
+            .name = "",
+        };
+
+        var iter: CommaSplitter = .init(trimmed);
+        while (iter.next() catch return error.InvalidValue) |entry_raw| {
+            const entry = std.mem.trim(u8, entry_raw, cli.args.whitespace);
+            if (entry.len == 0) continue;
+
+            const eq_idx = std.mem.indexOfScalar(u8, entry, '=') orelse return error.InvalidValue;
+            const key = std.mem.trim(u8, entry[0..eq_idx], cli.args.whitespace);
+            const value_raw = std.mem.trim(u8, entry[eq_idx + 1 ..], cli.args.whitespace);
+
+            // Decode quoted strings if necessary.
+            var buf: std.Io.Writer.Allocating = .init(alloc);
+            defer buf.deinit();
+            const value = value: {
+                if (value_raw.len >= 2 and value_raw[0] == '"' and value_raw[value_raw.len - 1] == '"') {
+                    const parsed = try std.zig.string_literal.parseWrite(&buf.writer, value_raw);
+                    if (parsed == .failure) return error.InvalidValue;
+                    break :value buf.written();
+                }
+                break :value value_raw;
+            };
+
+            if (std.mem.eql(u8, key, "name")) {
+                result.name = try alloc.dupeZ(u8, value);
+            } else if (std.mem.eql(u8, key, "fg")) {
+                result.fg = try Color.parseCLI(value);
+            } else if (std.mem.eql(u8, key, "bold")) {
+                result.bold = try cli.args.parseBool(value);
+            } else if (std.mem.eql(u8, key, "size")) {
+                result.size = std.fmt.parseFloat(f32, value) catch return error.InvalidValue;
+            } else {
+                return error.InvalidValue;
+            }
+        }
+
+        if (result.name.len == 0) return error.InvalidValue;
+        self.* = result;
+    }
+
+    pub fn formatEntry(self: Self, writer: *std.Io.Writer) !void {
+        var first = true;
+
+        try writer.print("{s}name:\"{f}\"", .{
+            if (first) "" else ",",
+            std.zig.fmtString(self.name),
+        });
+        first = false;
+
+        if (self.fg) |fg| {
+            var buf: [128]u8 = undefined;
+            const fg_str = fg.formatBuf(&buf) catch return error.OutOfMemory;
+            try writer.print("{s}fg:\"{s}\"", .{
+                if (first) "" else ",",
+                fg_str,
+            });
+            first = false;
+        }
+
+        if (self.bold) |bold| {
+            try writer.print("{s}bold:{s}", .{
+                if (first) "" else ",",
+                if (bold) "true" else "false",
+            });
+            first = false;
+        }
+
+        if (self.size) |size| {
+            try writer.print("{s}size:{}", .{
+                if (first) "" else ",",
+                size,
+            });
+            first = false;
+        }
+    }
+};
+
+/// Repeatable list of status bar styles.
+pub const RepeatableStatusBarStyle = struct {
+    const Self = @This();
+
+    value: std.ArrayListUnmanaged(StatusBarStyle) = .empty,
+    value_c: std.ArrayListUnmanaged(StatusBarStyle.C) = .empty,
+
+    /// ghostty_config_status_bar_style_list_s
+    pub const C = extern struct {
+        styles: [*]StatusBarStyle.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .styles = self.value_c.items.ptr,
+            .len = self.value_c.items.len,
+        };
+    }
+
+    pub fn parseCLI(
+        self: *Self,
+        alloc: Allocator,
+        input_: ?[]const u8,
+    ) !void {
+        const input = input_ orelse return error.ValueRequired;
+
+        if (input.len == 0) {
+            self.value.clearRetainingCapacity();
+            self.value_c.clearRetainingCapacity();
+            return;
+        }
+
+        try self.value.ensureUnusedCapacity(alloc, 1);
+        try self.value_c.ensureUnusedCapacity(alloc, 1);
+
+        var style: StatusBarStyle = undefined;
+        try style.parseCLI(alloc, input);
+
+        self.value.appendAssumeCapacity(style);
+        self.value_c.appendAssumeCapacity(style.cval());
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        var value = try std.ArrayListUnmanaged(StatusBarStyle).initCapacity(
+            alloc,
+            self.value.items.len,
+        );
+        var value_c = try std.ArrayListUnmanaged(StatusBarStyle.C).initCapacity(
+            alloc,
+            self.value_c.items.len,
+        );
+        errdefer {
+            value.deinit(alloc);
+            value_c.deinit(alloc);
+        }
+
+        for (self.value.items) |item| {
+            const cloned = try item.clone(alloc);
+            value.appendAssumeCapacity(cloned);
+            value_c.appendAssumeCapacity(cloned.cval());
+        }
+
+        return .{
+            .value = value,
+            .value_c = value_c,
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (self.value.items.len != other.value.items.len) return false;
+        for (self.value.items, other.value.items) |a, b| {
+            if (!a.equal(b)) return false;
+        }
+        return true;
+    }
+
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        if (self.value.items.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        for (self.value.items) |item| {
+            var buf: [512]u8 = undefined;
+            var writer: std.Io.Writer = .fixed(&buf);
+
+            item.formatEntry(&writer) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, writer.buffered());
+        }
+    }
+};
+
+/// A single status bar style range entry.
+pub const StatusBarStyleRangeEntry = struct {
+    const Self = @This();
+
+    min: ?f32 = null,
+    max: ?f32 = null,
+    style: [:0]const u8,
+
+    /// C representation for status bar style range entries.
+    pub const C = extern struct {
+        min: f32,
+        has_min: bool,
+        max: f32,
+        has_max: bool,
+        style: [*:0]const u8,
+    };
+
+    pub fn cval(self: Self) C {
+        return .{
+            .min = self.min orelse 0,
+            .has_min = self.min != null,
+            .max = self.max orelse 0,
+            .has_max = self.max != null,
+            .style = @ptrCast(self.style.ptr),
+        };
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        return .{
+            .min = self.min,
+            .max = self.max,
+            .style = try alloc.dupeZ(u8, self.style),
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (self.min != other.min) return false;
+        if (self.max != other.max) return false;
+        if (!std.mem.eql(u8, self.style, other.style)) return false;
+        return true;
+    }
+
+    pub fn matches(self: Self, value: f32) bool {
+        if (self.min) |min| {
+            if (value < min) return false;
+        }
+        if (self.max) |max| {
+            if (value > max) return false;
+        }
+        return self.min != null or self.max != null;
+    }
+};
+
+/// A single status bar style range definition.
+pub const StatusBarStyleRange = struct {
+    const Self = @This();
+
+    name: [:0]const u8,
+    entries: std.ArrayListUnmanaged(StatusBarStyleRangeEntry) = .empty,
+    entries_c: std.ArrayListUnmanaged(StatusBarStyleRangeEntry.C) = .empty,
+
+    /// C representation for status bar style ranges.
+    pub const C = extern struct {
+        name: [*:0]const u8,
+        entries: [*]StatusBarStyleRangeEntry.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .name = @ptrCast(self.name.ptr),
+            .entries = self.entries_c.items.ptr,
+            .len = self.entries_c.items.len,
+        };
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        var entries = try std.ArrayListUnmanaged(StatusBarStyleRangeEntry).initCapacity(
+            alloc,
+            self.entries.items.len,
+        );
+        var entries_c = try std.ArrayListUnmanaged(StatusBarStyleRangeEntry.C).initCapacity(
+            alloc,
+            self.entries.items.len,
+        );
+        errdefer {
+            entries.deinit(alloc);
+            entries_c.deinit(alloc);
+        }
+
+        for (self.entries.items) |entry| {
+            const cloned = try entry.clone(alloc);
+            entries.appendAssumeCapacity(cloned);
+            entries_c.appendAssumeCapacity(cloned.cval());
+        }
+
+        return .{
+            .name = try alloc.dupeZ(u8, self.name),
+            .entries = entries,
+            .entries_c = entries_c,
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (!std.mem.eql(u8, self.name, other.name)) return false;
+        if (self.entries.items.len != other.entries.items.len) return false;
+        for (self.entries.items, other.entries.items) |a, b| {
+            if (!a.equal(b)) return false;
+        }
+        return true;
+    }
+
+    pub fn styleForValue(self: Self, value: f32) ?[]const u8 {
+        for (self.entries.items) |entry| {
+            if (entry.matches(value)) return std.mem.sliceTo(entry.style, 0);
+        }
+        return null;
+    }
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const raw = input orelse return error.ValueRequired;
+        const trimmed = std.mem.trim(u8, raw, cli.args.whitespace);
+        if (trimmed.len == 0) return error.ValueRequired;
+
+        var result: StatusBarStyleRange = .{ .name = "" };
+
+        var iter: CommaSplitter = .init(trimmed);
+        while (iter.next() catch return error.InvalidValue) |entry_raw| {
+            const entry = std.mem.trim(u8, entry_raw, cli.args.whitespace);
+            if (entry.len == 0) continue;
+
+            const eq_idx = std.mem.indexOfScalar(u8, entry, '=') orelse return error.InvalidValue;
+            const key = std.mem.trim(u8, entry[0..eq_idx], cli.args.whitespace);
+            const value_raw = std.mem.trim(u8, entry[eq_idx + 1 ..], cli.args.whitespace);
+
+            // Decode quoted strings if necessary.
+            var buf: std.Io.Writer.Allocating = .init(alloc);
+            defer buf.deinit();
+            const value = value: {
+                if (value_raw.len >= 2 and value_raw[0] == '"' and value_raw[value_raw.len - 1] == '"') {
+                    const parsed = try std.zig.string_literal.parseWrite(&buf.writer, value_raw);
+                    if (parsed == .failure) return error.InvalidValue;
+                    break :value buf.written();
+                }
+                break :value value_raw;
+            };
+
+            if (std.mem.eql(u8, key, "name")) {
+                result.name = try alloc.dupeZ(u8, value);
+            } else if (std.mem.eql(u8, key, "range")) {
+                try result.entries.ensureUnusedCapacity(alloc, 1);
+                try result.entries_c.ensureUnusedCapacity(alloc, 1);
+                const entry_parsed = try parseRangeEntry(alloc, value);
+                result.entries.appendAssumeCapacity(entry_parsed);
+                result.entries_c.appendAssumeCapacity(entry_parsed.cval());
+            } else {
+                return error.InvalidValue;
+            }
+        }
+
+        if (result.name.len == 0) return error.InvalidValue;
+        if (result.entries.items.len == 0) return error.InvalidValue;
+        self.* = result;
+    }
+
+    pub fn formatEntry(self: Self, writer: *std.Io.Writer) !void {
+        var first = true;
+
+        try writer.print("{s}name:\"{f}\"", .{
+            if (first) "" else ",",
+            std.zig.fmtString(self.name),
+        });
+        first = false;
+
+        for (self.entries.items) |entry| {
+            try writer.writeAll(if (first) "" else ",");
+            try writer.writeAll("range=");
+            if (entry.min) |min| {
+                try writer.print("{d}", .{min});
+            }
+            if (entry.min == null or entry.max == null or entry.min.? != entry.max.?) {
+                try writer.writeAll("..");
+                if (entry.max) |max| {
+                    try writer.print("{d}", .{max});
+                }
+            }
+            try writer.print("=\"{f}\"", .{
+                std.zig.fmtString(entry.style),
+            });
+            first = false;
+        }
+    }
+
+    fn parseRangeEntry(alloc: Allocator, raw: []const u8) !StatusBarStyleRangeEntry {
+        const trimmed = std.mem.trim(u8, raw, cli.args.whitespace);
+        if (trimmed.len == 0) return error.InvalidValue;
+
+        const eq_idx = std.mem.lastIndexOfScalar(u8, trimmed, '=') orelse return error.InvalidValue;
+        const range_raw = std.mem.trim(u8, trimmed[0..eq_idx], cli.args.whitespace);
+        const style_raw = std.mem.trim(u8, trimmed[eq_idx + 1 ..], cli.args.whitespace);
+        if (style_raw.len == 0) return error.InvalidValue;
+
+        var min: ?f32 = null;
+        var max: ?f32 = null;
+
+        if (std.mem.indexOf(u8, range_raw, "..")) |dots| {
+            if (std.mem.indexOf(u8, range_raw[dots + 2 ..], "..") != null) {
+                return error.InvalidValue;
+            }
+            const left = std.mem.trim(u8, range_raw[0..dots], cli.args.whitespace);
+            const right = std.mem.trim(u8, range_raw[dots + 2 ..], cli.args.whitespace);
+            if (left.len > 0) {
+                min = std.fmt.parseFloat(f32, left) catch return error.InvalidValue;
+            }
+            if (right.len > 0) {
+                max = std.fmt.parseFloat(f32, right) catch return error.InvalidValue;
+            }
+        } else {
+            if (range_raw.len == 0) return error.InvalidValue;
+            const value = std.fmt.parseFloat(f32, range_raw) catch return error.InvalidValue;
+            min = value;
+            max = value;
+        }
+
+        if (min == null and max == null) return error.InvalidValue;
+        if (min != null and max != null and min.? > max.?) return error.InvalidValue;
+
+        return .{
+            .min = min,
+            .max = max,
+            .style = try alloc.dupeZ(u8, style_raw),
+        };
+    }
+
+    test "StatusBarStyleRange parseCLI and match" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var range: StatusBarStyleRange = undefined;
+        try range.parseCLI(alloc, "name=cpu,range=0..40=ok,range=40..80=warn,range=80..=hot");
+
+        try testing.expectEqualStrings("cpu", range.name);
+        try testing.expectEqual(@as(usize, 3), range.entries.items.len);
+
+        const first = range.entries.items[0];
+        try testing.expectEqual(@as(f32, 0), first.min.?);
+        try testing.expectEqual(@as(f32, 40), first.max.?);
+        try testing.expectEqualStrings("ok", first.style);
+
+        const second = range.entries.items[1];
+        try testing.expectEqual(@as(f32, 40), second.min.?);
+        try testing.expectEqual(@as(f32, 80), second.max.?);
+        try testing.expectEqualStrings("warn", second.style);
+
+        const third = range.entries.items[2];
+        try testing.expectEqual(@as(f32, 80), third.min.?);
+        try testing.expect(third.max == null);
+        try testing.expectEqualStrings("hot", third.style);
+
+        try testing.expect(range.styleForValue(-1) == null);
+        try testing.expectEqualStrings("ok", range.styleForValue(0).?);
+        try testing.expectEqualStrings("ok", range.styleForValue(40).?);
+        try testing.expectEqualStrings("warn", range.styleForValue(41).?);
+        try testing.expectEqualStrings("hot", range.styleForValue(99).?);
+    }
+
+    test "StatusBarStyleRange parseCLI invalid" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var range: StatusBarStyleRange = undefined;
+        try testing.expectError(error.InvalidValue, range.parseCLI(alloc, "name=cpu,range=80..40=bad"));
+        try testing.expectError(error.InvalidValue, range.parseCLI(alloc, "name=cpu,range=..=bad"));
+        try testing.expectError(error.InvalidValue, range.parseCLI(alloc, "name=cpu,range=0..40="));
+        try testing.expectError(error.InvalidValue, range.parseCLI(alloc, "range=0..40=ok"));
+    }
+};
+
+/// Repeatable list of status bar style ranges.
+pub const RepeatableStatusBarStyleRange = struct {
+    const Self = @This();
+
+    value: std.ArrayListUnmanaged(StatusBarStyleRange) = .empty,
+    value_c: std.ArrayListUnmanaged(StatusBarStyleRange.C) = .empty,
+
+    /// ghostty_config_status_bar_style_range_list_s
+    pub const C = extern struct {
+        ranges: [*]StatusBarStyleRange.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .ranges = self.value_c.items.ptr,
+            .len = self.value_c.items.len,
+        };
+    }
+
+    pub fn parseCLI(
+        self: *Self,
+        alloc: Allocator,
+        input_: ?[]const u8,
+    ) !void {
+        const input = input_ orelse return error.ValueRequired;
+
+        if (input.len == 0) {
+            self.value.clearRetainingCapacity();
+            self.value_c.clearRetainingCapacity();
+            return;
+        }
+
+        try self.value.ensureUnusedCapacity(alloc, 1);
+        try self.value_c.ensureUnusedCapacity(alloc, 1);
+
+        var range: StatusBarStyleRange = undefined;
+        try range.parseCLI(alloc, input);
+
+        self.value.appendAssumeCapacity(range);
+        self.value_c.appendAssumeCapacity(range.cval());
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        var value = try std.ArrayListUnmanaged(StatusBarStyleRange).initCapacity(
+            alloc,
+            self.value.items.len,
+        );
+        var value_c = try std.ArrayListUnmanaged(StatusBarStyleRange.C).initCapacity(
+            alloc,
+            self.value_c.items.len,
+        );
+        errdefer {
+            value.deinit(alloc);
+            value_c.deinit(alloc);
+        }
+
+        for (self.value.items) |item| {
+            const cloned = try item.clone(alloc);
+            value.appendAssumeCapacity(cloned);
+            value_c.appendAssumeCapacity(cloned.cval());
+        }
+
+        return .{
+            .value = value,
+            .value_c = value_c,
+        };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (self.value.items.len != other.value.items.len) return false;
+        for (self.value.items, other.value.items) |a, b| {
+            if (!a.equal(b)) return false;
+        }
+        return true;
+    }
+
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        if (self.value.items.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        for (self.value.items) |item| {
+            var buf: [512]u8 = undefined;
+            var writer: std.Io.Writer = .fixed(&buf);
+
+            item.formatEntry(&writer) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, writer.buffered());
+        }
+    }
+
+    test "RepeatableStatusBarStyleRange parseCLI cval" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableStatusBarStyleRange = .{};
+        try list.parseCLI(alloc, "name=cpu,range=0..=ok");
+        try list.parseCLI(alloc, "name=mem,range=0..50=ok,range=50..=warn");
+
+        try testing.expectEqual(@as(usize, 2), list.value.items.len);
+        try testing.expectEqual(@as(usize, 2), list.value_c.items.len);
+
+        const cv = list.cval();
+        try testing.expectEqual(@as(usize, 2), cv.len);
+
+        try testing.expectEqualStrings("cpu", std.mem.sliceTo(cv.ranges[0].name, 0));
+        try testing.expectEqual(@as(usize, 1), cv.ranges[0].len);
+        try testing.expectEqualStrings("ok", std.mem.sliceTo(cv.ranges[0].entries[0].style, 0));
+
+        try testing.expectEqualStrings("mem", std.mem.sliceTo(cv.ranges[1].name, 0));
+        try testing.expectEqual(@as(usize, 2), cv.ranges[1].len);
+        try testing.expectEqualStrings("ok", std.mem.sliceTo(cv.ranges[1].entries[0].style, 0));
+        try testing.expectEqualStrings("warn", std.mem.sliceTo(cv.ranges[1].entries[1].style, 0));
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(@as(usize, 0), list.cval().len);

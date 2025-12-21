@@ -516,6 +516,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_INSPECTOR:
                 controlInspector(app, target: target, mode: action.action.inspector)
 
+            case GHOSTTY_ACTION_TOGGLE_STATUS_BAR:
+                toggleStatusBar(app, target: target)
+
             case GHOSTTY_ACTION_RENDER_INSPECTOR:
                 renderInspector(app, target: target)
 
@@ -1330,6 +1333,24 @@ extension Ghostty {
                     userInfo: ["mode": mode]
                 )
 
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleStatusBar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle status bar does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                surfaceView.showStatusBar.toggle()
 
             default:
                 assertionFailure()

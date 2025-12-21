@@ -117,6 +117,47 @@ Overlay terminal_page {
   $GhosttyResizeOverlay resize_overlay {}
 
   [overlay]
+  Revealer status_bar_revealer {
+    reveal-child: bind template.show-status-bar;
+    transition-type: crossfade;
+    transition-duration: 150;
+    halign: fill;
+    valign: end;
+    margin-bottom: 8;
+    margin-start: 12;
+    margin-end: 12;
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    Box status_bar_box {
+      hexpand: true;
+      spacing: 8;
+      styles [
+        "background",
+        "status-bar",
+      ]
+
+      Label status_bar_left {
+        hexpand: true;
+        xalign: 0;
+        use-markup: true;
+        styles [
+          "status-bar-text",
+        ]
+      }
+
+      Label status_bar_right {
+        xalign: 1;
+        use-markup: true;
+        styles [
+          "status-bar-text",
+        ]
+      }
+    }
+  }
+
+  [overlay]
   Label url_left {
     styles [
       "background",

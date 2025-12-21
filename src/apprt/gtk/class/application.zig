@@ -671,6 +671,7 @@ pub const Application = extern struct {
 
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
+            .toggle_status_bar => return Action.toggleStatusBar(target),
 
             .mouse_over_link => Action.mouseOverLink(target, value),
             .mouse_shape => Action.mouseShape(target, value),
@@ -2649,6 +2650,15 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().controlInspector(value);
+            },
+        }
+    }
+
+    pub fn toggleStatusBar(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().toggleStatusBar();
             },
         }
     }

@@ -128,6 +128,14 @@ extension Ghostty {
                     keyTables: surfaceView.keyTables,
                     keySequence: surfaceView.keySequence
                 )
+
+                // Status bar overlay
+                if surfaceView.showStatusBar {
+                    StatusBarOverlay(surfaceView: surfaceView)
+                        .frame(maxWidth: .infinity)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
 #endif
 
                 // If we have a URL from hovering a link, we show that.
@@ -947,6 +955,44 @@ extension Ghostty {
                 let offset = Double(index) / 3.0
                 let wave = sin((phase + offset) * .pi * 2)
                 return 0.3 + 0.7 * ((wave + 1) / 2)
+            }
+        }
+    }
+
+    /// Status bar overlay showing configurable widgets.
+    struct StatusBarOverlay: View {
+        @ObservedObject var surfaceView: SurfaceView
+
+        var body: some View {
+            if surfaceView.statusBarLeft.characters.isEmpty && surfaceView.statusBarRight.characters.isEmpty {
+                EmptyView()
+            } else {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Text(surfaceView.statusBarLeft)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Text(surfaceView.statusBarRight)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(.system(.caption, design: .monospaced))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(.background)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                }
+                .frame(maxWidth: .infinity)
             }
         }
     }

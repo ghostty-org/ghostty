@@ -548,6 +548,45 @@ extension Ghostty {
             return v;
         }
 
+        var statusBarLayout: String {
+            guard let config = self.config else { return "" }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "status-bar"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return "" }
+            guard let ptr = v else { return "" }
+            return String(cString: ptr)
+        }
+
+        var statusBarWidgets: [StatusBarWidget] {
+            guard let config = self.config else { return [] }
+            var v: ghostty_config_status_bar_widget_list_s = .init()
+            let key = "status-bar-widget"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
+            guard v.len > 0, let widgets = v.widgets else { return [] }
+            let buffer = UnsafeBufferPointer(start: widgets, count: v.len)
+            return buffer.compactMap { StatusBarWidget(cValue: $0) }
+        }
+
+        var statusBarStyles: [StatusBarStyle] {
+            guard let config = self.config else { return [] }
+            var v: ghostty_config_status_bar_style_list_s = .init()
+            let key = "status-bar-style"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
+            guard v.len > 0, let styles = v.styles else { return [] }
+            let buffer = UnsafeBufferPointer(start: styles, count: v.len)
+            return buffer.compactMap { StatusBarStyle(cValue: $0) }
+        }
+
+        var statusBarStyleRanges: [StatusBarStyleRange] {
+            guard let config = self.config else { return [] }
+            var v: ghostty_config_status_bar_style_range_list_s = .init()
+            let key = "status-bar-style-range"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
+            guard v.len > 0, let ranges = v.ranges else { return [] }
+            let buffer = UnsafeBufferPointer(start: ranges, count: v.len)
+            return buffer.compactMap { StatusBarStyleRange(cValue: $0) }
+        }
+
         var undoTimeout: Duration {
             guard let config = self.config else { return .seconds(5) }
             var v: UInt = 0
@@ -638,6 +677,154 @@ extension Ghostty {
 // MARK: Configuration Enums
 
 extension Ghostty.Config {
+    struct StatusBarWidget {
+        enum Kind: String {
+            case time
+            case cwd
+            case pwd
+            case size
+            case modifiers
+            case pending_key
+            case cpu
+            case memory
+            case cursor_pos
+
+            init?(_ c: ghostty_status_bar_widget_kind_e) {
+                switch c {
+                case GHOSTTY_STATUS_BAR_WIDGET_TIME: self = .time
+                case GHOSTTY_STATUS_BAR_WIDGET_CWD: self = .cwd
+                case GHOSTTY_STATUS_BAR_WIDGET_PWD: self = .pwd
+                case GHOSTTY_STATUS_BAR_WIDGET_SIZE: self = .size
+                case GHOSTTY_STATUS_BAR_WIDGET_MODIFIERS: self = .modifiers
+                case GHOSTTY_STATUS_BAR_WIDGET_PENDING_KEY: self = .pending_key
+                case GHOSTTY_STATUS_BAR_WIDGET_CPU: self = .cpu
+                case GHOSTTY_STATUS_BAR_WIDGET_MEMORY: self = .memory
+                case GHOSTTY_STATUS_BAR_WIDGET_CURSOR_POS: self = .cursor_pos
+                default: return nil
+                }
+            }
+
+            static func fromToken(_ token: String) -> Kind? {
+                switch token {
+                case "modifier_state", "mods": return .modifiers
+                case "terminal_size", "term_size": return .size
+                case "mem": return .memory
+                default: return Kind(rawValue: token)
+                }
+            }
+        }
+
+        let kind: Kind
+        let name: String?
+        let format: String?
+        let style: String?
+        let styleRange: String?
+
+        init(kind: Kind, name: String?, format: String?, style: String?, styleRange: String?) {
+            self.kind = kind
+            self.name = name
+            self.format = format
+            self.style = style
+            self.styleRange = styleRange
+        }
+
+        init?(cValue: ghostty_status_bar_widget_s) {
+            guard let kind = Kind(cValue.kind) else { return nil }
+            self.kind = kind
+            if let name = cValue.name {
+                self.name = String(cString: name)
+            } else {
+                self.name = nil
+            }
+            if let format = cValue.format {
+                self.format = String(cString: format)
+            } else {
+                self.format = nil
+            }
+            if let style = cValue.style {
+                self.style = String(cString: style)
+            } else {
+                self.style = nil
+            }
+            if let styleRange = cValue.style_range {
+                self.styleRange = String(cString: styleRange)
+            } else {
+                self.styleRange = nil
+            }
+        }
+    }
+
+    struct StatusBarStyle {
+        let name: String
+        let fg: Color?
+        let bold: Bool?
+        let size: Double?
+
+        init(name: String, fg: Color?, bold: Bool?, size: Double?) {
+            self.name = name
+            self.fg = fg
+            self.bold = bold
+            self.size = size
+        }
+
+        init?(cValue: ghostty_status_bar_style_s) {
+            guard let name = cValue.name else { return nil }
+            self.name = String(cString: name)
+            if cValue.has_fg {
+                self.fg = Color(
+                    red: Double(cValue.fg.r) / 255,
+                    green: Double(cValue.fg.g) / 255,
+                    blue: Double(cValue.fg.b) / 255
+                )
+            } else {
+                self.fg = nil
+            }
+            self.bold = cValue.has_bold ? cValue.bold : nil
+            self.size = cValue.has_size ? Double(cValue.size) : nil
+        }
+    }
+
+    struct StatusBarStyleRangeEntry {
+        let min: Double?
+        let max: Double?
+        let style: String
+
+        func matches(_ value: Double) -> Bool {
+            if let min, value < min { return false }
+            if let max, value > max { return false }
+            return min != nil || max != nil
+        }
+    }
+
+    struct StatusBarStyleRange {
+        let name: String
+        let entries: [StatusBarStyleRangeEntry]
+
+        init?(cValue: ghostty_status_bar_style_range_s) {
+            guard let name = cValue.name else { return nil }
+            self.name = String(cString: name)
+            guard cValue.len > 0, let entriesPtr = cValue.entries else {
+                self.entries = []
+                return
+            }
+            let buffer = UnsafeBufferPointer(start: entriesPtr, count: cValue.len)
+            self.entries = buffer.compactMap { entry in
+                guard let stylePtr = entry.style else { return nil }
+                let styleName = String(cString: stylePtr)
+                let min = entry.has_min ? Double(entry.min) : nil
+                let max = entry.has_max ? Double(entry.max) : nil
+                return StatusBarStyleRangeEntry(min: min, max: max, style: styleName)
+            }
+        }
+
+        func styleName(for value: Double) -> String? {
+            for entry in entries {
+                if entry.matches(value) { return entry.style }
+            }
+            return nil
+        }
+    }
+
     enum AutoUpdate : String {
         case off
         case check

@@ -35,6 +35,21 @@ label.url-overlay.right {
 }
 
 /*
+ * GhosttySurface status bar
+ */
+.status-bar {
+  padding: 6px 12px;
+  border-radius: 6px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+label.status-bar-text {
+  font-family: monospace;
+}
+
+/*
  * GhosttySurface search overlay
  */
 .search-overlay {

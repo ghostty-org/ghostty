@@ -183,6 +183,9 @@ pub const Action = union(Key) {
     /// Control whether the inspector is shown or hidden.
     inspector: Inspector,
 
+    /// Toggle the status bar overlay.
+    toggle_status_bar,
+
     /// Show the GTK inspector.
     show_gtk_inspector,
 
@@ -359,6 +362,7 @@ pub const Action = union(Key) {
         scrollbar,
         render,
         inspector,
+        toggle_status_bar,
         show_gtk_inspector,
         render_inspector,
         desktop_notification,
