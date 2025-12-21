@@ -122,7 +122,29 @@ extension Ghostty {
                         surfaceView.toggleReadonly(nil)
                     }
                 }
-                
+
+                // CWD overlay
+                if surfaceView.showCwdOverlay, let pwd = surfaceView.pwd {
+                    VStack {
+                        Spacer()
+                        Text(verbatim: pwd)
+                            .font(.system(.body, design: .monospaced))
+                            .padding(.init(top: 6, leading: 12, bottom: 6, trailing: 12))
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(.background)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                            )
+                            .padding(.bottom, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+
                 // If we are in the middle of a key sequence, then we show a visual element. We only
                 // support this on macOS currently although in theory we can support mobile with keyboards!
                 if !surfaceView.keySequence.isEmpty {
