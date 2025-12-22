@@ -2,26 +2,40 @@
 <h1>
 <p align="center">
   <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
-  <br>Ghostty
+  <br>Decktty
 </h1>
   <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
+    A terminal with a deck view of all your sessions.
     <br />
     <a href="#about">About</a>
     ·
-    <a href="https://ghostty.org/download">Download</a>
+    <a href="#features">Features</a>
     ·
     <a href="https://ghostty.org/docs">Documentation</a>
     ·
-    <a href="CONTRIBUTING.md">Contributing</a>
-    ·
-    <a href="HACKING.md">Developing</a>
+    <a href="HACKING.md">Building</a>
   </p>
 </p>
 
+---
+
+> **Decktty** is a fork of [Ghostty](https://github.com/ghostty-org/ghostty) that adds a **visual deck view** of all your terminal sessions. A sidebar displays live miniature previews of each tab, so you always know what's happening across all your terminals.
+>
+> For the official Ghostty terminal, visit the [upstream repository](https://github.com/ghostty-org/ghostty).
+
+---
+
+## Features
+
+- **Deck View** - See all your terminals at once in a visual sidebar
+- **Live Previews** - Real-time miniature view of each terminal session
+- **Quick Navigation** - Click any preview to instantly switch tabs
+- **Native macOS** - Built with SwiftUI for a smooth, native experience
+- **Ghostty Core** - All the speed and features of Ghostty under the hood
+
 ## About
 
-Ghostty is a terminal emulator that differentiates itself by being
+Decktty is built on top of Ghostty, a terminal emulator that differentiates itself by being
 fast, feature-rich, and native. While there are many excellent terminal
 emulators available, they all force you to choose between speed,
 features, or native UIs. Ghostty provides all three.

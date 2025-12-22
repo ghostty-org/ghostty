@@ -224,7 +224,7 @@ struct TabSidebarItemView: View {
         if let preview = preview {
             Image(nsImage: preview)
                 .resizable()
-                .aspectRatio(contentMode: .fill)
+                .aspectRatio(contentMode: .fit)
         } else {
             Rectangle()
                 .fill(Color.gray.opacity(0.3))
