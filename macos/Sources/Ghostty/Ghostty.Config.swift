@@ -518,11 +518,13 @@ extension Ghostty {
             return QuickTerminalSize(from: v)
         }
 
-        var quickTerminalCornerRadius: Double {
-            guard let config = self.config else { return 16.0 }
-            var v: Double = 16.0
+        var quickTerminalCornerRadius: Double? {
+            guard let config = self.config else { return nil }
+            var v: Double = 0.0
             let key = "quick-terminal-corner-radius"
-            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+                return nil
+            }
             return v
         }
         #endif

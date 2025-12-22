@@ -2464,10 +2464,15 @@ keybind: Keybinds = .{},
 
 /// Corner radius (in points) for the quick terminal window on macOS.
 /// This controls how rounded the corners of the quick terminal window are.
-/// The default value of 16 matches the standard macOS window corner radius.
+///
+/// If this value is unset (the default), the quick terminal window uses
+/// sharp corners.
+///
+/// If this value is set to a positive number, that radius is used for rounding
+/// the quick terminal window corners.
 ///
 /// Only implemented on macOS.
-@"quick-terminal-corner-radius": f64 = 16.0,
+@"quick-terminal-corner-radius": ?f64 = null,
 
 /// Determines under which circumstances that the quick terminal should receive
 /// keyboard input. See the corresponding [Wayland documentation](https://wayland.app/protocols/wlr-layer-shell-unstable-v1#zwlr_layer_surface_v1:enum:keyboard_interactivity)
