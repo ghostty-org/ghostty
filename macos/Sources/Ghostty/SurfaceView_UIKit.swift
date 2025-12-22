@@ -43,9 +43,15 @@ extension Ghostty {
         
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil
-        
+
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
+        
+        /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
+        @Published private(set) var highlighted: Bool = false
 
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.

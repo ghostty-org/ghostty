@@ -65,6 +65,9 @@ extension Ghostty {
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
 
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil {
             didSet {
@@ -125,6 +128,9 @@ extension Ghostty {
 
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
+
+        /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
+        @Published private(set) var highlighted: Bool = false
 
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
@@ -320,6 +326,11 @@ extension Ghostty {
                 self,
                 selector: #selector(ghosttyDidEndKeySequence),
                 name: Ghostty.Notification.didEndKeySequence,
+                object: self)
+            center.addObserver(
+                self,
+                selector: #selector(ghosttyDidChangeKeyTable),
+                name: Ghostty.Notification.didChangeKeyTable,
                 object: self)
             center.addObserver(
                 self,
@@ -674,6 +685,22 @@ extension Ghostty {
         @objc private func ghosttyDidEndKeySequence(notification: SwiftUI.Notification) {
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence = []
+            }
+        }
+
+        @objc private func ghosttyDidChangeKeyTable(notification: SwiftUI.Notification) {
+            guard let action = notification.userInfo?[Ghostty.Notification.KeyTableKey] as? Ghostty.Action.KeyTable else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                switch action {
+                case .activate(let name):
+                    self.keyTables.append(name)
+                case .deactivate:
+                    _ = self.keyTables.popLast()
+                case .deactivateAll:
+                    self.keyTables.removeAll()
+                }
             }
         }
 
@@ -1520,6 +1547,14 @@ extension Ghostty {
             let action = "toggle_readonly"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        /// Triggers a brief highlight animation on this surface.
+        func highlight() {
+            highlighted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.highlighted = false
             }
         }
 

@@ -24,7 +24,7 @@ jobs:
       - build-linux-libghostty
       - build-nix
       - build-macos
-      - build-macos-matrix
+      - build-macos-freetype
       - build-snap
       - build-windows
       - test
@@ -44,7 +44,7 @@ jobs:
       - test-debian-13
       - valgrind
       - zig-fmt
-      - flatpak
+
     steps:
       - id: status
         name: Determine status
@@ -421,6 +421,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  trigger-flatpak:
+    if: github.event_name != 'pull_request'
+    runs-on: namespace-profile-ghostty-xsm
+    needs: [build-dist, build-flatpak]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Trigger Flatpak workflow
+        run: |
+          gh workflow run \
+            flatpak.yml \
+            --ref ${{ github.ref_name || 'main' }} \
+            --field source-run-id=${{ github.run_id }} \
+            --field source-artifact-id=${{ needs.build-dist.outputs.artifact-id }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-macos:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
@@ -464,7 +482,7 @@ jobs:
           cd macos
           xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO"
 
-  build-macos-matrix:
+  build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
     steps:
@@ -493,18 +511,10 @@ jobs:
       - name: Test All
         run: |
           nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_noshape
 
       - name: Build All
         run: |
           nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_noshape
 
   build-windows:
     runs-on: windows-2022
@@ -1091,32 +1101,6 @@ jobs:
           file: dist/src/build/docker/debian/Dockerfile
           build-args: |
             DISTRO_VERSION=13
-
-  flatpak:
-    if: github.repository == 'ghostty-org/ghostty'
-    name: "Flatpak"
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-47
-      options: --privileged
-    strategy:
-      fail-fast: false
-      matrix:
-        variant:
-          - arch: x86_64
-            runner: namespace-profile-ghostty-md
-          - arch: aarch64
-            runner: namespace-profile-ghostty-md-arm64
-    runs-on: ${{ matrix.variant.runner }}
-    needs: test
-    steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@92ae9851ad316786193b1fd3f40c4b51eb5cb101 # v6.6
-        with:
-          bundle: com.mitchellh.ghostty
-          manifest-path: flatpak/com.mitchellh.ghostty.yml
-          cache-key: flatpak-builder-${{ github.sha }}
-          arch: ${{ matrix.variant.arch }}
-          verbose: true
 
   valgrind:
     if: github.repository == 'ghostty-org/ghostty'

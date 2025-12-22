@@ -573,9 +573,15 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
                 toggleVisibility(app, target: target)
 
+            case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
+                toggleBackgroundOpacity(app, target: target)
+
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
-                
+
+            case GHOSTTY_ACTION_KEY_TABLE:
+                keyTable(app, target: target, v: action.action.key_table)
+
             case GHOSTTY_ACTION_PROGRESS_REPORT:
                 progressReport(app, target: target, v: action.action.progress_report)
 
@@ -624,11 +630,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_SEARCH_SELECTED:
                 searchSelected(app, target: target, v: action.action.search_selected)
 
+            case GHOSTTY_ACTION_PRESENT_TERMINAL:
+                return presentTerminal(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
-                fallthrough
-            case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 fallthrough
             case GHOSTTY_ACTION_SIZE_LIMIT:
                 fallthrough
@@ -839,6 +846,30 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func presentTerminal(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) -> Bool {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyPresentTerminal,
+                    object: surfaceView
+                )
+                return true
+
+            default:
+                assertionFailure()
+                return false
             }
         }
 
@@ -1382,6 +1413,27 @@ extension Ghostty {
             }
         }
 
+        private static func toggleBackgroundOpacity(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle background opacity does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                    let surfaceView = self.surfaceView(from: surface),
+                    let controller = surfaceView.window?.windowController as? BaseTerminalController else { return }
+
+                controller.toggleBackgroundOpacity()
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func toggleSecureInput(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1729,7 +1781,32 @@ extension Ghostty {
                 assertionFailure()
             }
         }
-        
+
+        private static func keyTable(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_key_table_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("key table does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let action = Ghostty.Action.KeyTable(c: v) else { return }
+
+                NotificationCenter.default.post(
+                    name: Notification.didChangeKeyTable,
+                    object: surfaceView,
+                    userInfo: [Notification.KeyTableKey: action]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func progressReport(
             _ app: ghostty_app_t,
             target: ghostty_target_s,

@@ -16,19 +16,23 @@ extension NSWindow {
         return firstWindow === self
     }
 
-    /// Adjusts the window origin if necessary to ensure the window remains visible on screen.
+    /// Adjusts the window frame if necessary to ensure the window remains visible on screen.
+    /// This constrains both the size (to not exceed the screen) and the origin (to keep the window on screen).
     func constrainToScreen() {
         guard let screen = screen ?? NSScreen.main else { return }
         let visibleFrame = screen.visibleFrame
         var windowFrame = frame
+
+        windowFrame.size.width = min(windowFrame.size.width, visibleFrame.size.width)
+        windowFrame.size.height = min(windowFrame.size.height, visibleFrame.size.height)
 
         windowFrame.origin.x = max(visibleFrame.minX,
             min(windowFrame.origin.x, visibleFrame.maxX - windowFrame.width))
         windowFrame.origin.y = max(visibleFrame.minY,
             min(windowFrame.origin.y, visibleFrame.maxY - windowFrame.height))
 
-        if windowFrame.origin != frame.origin {
-            setFrameOrigin(windowFrame.origin)
+        if windowFrame != frame {
+            setFrame(windowFrame, display: true)
         }
     }
 }

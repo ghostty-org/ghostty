@@ -9058,7 +9058,7 @@ test "Terminal: insertBlanks shift graphemes" {
     var t = try init(alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
 
-    // Disable grapheme clustering
+    // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
     try t.printString("A");

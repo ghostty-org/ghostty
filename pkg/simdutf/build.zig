@@ -32,6 +32,10 @@ pub fn build(b: *std.Build) !void {
         "-fno-sanitize-trap=undefined",
     });
 
+    if (target.result.os.tag == .freebsd) {
+        try flags.append(b.allocator, "-fPIC");
+    }
+
     lib.addCSourceFiles(.{
         .flags = flags.items,
         .files = &.{

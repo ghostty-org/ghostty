@@ -55,6 +55,9 @@ blending: configpkg.Config.AlphaBlending,
 /// the "shared" storage mode, instead we have to use the "managed" mode.
 default_storage_mode: mtl.MTLResourceOptions.StorageMode,
 
+/// The maximum 2D texture width and height supported by the device.
+max_texture_size: u32,
+
 /// We start an AutoreleasePool before `drawFrame` and end it afterwards.
 autorelease_pool: ?*objc.AutoreleasePool = null,
 
@@ -72,8 +75,14 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
     const queue = device.msgSend(objc.Object, objc.sel("newCommandQueue"), .{});
     errdefer queue.release();
 
+    // Grab metadata about the device.
     const default_storage_mode: mtl.MTLResourceOptions.StorageMode =
         if (device.getProperty(bool, "hasUnifiedMemory")) .shared else .managed;
+    const max_texture_size = queryMaxTextureSize(device);
+    log.debug(
+        "device properties default_storage_mode={} max_texture_size={}",
+        .{ default_storage_mode, max_texture_size },
+    );
 
     const ViewInfo = struct {
         view: objc.Object,
@@ -138,6 +147,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
         .queue = queue,
         .blending = opts.config.blending,
         .default_storage_mode = default_storage_mode,
+        .max_texture_size = max_texture_size,
     };
 }
 
@@ -202,9 +212,19 @@ pub fn initShaders(
 pub fn surfaceSize(self: *const Metal) !struct { width: u32, height: u32 } {
     const bounds = self.layer.layer.getProperty(graphics.Rect, "bounds");
     const scale = self.layer.layer.getProperty(f64, "contentsScale");
+
+    // We need to clamp our runtime surface size to the maximum
+    // possible texture size since we can't create a screen buffer (texture)
+    // larger than that.
     return .{
-        .width = @intFromFloat(bounds.size.width * scale),
-        .height = @intFromFloat(bounds.size.height * scale),
+        .width = @min(
+            @as(u32, @intFromFloat(bounds.size.width * scale)),
+            self.max_texture_size,
+        ),
+        .height = @min(
+            @as(u32, @intFromFloat(bounds.size.height * scale)),
+            self.max_texture_size,
+        ),
     };
 }
 
@@ -411,4 +431,24 @@ fn chooseDevice() error{NoMetalDevice}!objc.Object {
 
     const device = chosen_device orelse return error.NoMetalDevice;
     return device.retain();
+}
+
+/// Determines the maximum 2D texture size supported by the device.
+/// We need to clamp our frame size to this if it's larger.
+fn queryMaxTextureSize(device: objc.Object) u32 {
+    // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
+
+    if (device.msgSend(
+        bool,
+        objc.sel("supportsFamily:"),
+        .{mtl.MTLGPUFamily.apple10},
+    )) return 32768;
+
+    if (device.msgSend(
+        bool,
+        objc.sel("supportsFamily:"),
+        .{mtl.MTLGPUFamily.apple3},
+    )) return 16384;
+
+    return 8192;
 }

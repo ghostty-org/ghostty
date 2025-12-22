@@ -86,6 +86,10 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.2 removed the "desktop" option and renamed it to "detect".
     // The semantics also changed slightly but this is the correct mapping.
     .{ "gtk-single-instance", compatGtkSingleInstance },
+
+    // Ghostty 1.3 rename the "window" option to "new-window".
+    // See: https://github.com/ghostty-org/ghostty/pull/9764
+    .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 });
 
 /// The font families to use.
@@ -985,6 +989,22 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
+/// Control when Ghostty preserves a zoomed split. Under normal circumstances,
+/// any operation that changes focus or layout of the split tree in a window
+/// will unzoom any zoomed split. This configuration allows you to control
+/// this behavior.
+///
+/// This can be set to `navigation` to preserve the zoomed split state
+/// when navigating to another split (e.g. via `goto_split`). This will
+/// change the zoomed split to the newly focused split instead of unzooming.
+///
+/// Any options can also be prefixed with `no-` to disable that option.
+///
+/// Example: `split-preserve-zoom = navigation`
+///
+/// Available since: 1.3.0
+@"split-preserve-zoom": SplitPreserveZoom = .{},
+
 /// The foreground and background color for search matches. This only applies
 /// to non-focused search matches, also known as candidate matches.
 ///
@@ -1457,6 +1477,13 @@ class: ?[:0]const u8 = null,
 /// so if you specify both `a` and `KeyA`, the physical key will always be used
 /// regardless of what order they are configured.
 ///
+/// The special key `catch_all` can be used to match any key that is not
+/// otherwise bound. This can be combined with modifiers, for example
+/// `ctrl+catch_all` will match any key pressed with `ctrl` that is not
+/// otherwise bound. When looking up a binding, Ghostty first tries to match
+/// `catch_all` with modifiers. If no match is found and the event has
+/// modifiers, it falls back to `catch_all` without modifiers.
+///
 /// Valid modifiers are `shift`, `ctrl` (alias: `control`), `alt` (alias: `opt`,
 /// `option`), and `super` (alias: `cmd`, `command`). You may use the modifier
 /// or the alias. When debugging keybinds, the non-aliased modifier will always
@@ -1639,6 +1666,50 @@ class: ?[:0]const u8 = null,
 ///
 ///  - Notably, global shortcuts have not been implemented on wlroots-based
 ///    compositors like Sway (see [upstream issue](https://github.com/emersion/xdg-desktop-portal-wlr/issues/240)).
+///
+/// You may also create a named set of keybindings known as a "key table."
+/// A key table must be explicitly activated for the bindings to become
+/// available. This can be used to implement features such as a
+/// "copy mode", "vim mode", etc. Generically, this can implement modal
+/// keyboard input.
+///
+/// Key tables are defined using the syntax `<table>/<binding>`. The
+/// `<binding>` value is everything documented above for keybinds. The
+/// `<table>` value is the name of the key table. Table names can contain
+/// anything except `/` and `=`. For example `foo/ctrl+a=new_window`
+/// defines a binding within a table named `foo`.
+///
+/// Tables are activated and deactivated using the binding actions
+/// `activate_key_table:<name>` and `deactivate_key_table`. Other table
+/// related binding actions also exist; see the documentation for a full list.
+/// These are the primary way to interact with key tables.
+///
+/// Binding lookup proceeds from the innermost table outward, so keybinds in
+/// the default table remain available unless explicitly unbound in an inner
+/// table.
+///
+/// A key table has some special syntax and handling:
+///
+///   * `<name>/` (with no binding) defines and clears a table, resetting all
+///     of its keybinds and settings.
+///
+///   * You cannot activate a table that is already the innermost table; such
+///     attempts are ignored. However, the same table can appear multiple times
+///     in the stack as long as it is not innermost (e.g., `A -> B -> A -> B`
+///     is valid, but `A -> B -> B` is not).
+///
+///   * A table can be activated in one-shot mode using
+///     `activate_key_table_once:<name>`. A one-shot table is automatically
+///     deactivated when any non-catch-all binding is invoked.
+///
+///   * Key sequences work within tables: `foo/ctrl+a>ctrl+b=new_window`.
+///     If an invalid key is pressed, the sequence ends but the table remains
+///     active.
+///
+///   * Prefixes like `global:` work within tables:
+///     `foo/global:ctrl+a=new_window`.
+///
+/// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
 
 /// Horizontal window padding. This applies padding between the terminal cells
@@ -2937,7 +3008,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
-///   * `window` - Create a new window unconditionally.
+///   * `new-window` - Create a new window unconditionally.
 ///
 /// The default value is `new-tab`.
 ///
@@ -3261,7 +3332,7 @@ else
 ///    more subtle border.
 @"gtk-toolbar-style": GtkToolbarStyle = .raised,
 
-/// The style of the GTK titlbar. Available values are `native` and `tabs`.
+/// The style of the GTK titlebar. Available values are `native` and `tabs`.
 ///
 /// The `native` titlebar style is a traditional titlebar with a title, a few
 /// buttons and window controls. A separate tab bar will show up below the
@@ -4469,6 +4540,23 @@ fn compatBoldIsBright(
     }
 
     return true;
+}
+
+fn compatMacOSDockDropBehavior(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "macos-dock-drop-behavior"));
+
+    if (std.mem.eql(u8, value orelse "", "window")) {
+        self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
 }
 
 /// Add a diagnostic message to the config with the given string.
@@ -5785,12 +5873,17 @@ pub const RepeatableFontVariation = struct {
 pub const Keybinds = struct {
     set: inputpkg.Binding.Set = .{},
 
+    /// Defined key tables. The default key table is always the root "set",
+    /// which allows all table names to be available without reservation.
+    tables: std.StringArrayHashMapUnmanaged(inputpkg.Binding.Set) = .empty,
+
     pub fn init(self: *Keybinds, alloc: Allocator) !void {
         // We don't clear the memory because it's in the arena and unlikely
         // to be free-able anyways (since arenas can only clear the last
         // allocated value). This isn't a memory leak because the arena
         // will be freed when the config is freed.
         self.set = .{};
+        self.tables = .empty;
 
         // keybinds for opening and reloading config
         try self.set.put(
@@ -6560,21 +6653,77 @@ pub const Keybinds = struct {
             // will be freed when the config is freed.
             log.info("config has 'keybind = clear', all keybinds cleared", .{});
             self.set = .{};
+            self.tables = .empty;
             return;
         }
 
-        // Let our much better tested binding package handle parsing and storage.
+        // Check for table syntax: "name/" or "name/binding"
+        // We look for '/' only before the first '=' to avoid matching
+        // action arguments like "foo=text:/hello".
+        const eq_idx = std.mem.indexOfScalar(u8, value, '=') orelse value.len;
+        if (std.mem.indexOfScalar(u8, value[0..eq_idx], '/')) |slash_idx| {
+            const table_name = value[0..slash_idx];
+            const binding = value[slash_idx + 1 ..];
+
+            // Table name cannot be empty
+            if (table_name.len == 0) return error.InvalidFormat;
+
+            // Get or create the table
+            const gop = try self.tables.getOrPut(alloc, table_name);
+            if (!gop.found_existing) {
+                // We need to copy our table name into the arena
+                // for valid lookups later.
+                gop.key_ptr.* = try alloc.dupe(u8, table_name);
+                gop.value_ptr.* = .{};
+            }
+
+            // If there's no binding after the slash, this is a table
+            // definition/clear command
+            if (binding.len == 0) {
+                log.debug("config has 'keybind = {s}/', table cleared", .{table_name});
+                gop.value_ptr.* = .{};
+                return;
+            }
+
+            // Parse and add the binding to the table
+            try gop.value_ptr.parseAndPut(alloc, binding);
+            return;
+        }
+
+        // Parse into default set
         try self.set.parseAndPut(alloc, value);
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Keybinds, alloc: Allocator) Allocator.Error!Keybinds {
-        return .{ .set = try self.set.clone(alloc) };
+        var tables: std.StringArrayHashMapUnmanaged(inputpkg.Binding.Set) = .empty;
+        try tables.ensureTotalCapacity(alloc, @intCast(self.tables.count()));
+        var it = self.tables.iterator();
+        while (it.next()) |entry| {
+            const key = try alloc.dupe(u8, entry.key_ptr.*);
+            tables.putAssumeCapacity(key, try entry.value_ptr.clone(alloc));
+        }
+
+        return .{
+            .set = try self.set.clone(alloc),
+            .tables = tables,
+        };
     }
 
     /// Compare if two of our value are requal. Required by Config.
     pub fn equal(self: Keybinds, other: Keybinds) bool {
-        return equalSet(&self.set, &other.set);
+        if (!equalSet(&self.set, &other.set)) return false;
+
+        // Compare tables
+        if (self.tables.count() != other.tables.count()) return false;
+
+        var it = self.tables.iterator();
+        while (it.next()) |entry| {
+            const other_set = other.tables.get(entry.key_ptr.*) orelse return false;
+            if (!equalSet(entry.value_ptr, &other_set)) return false;
+        }
+
+        return true;
     }
 
     fn equalSet(
@@ -6625,12 +6774,14 @@ pub const Keybinds = struct {
 
     /// Like formatEntry but has an option to include docs.
     pub fn formatEntryDocs(self: Keybinds, formatter: formatterpkg.EntryFormatter, docs: bool) !void {
-        if (self.set.bindings.size == 0) {
+        if (self.set.bindings.size == 0 and self.tables.count() == 0) {
             try formatter.formatEntry(void, {});
             return;
         }
 
         var buf: [1024]u8 = undefined;
+
+        // Format root set bindings
         var iter = self.set.bindings.iterator();
         while (iter.next()) |next| {
             const k = next.key_ptr.*;
@@ -6656,6 +6807,23 @@ pub const Keybinds = struct {
             var writer: std.Io.Writer = .fixed(&buf);
             writer.print("{f}", .{k}) catch return error.OutOfMemory;
             try v.formatEntries(&writer, formatter);
+        }
+
+        // Format table bindings
+        var table_iter = self.tables.iterator();
+        while (table_iter.next()) |table_entry| {
+            const table_name = table_entry.key_ptr.*;
+            const table_set = table_entry.value_ptr.*;
+
+            var binding_iter = table_set.bindings.iterator();
+            while (binding_iter.next()) |next| {
+                const k = next.key_ptr.*;
+                const v = next.value_ptr.*;
+
+                var writer: std.Io.Writer = .fixed(&buf);
+                writer.print("{s}/{f}", .{ table_name, k }) catch return error.OutOfMemory;
+                try v.formatEntries(&writer, formatter);
+            }
         }
     }
 
@@ -6740,6 +6908,283 @@ pub const Keybinds = struct {
             \\
         ;
         try std.testing.expectEqualStrings(want, buf.written());
+    }
+
+    test "parseCLI table definition" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Define a table by adding a binding to it
+        try keybinds.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+        try testing.expectEqual(1, keybinds.tables.count());
+        try testing.expect(keybinds.tables.contains("foo"));
+
+        const table = keybinds.tables.get("foo").?;
+        try testing.expectEqual(1, table.bindings.count());
+    }
+
+    test "parseCLI table clear" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Add a binding to a table
+        try keybinds.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+        try testing.expectEqual(1, keybinds.tables.get("foo").?.bindings.count());
+
+        // Clear the table with "foo/"
+        try keybinds.parseCLI(alloc, "foo/");
+        try testing.expectEqual(0, keybinds.tables.get("foo").?.bindings.count());
+    }
+
+    test "parseCLI table multiple bindings" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "foo/shift+b=paste_from_clipboard");
+        try keybinds.parseCLI(alloc, "bar/ctrl+c=close_window");
+
+        try testing.expectEqual(2, keybinds.tables.count());
+        try testing.expectEqual(2, keybinds.tables.get("foo").?.bindings.count());
+        try testing.expectEqual(1, keybinds.tables.get("bar").?.bindings.count());
+    }
+
+    test "parseCLI table does not affect root set" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "foo/shift+b=paste_from_clipboard");
+
+        // Root set should have the first binding
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        // Table should have the second binding
+        try testing.expectEqual(1, keybinds.tables.get("foo").?.bindings.count());
+    }
+
+    test "parseCLI table empty name is invalid" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+        try testing.expectError(error.InvalidFormat, keybinds.parseCLI(alloc, "/shift+a=copy_to_clipboard"));
+    }
+
+    test "parseCLI table with key sequence" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Key sequences should work within tables
+        try keybinds.parseCLI(alloc, "foo/ctrl+a>ctrl+b=new_window");
+
+        const table = keybinds.tables.get("foo").?;
+        try testing.expectEqual(1, table.bindings.count());
+    }
+
+    test "parseCLI slash in action argument is not a table" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // A slash after the = should not be interpreted as a table delimiter
+        try keybinds.parseCLI(alloc, "ctrl+a=text:/hello");
+
+        // Should be in root set, not a table
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "clone with tables" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+        try keybinds.parseCLI(alloc, "shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "foo/shift+b=paste_from_clipboard");
+        try keybinds.parseCLI(alloc, "bar/ctrl+c=close_window");
+
+        const cloned = try keybinds.clone(alloc);
+
+        // Verify the clone has the same structure
+        try testing.expectEqual(keybinds.set.bindings.count(), cloned.set.bindings.count());
+        try testing.expectEqual(keybinds.tables.count(), cloned.tables.count());
+        try testing.expectEqual(
+            keybinds.tables.get("foo").?.bindings.count(),
+            cloned.tables.get("foo").?.bindings.count(),
+        );
+        try testing.expectEqual(
+            keybinds.tables.get("bar").?.bindings.count(),
+            cloned.tables.get("bar").?.bindings.count(),
+        );
+    }
+
+    test "equal with tables" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds1: Keybinds = .{};
+        try keybinds1.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+
+        var keybinds2: Keybinds = .{};
+        try keybinds2.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+
+        try testing.expect(keybinds1.equal(keybinds2));
+    }
+
+    test "equal with tables different table count" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds1: Keybinds = .{};
+        try keybinds1.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+
+        var keybinds2: Keybinds = .{};
+        try keybinds2.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+        try keybinds2.parseCLI(alloc, "bar/shift+b=paste_from_clipboard");
+
+        try testing.expect(!keybinds1.equal(keybinds2));
+    }
+
+    test "equal with tables different table names" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds1: Keybinds = .{};
+        try keybinds1.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+
+        var keybinds2: Keybinds = .{};
+        try keybinds2.parseCLI(alloc, "bar/shift+a=copy_to_clipboard");
+
+        try testing.expect(!keybinds1.equal(keybinds2));
+    }
+
+    test "equal with tables different bindings" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds1: Keybinds = .{};
+        try keybinds1.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+
+        var keybinds2: Keybinds = .{};
+        try keybinds2.parseCLI(alloc, "foo/shift+b=paste_from_clipboard");
+
+        try testing.expect(!keybinds1.equal(keybinds2));
+    }
+
+    test "formatEntry with tables" {
+        const testing = std.testing;
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+        try keybinds.parseCLI(alloc, "foo/shift+a=csi:hello");
+        try keybinds.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
+
+        try testing.expectEqualStrings("keybind = foo/shift+a=csi:hello\n", buf.written());
+    }
+
+    test "formatEntry with tables and root set" {
+        const testing = std.testing;
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+        try keybinds.parseCLI(alloc, "shift+b=csi:world");
+        try keybinds.parseCLI(alloc, "foo/shift+a=csi:hello");
+        try keybinds.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
+
+        const output = buf.written();
+        try testing.expect(std.mem.indexOf(u8, output, "keybind = shift+b=csi:world\n") != null);
+        try testing.expect(std.mem.indexOf(u8, output, "keybind = foo/shift+a=csi:hello\n") != null);
+    }
+
+    test "parseCLI clear clears tables" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Add bindings to root set and tables
+        try keybinds.parseCLI(alloc, "shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "foo/shift+b=paste_from_clipboard");
+        try keybinds.parseCLI(alloc, "bar/ctrl+c=close_window");
+
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(2, keybinds.tables.count());
+
+        // Clear all keybinds
+        try keybinds.parseCLI(alloc, "clear");
+
+        // Both root set and tables should be cleared
+        try testing.expectEqual(0, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI reset clears tables" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Add bindings to tables
+        try keybinds.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "bar/shift+b=paste_from_clipboard");
+
+        try testing.expectEqual(2, keybinds.tables.count());
+
+        // Reset to defaults (empty value)
+        try keybinds.parseCLI(alloc, "");
+
+        // Tables should be cleared, root set has defaults
+        try testing.expectEqual(0, keybinds.tables.count());
+        try testing.expect(keybinds.set.bindings.count() > 0);
     }
 };
 
@@ -7440,6 +7885,10 @@ pub const ShellIntegrationFeatures = packed struct {
     path: bool = true,
 };
 
+pub const SplitPreserveZoom = packed struct {
+    navigation: bool = false,
+};
+
 pub const RepeatableCommand = struct {
     value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
 
@@ -7901,7 +8350,7 @@ pub const WindowNewTabPosition = enum {
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
     @"new-tab",
-    window,
+    @"new-window",
 };
 
 /// See window-show-tab-bar
@@ -9555,6 +10004,25 @@ test "compatibility: removed bold-is-bright" {
         try testing.expectEqual(
             BoldColor.bright,
             cfg.@"bold-color",
+        );
+    }
+}
+
+test "compatibility: window new-window" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--macos-dock-drop-behavior=window",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+        try testing.expectEqual(
+            MacOSDockDropBehavior.@"new-window",
+            cfg.@"macos-dock-drop-behavior",
         );
     }
 }

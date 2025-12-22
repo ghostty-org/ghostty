@@ -124,6 +124,14 @@ extension Ghostty {
             return .init(rawValue: v)
         }
 
+        var splitPreserveZoom: SplitPreserveZoom {
+            guard let config = self.config else { return .init() }
+            var v: CUnsignedInt = 0
+            let key = "split-preserve-zoom"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return .init() }
+            return .init(rawValue: v)
+        }
+
         var initialWindow: Bool {
             guard let config = self.config else { return true }
             var v = true;
@@ -698,6 +706,12 @@ extension Ghostty.Config {
         static let border = BellFeatures(rawValue: 1 << 4)
     }
 
+    struct SplitPreserveZoom: OptionSet {
+        let rawValue: CUnsignedInt
+
+        static let navigation = SplitPreserveZoom(rawValue: 1 << 0)
+    }
+    
     enum MacDockDropBehavior: String {
         case new_tab = "new-tab"
         case new_window = "new-window"

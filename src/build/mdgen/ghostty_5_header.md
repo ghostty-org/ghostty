@@ -101,7 +101,7 @@ On Linux if Ghostty is launched by the default `systemd` user service, you can u
 `journald` to see Ghostty's logs: `journalctl --user --unit app-com.mitchellh.ghostty.service`.
 
 On macOS logging to the macOS unified log is available and enabled by default.
---Use the system `log` CLI to view Ghostty's logs: `sudo log stream level debug
+--Use the system `log` CLI to view Ghostty's logs: `sudo log stream --level debug
 --predicate 'subsystem=="com.mitchellh.ghostty"'`.
 
 Ghostty's logging can be configured in two ways. The first is by what

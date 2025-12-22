@@ -115,6 +115,11 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
+    /// Toggle the window background opacity. This only has an effect
+    /// if the window started as transparent (non-opaque), and toggles
+    /// it between fully opaque and the configured background opacity.
+    toggle_background_opacity,
+
     /// Moves a tab by a relative offset.
     ///
     /// Adjusts the tab position based on `offset` (e.g., -1 for left, +1
@@ -245,6 +250,9 @@ pub const Action = union(Key) {
     /// key mode because other input may be ignored.
     key_sequence: KeySequence,
 
+    /// A key table has been activated or deactivated.
+    key_table: KeyTable,
+
     /// A terminal color was changed programmatically through things
     /// such as OSC 10/11.
     color_change: ColorChange,
@@ -335,6 +343,7 @@ pub const Action = union(Key) {
         toggle_quick_terminal,
         toggle_command_palette,
         toggle_visibility,
+        toggle_background_opacity,
         move_tab,
         goto_tab,
         goto_split,
@@ -365,6 +374,7 @@ pub const Action = union(Key) {
         float_window,
         secure_input,
         key_sequence,
+        key_table,
         color_change,
         reload_config,
         config_change,
@@ -701,6 +711,50 @@ pub const KeySequence = union(enum) {
         return switch (self) {
             .trigger => |t| .{ .active = true, .trigger = t.cval() },
             .end => .{ .active = false, .trigger = .{} },
+        };
+    }
+};
+
+pub const KeyTable = union(enum) {
+    activate: []const u8,
+    deactivate,
+    deactivate_all,
+
+    // Sync with: ghostty_action_key_table_tag_e
+    pub const Tag = enum(c_int) {
+        activate,
+        deactivate,
+        deactivate_all,
+    };
+
+    // Sync with: ghostty_action_key_table_u
+    pub const CValue = extern union {
+        activate: extern struct {
+            name: [*]const u8,
+            len: usize,
+        },
+    };
+
+    // Sync with: ghostty_action_key_table_s
+    pub const C = extern struct {
+        tag: Tag,
+        value: CValue,
+    };
+
+    pub fn cval(self: KeyTable) C {
+        return switch (self) {
+            .activate => |name| .{
+                .tag = .activate,
+                .value = .{ .activate = .{ .name = name.ptr, .len = name.len } },
+            },
+            .deactivate => .{
+                .tag = .deactivate,
+                .value = undefined,
+            },
+            .deactivate_all => .{
+                .tag = .deactivate_all,
+                .value = undefined,
+            },
         };
     }
 };

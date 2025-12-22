@@ -93,9 +93,6 @@ _entrypoint() {
 _ghostty_deferred_init() {
     builtin emulate -L zsh -o no_warn_create_global -o no_aliases
 
-    # The directory where ghostty-integration is located: /../shell-integration/zsh.
-    builtin local self_dir="${functions_source[_ghostty_deferred_init]:A:h}"
-
     # Enable semantic markup with OSC 133.
     _ghostty_precmd() {
         builtin local -i cmd_status=$?

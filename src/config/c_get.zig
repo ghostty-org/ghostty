@@ -222,3 +222,19 @@ test "c_get: background-blur" {
         try testing.expectEqual(-2, cval);
     }
 }
+
+test "c_get: split-preserve-zoom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c = try Config.default(alloc);
+    defer c.deinit();
+
+    var bits: c_uint = undefined;
+    try testing.expect(get(&c, .@"split-preserve-zoom", @ptrCast(&bits)));
+    try testing.expectEqual(@as(c_uint, 0), bits);
+
+    c.@"split-preserve-zoom".navigation = true;
+    try testing.expect(get(&c, .@"split-preserve-zoom", @ptrCast(&bits)));
+    try testing.expectEqual(@as(c_uint, 1), bits);
+}

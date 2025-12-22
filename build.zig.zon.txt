@@ -5,13 +5,13 @@ https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918
 https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz
 https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz
 https://deps.files.ghostty.org/gettext-0.24.tar.gz
+https://deps.files.ghostty.org/ghostty-themes-release-20251201-150531-bfb3ee1.tgz
 https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz
 https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst
 https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz
 https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz
 https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz
 https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz
-https://deps.files.ghostty.org/iterm2_themes-release-20251201-150531-bfb3ee1.tgz
 https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz
 https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz
 https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz

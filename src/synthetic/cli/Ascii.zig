@@ -36,10 +36,12 @@ pub fn run(_: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
     var gen: Bytes = .{
         .rand = rand,
         .alphabet = ascii,
+        .min_len = 1024,
+        .max_len = 1024,
     };
 
     while (true) {
-        gen.next(writer, 1024) catch |err| {
+        _ = gen.write(writer) catch |err| {
             const Error = error{ WriteFailed, BrokenPipe } || @TypeOf(err);
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed

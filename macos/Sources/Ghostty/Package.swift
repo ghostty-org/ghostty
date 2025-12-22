@@ -439,6 +439,9 @@ extension Ghostty.Notification {
     /// New window. Has base surface config requested in userinfo.
     static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
 
+    /// Present terminal. Bring the surface's window to focus without activating the app.
+    static let ghosttyPresentTerminal = Notification.Name("com.mitchellh.ghostty.presentTerminal")
+
     /// Toggle fullscreen of current window
     static let ghosttyToggleFullscreen = Notification.Name("com.mitchellh.ghostty.toggleFullscreen")
     static let FullscreenModeKey = ghosttyToggleFullscreen.rawValue
@@ -476,6 +479,10 @@ extension Ghostty.Notification {
     static let didContinueKeySequence = Notification.Name("com.mitchellh.ghostty.didContinueKeySequence")
     static let didEndKeySequence = Notification.Name("com.mitchellh.ghostty.didEndKeySequence")
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
+
+    /// Notifications related to key tables
+    static let didChangeKeyTable = Notification.Name("com.mitchellh.ghostty.didChangeKeyTable")
+    static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 }
 
 // Make the input enum hashable.

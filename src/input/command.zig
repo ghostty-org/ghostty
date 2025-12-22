@@ -618,6 +618,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle whether mouse events are reported to terminal applications.",
         }},
 
+        .toggle_background_opacity => comptime &.{.{
+            .action = .toggle_background_opacity,
+            .title = "Toggle Background Opacity",
+            .description = "Toggle the background opacity of a window that started transparent.",
+        }},
+
         .check_for_updates => comptime &.{.{
             .action = .check_for_updates,
             .title = "Check for Updates",
@@ -665,6 +671,10 @@ fn actionCommands(action: Action.Key) []const Command {
         .write_scrollback_file,
         .goto_tab,
         .resize_split,
+        .activate_key_table,
+        .activate_key_table_once,
+        .deactivate_key_table,
+        .deactivate_all_key_tables,
         .crash,
         => comptime &.{},
 

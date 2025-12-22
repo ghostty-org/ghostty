@@ -173,17 +173,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-
-    override func fullscreenDidChange() {
-        super.fullscreenDidChange()
-
-        // When our fullscreen state changes, we resync our appearance because some
-        // properties change when fullscreen or not.
-        guard let focusedSurface else { return }
-
-        syncAppearance(focusedSurface.derivedConfig)
-    }
-
     // MARK: Terminal Creation
 
     /// Returns all the available terminal controllers present in the app currently.
@@ -496,6 +485,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard tabWindowsHash != v else { return }
         tabWindowsHash = v
         self.relabelTabs()
+    }
+    
+    override func syncAppearance() {
+        // When our focus changes, we update our window appearance based on the
+        // currently focused surface.
+        guard let focusedSurface else { return }
+        syncAppearance(focusedSurface.derivedConfig)
     }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {

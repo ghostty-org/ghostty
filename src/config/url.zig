@@ -26,7 +26,7 @@ pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
     ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|\/)(?:(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?|(?![\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]+)*(?: +(?= *$))?)
     ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -194,7 +194,7 @@ test "url regex" {
         },
         .{
             .input = "../example.py ",
-            .expect = "../example.py",
+            .expect = "../example.py ",
         },
         .{
             .input = "first time ../example.py contributor ",
@@ -252,6 +252,23 @@ test "url regex" {
         .{
             .input = "IPv6 in markdown [link](http://[2001:db8::1]/docs)",
             .expect = "http://[2001:db8::1]/docs",
+        },
+        // File paths with spaces
+        .{
+            .input = "./spaces-end.   ",
+            .expect = "./spaces-end.   ",
+        },
+        .{
+            .input = "./space middle",
+            .expect = "./space middle",
+        },
+        .{
+            .input = "../test folder/file.txt",
+            .expect = "../test folder/file.txt",
+        },
+        .{
+            .input = "/tmp/test folder/file.txt",
+            .expect = "/tmp/test folder/file.txt",
         },
     };
 

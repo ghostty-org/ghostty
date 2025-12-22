@@ -7,6 +7,8 @@ import Cocoa
 /// to restore to its previous size and position when reopened. It uses stable display UUIDs
 /// to survive NSScreen garbage collection and automatically prunes stale entries.
 class QuickTerminalScreenStateCache {
+    typealias Entries = [UUID: DisplayEntry]
+    
     /// The maximum number of saved screen states we retain. This is to avoid some kind of
     /// pathological memory growth in case we get our screen state serializing wrong. I don't
     /// know anyone with more than 10 screens, so let's just arbitrarily go with that.
@@ -16,9 +18,10 @@ class QuickTerminalScreenStateCache {
     private static let screenStaleTTL: TimeInterval = 14 * 24 * 60 * 60
     
     /// Keyed by display UUID to survive NSScreen garbage collection.
-    private var stateByDisplay: [UUID: DisplayEntry] = [:]
-    
-    init() {
+    private(set) var stateByDisplay: Entries = [:]
+
+    init(stateByDisplay: Entries = [:]) {
+        self.stateByDisplay = stateByDisplay
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(onScreensChanged(_:)),
@@ -96,7 +99,7 @@ class QuickTerminalScreenStateCache {
         }
     }
     
-    private struct DisplayEntry {
+    struct DisplayEntry: Codable {
         var frame: NSRect
         var screenSize: CGSize
         var scale: CGFloat

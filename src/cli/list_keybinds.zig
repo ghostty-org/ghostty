@@ -166,16 +166,19 @@ const ChordBinding = struct {
         var r_trigger = rhs.triggers.first;
 
         while (l_trigger != null and r_trigger != null) {
+            // We want catch_all to sort last.
             const lhs_key: c_int = blk: {
                 switch (TriggerNode.get(l_trigger.?).data.key) {
                     .physical => |key| break :blk @intFromEnum(key),
                     .unicode => |key| break :blk @intCast(key),
+                    .catch_all => break :blk std.math.maxInt(c_int),
                 }
             };
             const rhs_key: c_int = blk: {
                 switch (TriggerNode.get(r_trigger.?).data.key) {
                     .physical => |key| break :blk @intFromEnum(key),
                     .unicode => |key| break :blk @intCast(key),
+                    .catch_all => break :blk std.math.maxInt(c_int),
                 }
             };
 
@@ -268,6 +271,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
             const key = switch (trigger.data.key) {
                 .physical => |k| try std.fmt.allocPrint(alloc, "{t}", .{k}),
                 .unicode => |c| try std.fmt.allocPrint(alloc, "{u}", .{c}),
+                .catch_all => "catch_all",
             };
             result = win.printSegment(.{ .text = key }, .{ .col_offset = result.col });
 
@@ -314,6 +318,7 @@ fn iterateBindings(
             switch (t.key) {
                 .physical => |k| try buf.writer.print("{t}", .{k}),
                 .unicode => |c| try buf.writer.print("{u}", .{c}),
+                .catch_all => try buf.writer.print("catch_all", .{}),
             }
 
             break :blk win.gwidth(buf.written());

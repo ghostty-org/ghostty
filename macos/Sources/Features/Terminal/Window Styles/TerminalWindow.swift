@@ -469,7 +469,11 @@ class TerminalWindow: NSWindow {
         // Window transparency only takes effect if our window is not native fullscreen.
         // In native fullscreen we disable transparency/opacity because the background
         // becomes gray and widgets show through.
+        //
+        // Also check if the user has overridden transparency to be fully opaque.
+        let forceOpaque = terminalController?.isBackgroundOpaque ?? false
         if !styleMask.contains(.fullScreen) &&
+            !forceOpaque &&
             surfaceConfig.backgroundOpacity < 1
         {
             isOpaque = false

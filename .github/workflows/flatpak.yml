@@ -1,0 +1,50 @@
+on:
+  workflow_dispatch:
+    inputs:
+      source-run-id:
+        description: run id of the workflow that generated the artifact
+        required: true
+        type: string
+      source-artifact-id:
+        description: source tarball built during build-dist
+        required: true
+        type: string
+
+name: Flatpak
+
+jobs:
+  build:
+    if: github.repository == 'ghostty-org/ghostty'
+    name: "Flatpak"
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-47
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - arch: x86_64
+            runner: namespace-profile-ghostty-md
+          - arch: aarch64
+            runner: namespace-profile-ghostty-md-arm64
+    runs-on: ${{ matrix.variant.runner }}
+    steps:
+      - name: Download Source Tarball Artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          run-id: ${{ inputs.source-run-id }}
+          artifact-ids: ${{ inputs.source-artifact-id }}
+          github-token: ${{ github.token }}
+
+      - name: Extract tarball
+        run: |
+          mkdir dist
+          tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@92ae9851ad316786193b1fd3f40c4b51eb5cb101 # v6.6
+        with:
+          bundle: com.mitchellh.ghostty
+          manifest-path: dist/flatpak/com.mitchellh.ghostty.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          arch: ${{ matrix.variant.arch }}
+          verbose: true
