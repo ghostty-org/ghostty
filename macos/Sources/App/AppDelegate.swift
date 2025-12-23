@@ -389,15 +389,16 @@ class AppDelegate: NSObject,
     ///
     /// We signal all child processes to stop and then wait for them to exit
     /// (or for our timeout to expire) before terminating the application.
-    private func terminateGracefully() -> NSApplication.TerminateReply {
+    private func terminateGracefully(
+        timeout: DispatchTimeInterval = .milliseconds(500),
+    ) -> NSApplication.TerminateReply {
         var surfaces = TerminalController.all.flatMap { $0.surfaceTree }
         if case .initialized(let controller) = quickTerminalControllerState {
             surfaces += controller.surfaceTree
         }
         surfaces.forEach { $0.stopProcess() }
 
-        let deadline = DispatchTime.now() + .milliseconds(500)
-        let pollInterval: DispatchTimeInterval = .milliseconds(50)
+        let deadline = DispatchTime.now() + timeout
 
         func waitForProcesses() {
             if surfaces.allSatisfy({ $0.processExited }) {
@@ -411,7 +412,7 @@ class AppDelegate: NSObject,
                 return
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
                 waitForProcesses()
             }
         }
