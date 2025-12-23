@@ -148,11 +148,36 @@ Overlay terminal_page {
   }
 
   [overlay]
-  $GhosttySearchOverlay search_overlay {
-    stop-search => $search_stop();
-    search-changed => $search_changed();
-    next-match => $search_next_match();
-    previous-match => $search_previous_match();
+  Box {
+    orientation: vertical;
+
+    $GhosttySearchOverlay search_overlay {
+      stop-search => $search_stop();
+      search-changed => $search_changed();
+      next-match => $search_next_match();
+      previous-match => $search_previous_match();
+    }
+
+    MenuButton {
+      styles [
+        "read-only",
+      ]
+
+      visible: bind template.read-only;
+      halign: end;
+      valign: start;
+      margin-end: 15;
+      margin-top: 15;
+      always-show-arrow: false;
+      direction: none;
+      label: _("Read-only");
+
+      popover: Popover {
+        child: Label {
+          label: _("This terminal is in read-only mode.\nYou can still view, select, and scroll through the content,\nbut no input events will be sent to the running application.");
+        };
+      };
+    }
   }
 
   [overlay]

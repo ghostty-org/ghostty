@@ -736,6 +736,8 @@ pub const Application = extern struct {
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
 
+            .readonly => return Action.toggleReadOnly(target),
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -752,7 +754,6 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
-            .readonly,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -2657,6 +2658,15 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().commandFinished(value);
+            },
+        }
+    }
+
+    pub fn toggleReadOnly(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().toggleReadOnly();
             },
         }
     }
