@@ -390,7 +390,10 @@ class AppDelegate: NSObject,
     /// We signal all child processes to stop and then wait for them to exit
     /// (or for our timeout to expire) before terminating the application.
     private func terminateGracefully() -> NSApplication.TerminateReply {
-        let surfaces = TerminalController.all.flatMap { $0.surfaceTree } + quickController.surfaceTree
+        var surfaces = TerminalController.all.flatMap { $0.surfaceTree }
+        if case .initialized(let controller) = quickTerminalControllerState {
+            surfaces += controller.surfaceTree
+        }
         surfaces.forEach { $0.stopProcess() }
 
         let deadline = DispatchTime.now() + .milliseconds(500)
