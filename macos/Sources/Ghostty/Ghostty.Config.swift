@@ -548,12 +548,12 @@ extension Ghostty {
             return v;
         }
 
-        var mouseHideAfter: UInt {
-            guard let config = self.config else { return 0 }
+        var mouseHideAfter: Duration {
+            guard let config = self.config else { return .milliseconds(0) }
             var v: UInt = 0
             let key = "mouse-hide-after"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return v;
+            return .milliseconds(v)
         }
 
         var undoTimeout: Duration {

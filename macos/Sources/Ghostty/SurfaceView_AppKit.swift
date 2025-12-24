@@ -790,12 +790,11 @@ extension Ghostty {
             // Note: DerivedConfig does not expose the full Ghostty.Config, so we
             // read directly from the global Ghostty config instead.
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
-            let ms = appDelegate.ghostty.config.mouseHideAfter
-            guard ms > 0 else { return }
+            let duration = appDelegate.ghostty.config.mouseHideAfter
+            guard duration > .zero else { return }
 
-            let interval = TimeInterval(ms) / 1000.0
             mouseHideAfterTimer = Timer.scheduledTimer(
-                withTimeInterval: interval,
+                withTimeInterval: duration.timeInterval,
                 repeats: false,
                 block: { [weak self] _ in
                     guard let self else { return }
