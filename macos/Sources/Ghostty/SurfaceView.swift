@@ -434,6 +434,13 @@ extension Ghostty {
                         ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                         return .handled
                     }
+                    .backport.onKeyPress(.init("v")) { modifiers in
+                        guard modifiers.contains(.command) else { return .ignored }
+                        if let text = NSPasteboard.general.string(forType: .string) {
+                            searchState.needle += text
+                        }
+                        return .handled
+                    }
 
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
