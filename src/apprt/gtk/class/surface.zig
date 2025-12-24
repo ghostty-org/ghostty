@@ -592,9 +592,6 @@ pub const Surface = extern struct {
         /// configured idle duration.
         mouse_hide_after_timer: ?c_uint = null,
 
-        /// The last time we observed mouse movement, used for `mouse-hide-after`.
-        last_mouse_move_time: ?std.time.Instant = null,
-
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
         // false by a parent widget.
@@ -2692,9 +2689,6 @@ pub const Surface = extern struct {
 
         // Our pos changed, update
         priv.cursor_pos = pos;
-
-        // Track mouse movement time for `mouse-hide-after`.
-        priv.last_mouse_move_time = std.time.Instant.now() catch null;
 
         // Reset `mouse-hide-after` idle timer if configured.
         if (priv.mouse_hide_after_timer) |timer| {
