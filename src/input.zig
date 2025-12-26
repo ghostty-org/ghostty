@@ -31,6 +31,7 @@ pub const ScrollMods = mouse.ScrollMods;
 pub const SplitFocusDirection = Binding.Action.SplitFocusDirection;
 pub const SplitResizeDirection = Binding.Action.SplitResizeDirection;
 pub const Trigger = Binding.Trigger;
+pub const KeyRemap = @import("input/KeyRemap.zig");
 
 // Keymap is only available on macOS right now. We could implement it
 // in theory for XKB too on Linux but we don't need it right now.
