@@ -125,6 +125,13 @@ fn setupShell(
         };
     }
 
+    if (std.mem.eql(u8, "nu", exe)) {
+        // Sets up XDG_DATA_DIRS so that it can be picked automatically by
+        // nushell on startup.
+        try setupXdgDataDirs(alloc_arena, resource_dir, env);
+        return null;
+    }
+
     if (std.mem.eql(u8, "zsh", exe)) {
         if (!try setupZsh(resource_dir, env)) return null;
         return .{
