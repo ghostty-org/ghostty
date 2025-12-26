@@ -224,6 +224,10 @@ extension Ghostty {
                             .opacity(overlayOpacity)
                     }
                 }
+
+                // Grab handle for dragging the window. We want this to appear at the very
+                // top Z-index os it isn't faded by the unfocused overlay.
+                SurfaceGrabHandle()
             }
 
         }
@@ -951,6 +955,49 @@ extension Ghostty {
         }
     }
 #endif
+
+    /// A grab handle overlay at the top of the surface for dragging the window.
+    /// Only appears when hovering in the top region of the surface.
+    struct SurfaceGrabHandle: View {
+        private let handleHeight: CGFloat = 10
+        
+        @State private var isHovering: Bool = false
+        @State private var isDragging: Bool = false
+        
+        var body: some View {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.white.opacity(isHovering || isDragging ? 0.15 : 0))
+                    .frame(height: handleHeight)
+                    .overlay(alignment: .center) {
+                        if isHovering || isDragging {
+                            Capsule()
+                                .fill(Color.white.opacity(0.4))
+                                .frame(width: 40, height: 4)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isHovering = hovering
+                        }
+                    }
+                    .gesture(
+                        DragGesture()
+                            .onChanged { _ in
+                                isDragging = true
+                            }
+                            .onEnded { _ in
+                                isDragging = false
+                            }
+                    )
+                    .backport.pointerStyle(isHovering ? .grabIdle : nil)
+                
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
 
     /// Visual overlay that shows a border around the edges when the bell rings with border feature enabled.
     struct BellBorderOverlay: View {
