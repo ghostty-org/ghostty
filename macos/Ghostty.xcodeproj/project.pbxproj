@@ -141,10 +141,10 @@
 				Ghostty/Ghostty.Event.swift,
 				Ghostty/Ghostty.Input.swift,
 				Ghostty/Ghostty.Surface.swift,
-				Ghostty/InspectorView.swift,
 				"Ghostty/NSEvent+Extension.swift",
-				Ghostty/SurfaceScrollView.swift,
-				Ghostty/SurfaceView_AppKit.swift,
+				"Ghostty/Surface View/InspectorView.swift",
+				"Ghostty/Surface View/SurfaceScrollView.swift",
+				"Ghostty/Surface View/SurfaceView_AppKit.swift",
 				Helpers/AppInfo.swift,
 				Helpers/CodableBridge.swift,
 				Helpers/Cursor.swift,
@@ -186,7 +186,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/iOS/iOSApp.swift,
-				Ghostty/SurfaceView_UIKit.swift,
+				"Ghostty/Surface View/SurfaceView_UIKit.swift",
 			);
 			target = A5B30530299BEAAA0047F10C /* Ghostty */;
 		};
