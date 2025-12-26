@@ -112,6 +112,9 @@ pub const Action = union(Key) {
     /// Toggle the command palette. This currently only works on macOS.
     toggle_command_palette,
 
+    /// Toggle the MRU tab switcher. This currently only works on macOS.
+    toggle_mru_tab_switcher,
+
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 

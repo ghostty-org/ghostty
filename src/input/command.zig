@@ -681,6 +681,7 @@ fn actionCommands(action: Action.Key) []const Command {
         // No commands because I'm not sure they make sense in a command
         // palette context.
         .toggle_command_palette,
+        .toggle_mru_tab_switcher,
         .toggle_quick_terminal,
         .toggle_visibility,
         .previous_tab,

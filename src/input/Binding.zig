@@ -694,6 +694,12 @@ pub const Action = union(enum) {
     /// version can be found by running `ghostty +version`.
     toggle_command_palette,
 
+    /// Toggle the switcher to see the list of most recent tabs.
+    ///
+    /// This is an overlay that displays all open tabs sorted by most recently used
+    /// order.
+    toggle_mru_tab_switcher,
+
     /// Toggle the quick terminal.
     ///
     /// The quick terminal, also known as the "Quake-style" or drop-down
