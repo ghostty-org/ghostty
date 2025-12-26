@@ -227,7 +227,7 @@ extension Ghostty {
 
                 // Grab handle for dragging the window. We want this to appear at the very
                 // top Z-index os it isn't faded by the unfocused overlay.
-                SurfaceGrabHandle()
+                SurfaceGrabHandle(surfaceView: surfaceView)
             }
 
         }
@@ -961,6 +961,8 @@ extension Ghostty {
     struct SurfaceGrabHandle: View {
         private let handleHeight: CGFloat = 10
         
+        let surfaceView: SurfaceView
+        
         @State private var isHovering: Bool = false
         @State private var isDragging: Bool = false
         
@@ -982,20 +984,12 @@ extension Ghostty {
                             isHovering = hovering
                         }
                     }
-                    .gesture(
-                        DragGesture()
-                            .onChanged { _ in
-                                isDragging = true
-                            }
-                            .onEnded { _ in
-                                isDragging = false
-                            }
-                    )
                     .backport.pointerStyle(isHovering ? .grabIdle : nil)
                 
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .draggable(surfaceView)
         }
     }
 
