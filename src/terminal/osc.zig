@@ -13,7 +13,8 @@ const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = mem.Allocator;
 const LibEnum = @import("../lib/enum.zig").Enum;
 const RGB = @import("color.zig").RGB;
-const kitty_color = @import("kitty/color.zig");
+const kitty = @import("kitty.zig");
+const kitty_color = kitty.color;
 const osc_color = @import("osc/color.zig");
 const string_encoding = @import("../os/string_encoding.zig");
 pub const color = osc_color;
@@ -193,6 +194,9 @@ pub const Command = union(Key) {
     /// ConEmu GUI macro (OSC 9;6)
     conemu_guimacro: [:0]const u8,
 
+    /// Kitty text sizing protocol (OSC 66)
+    kitty_text_sizing: kitty.text_sizing.OSC,
+
     pub const Key = LibEnum(
         if (build_options.c_abi) .c else .zig,
         // NOTE: Order matters, see LibEnum documentation.
@@ -218,6 +222,7 @@ pub const Command = union(Key) {
             "conemu_progress_report",
             "conemu_wait_input",
             "conemu_guimacro",
+            "kitty_text_sizing",
         },
     );
 
@@ -344,11 +349,15 @@ pub const Parser = struct {
 
     // Maximum length of a single OSC command. This is the full OSC command
     // sequence length (excluding ESC ]). This is arbitrary, I couldn't find
-    // any definitive resource on how long this should be.
+    // any definitive resource on how long this should be, except for OSC 66
+    // and 99 (Kitty's text sizing and notification protocols respectively)
+    // imposing a maximum _payload_ length of 4096 bytes, so let's be generous
+    // and allow 8192 bytes.
     //
     // NOTE: This does mean certain OSC sequences such as OSC 8 (hyperlinks)
-    //       won't work if their parameters are larger than fit in the buffer.
-    const MAX_BUF = 2048;
+    //       won't work if their parameters too large to fit in the buffer.
+    //       Other OSCs that use allocable strings may exceed this size limit.
+    const MAX_BUF = 8192;
 
     pub const State = enum {
         empty,
@@ -377,6 +386,8 @@ pub const Parser = struct {
         @"4",
         @"5",
         @"52",
+        @"6",
+        @"66",
         @"7",
         @"77",
         @"777",
@@ -451,6 +462,10 @@ pub const Parser = struct {
         conemu_progress_prevalue,
         conemu_progress_value,
         conemu_guimacro,
+
+        // Kitty text size protocol
+        kitty_text_sizing_key,
+        kitty_text_sizing_value,
     };
 
     pub fn init(alloc: ?Allocator) Parser {
@@ -559,6 +574,7 @@ pub const Parser = struct {
                 '2' => self.state = .@"2",
                 '4' => self.state = .@"4",
                 '5' => self.state = .@"5",
+                '6' => self.state = .@"6",
                 '7' => self.state = .@"7",
                 '8' => self.state = .@"8",
                 '9' => self.state = .@"9",
@@ -974,6 +990,38 @@ pub const Parser = struct {
                     self.complete = true;
                 },
                 else => self.state = .invalid,
+            },
+
+            .@"6" => switch (c) {
+                '6' => self.state = .@"66",
+                else => self.state = .invalid,
+            },
+
+            .@"66" => switch (c) {
+                ';' => {
+                    self.command = .{ .kitty_text_sizing = .{
+                        .text = "",
+                    } };
+                    self.temp_state = .{ .key = "" };
+                    self.state = .kitty_text_sizing_key;
+                    self.buf_start = self.buf_idx;
+                },
+                else => self.state = .invalid,
+            },
+
+            .kitty_text_sizing_key => switch (c) {
+                ';' => self.endKittyTextSizingOption(true),
+                '=' => {
+                    self.state = .kitty_text_sizing_value;
+                    self.temp_state = .{ .key = self.buf[self.buf_start .. self.buf_idx - 1] };
+                    self.buf_start = self.buf_idx;
+                },
+                else => {},
+            },
+            .kitty_text_sizing_value => switch (c) {
+                ':' => self.endKittyTextSizingOption(false),
+                ';' => self.endKittyTextSizingOption(true),
+                else => {},
             },
 
             .@"7" => switch (c) {
@@ -1685,6 +1733,54 @@ pub const Parser = struct {
         };
     }
 
+    fn endKittyTextSizingOption(self: *Parser, final: bool) void {
+        if (self.command != .kitty_text_sizing) {
+            @branchHint(.cold);
+            log.warn("tried to end text sizing option with an invalid command: {}", .{self.command});
+            return;
+        }
+
+        if (self.temp_state.key.len > 0) {
+            // All keys so far are single characters
+            if (self.temp_state.key.len > 1) {
+                @branchHint(.cold);
+                log.warn("invalid kitty text sizing option key", .{});
+                self.state = .invalid;
+                return;
+            }
+
+            if (self.buf_idx == self.buf_start) {
+                @branchHint(.cold);
+                log.warn("kitty text sizing option does not have a value", .{});
+                self.state = .invalid;
+                return;
+            }
+
+            const key = self.temp_state.key[0];
+            const value = self.buf[self.buf_start .. self.buf_idx - 1];
+
+            self.command.kitty_text_sizing.set(key, value) catch |err| {
+                @branchHint(.cold);
+                switch (err) {
+                    error.InvalidValue => log.warn("invalid kitty text sizing option value for {c}: {s}", .{ key, value }),
+                    error.UnknownKey => log.warn("unknown kitty text sizing option key: {c}", .{key}),
+                }
+                self.state = .invalid;
+                return;
+            };
+        }
+
+        if (final) {
+            self.temp_state = .{ .str = &self.command.kitty_text_sizing.text };
+            self.state = .string;
+            self.buf_start = self.buf_idx;
+            self.complete = true;
+        } else {
+            self.state = .kitty_text_sizing_key;
+            self.buf_start = self.buf_idx;
+        }
+    }
+
     fn endAllocableString(self: *Parser) void {
         const alloc = self.alloc.?;
         const list = self.buf_dynamic.?;
@@ -1755,12 +1851,16 @@ pub const Parser = struct {
             .conemu_progress_value,
             => {},
 
+            .kitty_text_sizing_key => self.endKittyTextSizingOption(true),
+            .kitty_text_sizing_value => self.endKittyTextSizingOption(true),
+
             else => {},
         }
 
         switch (self.command) {
             .kitty_color_protocol => |*c| c.terminator = .init(terminator_ch),
             .color_operation => |*c| c.terminator = .init(terminator_ch),
+            .kitty_text_sizing => |c| if (!c.validate()) return null,
             else => {},
         }
 
@@ -3336,4 +3436,115 @@ test "OSC: OSC 777 show desktop notification with title" {
     try testing.expect(cmd == .show_desktop_notification);
     try testing.expectEqualStrings(cmd.show_desktop_notification.title, "Title");
     try testing.expectEqualStrings(cmd.show_desktop_notification.body, "Body");
+}
+
+test "OSC 66: empty parameters" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;;bobr";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .kitty_text_sizing);
+    try testing.expectEqual(1, cmd.kitty_text_sizing.scale);
+    try testing.expectEqualStrings("bobr", cmd.kitty_text_sizing.text);
+}
+
+test "OSC 66: single parameter" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;s=2;kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .kitty_text_sizing);
+    try testing.expectEqual(2, cmd.kitty_text_sizing.scale);
+    try testing.expectEqualStrings("kurwa", cmd.kitty_text_sizing.text);
+}
+
+test "OSC 66: multiple parameters" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;s=2:w=7:n=13:d=15:v=1:h=2;long";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .kitty_text_sizing);
+    try testing.expectEqual(2, cmd.kitty_text_sizing.scale);
+    try testing.expectEqual(7, cmd.kitty_text_sizing.width);
+    try testing.expectEqual(13, cmd.kitty_text_sizing.numerator);
+    try testing.expectEqual(15, cmd.kitty_text_sizing.denominator);
+    try testing.expectEqual(.bottom, cmd.kitty_text_sizing.valign);
+    try testing.expectEqual(.center, cmd.kitty_text_sizing.halign);
+    try testing.expectEqualStrings("long", cmd.kitty_text_sizing.text);
+}
+
+test "OSC 66: scale is zero" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;s=0;nope";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC 66: parameters are too large" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    for ("66;w=8;") |ch| p.next(ch);
+    try testing.expect(p.end('\x1b') == null);
+    p.reset();
+
+    for ("66;v=3;") |ch| p.next(ch);
+    try testing.expect(p.end('\x1b') == null);
+    p.reset();
+
+    for ("66;n=16;") |ch| p.next(ch);
+    try testing.expect(p.end('\x1b') == null);
+    p.reset();
+}
+
+test "OSC 66: UTF-8" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;;👻魑魅魍魉ゴースッティ";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .kitty_text_sizing);
+    try testing.expectEqualStrings("👻魑魅魍魉ゴースッティ", cmd.kitty_text_sizing.text);
+}
+
+test "OSC 66: unsafe UTF-8" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;;\n";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC 66: overlong UTF-8" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "66;;" ++ "bobr" ** 1025;
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
 }
