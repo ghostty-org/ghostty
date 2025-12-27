@@ -5,6 +5,7 @@ extension Ghostty {
     /// Only appears when hovering in the top region of the surface.
     struct SurfaceGrabHandle: View {
         private let handleHeight: CGFloat = 10
+        private let previewScale: CGFloat = 0.2
         
         let surfaceView: SurfaceView
         
@@ -34,7 +35,35 @@ extension Ghostty {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .draggable(surfaceView)
+            .draggable(surfaceView) {
+                SurfaceDragPreview(surfaceView: surfaceView, scale: previewScale)
+            }
+        }
+    }
+    
+    /// A miniature preview of the surface view for drag operations that updates periodically.
+    private struct SurfaceDragPreview: View {
+        let surfaceView: SurfaceView
+        let scale: CGFloat
+        
+        var body: some View {
+            // We need to use a TimelineView to ensure that this doesn't
+            // cache forever. This will NOT let the view live update while
+            // being dragged; macOS doesn't seem to allow that. But it will
+            // make sure on new drags the screenshot is updated.
+            TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { _ in
+                if let snapshot = surfaceView.asImage {
+                    Image(nsImage: snapshot)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(
+                            width: snapshot.size.width * scale,
+                            height: snapshot.size.height * scale
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(radius: 10)
+                }
+            }
         }
     }
 }
