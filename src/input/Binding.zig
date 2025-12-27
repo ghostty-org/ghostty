@@ -1231,6 +1231,7 @@ pub const Action = union(enum) {
             .quit,
             .toggle_quick_terminal,
             .toggle_visibility,
+            .toggle_mru_tab_switcher,
             .check_for_updates,
             .show_gtk_inspector,
             => .app,
