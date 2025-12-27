@@ -76,11 +76,145 @@ struct MRUTabSwitcherView: View {
                 ) {
                   selectTab(tab)
                 }
+                .onHover { hovering in
+                  hoveredID = hovering ? tab.id : nil
+                }
+                .id(tab.id)
               }
             }
+            .padding(10)
+          }
+          .frame(maxHeight: 300)
+          .onChange(of: selectedIndex) { newValue in
+            guard newValue < filteredTabs.count else { return }
+            proxy.scrollTo(filteredTabs[newValue].id)
           }
         }
       }
+    }
+    .frame(maxWidth: 450)
+    .background(
+      ZStack {
+        Rectangle().fill(.ultraThinMaterial)
+        Rectangle().fill(backgroundColor).blendModel(.color)
+      }.compositingGroup()
+    )
+    .clipShape(RoundedRectangle(cornerRadius: 10))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10)
+        .stroke(Color(nsColor: .terniaryLabelColor).opacity(0.75))
+    )
+    .shadow(radius: 32, x: 0, y: 12)
+    .padding()
+    .environment(\.colorScheme, scheme)
+    .onAppear {
+      istextFieldFocused = true
+      selectedIndex = 0
+    }
+    .onKeyPress(.upArrow) {
+      moveSelection(-1)
+      return .handled
+    }
+    .onKeyPress(.downArrow) {
+      moveSelection(1)
+      return .handled
+    }
+    .onKeyPress(.escape) {
+      isPresented = false
+      return .handled
+    }
+    .onKeyPress(.return) {
+      selectCurrentTab()
+      return .handled
+    }
+  }
+
+  private func moveSelection(_ delta: Int) {
+    guard !filteredTabs.isEmpty else { return }
+    let newIndex = selectedIndex + delta
+    if newIndex < 0 {
+      selectedIndex = filteredTabs.count - 1
+    } else if newIndex >= filteredTabs.count {
+      selectedIndex = 0
+    } else {
+      selectedIndex = newIndex
+    }
+  }
+
+  private func selectCurrentTab() {
+    guard selectedIndex < filteredTabs.count else { return }
+    selectTab(filteredTabs[selectedIndex])
+  }
+
+  private func selectTab(_ tab: MRUTabEntry) {
+    isPresented = false
+    onSelect(tab)
+  }
+}
+
+
+fileprivate struct MRUTabRow: View {
+  let tab: MRUTabEntry
+  let isSelected: Bool
+  let isHovered: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 8) {
+        if let color = tab.tabColor {
+          Circle()
+            .fill(color)
+            .frame(width: 8, height: 8)
+        }
+
+        Image(systemName: "terminal")
+          .foregroundStyle(.secondary)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(tab.title)
+            .lineLimit(1)
+
+          if let subtitle = tab.subtitle {
+            Text(subtitle)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+        }
+
+        Spacer()
+
+        if let instant = tab.focusInstant {
+          Text(timeAgo(from: instant))
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+        }
+      }
+      .padding(8)
+      .contentShape(Rectangle())
+      .background(
+        isSelected
+          ? Color.accentColor.opacity(0.2)
+          : (isHovered ? Color.secondary.opacity(0.15) : Color.clear)
+      )
+      .cornerRadius(5)
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func timeAgo(from instant: ContinuousClock.Instant) -> String {
+    let elapsed = ContinuousClock.now - instant
+    let seconds = elapsed.components.seconds
+
+    if seconds < 60 {
+      return "just now"
+    } else if seconds < 3600 {
+      let minutes = seconds / 60
+      return "\(minutes)m ago"
+    } else {
+      let hours = seconds / 3600
+      return "\(hours)h ago"
     }
   }
 }
