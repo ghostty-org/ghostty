@@ -53,6 +53,7 @@ extension Ghostty {
             // make sure on new drags the screenshot is updated.
             TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { _ in
                 if let snapshot = surfaceView.asImage {
+                    #if canImport(AppKit)
                     Image(nsImage: snapshot)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -62,6 +63,17 @@ extension Ghostty {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .shadow(radius: 10)
+                    #elseif canImport(UIKit)
+                    Image(uiImage: snapshot)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(
+                            width: snapshot.size.width * scale,
+                            height: snapshot.size.height * scale
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(radius: 10)
+                    #endif
                 }
             }
         }

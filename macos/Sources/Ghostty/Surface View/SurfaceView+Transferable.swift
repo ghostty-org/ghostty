@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 import CoreTransferable
 import UniformTypeIdentifiers
 
@@ -29,6 +31,7 @@ extension Ghostty.SurfaceView: Transferable {
     
     @MainActor
     static func find(uuid: UUID) -> Self? {
+        #if canImport(AppKit)
         for window in NSApp.windows {
             guard let controller = window.windowController as? BaseTerminalController else {
                 continue
@@ -39,6 +42,7 @@ extension Ghostty.SurfaceView: Transferable {
                 }
             }
         }
+        #endif
         
         return nil
     }
