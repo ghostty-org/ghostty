@@ -827,6 +827,38 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    func splitDidDrop(source: Ghostty.SurfaceView, destination: Ghostty.SurfaceView, zone: TerminalSplitDropZone) {
+        // Find the source node in the tree
+        guard let sourceNode = surfaceTree.root?.node(view: source) else {
+            Ghostty.logger.warning("source surface not found in tree during drop")
+            return
+        }
+
+        // Map drop zone to split direction
+        let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
+        case .top: .up
+        case .bottom: .down
+        case .left: .left
+        case .right: .right
+        }
+
+        // Remove source from its current position first
+        let treeWithoutSource = surfaceTree.remove(sourceNode)
+
+        // Insert source at destination in the appropriate direction
+        do {
+            let newTree = try treeWithoutSource.insert(view: source, at: destination, direction: direction)
+            replaceSurfaceTree(
+                newTree,
+                moveFocusTo: source,
+                moveFocusFrom: focusedSurface,
+                undoAction: "Move Split")
+        } catch {
+            Ghostty.logger.warning("failed to insert surface during drop: \(error)")
+            return
+        }
+    }
+
     func performAction(_ action: String, on surfaceView: Ghostty.SurfaceView) {
         guard let surface = surfaceView.surface else { return }
         let len = action.utf8CString.count

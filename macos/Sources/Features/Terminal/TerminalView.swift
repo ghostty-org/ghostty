@@ -20,6 +20,9 @@ protocol TerminalViewDelegate: AnyObject {
 
     /// A split is resizing to a given value.
     func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double)
+
+    /// A surface was dropped onto another surface to create a split.
+    func splitDidDrop(source: Ghostty.SurfaceView, destination: Ghostty.SurfaceView, zone: TerminalSplitDropZone)
 }
 
 /// The view model is a required implementation for TerminalView callers. This contains
@@ -83,8 +86,8 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     TerminalSplitTreeView(
                         tree: viewModel.surfaceTree,
                         onResize: { delegate?.splitDidResize(node: $0, to: $1) },
-                        onDrop: { surface, zone in
-                            Ghostty.logger.info("Drop on surface \(surface) in zone \(zone.rawValue)")
+                        onDrop: { source, destination, zone in
+                            delegate?.splitDidDrop(source: source, destination: destination, zone: zone)
                         })
                         .environmentObject(ghostty)
                         .focused($focused)
