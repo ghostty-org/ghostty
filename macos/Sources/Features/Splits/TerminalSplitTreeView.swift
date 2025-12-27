@@ -32,8 +32,14 @@ struct TerminalSplitSubtreeView: View {
             Ghostty.InspectableSurface(
                 surfaceView: leafView,
                 isSplit: !isRoot)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Terminal pane")
+            .dropDestination(for: Ghostty.SurfaceView.self) { views, point in
+                Ghostty.logger.warning("BABY WHAT!")
+                return false
+            } isTargeted: { targeted in
+                Ghostty.logger.warning("BABY TARGETED=\(targeted)")
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Terminal pane")
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch (split.direction) {
