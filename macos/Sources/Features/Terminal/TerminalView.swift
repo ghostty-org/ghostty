@@ -1,5 +1,6 @@
 import SwiftUI
 import GhosttyKit
+import os
 
 /// This delegate is notified of actions and property changes regarding the terminal view. This
 /// delegate is optional and can be used by a TerminalView caller to react to changes such as
@@ -81,7 +82,10 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
                     TerminalSplitTreeView(
                         tree: viewModel.surfaceTree,
-                        onResize: { delegate?.splitDidResize(node: $0, to: $1) })
+                        onResize: { delegate?.splitDidResize(node: $0, to: $1) },
+                        onDrop: { surface, zone in
+                            Ghostty.logger.info("Drop on surface \(surface) in zone \(zone.rawValue)")
+                        })
                         .environmentObject(ghostty)
                         .focused($focused)
                         .onAppear { self.focused = true }

@@ -1,15 +1,18 @@
 import SwiftUI
+import os
 
 struct TerminalSplitTreeView: View {
     let tree: SplitTree<Ghostty.SurfaceView>
     let onResize: (SplitTree<Ghostty.SurfaceView>.Node, Double) -> Void
+    let onDrop: (Ghostty.SurfaceView, TerminalSplitLeaf.DropZone) -> Void
 
     var body: some View {
         if let node = tree.zoomed ?? tree.root {
             TerminalSplitSubtreeView(
                 node: node,
                 isRoot: node == tree.root,
-                onResize: onResize)
+                onResize: onResize,
+                onDrop: onDrop)
             // This is necessary because we can't rely on SwiftUI's implicit
             // structural identity to detect changes to this view. Due to
             // the tree structure of splits it could result in bad behaviors.
@@ -25,11 +28,12 @@ struct TerminalSplitSubtreeView: View {
     let node: SplitTree<Ghostty.SurfaceView>.Node
     var isRoot: Bool = false
     let onResize: (SplitTree<Ghostty.SurfaceView>.Node, Double) -> Void
+    let onDrop: (Ghostty.SurfaceView, TerminalSplitLeaf.DropZone) -> Void
 
     var body: some View {
         switch (node) {
         case .leaf(let leafView):
-            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot)
+            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, onDrop: onDrop)
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch (split.direction) {
@@ -47,10 +51,10 @@ struct TerminalSplitSubtreeView: View {
                 dividerColor: ghostty.config.splitDividerColor,
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
-                    TerminalSplitSubtreeView(node: split.left, onResize: onResize)
+                    TerminalSplitSubtreeView(node: split.left, onResize: onResize, onDrop: onDrop)
                 },
                 right: {
-                    TerminalSplitSubtreeView(node: split.right, onResize: onResize)
+                    TerminalSplitSubtreeView(node: split.right, onResize: onResize, onDrop: onDrop)
                 },
                 onEqualize: {
                     guard let surface = node.leftmostLeaf().surface else { return }
@@ -64,8 +68,9 @@ struct TerminalSplitSubtreeView: View {
 struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
+    let onDrop: (Ghostty.SurfaceView, DropZone) -> Void
     
-    @State private var dropZone: DropZone = .none
+    @State private var dropState: DropState = .idle
     
     var body: some View {
         Ghostty.InspectableSurface(
@@ -79,15 +84,16 @@ struct TerminalSplitLeaf: View {
             GeometryReader { geometry in
                 Color.clear
                     .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
-                        dropZone: $dropZone,
-                        viewSize: geometry.size
+                        dropState: $dropState,
+                        viewSize: geometry.size,
+                        onDrop: { zone in onDrop(surfaceView, zone) }
                     ))
             }
         }
         .overlay {
-            if dropZone != .none {
+            if case .dropping(let zone) = dropState {
                 GeometryReader { geometry in
-                    dropZoneOverlay(for: dropZone, in: geometry)
+                    dropZoneOverlay(for: zone, in: geometry)
                 }
                 .allowsHitTesting(false)
             }
@@ -101,8 +107,6 @@ struct TerminalSplitLeaf: View {
         let overlayColor = Color.accentColor.opacity(0.3)
         
         switch zone {
-        case .none:
-            EmptyView()
         case .top:
             VStack(spacing: 0) {
                 Rectangle()
@@ -134,38 +138,49 @@ struct TerminalSplitLeaf: View {
         }
     }
     
-    enum DropZone: Equatable {
-        case none
+    enum DropZone: String, Equatable {
         case top
         case bottom
         case left
         case right
     }
     
+    enum DropState: Equatable {
+        case idle
+        case dropping(DropZone)
+    }
+    
     struct SplitDropDelegate: DropDelegate {
-        @Binding var dropZone: DropZone
+        @Binding var dropState: DropState
         let viewSize: CGSize
+        let onDrop: (DropZone) -> Void
         
         func validateDrop(info: DropInfo) -> Bool {
             info.hasItemsConforming(to: [.ghosttySurfaceId])
         }
         
         func dropEntered(info: DropInfo) {
-            _ = dropUpdated(info: info)
+            dropState = .dropping(calculateDropZone(at: info.location))
         }
         
         func dropUpdated(info: DropInfo) -> DropProposal? {
-            dropZone = calculateDropZone(at: info.location)
+            // For some reason dropUpdated is sent after performDrop is called
+            // and we don't want to reset our drop zone to show it so we have
+            // to guard on the state here.
+            guard case .dropping = dropState else { return DropProposal(operation: .forbidden) }
+            dropState = .dropping(calculateDropZone(at: info.location))
             return DropProposal(operation: .move)
         }
         
         func dropExited(info: DropInfo) {
-            dropZone = .none
+            dropState = .idle
         }
         
         func performDrop(info: DropInfo) -> Bool {
-            dropZone = .none
-            return false
+            let zone = calculateDropZone(at: info.location)
+            dropState = .idle
+            onDrop(zone)
+            return true
         }
         
         /// Determines which drop zone the cursor is in based on proximity to edges.
@@ -174,8 +189,6 @@ struct TerminalSplitLeaf: View {
         /// corner to corner. The drop zone is determined by which edge the cursor
         /// is closest to, creating natural triangular hit regions for each side.
         private func calculateDropZone(at point: CGPoint) -> DropZone {
-            guard viewSize.width > 0, viewSize.height > 0 else { return .none }
-
             let relX = point.x / viewSize.width
             let relY = point.y / viewSize.height
 
