@@ -4,7 +4,7 @@ import os
 struct TerminalSplitTreeView: View {
     let tree: SplitTree<Ghostty.SurfaceView>
     let onResize: (SplitTree<Ghostty.SurfaceView>.Node, Double) -> Void
-    let onDrop: (Ghostty.SurfaceView, TerminalSplitLeaf.DropZone) -> Void
+    let onDrop: (Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
 
     var body: some View {
         if let node = tree.zoomed ?? tree.root {
@@ -28,7 +28,7 @@ struct TerminalSplitSubtreeView: View {
     let node: SplitTree<Ghostty.SurfaceView>.Node
     var isRoot: Bool = false
     let onResize: (SplitTree<Ghostty.SurfaceView>.Node, Double) -> Void
-    let onDrop: (Ghostty.SurfaceView, TerminalSplitLeaf.DropZone) -> Void
+    let onDrop: (Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
 
     var body: some View {
         switch (node) {
@@ -68,7 +68,7 @@ struct TerminalSplitSubtreeView: View {
 struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
-    let onDrop: (Ghostty.SurfaceView, DropZone) -> Void
+    let onDrop: (Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
     
     @State private var dropState: DropState = .idle
     
@@ -93,7 +93,7 @@ struct TerminalSplitLeaf: View {
         .overlay {
             if case .dropping(let zone) = dropState {
                 GeometryReader { geometry in
-                    dropZoneOverlay(for: zone, in: geometry)
+                    zone.overlay(in: geometry)
                 }
                 .allowsHitTesting(false)
             }
@@ -102,11 +102,78 @@ struct TerminalSplitLeaf: View {
         .accessibilityLabel("Terminal pane")
     }
     
-    @ViewBuilder
-    private func dropZoneOverlay(for zone: DropZone, in geometry: GeometryProxy) -> some View {
-        let overlayColor = Color.accentColor.opacity(0.3)
+    private enum DropState: Equatable {
+        case idle
+        case dropping(TerminalSplitDropZone)
+    }
+    
+    private struct SplitDropDelegate: DropDelegate {
+        @Binding var dropState: DropState
+        let viewSize: CGSize
+        let onDrop: (TerminalSplitDropZone) -> Void
         
-        switch zone {
+        func validateDrop(info: DropInfo) -> Bool {
+            info.hasItemsConforming(to: [.ghosttySurfaceId])
+        }
+        
+        func dropEntered(info: DropInfo) {
+            dropState = .dropping(.calculate(at: info.location, in: viewSize))
+        }
+        
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            // For some reason dropUpdated is sent after performDrop is called
+            // and we don't want to reset our drop zone to show it so we have
+            // to guard on the state here.
+            guard case .dropping = dropState else { return DropProposal(operation: .forbidden) }
+            dropState = .dropping(.calculate(at: info.location, in: viewSize))
+            return DropProposal(operation: .move)
+        }
+        
+        func dropExited(info: DropInfo) {
+            dropState = .idle
+        }
+        
+        func performDrop(info: DropInfo) -> Bool {
+            dropState = .idle
+            onDrop(.calculate(at: info.location, in: viewSize))
+            return true
+        }
+    }
+}
+
+enum TerminalSplitDropZone: String, Equatable {
+    case top
+    case bottom
+    case left
+    case right
+
+    /// Determines which drop zone the cursor is in based on proximity to edges.
+    ///
+    /// Divides the view into four triangular regions by drawing diagonals from
+    /// corner to corner. The drop zone is determined by which edge the cursor
+    /// is closest to, creating natural triangular hit regions for each side.
+    static func calculate(at point: CGPoint, in size: CGSize) -> TerminalSplitDropZone {
+        let relX = point.x / size.width
+        let relY = point.y / size.height
+
+        let distToLeft = relX
+        let distToRight = 1 - relX
+        let distToTop = relY
+        let distToBottom = 1 - relY
+
+        let minDist = min(distToLeft, distToRight, distToTop, distToBottom)
+
+        if minDist == distToLeft { return .left }
+        if minDist == distToRight { return .right }
+        if minDist == distToTop { return .top }
+        return .bottom
+    }
+
+    @ViewBuilder
+    func overlay(in geometry: GeometryProxy) -> some View {
+        let overlayColor = Color.accentColor.opacity(0.3)
+
+        switch self {
         case .top:
             VStack(spacing: 0) {
                 Rectangle()
@@ -135,74 +202,6 @@ struct TerminalSplitLeaf: View {
                     .fill(overlayColor)
                     .frame(width: geometry.size.width / 2)
             }
-        }
-    }
-    
-    enum DropZone: String, Equatable {
-        case top
-        case bottom
-        case left
-        case right
-    }
-    
-    enum DropState: Equatable {
-        case idle
-        case dropping(DropZone)
-    }
-    
-    struct SplitDropDelegate: DropDelegate {
-        @Binding var dropState: DropState
-        let viewSize: CGSize
-        let onDrop: (DropZone) -> Void
-        
-        func validateDrop(info: DropInfo) -> Bool {
-            info.hasItemsConforming(to: [.ghosttySurfaceId])
-        }
-        
-        func dropEntered(info: DropInfo) {
-            dropState = .dropping(calculateDropZone(at: info.location))
-        }
-        
-        func dropUpdated(info: DropInfo) -> DropProposal? {
-            // For some reason dropUpdated is sent after performDrop is called
-            // and we don't want to reset our drop zone to show it so we have
-            // to guard on the state here.
-            guard case .dropping = dropState else { return DropProposal(operation: .forbidden) }
-            dropState = .dropping(calculateDropZone(at: info.location))
-            return DropProposal(operation: .move)
-        }
-        
-        func dropExited(info: DropInfo) {
-            dropState = .idle
-        }
-        
-        func performDrop(info: DropInfo) -> Bool {
-            let zone = calculateDropZone(at: info.location)
-            dropState = .idle
-            onDrop(zone)
-            return true
-        }
-        
-        /// Determines which drop zone the cursor is in based on proximity to edges.
-        ///
-        /// Divides the view into four triangular regions by drawing diagonals from
-        /// corner to corner. The drop zone is determined by which edge the cursor
-        /// is closest to, creating natural triangular hit regions for each side.
-        private func calculateDropZone(at point: CGPoint) -> DropZone {
-            let relX = point.x / viewSize.width
-            let relY = point.y / viewSize.height
-
-            let distToLeft = relX
-            let distToRight = 1 - relX
-            let distToTop = relY
-            let distToBottom = 1 - relY
-
-            let minDist = min(distToLeft, distToRight, distToTop, distToBottom)
-
-            if minDist == distToLeft { return .left }
-            if minDist == distToRight { return .right }
-            if minDist == distToTop { return .top }
-            return .bottom
         }
     }
 }
