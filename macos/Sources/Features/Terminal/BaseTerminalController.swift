@@ -828,12 +828,6 @@ class BaseTerminalController: NSWindowController,
     }
 
     func splitDidDrop(source: Ghostty.SurfaceView, destination: Ghostty.SurfaceView, zone: TerminalSplitDropZone) {
-        // Find the source node in the tree
-        guard let sourceNode = surfaceTree.root?.node(view: source) else {
-            Ghostty.logger.warning("source surface not found in tree during drop")
-            return
-        }
-
         // Map drop zone to split direction
         let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
         case .top: .up
@@ -842,20 +836,63 @@ class BaseTerminalController: NSWindowController,
         case .right: .right
         }
 
-        // Remove source from its current position first
-        let treeWithoutSource = surfaceTree.remove(sourceNode)
+        // Check if source is in our tree
+        if let sourceNode = surfaceTree.root?.node(view: source) {
+            // Source is in our tree - same window move
+            let treeWithoutSource = surfaceTree.remove(sourceNode)
 
-        // Insert source at destination in the appropriate direction
+            do {
+                let newTree = try treeWithoutSource.insert(view: source, at: destination, direction: direction)
+                replaceSurfaceTree(
+                    newTree,
+                    moveFocusTo: source,
+                    moveFocusFrom: focusedSurface,
+                    undoAction: "Move Split")
+            } catch {
+                Ghostty.logger.warning("failed to insert surface during drop: \(error)")
+            }
+            
+            return
+        }
+
+        // Source is not in our tree - search other windows
+        var sourceController: BaseTerminalController?
+        var sourceNode: SplitTree<Ghostty.SurfaceView>.Node?
+        for window in NSApp.windows {
+            guard let controller = window.windowController as? BaseTerminalController else { continue }
+            guard controller !== self else { continue }
+            if let node = controller.surfaceTree.root?.node(view: source) {
+                sourceController = controller
+                sourceNode = node
+                break
+            }
+        }
+
+        guard let sourceController, let sourceNode else {
+            Ghostty.logger.warning("source surface not found in any window during drop")
+            return
+        }
+        
+        // TODO: Undo for cross window move.
+
+        // Remove from source controller's tree
+        let sourceTreeWithoutNode = sourceController.surfaceTree.remove(sourceNode)
+        sourceController.replaceSurfaceTree(
+            sourceTreeWithoutNode,
+            moveFocusTo: nil,
+            moveFocusFrom: nil,
+            undoAction: nil)
+
+        // Insert into our tree
         do {
-            let newTree = try treeWithoutSource.insert(view: source, at: destination, direction: direction)
+            let newTree = try surfaceTree.insert(view: source, at: destination, direction: direction)
             replaceSurfaceTree(
                 newTree,
                 moveFocusTo: source,
                 moveFocusFrom: focusedSurface,
                 undoAction: "Move Split")
         } catch {
-            Ghostty.logger.warning("failed to insert surface during drop: \(error)")
-            return
+            Ghostty.logger.warning("failed to insert surface during cross-window drop: \(error)")
         }
     }
 
