@@ -31,9 +31,12 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
-    
+
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
+
+    /// Show or hide the MRU tab switcher
+    var mruTabSwitcherIsShowing: Bool { get set }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -45,7 +48,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
     // An optional delegate to receive information about terminal changes.
     weak var delegate: (any TerminalViewDelegate)? = nil
-    
+
     // The most recently focused surface, equal to focusedSurface when
     // it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView> = .init()
@@ -115,7 +118,14 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }
-                
+
+                if mruTabSwitcherIsShowing {
+                    MRUTabSwitcherOverlay(
+                        isPresented: $viewModel.mruTabSwitcherIsShowing,
+                        backgroundColor: ghostty.config.backgroundColor
+                    )
+                }
+
                 // Show update information above all else.
                 if viewModel.updateOverlayIsVisible {
                     UpdateOverlay()
@@ -131,7 +141,7 @@ fileprivate struct UpdateOverlay: View {
         if let appDelegate = NSApp.delegate as? AppDelegate {
             VStack {
                 Spacer()
-                
+
                 HStack {
                     Spacer()
                     UpdatePill(model: appDelegate.updateViewModel)
