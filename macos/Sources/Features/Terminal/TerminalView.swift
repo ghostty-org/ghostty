@@ -130,6 +130,13 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                                 tabs: MRUTabCollector.collectAllTabs(),
                                 onSelect: { entry in
                                     entry.window.makeKeyAndOrderFront(nil)
+
+                                    DispatchQueue.main.async {
+                                        if let controller = entry.window.windowController as? BaseTerminalController,
+                                            let surface = controller.focusedSurface {
+                                                entry.window.makeFirstResponder(surface)
+                                        }
+                                    }
                                 }
                             )
 
