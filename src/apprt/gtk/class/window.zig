@@ -335,6 +335,7 @@ pub const Window = extern struct {
             .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
             .init("new-window", actionNewWindow, null),
+            .init("prompt-tab-title", actionPromptTabTitle, null),
             .init("ring-bell", actionRingBell, null),
             .init("split-right", actionSplitRight, null),
             .init("split-left", actionSplitLeft, null),
@@ -1761,6 +1762,14 @@ pub const Window = extern struct {
         self: *Window,
     ) callconv(.c) void {
         self.performBindingAction(.new_tab);
+    }
+
+    fn actionPromptTabTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.prompt_tab_title);
     }
 
     fn actionSplitRight(
