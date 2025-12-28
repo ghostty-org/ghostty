@@ -1851,12 +1851,12 @@ keybind: Keybinds = .{},
 @"window-inherit-working-directory": bool = true,
 
 /// If true, new tabs will inherit the working directory of the
-/// previously focused window. If no window was previously focused, the default
+/// previously focused tab. If no tab was previously focused, the default
 /// working directory will be used (the `working-directory` option).
 @"tab-inherit-working-directory": bool = true,
 
 /// If true, new split panes will inherit the working directory of the
-/// previously focused window. If no window was previously focused, the default
+/// previously focused split. If no split was previously focused, the default
 /// working directory will be used (the `working-directory` option).
 @"split-inherit-working-directory": bool = true,
 
