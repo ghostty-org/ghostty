@@ -1654,6 +1654,7 @@ extension Ghostty {
         struct DerivedConfig {
             let backgroundColor: Color
             let backgroundOpacity: Double
+            let backgroundBlur: Ghostty.Config.BackgroundBlur
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
@@ -1662,6 +1663,7 @@ extension Ghostty {
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
                 self.backgroundOpacity = 1
+                self.backgroundBlur = .disabled
                 self.macosWindowShadow = true
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
@@ -1671,6 +1673,7 @@ extension Ghostty {
             init(_ config: Ghostty.Config) {
                 self.backgroundColor = config.backgroundColor
                 self.backgroundOpacity = config.backgroundOpacity
+                self.backgroundBlur = config.backgroundBlur
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)

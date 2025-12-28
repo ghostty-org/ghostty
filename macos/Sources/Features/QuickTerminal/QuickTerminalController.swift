@@ -137,11 +137,11 @@ class QuickTerminalController: BaseTerminalController {
         }
         
         // Setup our content
-        window.contentView = NSHostingView(rootView: TerminalView(
+        window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self
-        ))
+        )
         
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
@@ -609,7 +609,7 @@ class QuickTerminalController: BaseTerminalController {
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
         // Also check if the user has overridden transparency to be fully opaque.
-        if !isBackgroundOpaque && self.derivedConfig.backgroundOpacity < 1 {
+        if !isBackgroundOpaque && (self.derivedConfig.backgroundOpacity < 1 || derivedConfig.backgroundBlur.isGlassStyle) {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -617,7 +617,9 @@ class QuickTerminalController: BaseTerminalController {
             // Terminal.app more easily.
             window.backgroundColor = .white.withAlphaComponent(0.001)
 
-            ghostty_set_window_background_blur(ghostty.app, Unmanaged.passUnretained(window).toOpaque())
+            if !derivedConfig.backgroundBlur.isGlassStyle {
+                ghostty_set_window_background_blur(ghostty.app, Unmanaged.passUnretained(window).toOpaque())
+            }
         } else {
             window.isOpaque = true
             window.backgroundColor = .windowBackgroundColor
@@ -722,6 +724,7 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let quickTerminalSize: QuickTerminalSize
         let backgroundOpacity: Double
+        let backgroundBlur: Ghostty.Config.BackgroundBlur
 
         init() {
             self.quickTerminalScreen = .main
@@ -730,6 +733,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalSpaceBehavior = .move
             self.quickTerminalSize = QuickTerminalSize()
             self.backgroundOpacity = 1.0
+            self.backgroundBlur = .disabled
         }
 
         init(_ config: Ghostty.Config) {
@@ -739,6 +743,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
             self.quickTerminalSize = config.quickTerminalSize
             self.backgroundOpacity = config.backgroundOpacity
+            self.backgroundBlur = config.backgroundBlur
         }
     }
 
