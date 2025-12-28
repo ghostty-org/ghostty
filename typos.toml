@@ -39,6 +39,8 @@ extend-ignore-re = [
   "kHOM\\d*",
   # Ignore "typos" in sprite font draw fn names
   "draw[0-9A-F]+(_[0-9A-F]+)?\\(",
+  # Ignore long hex-like IDs such as 815E26BA2EF1E00F005C67B1
+  "[0-9A-F]{12,}",
 ]
 
 [default.extend-words]
