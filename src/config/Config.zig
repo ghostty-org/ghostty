@@ -835,7 +835,7 @@ palette: Palette = .{},
 ///   anything but modifiers or keybinds that are processed by Ghostty).
 ///
 /// - `output` If set, scroll the surface to the bottom if there is new data
-///   to display. (Currently unimplemented.)
+///   to display (e.g., when new lines are printed to the terminal).
 ///
 /// The default is `keystroke, no-output`.
 @"scroll-to-bottom": ScrollToBottom = .default,

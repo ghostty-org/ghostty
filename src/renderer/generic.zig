@@ -122,6 +122,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         scrollbar: terminal.Scrollbar,
         scrollbar_dirty: bool,
 
+        /// Tracks the last bottom-right pin of the screen to detect new output.
+        /// When the final line changes (node or y differs), new content was added.
+        /// Used for scroll-to-bottom on output feature.
+        last_bottom_node: ?*terminal.PageList.List.Node,
+        last_bottom_y: terminal.size.CellCountInt,
+
         /// The most recent viewport matches so that we can render search
         /// matches in the visible frame. This is provided asynchronously
         /// from the search thread so we have the dirty flag to also note
@@ -562,6 +568,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             colorspace: configpkg.Config.WindowColorspace,
             blending: configpkg.Config.AlphaBlending,
             background_blur: configpkg.Config.BackgroundBlur,
+            scroll_to_bottom_on_output: bool,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -635,6 +642,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .colorspace = config.@"window-colorspace",
                     .blending = config.@"alpha-blending",
                     .background_blur = config.@"background-blur",
+                    .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
                     .arena = arena,
                 };
             }
@@ -698,6 +706,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .focused = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
+                .last_bottom_node = null,
+                .last_bottom_y = 0,
                 .search_matches = null,
                 .search_selected_match = null,
                 .search_matches_dirty = false,
@@ -1159,6 +1169,25 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // can be expensive) and also makes it so we don't need another
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
+
+                // If scroll-to-bottom on output is enabled, check if the final line
+                // changed by comparing the bottom-right pin. If the node pointer or
+                // y offset changed, new content was added to the screen.
+                if (self.config.scroll_to_bottom_on_output) {
+                    const bottom_right = state.terminal.screens.active.pages.getBottomRight(.screen);
+                    if (bottom_right) |br| {
+                        const pin_changed = (self.last_bottom_node != br.node) or
+                            (self.last_bottom_y != br.y);
+
+                        if (pin_changed and !state.terminal.screens.active.viewportIsBottom()) {
+                            _ = self.surface_mailbox.push(.scroll_to_bottom, .instant);
+                        }
+
+                        // Update tracked pin state for next frame
+                        self.last_bottom_node = br.node;
+                        self.last_bottom_y = br.y;
+                    }
+                }
 
                 // Get our preedit state
                 const preedit: ?renderer.State.Preedit = preedit: {

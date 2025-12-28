@@ -113,6 +113,10 @@ pub const Message = union(enum) {
     /// Selected search index change
     search_selected: ?usize,
 
+    /// Scroll the viewport to the bottom. This is triggered by the renderer
+    /// when new output is detected and scroll-to-bottom on output is enabled.
+    scroll_to_bottom,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 
