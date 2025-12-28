@@ -16,8 +16,8 @@ struct KeyEventHandler: NSViewRepresentable {
 
   class KeyEventView: NSView {
     var onKeyDown: ((NSEvent) -> Bool)?
-    // private weak var previousFirstResponder: NSResponder?
-    // private weak var hostWindow: NSWindow?
+  private weak var previousFirstResponder: NSResponder?
+  private weak var hostWindow: NSWindow?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -25,19 +25,18 @@ struct KeyEventHandler: NSViewRepresentable {
       super.viewDidMoveToWindow()
 
       if let window = window {
-        // previousFirstResponder = window.firstResponder
-        // hostWindow = window
+        previousFirstResponder = window.firstResponder
+        hostWindow = window
         DispatchQueue.main.async { [weak self] in
           self?.window?.makeFirstResponder(self)
         }
+      } else {
+        if hostWindow?.isKeyWindow == true, let previous = previousFirstResponder {
+          hostWindow?.makeFirstResponder(previous)
+        }
+        previousFirstResponder = nil
+        hostWindow = nil
       }
-      // } else {
-      //   if let previous = previousFirstResponder {
-      //     hostWindow?.makeFirstResponder(previous)
-      //   }
-      //   previousFirstResponder = nil
-      //   hostWindow = nil
-      // }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -158,6 +157,12 @@ struct MRUTabSwitcherView: View {
           case 36:
             selectCurrentTab()
             return true
+          case 35:
+            if event.modifierFlags.contains(.command) {
+              moveSelection(1)
+              return true
+            }
+            return false
           default:
             return false
         }

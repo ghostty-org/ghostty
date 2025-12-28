@@ -1093,6 +1093,11 @@ class BaseTerminalController: NSWindowController,
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
+
+        if let surface = focusedSurface {
+            window?.makeFirstResponder(surface)
+            surface.focusInstant = ContinuousClock.now
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {
