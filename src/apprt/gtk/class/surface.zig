@@ -671,6 +671,9 @@ pub const Surface = extern struct {
         error_page: *adw.StatusPage,
         terminal_page: *gtk.Overlay,
 
+        /// The context for this surface (window, tab, or split)
+        context: apprt.surface.NewSurfaceContext = .window,
+
         pub var offset: c_int = 0;
     };
 
@@ -696,6 +699,7 @@ pub const Surface = extern struct {
     pub fn setParent(
         self: *Self,
         parent: *CoreSurface,
+        context: apprt.surface.NewSurfaceContext,
     ) void {
         const priv = self.private();
 
@@ -705,6 +709,9 @@ pub const Surface = extern struct {
             log.warn("setParent called after surface is already realized", .{});
             return;
         }
+
+        // Store the context so initSurface can use it
+        priv.context = context;
 
         // Setup our font size
         const font_size_ptr = glib.ext.create(font.face.DesiredSize);
@@ -716,10 +723,8 @@ pub const Surface = extern struct {
         // Remainder needs a config. If there is no config we just assume
         // we aren't inheriting any of these values.
         if (priv.config) |config_obj| {
-            const config = config_obj.get();
-
-            // Setup our pwd if configured to inherit
-            if (config.@"window-inherit-working-directory") {
+            // Setup our cwd if configured to inherit
+            if (apprt.surface.shouldInheritWorkingDirectory(context, config_obj.get())) {
                 if (parent.rt_surface.surface.getPwd()) |pwd| {
                     priv.pwd = glib.ext.dupeZ(u8, pwd);
                     self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -3206,6 +3211,7 @@ pub const Surface = extern struct {
         var config = try apprt.surface.newConfig(
             app.core(),
             priv.config.?.get(),
+            priv.context,
         );
         defer config.deinit();
 
