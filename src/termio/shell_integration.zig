@@ -45,95 +45,33 @@ pub fn setup(
     env: *EnvMap,
     force_shell: ?Shell,
 ) !?ShellIntegration {
-    const exe = if (force_shell) |shell| switch (shell) {
-        .bash => "bash",
-        .elvish => "elvish",
-        .fish => "fish",
-        .zsh => "zsh",
-    } else switch (command) {
-        .direct => |v| std.fs.path.basename(v[0]),
-        .shell => |v| exe: {
-            // Shell strings can include spaces so we want to only
-            // look up to the space if it exists. No shell that we integrate
-            // has spaces.
-            const idx = std.mem.indexOfScalar(u8, v, ' ') orelse v.len;
-            break :exe std.fs.path.basename(v[0..idx]);
-        },
-    };
+    const shell = force_shell orelse try detectShell(alloc_arena, command) orelse return null;
 
-    const result = try setupShell(
-        alloc_arena,
-        resource_dir,
-        command,
-        env,
-        exe,
-    );
-
-    return result;
-}
-
-fn setupShell(
-    alloc_arena: Allocator,
-    resource_dir: []const u8,
-    command: config.Command,
-    env: *EnvMap,
-    exe: []const u8,
-) !?ShellIntegration {
-    if (std.mem.eql(u8, "bash", exe)) {
-        // Apple distributes their own patched version of Bash 3.2
-        // on macOS that disables the ENV-based POSIX startup path.
-        // This means we're unable to perform our automatic shell
-        // integration sequence in this specific environment.
-        //
-        // If we're running "/bin/bash" on Darwin, we can assume
-        // we're using Apple's Bash because /bin is non-writable
-        // on modern macOS due to System Integrity Protection.
-        if (comptime builtin.target.os.tag.isDarwin()) {
-            if (std.mem.eql(u8, "/bin/bash", switch (command) {
-                .direct => |v| v[0],
-                .shell => |v| v,
-            })) {
-                return null;
-            }
-        }
-
-        const new_command = try setupBash(
+    const new_command = switch (shell) {
+        .bash => try setupBash(
             alloc_arena,
             command,
             resource_dir,
             env,
-        ) orelse return null;
-        return .{
-            .shell = .bash,
-            .command = new_command,
-        };
-    }
+        ),
+        .elvish, .fish => try setupXdgDataDirs(
+            alloc_arena,
+            command,
+            resource_dir,
+            env,
+        ),
+        .zsh => try setupZsh(
+            alloc_arena,
+            command,
+            resource_dir,
+            env,
+        ),
+    } orelse return null;
 
-    if (std.mem.eql(u8, "elvish", exe)) {
-        if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
-        return .{
-            .shell = .elvish,
-            .command = try command.clone(alloc_arena),
-        };
-    }
-
-    if (std.mem.eql(u8, "fish", exe)) {
-        if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
-        return .{
-            .shell = .fish,
-            .command = try command.clone(alloc_arena),
-        };
-    }
-
-    if (std.mem.eql(u8, "zsh", exe)) {
-        if (!try setupZsh(resource_dir, env)) return null;
-        return .{
-            .shell = .zsh,
-            .command = try command.clone(alloc_arena),
-        };
-    }
-
-    return null;
+    return .{
+        .shell = shell,
+        .command = new_command,
+    };
 }
 
 test "force shell" {
@@ -183,6 +121,55 @@ test "shell integration failure" {
 
     try testing.expect(result == null);
     try testing.expectEqual(0, env.count());
+}
+
+fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
+    var arg_iter = try command.argIterator(alloc);
+    defer arg_iter.deinit();
+
+    const arg0 = arg_iter.next() orelse return null;
+    const exe = std.fs.path.basename(arg0);
+
+    if (std.mem.eql(u8, "bash", exe)) {
+        // Apple distributes their own patched version of Bash 3.2
+        // on macOS that disables the ENV-based POSIX startup path.
+        // This means we're unable to perform our automatic shell
+        // integration sequence in this specific environment.
+        //
+        // If we're running "/bin/bash" on Darwin, we can assume
+        // we're using Apple's Bash because /bin is non-writable
+        // on modern macOS due to System Integrity Protection.
+        if (comptime builtin.target.os.tag.isDarwin()) {
+            if (std.mem.eql(u8, "/bin/bash", arg0)) {
+                return null;
+            }
+        }
+        return .bash;
+    }
+
+    if (std.mem.eql(u8, "elvish", exe)) return .elvish;
+    if (std.mem.eql(u8, "fish", exe)) return .fish;
+    if (std.mem.eql(u8, "zsh", exe)) return .zsh;
+
+    return null;
+}
+
+test detectShell {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    try testing.expect(try detectShell(alloc, .{ .shell = "sh" }) == null);
+    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash" }));
+    try testing.expectEqual(.elvish, try detectShell(alloc, .{ .shell = "elvish" }));
+    try testing.expectEqual(.fish, try detectShell(alloc, .{ .shell = "fish" }));
+    try testing.expectEqual(.zsh, try detectShell(alloc, .{ .shell = "zsh" }));
+
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        try testing.expect(try detectShell(alloc, .{ .shell = "/bin/bash" }) == null);
+    }
+
+    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash -c 'command'" }));
+    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "\"/a b/bash\"" }));
 }
 
 /// Set up the shell integration features environment variable.
@@ -603,10 +590,11 @@ test "bash: missing resources" {
 /// so that the shell can refer to it and safely remove this directory
 /// from `XDG_DATA_DIRS` when integration is complete.
 fn setupXdgDataDirs(
-    alloc_arena: Allocator,
+    alloc: Allocator,
+    command: config.Command,
     resource_dir: []const u8,
     env: *EnvMap,
-) !bool {
+) !?config.Command {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
 
     // Get our path to the shell integration directory.
@@ -617,7 +605,7 @@ fn setupXdgDataDirs(
     );
     var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
         log.warn("unable to open {s}: {}", .{ integ_path, err });
-        return false;
+        return null;
     };
     integ_dir.close();
 
@@ -631,7 +619,7 @@ fn setupXdgDataDirs(
     // 4K is a reasonable size for this for most cases. However, env
     // vars can be significantly larger so if we have to we fall
     // back to a heap allocated value.
-    var stack_alloc_state = std.heap.stackFallback(4096, alloc_arena);
+    var stack_alloc_state = std.heap.stackFallback(4096, alloc);
     const stack_alloc = stack_alloc_state.get();
 
     // If no XDG_DATA_DIRS set use the default value as specified.
@@ -648,7 +636,7 @@ fn setupXdgDataDirs(
         ),
     );
 
-    return true;
+    return try command.clone(alloc);
 }
 
 test "xdg: empty XDG_DATA_DIRS" {
@@ -664,7 +652,8 @@ test "xdg: empty XDG_DATA_DIRS" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
+    const command = try setupXdgDataDirs(alloc, .{ .shell = "xdg" }, res.path, &env);
+    try testing.expectEqualStrings("xdg", command.?.shell);
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
@@ -691,7 +680,9 @@ test "xdg: existing XDG_DATA_DIRS" {
     defer env.deinit();
 
     try env.put("XDG_DATA_DIRS", "/opt/share");
-    try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
+
+    const command = try setupXdgDataDirs(alloc, .{ .shell = "xdg" }, res.path, &env);
+    try testing.expectEqualStrings("xdg", command.?.shell);
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
@@ -719,7 +710,7 @@ test "xdg: missing resources" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    try testing.expect(!try setupXdgDataDirs(alloc, resources_dir, &env));
+    try testing.expect(try setupXdgDataDirs(alloc, .{ .shell = "xdg" }, resources_dir, &env) == null);
     try testing.expectEqual(0, env.count());
 }
 
@@ -727,9 +718,11 @@ test "xdg: missing resources" {
 /// ZDOTDIR to our resources dir so that zsh will load our config. This
 /// config then loads the true user config.
 fn setupZsh(
+    alloc: Allocator,
+    command: config.Command,
     resource_dir: []const u8,
     env: *EnvMap,
-) !bool {
+) !?config.Command {
     // Preserve an existing ZDOTDIR value. We're about to overwrite it.
     if (env.get("ZDOTDIR")) |old| {
         try env.put("GHOSTTY_ZSH_ZDOTDIR", old);
@@ -744,16 +737,20 @@ fn setupZsh(
     );
     var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
         log.warn("unable to open {s}: {}", .{ integ_path, err });
-        return false;
+        return null;
     };
     integ_dir.close();
     try env.put("ZDOTDIR", integ_path);
 
-    return true;
+    return try command.clone(alloc);
 }
 
 test "zsh" {
     const testing = std.testing;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     var res: TmpResourcesDir = try .init(testing.allocator, .zsh);
     defer res.deinit();
@@ -761,13 +758,18 @@ test "zsh" {
     var env = EnvMap.init(testing.allocator);
     defer env.deinit();
 
-    try testing.expect(try setupZsh(res.path, &env));
+    const command = try setupZsh(alloc, .{ .shell = "zsh" }, res.path, &env);
+    try testing.expectEqualStrings("zsh", command.?.shell);
     try testing.expectEqualStrings(res.shell_path, env.get("ZDOTDIR").?);
     try testing.expect(env.get("GHOSTTY_ZSH_ZDOTDIR") == null);
 }
 
 test "zsh: ZDOTDIR" {
     const testing = std.testing;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     var res: TmpResourcesDir = try .init(testing.allocator, .zsh);
     defer res.deinit();
@@ -777,7 +779,8 @@ test "zsh: ZDOTDIR" {
 
     try env.put("ZDOTDIR", "$HOME/.config/zsh");
 
-    try testing.expect(try setupZsh(res.path, &env));
+    const command = try setupZsh(alloc, .{ .shell = "zsh" }, res.path, &env);
+    try testing.expectEqualStrings("zsh", command.?.shell);
     try testing.expectEqualStrings(res.shell_path, env.get("ZDOTDIR").?);
     try testing.expectEqualStrings("$HOME/.config/zsh", env.get("GHOSTTY_ZSH_ZDOTDIR").?);
 }
@@ -797,7 +800,7 @@ test "zsh: missing resources" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    try testing.expect(!try setupZsh(resources_dir, &env));
+    try testing.expect(try setupZsh(alloc, .{ .shell = "zsh" }, resources_dir, &env) == null);
     try testing.expectEqual(0, env.count());
 }
 
