@@ -6401,7 +6401,7 @@ pub const Keybinds = struct {
             // Toggle MRU Tab switcher
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .p }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } },
                 .{ .toggle_mru_tab_switcher = {} },
             );
 

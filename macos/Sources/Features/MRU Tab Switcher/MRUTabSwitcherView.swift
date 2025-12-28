@@ -1,6 +1,32 @@
 import SwiftUI
 import GhosttyKit
 
+struct KeyEventHandler: NSViewRepresentable {
+  let onKeyDown: (NSEvent) -> Bool
+
+  func makeNSView(context: Context) -> KeyEventView {
+    let view = KeyEventView()
+    view.onKeyDown = onKeyDown
+    return view
+  }
+
+  func updateNSView(_ nsView: KeyEventView, context: Context) {
+    nsView.onKeyDown = onKeyDown
+  }
+
+  class KeyEventView: NSView {
+    var onKeyDown: ((NSEvent) -> Bool)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+      if onKeyDown?(event) != true {
+        super.keyDown(with: event)
+      }
+    }
+  }
+}
+
 struct MRUTabEntry: Identifiable {
   let id: UUID
   let title: String
@@ -26,7 +52,7 @@ struct MRUTabSwitcherView: View {
 
   @State private var query = ""
   @State private var selectedIndex: Int = 0
-  @State private var hoveredId: UUID?
+  @State private var hoveredID: UUID?
   @FocusState private var isTextFieldFocused: Bool
 
   private var filteredTabs: [MRUTabEntry] {
@@ -45,21 +71,6 @@ struct MRUTabSwitcherView: View {
     let scheme: ColorScheme = OSColor(backgroundColor).isLightColor ? .light : .dark
 
     VStack(alignment: .leading, spacing: 0) {
-      HStack {
-        Image(systemName: "magnifyingglass")
-          .foregroundStyle(.secondary)
-        TextField("Search tabs..", text: $query)
-          .textFieldStyle(.plain)
-          .focused($isTextFieldFocused)
-          .onSubmit {
-            selectCurrentTab()
-          }
-      }
-      .padding()
-      .font(.system(size: 16))
-
-      Divider()
-
       if filteredTabs.isEmpty {
         Text("No matching tabs")
           .foregroundStyle(.secondary)
@@ -96,37 +107,41 @@ struct MRUTabSwitcherView: View {
     .background(
       ZStack {
         Rectangle().fill(.ultraThinMaterial)
-        Rectangle().fill(backgroundColor).blendModel(.color)
+        Rectangle().fill(backgroundColor).blendMode(.color)
       }.compositingGroup()
     )
     .clipShape(RoundedRectangle(cornerRadius: 10))
     .overlay(
       RoundedRectangle(cornerRadius: 10)
-        .stroke(Color(nsColor: .terniaryLabelColor).opacity(0.75))
+        .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.75))
     )
     .shadow(radius: 32, x: 0, y: 12)
     .padding()
     .environment(\.colorScheme, scheme)
     .onAppear {
-      istextFieldFocused = true
+      isTextFieldFocused = true
       selectedIndex = 0
     }
-    .onKeyPress(.upArrow) {
-      moveSelection(-1)
-      return .handled
-    }
-    .onKeyPress(.downArrow) {
-      moveSelection(1)
-      return .handled
-    }
-    .onKeyPress(.escape) {
-      isPresented = false
-      return .handled
-    }
-    .onKeyPress(.return) {
-      selectCurrentTab()
-      return .handled
-    }
+    .background(
+      KeyEventHandler { event in
+        switch event.keyCode {
+          case 126:
+            moveSelection(-1)
+            return true
+          case 125:
+            moveSelection(1)
+            return true
+          case 53:
+            isPresented = false
+            return true
+          case 36:
+            selectCurrentTab()
+            return true
+          default:
+            return false
+        }
+      }
+    )
   }
 
   private func moveSelection(_ delta: Int) {

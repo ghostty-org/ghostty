@@ -572,7 +572,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     @objc private func ghosttyMRUTabSwitcherDidToggle(_ notification: Notification) {
-        guard let surfaceView = notification.objcet as? Ghostty.SurfaceView else { return }
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(surfaceView) else { return }
         toggleMRUTabSwitcher(nil)
     }

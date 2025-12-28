@@ -14,8 +14,8 @@ class MRUTabCollector {
         let entry = MRUTabEntry(
           id: surface.id,
           title: controller.window?.title ?? surface.title,
-          subtitle: surfaec.pwd,
-          tabColor: (window as? TerminalWindow)?.tabColor?.color,
+          subtitle: surface.pwd,
+          tabColor: (window as? TerminalWindow)?.tabColor.displayColor.map { Color(nsColor: $0) },
           focusInstant: surface.focusInstant,
           window: window
         )

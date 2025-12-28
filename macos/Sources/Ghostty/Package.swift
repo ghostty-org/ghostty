@@ -299,17 +299,17 @@ extension Ghostty {
             }
         }
     }
-    
+
     struct ClipboardContent {
         let mime: String
         let data: String
-        
+
         static func from(content: ghostty_clipboard_content_s) -> ClipboardContent? {
             guard let mimePtr = content.mime,
                   let dataPtr = content.data else {
                 return nil
             }
-            
+
             return ClipboardContent(
                 mime: String(cString: mimePtr),
                 data: String(cString: dataPtr)
@@ -399,6 +399,8 @@ extension Notification.Name {
 
     /// Toggle maximize of current window
     static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")
+
+    static let ghosttyMRUTabSwitcherDidToggle = Notification.Name("com.mitchellh.ghostty.MRUTabSwitcherDidToggle")
 
     /// Notification sent when scrollbar updates
     static let ghosttyDidUpdateScrollbar = Notification.Name("com.mitchellh.ghostty.didUpdateScrollbar")

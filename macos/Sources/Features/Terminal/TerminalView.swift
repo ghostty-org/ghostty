@@ -119,11 +119,24 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     }
                 }
 
-                if mruTabSwitcherIsShowing {
-                    MRUTabSwitcherOverlay(
-                        isPresented: $viewModel.mruTabSwitcherIsShowing,
-                        backgroundColor: ghostty.config.backgroundColor
-                    )
+                if viewModel.mruTabSwitcherIsShowing {
+                    GeometryReader { geometry in
+                        VStack {
+                            Spacer().frame(height: geometry.size.height * 0.1)
+
+                            MRUTabSwitcherView(
+                                isPresented: $viewModel.mruTabSwitcherIsShowing,
+                                backgroundColor: ghostty.config.backgroundColor,
+                                tabs: MRUTabCollector.collectAllTabs(),
+                                onSelect: { entry in
+                                    entry.window.makeKeyAndOrderFront(nil)
+                                }
+                            )
+
+                            Spacer()
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                    }
                 }
 
                 // Show update information above all else.
