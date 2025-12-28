@@ -234,8 +234,8 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Vložení tohoto textu do terminálu může být nebezpečné, protože vypadá "
-"to, že mohou být spuštěny nějaké příkazy."
+"Vložení tohoto textu do terminálu může být nebezpečné, protože se zdá, "
+"že mohou být spuštěny nějaké příkazy."
 
 #: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
