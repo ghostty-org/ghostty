@@ -31,7 +31,10 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
-    
+    /// The command palette is reused for the focus palette, this indicates what
+    /// mode it should be in, true for the focus palette.
+    var commandPaletteIsJumpPalette: Bool { get set }
+
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
 }
@@ -110,6 +113,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     TerminalCommandPaletteView(
                         surfaceView: surfaceView,
                         isPresented: $viewModel.commandPaletteIsShowing,
+                        isJumpPalette: $viewModel.commandPaletteIsJumpPalette,
                         ghosttyConfig: ghostty.config,
                         updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
                         self.delegate?.performAction(action, on: surfaceView)
