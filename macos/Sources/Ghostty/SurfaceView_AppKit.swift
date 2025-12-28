@@ -136,6 +136,10 @@ extension Ghostty {
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
 
+        // Timer used for `mouse-hide-after` behavior on macOS. This hides the mouse
+        // cursor after a period of no mouse movement.
+        private var mouseHideAfterTimer: Timer? = nil
+
         // A content size received through sizeDidChange that may in some cases
         // be different from the frame size.
         private var contentSizeBacking: NSSize?
@@ -802,6 +806,29 @@ extension Ghostty {
                 userInfo: nil))
         }
 
+        /// Reset the `mouse-hide-after` timer on mouse movement, if configured.
+        private func resetMouseHideAfterTimer() {
+            mouseHideAfterTimer?.invalidate()
+            mouseHideAfterTimer = nil
+
+            // Note: DerivedConfig does not expose the full Ghostty.Config, so we
+            // read directly from the global Ghostty config instead.
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+            let duration = appDelegate.ghostty.config.mouseHideAfter
+            guard duration > .zero else { return }
+
+            mouseHideAfterTimer = Timer.scheduledTimer(
+                withTimeInterval: duration.timeInterval,
+                repeats: false,
+                block: { [weak self] _ in
+                    guard let self else { return }
+                    // Hide the cursor. This will remain hidden until the mouse
+                    // moves again (or other platform behavior such as new window).
+                    NSCursor.setHiddenUntilMouseMoves(true)
+                }
+            )
+        }
+
         override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
 
@@ -925,6 +952,8 @@ extension Ghostty {
                 mods: .init(nsFlags: event.modifierFlags)
             )
             surfaceModel.sendMousePos(mouseEvent)
+
+            resetMouseHideAfterTimer()
         }
 
         override func mouseExited(with event: NSEvent) {
@@ -957,6 +986,8 @@ extension Ghostty {
                 mods: .init(nsFlags: event.modifierFlags)
             )
             surfaceModel.sendMousePos(mouseEvent)
+
+            resetMouseHideAfterTimer()
 
             // Handle focus-follows-mouse
             if let window,
