@@ -62,8 +62,10 @@ pub fn addStepDependencies(
 
 fn createUpdateStep(b: *std.Build) !*std.Build.Step {
     const xgettext = b.addSystemCommand(&.{
+        // We do not specify specific language since we
+        // currently need to support `blp` and `python`
+        // for localization
         "xgettext",
-        "--language=C", // Silence the "unknown extension" errors
         "--from-code=UTF-8",
         "--add-comments=Translators",
         "--keyword=_",
@@ -74,6 +76,8 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "-o",
         "-",
     });
+    // Silences the "unknown extension" errors
+    _ = xgettext.captureStdErr();
 
     // Not cacheable due to the gresource files
     xgettext.has_side_effects = true;
@@ -91,6 +95,11 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         // Mark the file as an input so that the Zig build system caching will work.
         xgettext.addFileInput(b.path(path));
     }
+
+    // Add suport for localizing our `nautilus` integration
+    const nautilus_script_path = "dist/linux/ghostty_nautilus.py";
+    xgettext.addArg(nautilus_script_path);
+    xgettext.addFileInput(b.path(nautilus_script_path));
 
     {
         // Iterate over all of the files underneath `src/apprt/gtk`. We store

@@ -20,7 +20,13 @@
 from os.path import isdir
 from gi import require_version
 from gi.repository import Nautilus, GObject, Gio, GLib
+import os
+import gettext
 
+DOMAIN = "com.mitchellh.ghostty"
+share_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+locale_dir = os.path.join(share_dir, "locale")
+_ = gettext.translation(DOMAIN, locale_dir, fallback=True).gettext
 
 class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
     def __init__(self):
@@ -58,7 +64,7 @@ class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
             self._open_terminal(path)
 
     def _make_item(self, name, paths):
-        item = Nautilus.MenuItem(name=name, label='Open in Ghostty',
+        item = Nautilus.MenuItem(name=name, label=_('Open in Ghostty'),
             icon='com.mitchellh.ghostty')
         item.connect('activate', self._menu_item_activated, paths)
         return item
