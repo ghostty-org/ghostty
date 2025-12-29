@@ -2238,8 +2238,8 @@ const Action = struct {
             .{},
         );
 
-        // Create a new tab
-        win.newTab(parent);
+        // Create a new tab with window context (first tab in new window)
+        win.newTabForWindow(parent);
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));

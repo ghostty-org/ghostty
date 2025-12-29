@@ -638,6 +638,9 @@ extension Ghostty {
         /// Wait after the command
         var waitAfterCommand: Bool = false
 
+        /// Context for surface creation
+        var context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW
+
         init() {}
 
         init(from config: ghostty_surface_config_s) {
@@ -659,6 +662,7 @@ extension Ghostty {
                     }
                 }
             }
+            self.context = config.context
         }
 
         /// Provides a C-compatible ghostty configuration within a closure. The configuration
@@ -691,6 +695,9 @@ extension Ghostty {
             
             // Set wait after command
             config.wait_after_command = waitAfterCommand
+
+            // Set context
+            config.context = context
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in
