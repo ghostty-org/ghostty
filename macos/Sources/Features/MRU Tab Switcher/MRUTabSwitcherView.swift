@@ -16,8 +16,8 @@ struct KeyEventHandler: NSViewRepresentable {
 
   class KeyEventView: NSView {
     var onKeyDown: ((NSEvent) -> Bool)?
-  private weak var previousFirstResponder: NSResponder?
-  private weak var hostWindow: NSWindow?
+    private weak var previousFirstResponder: NSResponder?
+    private weak var hostWindow: NSWindow?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -56,6 +56,10 @@ struct MRUTabEntry: Identifiable {
   let window: NSWindow
 
   static func sortedByMRU(_ entries: [MRUTabEntry]) -> [MRUTabEntry] {
+    // A sort when opening the Most Recently Used Tab Switcher is reasonable since the time complexity of the sort
+    // isn't a performance problem unless a user has 1000+ tabs which is unrealistic, most users have ~10 or less tabs at a time.
+    // There is extra complexity in an LIFO stack approach to keep the array in order, we'd need to add listeners
+    // to closing/opening new tabs and tab splits.
     entries.sorted { a, b in
       guard let aInstant = a.focusInstant else { return false }
       guard let bInstant = b.focusInstant else { return true }
@@ -70,56 +74,41 @@ struct MRUTabSwitcherView: View {
   var tabs: [MRUTabEntry]
   var onSelect: (MRUTabEntry) -> Void
 
-  @State private var query = ""
   @State private var selectedIndex: Int = 0
   @State private var hoveredID: UUID?
   @FocusState private var isTextFieldFocused: Bool
 
-  private var filteredTabs: [MRUTabEntry] {
-    if query.isEmpty {
-      return MRUTabEntry.sortedByMRU(tabs)
-    }
-    return MRUTabEntry.sortedByMRU(
-      tabs.filter {
-        $0.title.localizedCaseInsensitiveContains(query) ||
-        ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false)
-      }
-    )
+  private var sortedTabs: [MRUTabEntry] {
+    return MRUTabEntry.sortedByMRU(tabs)
   }
 
   var body: some View {
     let scheme: ColorScheme = OSColor(backgroundColor).isLightColor ? .light : .dark
 
     VStack(alignment: .leading, spacing: 0) {
-      if filteredTabs.isEmpty {
-        Text("No matching tabs")
-          .foregroundStyle(.secondary)
-          .padding()
-      } else {
-        ScrollViewReader { proxy in
-          ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-              ForEach(Array(filteredTabs.enumerated()), id: \.1.id) { index, tab in
-                MRUTabRow(
-                  tab: tab,
-                  isSelected: index == selectedIndex,
-                  isHovered: hoveredID == tab.id
-                ) {
-                  selectTab(tab)
-                }
-                .onHover { hovering in
-                  hoveredID = hovering ? tab.id : nil
-                }
-                .id(tab.id)
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(sortedTabs.enumerated()), id: \.1.id) { index, tab in
+              MRUTabRow(
+                tab: tab,
+                isSelected: index == selectedIndex,
+                isHovered: hoveredID == tab.id
+              ) {
+                selectTab(tab)
               }
+              .onHover { hovering in
+                hoveredID = hovering ? tab.id : nil
+              }
+              .id(tab.id)
             }
-            .padding(10)
           }
-          .frame(maxHeight: 300)
-          .onChange(of: selectedIndex) { newValue in
-            guard newValue < filteredTabs.count else { return }
-            proxy.scrollTo(filteredTabs[newValue].id)
-          }
+          .padding(10)
+        }
+        .frame(maxHeight: 300)
+        .onChange(of: selectedIndex) { newValue in
+          guard newValue < sortedTabs.count else { return }
+          proxy.scrollTo(sortedTabs[newValue].id)
         }
       }
     }
@@ -171,11 +160,11 @@ struct MRUTabSwitcherView: View {
   }
 
   private func moveSelection(_ delta: Int) {
-    guard !filteredTabs.isEmpty else { return }
+    guard !sortedTabs.isEmpty else { return }
     let newIndex = selectedIndex + delta
     if newIndex < 0 {
-      selectedIndex = filteredTabs.count - 1
-    } else if newIndex >= filteredTabs.count {
+      selectedIndex = sortedTabs.count - 1
+    } else if newIndex >= sortedTabs.count {
       selectedIndex = 0
     } else {
       selectedIndex = newIndex
@@ -183,8 +172,8 @@ struct MRUTabSwitcherView: View {
   }
 
   private func selectCurrentTab() {
-    guard selectedIndex < filteredTabs.count else { return }
-    selectTab(filteredTabs[selectedIndex])
+    guard selectedIndex < sortedTabs.count else { return }
+    selectTab(sortedTabs[selectedIndex])
   }
 
   private func selectTab(_ tab: MRUTabEntry) {
