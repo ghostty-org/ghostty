@@ -880,7 +880,7 @@ extension Ghostty {
                 return StatusBarValue(text: pwd, number: nil)
             case .size:
                 guard let size = surfaceSize else { return nil }
-                return StatusBarValue(text: "\(size.rows)x\(size.columns)", number: nil)
+                return StatusBarValue(text: "\(size.columns)x\(size.rows)", number: nil)
             case .modifiers:
                 guard let mods = formatModifiers() else { return nil }
                 return StatusBarValue(text: mods, number: nil)

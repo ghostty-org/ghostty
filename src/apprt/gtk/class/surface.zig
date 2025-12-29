@@ -1110,7 +1110,7 @@ pub const Surface = extern struct {
             .size => {
                 const surface = priv.core_surface orelse return null;
                 const grid = surface.size.grid();
-                const text = std.fmt.bufPrint(buf, "{d}x{d}", .{ grid.rows, grid.columns }) catch return null;
+                const text = std.fmt.bufPrint(buf, "{d}x{d}", .{ grid.columns, grid.rows }) catch return null;
                 return .{ .text = text, .number = null };
             },
             .modifiers => {
