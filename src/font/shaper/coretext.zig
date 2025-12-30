@@ -52,7 +52,7 @@ pub const Shaper = struct {
 
     /// Cached attributes dict for creating CTTypesetter objects.
     /// The values in this never change so we can avoid overhead
-    /// by just creating it once and saving it for re-use.
+    /// by just creating it once and saving it for reuse.
     typesetter_attr_dict: *macos.foundation.Dictionary,
 
     /// List where we cache fonts, so we don't have to remake them for

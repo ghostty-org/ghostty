@@ -669,6 +669,9 @@ pub const Application = extern struct {
 
             .inspector => return Action.controlInspector(target, value),
 
+            .key_sequence => return Action.keySequence(target, value),
+            .key_table => return Action.keyTable(target, value),
+
             .mouse_over_link => Action.mouseOverLink(target, value),
             .mouse_shape => Action.mouseShape(target, value),
             .mouse_visibility => Action.mouseVisibility(target, value),
@@ -743,8 +746,6 @@ pub const Application = extern struct {
             .toggle_visibility,
             .toggle_background_opacity,
             .cell_size,
-            .key_sequence,
-            .key_table,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -2657,6 +2658,36 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().commandFinished(value);
+            },
+        }
+    }
+
+    pub fn keySequence(target: apprt.Target, value: apprt.Action.Value(.key_sequence)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_sequence action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keySequenceAction(value) catch |err| {
+                    log.warn("error handling key_sequence action: {}", .{err});
+                };
+                return true;
+            },
+        }
+    }
+
+    pub fn keyTable(target: apprt.Target, value: apprt.Action.Value(.key_table)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_table action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keyTableAction(value) catch |err| {
+                    log.warn("error handling key_table action: {}", .{err});
+                };
+                return true;
             },
         }
     }

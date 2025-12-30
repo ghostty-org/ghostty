@@ -622,6 +622,16 @@ extension Ghostty {
             let str = String(cString: ptr)
             return Scrollbar(rawValue: str) ?? defaultValue
         }
+
+        var commandPaletteEntries: [Ghostty.Command] {
+            guard let config = self.config else { return [] }
+            var v: ghostty_config_command_list_s = .init()
+            let key = "command-palette-entry"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
+            guard v.len > 0 else { return [] }
+            let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
+            return buffer.map { Ghostty.Command(cValue: $0) }
+        }
     }
 }
 
@@ -648,9 +658,17 @@ extension Ghostty.Config {
             case 0:
                 self = .disabled
             case -1:
-                self = .macosGlassRegular
+                if #available(macOS 26.0, *) {
+                    self = .macosGlassRegular
+                } else {
+                    self = .disabled
+                }
             case -2:
-                self = .macosGlassClear
+                if #available(macOS 26.0, *) {
+                    self = .macosGlassClear
+                } else {
+                    self = .disabled
+                }
             default:
                 self = .radius(Int(value))
             }

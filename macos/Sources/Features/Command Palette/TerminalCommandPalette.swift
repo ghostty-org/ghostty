@@ -83,11 +83,11 @@ struct TerminalCommandPaletteView: View {
     /// Commands for installing or canceling available updates.
     private var updateOptions: [CommandOption] {
         var options: [CommandOption] = []
-
+        
         guard let updateViewModel, updateViewModel.state.isInstallable else {
             return options
         }
-
+        
         // We override the update available one only because we want to properly
         // convey it'll go all the way through.
         let title: String
@@ -96,7 +96,7 @@ struct TerminalCommandPaletteView: View {
         } else {
             title = updateViewModel.text
         }
-
+        
         options.append(CommandOption(
             title: title,
             description: updateViewModel.description,
@@ -106,32 +106,27 @@ struct TerminalCommandPaletteView: View {
         ) {
             (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
         })
-
+        
         options.append(CommandOption(
             title: "Cancel or Skip Update",
             description: "Dismiss the current update process"
         ) {
             updateViewModel.state.cancel()
         })
-
+        
         return options
     }
 
-    /// Commands exposed by the terminal surface.
+    /// Custom commands from the command-palette-entry configuration.
     private var terminalOptions: [CommandOption] {
-        guard let surface = surfaceView.surfaceModel else { return [] }
-        do {
-            return try surface.commands().map { c in
-                CommandOption(
-                    title: c.title,
-                    description: c.description,
-                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList,
-                ) {
-                    onAction(c.action)
-                }
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
+        return appDelegate.ghostty.config.commandPaletteEntries.map { c in
+            CommandOption(
+                title: c.title,
+                description: c.description
+            ) {
+                onAction(c.action)
             }
-        } catch {
-            return []
         }
     }
 

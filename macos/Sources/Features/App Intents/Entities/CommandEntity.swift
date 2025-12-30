@@ -1,4 +1,5 @@
 import AppIntents
+import Cocoa
 
 // MARK: AppEntity
 
@@ -94,23 +95,23 @@ struct CommandQuery: EntityQuery {
 
     @MainActor
     func entities(for identifiers: [CommandEntity.ID]) async throws -> [CommandEntity] {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
+        let commands = appDelegate.ghostty.config.commandPaletteEntries
+
         // Extract unique terminal IDs to avoid fetching duplicates
         let terminalIds = Set(identifiers.map(\.terminalId))
         let terminals = try await TerminalEntity.defaultQuery.entities(for: Array(terminalIds))
 
-        // Build a cache of terminals and their available commands
-        // This avoids repeated command fetching for the same terminal
-        typealias Tuple = (terminal: TerminalEntity, commands: [Ghostty.Command])
-        let commandMap: [TerminalEntity.ID: Tuple] =
+        // Build a lookup from terminal ID to terminal entity
+        let terminalMap: [TerminalEntity.ID: TerminalEntity] =
             terminals.reduce(into: [:]) { result, terminal in
-                guard let commands = try? terminal.surfaceModel?.commands() else { return }
-                result[terminal.id] = (terminal: terminal, commands: commands)
+                result[terminal.id] = terminal
             }
-        
+
         // Map each identifier to its corresponding CommandEntity. If a command doesn't
         // exist it maps to nil and is removed via compactMap.
         return identifiers.compactMap { id in
-            guard let (terminal, commands) = commandMap[id.terminalId],
+            guard let terminal = terminalMap[id.terminalId],
                   let command = commands.first(where: { $0.actionKey == id.actionKey }) else {
                 return nil
             }
@@ -121,8 +122,8 @@ struct CommandQuery: EntityQuery {
 
     @MainActor
     func suggestedEntities() async throws -> [CommandEntity] {
-        guard let terminal = commandPaletteIntent?.terminal,
-              let surface = terminal.surfaceModel else { return [] }
-        return try surface.commands().map { CommandEntity($0, for: terminal) }
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let terminal = commandPaletteIntent?.terminal else { return [] }
+        return appDelegate.ghostty.config.commandPaletteEntries.map { CommandEntity($0, for: terminal) }
     }
 }

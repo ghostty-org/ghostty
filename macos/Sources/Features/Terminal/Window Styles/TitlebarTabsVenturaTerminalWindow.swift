@@ -5,7 +5,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
-    
+
     /// This is used to determine if certain elements should be drawn light or dark and should
     /// be updated whenever the window background color or surrounding elements changes.
     fileprivate var isLightTheme: Bool = false
@@ -395,7 +395,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         // Hide the window drag handle.
         windowDragHandle?.isHidden = true
 
-        // Reenable the main toolbar title
+        // Re-enable the main toolbar title
         if let toolbar = toolbar as? TerminalToolbar {
             toolbar.titleIsHidden = false
         }

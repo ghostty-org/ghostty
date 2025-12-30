@@ -675,7 +675,7 @@ fn printCell(
 
             // TODO: this case was not handled in the old terminal implementation
             // but it feels like we should do something. investigate other
-            // terminals (xterm mainly) and see whats up.
+            // terminals (xterm mainly) and see what's up.
             .spacer_head => {},
         }
     }

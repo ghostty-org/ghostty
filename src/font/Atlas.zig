@@ -562,7 +562,7 @@ test "exact fit" {
     try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
 }
 
-test "doesnt fit" {
+test "doesn't fit" {
     const alloc = testing.allocator;
     var atlas = try init(alloc, 32, .grayscale);
     defer atlas.deinit(alloc);

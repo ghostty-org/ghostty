@@ -1026,7 +1026,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 return;
             }
 
-            try self.startClipboardRequest(.standard, .{ .osc_52_read = clipboard });
+            _ = try self.startClipboardRequest(.standard, .{ .osc_52_read = clipboard });
         },
 
         .clipboard_write => |w| switch (w.req) {
@@ -1222,7 +1222,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
             break :gui false;
         }) return;
 
-        // If a native GUI notification was not showm. update our terminal to
+        // If a native GUI notification was not shown, update our terminal to
         // note the abnormal exit.
         self.childExitedAbnormally(info) catch |err| {
             log.err("error handling abnormal child exit err={}", .{err});
@@ -1232,7 +1232,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         return;
     }
 
-    // We output a message so that the user knows whats going on and
+    // We output a message so that the user knows what's going on and
     // doesn't think their terminal just froze. We show this unconditionally
     // on close even if `wait_after_command` is false and the surface closes
     // immediately because if a user does an `undo` to restore a closed
@@ -2826,13 +2826,20 @@ fn maybeHandleBinding(
 
             // No entry found. We need to encode everything up to this
             // point and send to the pty since we're in a sequence.
-            //
-            // We also ignore modifiers so that nested sequences such as
+
+            // We ignore modifiers so that nested sequences such as
             // ctrl+a>ctrl+b>c work.
-            if (!event.key.modifier()) {
-                // Encode everything up to this point
-                self.endKeySequence(.flush, .retain);
+            if (event.key.modifier()) return null;
+
+            // If we have a catch-all of ignore, then we special case our
+            // invalid sequence handling to ignore it.
+            if (self.catchAllIsIgnore()) {
+                self.endKeySequence(.drop, .retain);
+                return .ignored;
             }
+
+            // Encode everything up to this point
+            self.endKeySequence(.flush, .retain);
 
             return null;
         }
@@ -2866,7 +2873,7 @@ fn maybeHandleBinding(
     };
 
     // Determine if this entry has an action or if its a leader key.
-    const leaf: input.Binding.Set.Leaf = switch (entry.value_ptr.*) {
+    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
         .leader => |set| {
             // Setup the next set we'll look at.
             self.keyboard.sequence_set = set;
@@ -2893,9 +2900,8 @@ fn maybeHandleBinding(
             return .consumed;
         },
 
-        .leaf => |leaf| leaf,
+        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
-    const action = leaf.action;
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).
@@ -2917,36 +2923,58 @@ fn maybeHandleBinding(
     // An action also always resets the sequence set.
     self.keyboard.sequence_set = null;
 
+    // Setup our actions
+    const actions = leaf.actionsSlice();
+
     // Attempt to perform the action
-    log.debug("key event binding flags={} action={f}", .{
+    log.debug("key event binding flags={} action={any}", .{
         leaf.flags,
-        action,
+        actions,
     });
     const performed = performed: {
         // If this is a global or all action, then we perform it on
         // the app and it applies to every surface.
         if (leaf.flags.global or leaf.flags.all) {
-            try self.app.performAllAction(self.rt_app, action);
+            self.app.performAllChainedAction(
+                self.rt_app,
+                actions,
+            );
 
             // "All" actions are always performed since they are global.
             break :performed true;
         }
 
-        break :performed try self.performBindingAction(action);
+        // Perform each action. We are performed if ANY of the chained
+        // actions perform.
+        var performed: bool = false;
+        for (actions) |action| {
+            if (self.performBindingAction(action)) |v| {
+                performed = performed or v;
+            } else |err| {
+                log.info(
+                    "key binding action failed action={t} err={}",
+                    .{ action, err },
+                );
+            }
+        }
+
+        break :performed performed;
     };
 
     if (performed) {
         // If we performed an action and it was a closing action,
         // our "self" pointer is not safe to use anymore so we need to
         // just exit immediately.
-        if (closingAction(action)) {
+        for (actions) |action| if (closingAction(action)) {
             log.debug("key binding is a closing binding, halting key event processing", .{});
             return .closed;
-        }
+        };
 
         // If our action was "ignore" then we return the special input
         // effect of "ignored".
-        if (action == .ignore) return .ignored;
+        for (actions) |action| if (action == .ignore) {
+            return .ignored;
+        };
     }
 
     // If we have the performable flag and the action was not performed,
@@ -2970,7 +2998,18 @@ fn maybeHandleBinding(
         // Store our last trigger so we don't encode the release event
         self.keyboard.last_trigger = event.bindingHash();
 
-        if (insp_ev) |ev| ev.binding = action;
+        if (insp_ev) |ev| {
+            ev.binding = self.alloc.dupe(
+                input.Binding.Action,
+                actions,
+            ) catch |err| binding: {
+                log.warn(
+                    "error allocating binding action for inspector err={}",
+                    .{err},
+                );
+                break :binding &.{};
+            };
+        }
         return .consumed;
     }
 
@@ -3005,6 +3044,34 @@ fn deactivateAllKeyTables(self: *Surface) !bool {
     return true;
 }
 
+/// This checks if the current keybinding sets have a catch_all binding
+/// with `ignore`. This is used to determine some special input cases.
+fn catchAllIsIgnore(self: *Surface) bool {
+    // Get our catch all
+    const entry: input.Binding.Set.Entry = entry: {
+        const trigger: input.Binding.Trigger = .{ .key = .catch_all };
+
+        const table_items = self.keyboard.table_stack.items;
+        for (0..table_items.len) |i| {
+            const rev_i: usize = table_items.len - 1 - i;
+            const entry = table_items[rev_i].set.get(trigger) orelse continue;
+            break :entry entry;
+        }
+
+        break :entry self.config.keybind.set.get(trigger) orelse
+            return false;
+    };
+
+    // We have a catch-all entry, see if its an ignore
+    return switch (entry.value_ptr.*) {
+        .leader => false,
+        .leaf => |leaf| leaf.action == .ignore,
+        .leaf_chained => |leaf| chained: for (leaf.actions.items) |action| {
+            if (action == .ignore) break :chained true;
+        } else false,
+    };
+}
+
 const KeySequenceQueued = enum { flush, drop };
 const KeySequenceMemory = enum { retain, free };
 
@@ -3033,23 +3100,26 @@ fn endKeySequence(
     // the set we look at to the root set.
     self.keyboard.sequence_set = null;
 
-    if (self.keyboard.sequence_queued.items.len > 0) {
-        switch (action) {
-            .flush => for (self.keyboard.sequence_queued.items) |write_req| {
-                self.queueIo(switch (write_req) {
-                    .small => |v| .{ .write_small = v },
-                    .stable => |v| .{ .write_stable = v },
-                    .alloc => |v| .{ .write_alloc = v },
-                }, .unlocked);
-            },
+    // If we have no queued data, there is nothing else to do.
+    if (self.keyboard.sequence_queued.items.len == 0) return;
 
-            .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
-        }
+    // Run the proper action first
+    switch (action) {
+        .flush => for (self.keyboard.sequence_queued.items) |write_req| {
+            self.queueIo(switch (write_req) {
+                .small => |v| .{ .write_small = v },
+                .stable => |v| .{ .write_stable = v },
+                .alloc => |v| .{ .write_alloc = v },
+            }, .unlocked);
+        },
 
-        switch (mem) {
-            .free => self.keyboard.sequence_queued.clearAndFree(self.alloc),
-            .retain => self.keyboard.sequence_queued.clearRetainingCapacity(),
-        }
+        .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
+    }
+
+    // Memory handling of the sequence after the action
+    switch (mem) {
+        .free => self.keyboard.sequence_queued.clearAndFree(self.alloc),
+        .retain => self.keyboard.sequence_queued.clearRetainingCapacity(),
     }
 }
 
@@ -4103,7 +4173,7 @@ pub fn mouseButtonCallback(
             .selection
         else
             .standard;
-        try self.startClipboardRequest(clipboard, .{ .paste = {} });
+        _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
     }
 
     // Right-click down selects word for context menus. If the apprt
@@ -4181,7 +4251,7 @@ pub fn mouseButtonCallback(
                 // request so we need to unlock.
                 self.renderer_state.mutex.unlock();
                 defer self.renderer_state.mutex.lock();
-                try self.startClipboardRequest(.standard, .paste);
+                _ = try self.startClipboardRequest(.standard, .paste);
 
                 // We don't need to clear selection because we didn't have
                 // one to begin with.
@@ -4196,7 +4266,7 @@ pub fn mouseButtonCallback(
                 // request so we need to unlock.
                 self.renderer_state.mutex.unlock();
                 defer self.renderer_state.mutex.lock();
-                try self.startClipboardRequest(.standard, .paste);
+                _ = try self.startClipboardRequest(.standard, .paste);
             },
         }
 
@@ -5260,12 +5330,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return true;
         },
 
-        .paste_from_clipboard => try self.startClipboardRequest(
+        .paste_from_clipboard => return try self.startClipboardRequest(
             .standard,
             .{ .paste = {} },
         ),
 
-        .paste_from_selection => try self.startClipboardRequest(
+        .paste_from_selection => return try self.startClipboardRequest(
             .selection,
             .{ .paste = {} },
         ),
@@ -5730,6 +5800,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return try self.deactivateAllKeyTables();
         },
 
+        .end_key_sequence => {
+            // End the key sequence and flush queued keys to the terminal,
+            // but don't encode the key that triggered this action. This
+            // will do that because leaf keys (keys with bindings) aren't
+            // in the queued encoding list.
+            self.endKeySequence(.flush, .retain);
+        },
+
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),
 
@@ -5985,11 +6063,15 @@ pub fn completeClipboardRequest(
 
 /// This starts a clipboard request, with some basic validation. For example,
 /// an OSC 52 request is not actually requested if OSC 52 is disabled.
+///
+/// Returns true if the request was started, false if it was not (e.g., clipboard
+/// doesn't contain text for paste requests). This allows performable keybinds
+/// to pass through when the action cannot be performed.
 fn startClipboardRequest(
     self: *Surface,
     loc: apprt.Clipboard,
     req: apprt.ClipboardRequest,
-) !void {
+) !bool {
     switch (req) {
         .paste => {}, // always allowed
         .osc_52_read => if (self.config.clipboard_read == .deny) {
@@ -5997,14 +6079,14 @@ fn startClipboardRequest(
                 "application attempted to read clipboard, but 'clipboard-read' is set to deny",
                 .{},
             );
-            return;
+            return false;
         },
 
         // No clipboard write code paths travel through this function
         .osc_52_write => unreachable,
     }
 
-    try self.rt_surface.clipboardRequest(loc, req);
+    return try self.rt_surface.clipboardRequest(loc, req);
 }
 
 fn completeClipboardPaste(

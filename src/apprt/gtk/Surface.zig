@@ -73,8 +73,8 @@ pub fn clipboardRequest(
     self: *Self,
     clipboard_type: apprt.Clipboard,
     state: apprt.ClipboardRequest,
-) !void {
-    try self.surface.clipboardRequest(
+) !bool {
+    return try self.surface.clipboardRequest(
         clipboard_type,
         state,
     );

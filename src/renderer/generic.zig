@@ -2099,7 +2099,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // We also need to reset the shaper cache so shaper info
-            // from the previous font isn't re-used for the new font.
+            // from the previous font isn't reused for the new font.
             const font_shaper_cache = font.ShaperCache.init();
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;

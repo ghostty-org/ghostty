@@ -405,7 +405,7 @@ fn testDrawRanges(
     const padding_x = width / 4;
     const padding_y = height / 4;
 
-    // Canvas to draw glyphs on, we'll re-use this for all glyphs.
+    // Canvas to draw glyphs on, we'll reuse this for all glyphs.
     var canvas = try font.sprite.Canvas.init(
         alloc,
         width,

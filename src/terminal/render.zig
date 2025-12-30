@@ -816,6 +816,12 @@ pub const RenderState = struct {
         const row_pins = row_slice.items(.pin);
         const row_cells = row_slice.items(.cells);
 
+        // Our viewport point is sent in by the caller and can't be trusted.
+        // If it is outside the valid area then just return empty because
+        // we can't possibly have a link there.
+        if (viewport_point.x >= self.cols or
+            viewport_point.y >= row_pins.len) return result;
+
         // Grab our link ID
         const link_pin: PageList.Pin = row_pins[viewport_point.y];
         const link_page: *page.Page = &link_pin.node.data;
@@ -1358,6 +1364,44 @@ test "linkCells with scrollback spanning pages" {
     });
     defer cells.deinit(alloc);
     try testing.expectEqual(@as(usize, 4), cells.count());
+}
+
+test "linkCells with invalid viewport point" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Row out of bound
+    {
+        var cells = try state.linkCells(
+            alloc,
+            .{ .x = 0, .y = t.rows + 10 },
+        );
+        defer cells.deinit(alloc);
+        try testing.expectEqual(0, cells.count());
+    }
+
+    // Col out of bound
+    {
+        var cells = try state.linkCells(
+            alloc,
+            .{ .x = t.cols + 10, .y = 0 },
+        );
+        defer cells.deinit(alloc);
+        try testing.expectEqual(0, cells.count());
+    }
 }
 
 test "dirty row resets highlights" {

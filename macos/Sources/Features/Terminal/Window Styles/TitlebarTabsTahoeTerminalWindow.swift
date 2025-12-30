@@ -322,7 +322,8 @@ extension TitlebarTabsTahoeTerminalWindow {
             } else {
                 // 1x1.gif strikes again! For real: if we render a zero-sized
                 // view here then the toolbar just disappears our view. I don't
-                // know. This appears fixed in 26.1 Beta but keep it safe for 26.0.
+                // know. On macOS 26.1+ the view no longer disappears, but the
+                // toolbar still logs an ambiguous content size warning.
                 Color.clear.frame(width: 1, height: 1)
             }
         }

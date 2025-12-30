@@ -72,6 +72,10 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
+    if (target.result.os.tag == .freebsd) {
+        try flags.append(b.allocator, "-fPIC");
+    }
+
     if (imgui_) |imgui| {
         lib.addCSourceFile(.{ .file = b.path("vendor/cimgui.cpp"), .flags = flags.items });
         lib.addCSourceFile(.{ .file = imgui.path("imgui.cpp"), .flags = flags.items });

@@ -256,7 +256,7 @@ pub const Placement = struct {
             if (img_scale_source.y < img_scaled.y_offset) {
                 // If our source rect y is within the offset area, we need to
                 // adjust our source rect and destination since the source texture
-                // doesnt actually have the offset area blank.
+                // doesn't actually have the offset area blank.
                 const offset: f64 = img_scaled.y_offset - img_scale_source.y;
                 img_scale_source.height -= offset;
                 y_offset = offset;
@@ -286,7 +286,7 @@ pub const Placement = struct {
             if (img_scale_source.x < img_scaled.x_offset) {
                 // If our source rect x is within the offset area, we need to
                 // adjust our source rect and destination since the source texture
-                // doesnt actually have the offset area blank.
+                // doesn't actually have the offset area blank.
                 const offset: f64 = img_scaled.x_offset - img_scale_source.x;
                 img_scale_source.width -= offset;
                 x_offset = offset;

@@ -224,6 +224,14 @@ extension Ghostty {
                             .opacity(overlayOpacity)
                     }
                 }
+
+                #if canImport(AppKit)
+                // Grab handle for dragging the window. We want this to appear at the very
+                // top Z-index os it isn't faded by the unfocused overlay.
+                //
+                // This is disabled except on macOS because it uses AppKit drag/drop APIs.
+                SurfaceGrabHandle(surfaceView: surfaceView)
+                #endif
             }
 
         }

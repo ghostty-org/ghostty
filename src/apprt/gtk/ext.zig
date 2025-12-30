@@ -12,6 +12,8 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 pub const actions = @import("ext/actions.zig");
+const slice = @import("ext/slice.zig");
+pub const StringList = slice.StringList;
 
 /// Wrapper around `gobject.boxedCopy` to copy a boxed type `T`.
 pub fn boxedCopy(comptime T: type, ptr: *const T) *T {
@@ -64,4 +66,5 @@ pub fn gValueHolds(value_: ?*const gobject.Value, g_type: gobject.Type) bool {
 
 test {
     _ = actions;
+    _ = slice;
 }

@@ -134,16 +134,5 @@ extension Ghostty {
                 ghostty_surface_binding_action(surface, cString, UInt(len - 1))
             }
         }
-
-        /// Command options for this surface.
-        @MainActor
-        func commands() throws -> [Command] {
-            var ptr: UnsafeMutablePointer<ghostty_command_s>? = nil
-            var count: Int = 0
-            ghostty_surface_commands(surface, &ptr, &count)
-            guard let ptr else { throw Error.apiFailed }
-            let buffer = UnsafeBufferPointer(start: ptr, count: count)
-            return Array(buffer).map { Command(cValue: $0) }.filter { $0.isSupported }
-        }
     }
 }

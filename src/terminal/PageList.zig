@@ -394,6 +394,7 @@ pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
 const IntegrityError = error{
     TotalRowsMismatch,
     ViewportPinOffsetMismatch,
+    ViewportPinInsufficientRows,
     PageSerialInvalid,
 };
 
@@ -435,9 +436,8 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
         return IntegrityError.TotalRowsMismatch;
     }
 
-    // Verify that our viewport pin row offset is correct.
-    if (self.viewport == .pin) pin: {
-        const cached_offset = self.viewport_pin_row_offset orelse break :pin;
+    if (self.viewport == .pin) {
+        // Verify that our viewport pin row offset is correct.
         const actual_offset: usize = offset: {
             var offset: usize = 0;
             var node = self.pages.last;
@@ -456,12 +456,24 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
             return error.ViewportPinOffsetMismatch;
         };
 
-        if (cached_offset != actual_offset) {
+        if (self.viewport_pin_row_offset) |cached_offset| {
+            if (cached_offset != actual_offset) {
+                log.warn(
+                    "PageList integrity violation: viewport pin offset mismatch cached={} actual={}",
+                    .{ cached_offset, actual_offset },
+                );
+                return error.ViewportPinOffsetMismatch;
+            }
+        }
+
+        // Ensure our viewport has enough rows.
+        const rows = self.total_rows - actual_offset;
+        if (rows < self.rows) {
             log.warn(
-                "PageList integrity violation: viewport pin offset mismatch cached={} actual={}",
-                .{ cached_offset, actual_offset },
+                "PageList integrity violation: viewport pin rows too small rows={} needed={}",
+                .{ rows, self.rows },
             );
-            return error.ViewportPinOffsetMismatch;
+            return error.ViewportPinInsufficientRows;
         }
     }
 }
@@ -855,6 +867,16 @@ pub fn resize(self: *PageList, opts: Resize) !void {
             });
             try self.resizeCols(cols, opts.cursor);
         },
+    }
+
+    // Various resize operations can change our total row count such
+    // that our viewport pin is now in the active area and has insufficient
+    // space. We need to check for this case and fix it up.
+    switch (self.viewport) {
+        .pin => if (self.pinIsActive(self.viewport_pin.*)) {
+            self.viewport = .active;
+        },
+        .active, .top => {},
     }
 }
 
@@ -1717,7 +1739,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 // area, since that will lead to all sorts of problems.
                 switch (self.viewport) {
                     .pin => if (self.pinIsActive(self.viewport_pin.*)) {
-                        self.viewport = .{ .active = {} };
+                        self.viewport = .active;
                     },
                     .active, .top => {},
                 }
@@ -3820,6 +3842,15 @@ pub const PageIterator = struct {
         /// Returns true if this chunk represents every row in the page.
         pub fn fullPage(self: Chunk) bool {
             return self.start == 0 and self.end == self.node.data.size.rows;
+        }
+
+        /// Returns true if this chunk overlaps with the given other chunk
+        /// in any way.
+        pub fn overlaps(self: Chunk, other: Chunk) bool {
+            if (self.node != other.node) return false;
+            if (self.end <= other.start) return false;
+            if (self.start >= other.end) return false;
+            return true;
         }
     };
 };
@@ -8275,7 +8306,7 @@ test "PageList resize reflow invalidates viewport offset cache" {
     // Verify scrollbar cache was invalidated during reflow
     try testing.expectEqual(Scrollbar{
         .total = s.total_rows,
-        .offset = 8,
+        .offset = 5,
         .len = s.rows,
     }, s.scrollbar());
 }
@@ -10840,4 +10871,58 @@ test "PageList resize reflow grapheme map capacity exceeded" {
 
     // Verify the resize succeeded
     try testing.expectEqual(@as(usize, 2), s.cols);
+}
+
+test "PageList resize grow cols with unwrap fixes viewport pin" {
+    // Regression test: after resize/reflow, the viewport pin can end up at a
+    // position where pin.y + rows > total_rows, causing getBottomRight to panic.
+
+    // The plan is to pin viewport in history, then grow columns to unwrap rows.
+    // The unwrap reduces total_rows, but the tracked pin moves to a position
+    // that no longer has enough rows below it for the viewport height.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 10, null);
+    defer s.deinit();
+
+    // Make sure we have some history, in this case we have 30 rows of history
+    try s.growRows(30);
+    try testing.expectEqual(@as(usize, 40), s.totalRows());
+
+    // Fill all rows with wrapped content (pairs that unwrap when cols increase)
+    var it = s.pageIterator(.right_down, .{ .screen = .{} }, null);
+    while (it.next()) |chunk| {
+        const page = &chunk.node.data;
+        for (chunk.start..chunk.end) |y| {
+            const rac = page.getRowAndCell(0, y);
+            if (y % 2 == 0) {
+                rac.row.wrap = true;
+            } else {
+                rac.row.wrap_continuation = true;
+            }
+            for (0..s.cols) |x| {
+                page.getRowAndCell(x, y).cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = 'A' },
+                };
+            }
+        }
+    }
+
+    // Pin viewport at row 28 (in history, 2 rows before active area at row 30).
+    // After unwrap: row 28 -> row 14, total_rows 40 -> 20, active starts at 10.
+    // Pin at 14 needs rows 14-23, but only 0-19 exist -> overflow.
+    s.scroll(.{ .pin = s.pin(.{ .screen = .{ .y = 28 } }).? });
+    try testing.expect(s.viewport == .pin);
+    try testing.expect(s.getBottomRight(.viewport) != null);
+
+    // Resize with reflow: unwraps rows, reducing total_rows
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expect(s.totalRows() < 40);
+
+    // Used to panic here, so test that we can get the bottom right.
+    const br_after = s.getBottomRight(.viewport);
+    try testing.expect(br_after != null);
 }

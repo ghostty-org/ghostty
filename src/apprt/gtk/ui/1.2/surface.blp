@@ -156,6 +156,12 @@ Overlay terminal_page {
   }
 
   [overlay]
+  $GhosttyKeyStateOverlay key_state_overlay {
+    tables: bind template.key-table;
+    sequence: bind template.key-sequence;
+  }
+
+  [overlay]
   // Apply unfocused-split-fill and unfocused-split-opacity to current surface
   // this is only applied when a tab has more than one surface
   Revealer {

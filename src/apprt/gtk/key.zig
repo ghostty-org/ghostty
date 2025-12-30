@@ -233,6 +233,70 @@ pub fn keyvalFromKey(key: input.Key) ?c_uint {
     }
 }
 
+/// Converts a trigger to a human-readable label for display in UI.
+///
+/// Uses GTK accelerator-style formatting (e.g., "Ctrl+Shift+A").
+/// Returns false if the trigger cannot be formatted (e.g., catch_all).
+pub fn labelFromTrigger(
+    writer: *std.Io.Writer,
+    trigger: input.Binding.Trigger,
+) std.Io.Writer.Error!bool {
+    // Modifiers first, using human-readable format
+    if (trigger.mods.super) try writer.writeAll("Super+");
+    if (trigger.mods.ctrl) try writer.writeAll("Ctrl+");
+    if (trigger.mods.alt) try writer.writeAll("Alt+");
+    if (trigger.mods.shift) try writer.writeAll("Shift+");
+
+    // Write the key
+    return writeTriggerKeyLabel(writer, trigger);
+}
+
+/// Writes the key portion of a trigger in human-readable format.
+fn writeTriggerKeyLabel(
+    writer: *std.Io.Writer,
+    trigger: input.Binding.Trigger,
+) error{WriteFailed}!bool {
+    switch (trigger.key) {
+        .physical => |k| {
+            const keyval = keyvalFromKey(k) orelse return false;
+            const name = gdk.keyvalName(keyval) orelse return false;
+            // Capitalize the first letter for nicer display
+            const span = std.mem.span(name);
+            if (span.len > 0) {
+                if (span[0] >= 'a' and span[0] <= 'z') {
+                    try writer.writeByte(span[0] - 'a' + 'A');
+                    if (span.len > 1) try writer.writeAll(span[1..]);
+                } else {
+                    try writer.writeAll(span);
+                }
+            }
+        },
+
+        .unicode => |cp| {
+            // Try to get a nice name from GDK first
+            if (gdk.keyvalName(cp)) |name| {
+                const span = std.mem.span(name);
+                if (span.len > 0) {
+                    // Capitalize the first letter for nicer display
+                    if (span[0] >= 'a' and span[0] <= 'z') {
+                        try writer.writeByte(span[0] - 'a' + 'A');
+                        if (span.len > 1) try writer.writeAll(span[1..]);
+                    } else {
+                        try writer.writeAll(span);
+                    }
+                }
+            } else {
+                // Fall back to printing the character
+                try writer.print("{u}", .{cp});
+            }
+        },
+
+        .catch_all => return false,
+    }
+
+    return true;
+}
+
 test "accelFromTrigger" {
     const testing = std.testing;
     var buf: [256]u8 = undefined;
@@ -261,6 +325,64 @@ test "xdgShortcutFromTrigger" {
         .mods = .{ .ctrl = true, .alt = true, .super = true, .shift = true },
         .key = .{ .unicode = 92 },
     })).?);
+}
+
+test "labelFromTrigger" {
+    const testing = std.testing;
+
+    // Simple unicode key with modifier
+    {
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+        try testing.expect(try labelFromTrigger(&buf.writer, .{
+            .mods = .{ .super = true },
+            .key = .{ .unicode = 'q' },
+        }));
+        try testing.expectEqualStrings("Super+Q", buf.written());
+    }
+
+    // Multiple modifiers
+    {
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+        try testing.expect(try labelFromTrigger(&buf.writer, .{
+            .mods = .{ .ctrl = true, .alt = true, .super = true, .shift = true },
+            .key = .{ .unicode = 92 },
+        }));
+        try testing.expectEqualStrings("Super+Ctrl+Alt+Shift+Backslash", buf.written());
+    }
+
+    // Physical key
+    {
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+        try testing.expect(try labelFromTrigger(&buf.writer, .{
+            .mods = .{ .ctrl = true },
+            .key = .{ .physical = .key_a },
+        }));
+        try testing.expectEqualStrings("Ctrl+A", buf.written());
+    }
+
+    // No modifiers
+    {
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+        try testing.expect(try labelFromTrigger(&buf.writer, .{
+            .mods = .{},
+            .key = .{ .physical = .escape },
+        }));
+        try testing.expectEqualStrings("Escape", buf.written());
+    }
+
+    // catch_all returns false
+    {
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+        try testing.expect(!try labelFromTrigger(&buf.writer, .{
+            .mods = .{},
+            .key = .catch_all,
+        }));
+    }
 }
 
 /// A raw entry in the keymap. Our keymap contains mappings between

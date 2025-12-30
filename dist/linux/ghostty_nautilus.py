@@ -17,41 +17,13 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from os.path import isdir
-from gi import require_version
-from gi.repository import Nautilus, GObject, Gio, GLib
+from gi.repository import Nautilus, GObject, Gio
 
 
 class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
-    def __init__(self):
-        super().__init__()
-        session = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        self._systemd = None
-        # Check if the this system runs under systemd, per sd_booted(3)
-        if isdir('/run/systemd/system/'):
-            self._systemd = Gio.DBusProxy.new_sync(session,
-                    Gio.DBusProxyFlags.NONE,
-                    None,
-                    "org.freedesktop.systemd1",
-                    "/org/freedesktop/systemd1",
-                    "org.freedesktop.systemd1.Manager", None)
-
     def _open_terminal(self, path):
         cmd = ['ghostty', f'--working-directory={path}', '--gtk-single-instance=false']
-        child = Gio.Subprocess.new(cmd, Gio.SubprocessFlags.NONE)
-        if self._systemd:
-            # Move new terminal into a dedicated systemd scope to make systemd
-            # track the terminal separately; in particular this makes systemd
-            # keep a separate CPU and memory account for the terminal which in turn
-            # ensures that oomd doesn't take nautilus down if a process in
-            # ghostty consumes a lot of memory.
-            pid = int(child.get_identifier())
-            props = [("PIDs", GLib.Variant('au', [pid])),
-                ('CollectMode', GLib.Variant('s', 'inactive-or-failed'))]
-            name = 'app-nautilus-com.mitchellh.ghostty-{}.scope'.format(pid)
-            args = GLib.Variant('(ssa(sv)a(sa(sv)))', (name, 'fail', props, []))
-            self._systemd.call_sync('StartTransientUnit', args,
-                    Gio.DBusCallFlags.NO_AUTO_START, 500, None)
+        Gio.Subprocess.new(cmd, Gio.SubprocessFlags.NONE)
 
     def _menu_item_activated(self, _menu, paths):
         for path in paths:

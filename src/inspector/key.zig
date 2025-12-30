@@ -13,7 +13,8 @@ pub const Event = struct {
     event: input.KeyEvent,
 
     /// The binding that was triggered as a result of this event.
-    binding: ?input.Binding.Action = null,
+    /// Multiple bindings are possible if they are chained.
+    binding: []const input.Binding.Action = &.{},
 
     /// The data sent to the pty as a result of this keyboard event.
     /// This is allocated using the inspector allocator.
@@ -32,6 +33,7 @@ pub const Event = struct {
     }
 
     pub fn deinit(self: *const Event, alloc: Allocator) void {
+        alloc.free(self.binding);
         if (self.event.utf8.len > 0) alloc.free(self.event.utf8);
         if (self.pty.len > 0) alloc.free(self.pty);
     }
@@ -79,12 +81,28 @@ pub const Event = struct {
         );
         defer cimgui.c.igEndTable();
 
-        if (self.binding) |binding| {
+        if (self.binding.len > 0) {
             cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
             _ = cimgui.c.igTableSetColumnIndex(0);
             cimgui.c.igText("Triggered Binding");
             _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText("%s", @tagName(binding).ptr);
+
+            const height: f32 = height: {
+                const item_count: f32 = @floatFromInt(@min(self.binding.len, 5));
+                const padding = cimgui.c.igGetStyle().*.FramePadding.y * 2;
+                break :height cimgui.c.igGetTextLineHeightWithSpacing() * item_count + padding;
+            };
+            if (cimgui.c.igBeginListBox("##bindings", .{ .x = 0, .y = height })) {
+                defer cimgui.c.igEndListBox();
+                for (self.binding) |action| {
+                    _ = cimgui.c.igSelectable_Bool(
+                        @tagName(action).ptr,
+                        false,
+                        cimgui.c.ImGuiSelectableFlags_None,
+                        .{ .x = 0, .y = 0 },
+                    );
+                }
+            }
         }
 
         pty: {

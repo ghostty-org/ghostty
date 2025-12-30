@@ -208,7 +208,7 @@ pub const Viewer = struct {
         /// caller is responsible for diffing the new window list against
         /// the prior one. Remember that for a given Viewer, window IDs
         /// are guaranteed to be stable. Additionally, tmux (as of Dec 2025)
-        /// never re-uses window IDs within a server process lifetime.
+        /// never reuses window IDs within a server process lifetime.
         windows: []const Window,
 
         pub fn format(self: Action, writer: *std.Io.Writer) !void {

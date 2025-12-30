@@ -275,6 +275,72 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return c
     }
 
+    /// Create a new window with an existing split tree.
+    /// The window will be sized to match the tree's current view bounds if available.
+    /// - Parameters:
+    ///   - ghostty: The Ghostty app instance.
+    ///   - tree: The split tree to use for the new window.
+    ///   - position: Optional screen position (top-left corner) for the new window.
+    ///               If nil, the window will cascade from the last cascade point.
+    static func newWindow(
+        _ ghostty: Ghostty.App,
+        tree: SplitTree<Ghostty.SurfaceView>,
+        position: NSPoint? = nil,
+        confirmUndo: Bool = true,
+    ) -> TerminalController {
+        let c = TerminalController.init(ghostty, withSurfaceTree: tree)
+
+        // Calculate the target frame based on the tree's view bounds
+        let treeSize: CGSize? = tree.root?.viewBounds()
+
+        DispatchQueue.main.async {
+            if let window = c.window {
+                // If we have a tree size, resize the window's content to match
+                if let treeSize, treeSize.width > 0, treeSize.height > 0 {
+                    window.setContentSize(treeSize)
+                    window.constrainToScreen()
+                }
+
+                if !window.styleMask.contains(.fullScreen) {
+                    if let position {
+                        window.setFrameTopLeftPoint(position)
+                        window.constrainToScreen()
+                    } else {
+                        Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                    }
+                }
+            }
+
+            c.showWindow(self)
+        }
+
+        // Setup our undo
+        if let undoManager = c.undoManager {
+            undoManager.setActionName("New Window")
+            undoManager.registerUndo(
+                withTarget: c,
+                expiresAfter: c.undoExpiration
+            ) { target in
+                undoManager.disableUndoRegistration {
+                    if confirmUndo {
+                        target.closeWindow(nil)
+                    } else {
+                        target.closeWindowImmediately()
+                    }
+                }
+
+                undoManager.registerUndo(
+                    withTarget: ghostty,
+                    expiresAfter: target.undoExpiration
+                ) { ghostty in
+                    _ = TerminalController.newWindow(ghostty, tree: tree)
+                }
+            }
+        }
+
+        return c
+    }
+
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
@@ -397,7 +463,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         return controller
     }
-
+    
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -671,7 +737,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    private func closeWindowImmediately() {
+    func closeWindowImmediately() {
         guard let window = window else { return }
 
         registerUndoForCloseWindow()
@@ -879,12 +945,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // Make it the key window
                 window.makeKeyAndOrderFront(nil)
             }
-
+            
             // Restore focus to the previously focused surface
             if let focusedUUID = undoState.focusedSurface,
                let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
                 DispatchQueue.main.async {
                     Ghostty.moveFocus(to: focusTarget, from: nil)
+                }
+            } else if let focusedSurface = surfaceTree.first {
+                // No prior focused surface or we can't find it, let's focus
+                // the first.
+                self.focusedSurface = focusedSurface
+                DispatchQueue.main.async {
+                    Ghostty.moveFocus(to: focusedSurface, from: nil)
                 }
             }
         }
@@ -936,11 +1009,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = NSHostingView(rootView: TerminalView(
+        window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self,
-        ))
+        )
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -952,9 +1025,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .contentIntrinsicSize:
                 // Content intrinsic size requires a short delay so that AppKit
                 // can layout our SwiftUI views.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak window] in
-                    guard let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak self, weak window] in
+                    guard let self, let window else { return }
                     defaultSize.apply(to: window)
+                    if let screen = window.screen ?? NSScreen.main {
+                        let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
+                        window.setFrameOrigin(frame.origin)
+                    }
                 }
             }
         }
