@@ -4,6 +4,7 @@ struct QuickTerminalTabItemView: View {
     @ObservedObject var tab: QuickTerminalTab
 
     let isHighlighted: Bool
+    let isGlassEnabled: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let shortcut: KeyboardShortcut?
@@ -12,20 +13,38 @@ struct QuickTerminalTabItemView: View {
     @State private var isHoveringCloseButton = false
 
     private var backgroundColor: Color {
-        if isHighlighted {
-            Color.white.opacity(0.15)
-        } else if isHovering {
-            Color(NSColor.underPageBackgroundColor)
+        if isGlassEnabled {
+            if isHighlighted {
+                Color.white.opacity(0.2)
+            } else if isHovering {
+                Color.white.opacity(0.1)
+            } else {
+                Color.clear
+            }
         } else {
-            Color(NSColor.controlBackgroundColor)
+            if isHighlighted {
+                Color.white.opacity(0.15)
+            } else if isHovering {
+                Color(NSColor.underPageBackgroundColor)
+            } else {
+                Color(NSColor.controlBackgroundColor)
+            }
         }
     }
 
     private var closeButtonBackgroundColor: Color {
-        if isHoveringCloseButton {
-            Color(NSColor.unemphasizedSelectedContentBackgroundColor)
+        if isGlassEnabled {
+            if isHoveringCloseButton {
+                Color.white.opacity(0.15)
+            } else {
+                backgroundColor
+            }
         } else {
-            backgroundColor
+            if isHoveringCloseButton {
+                Color(NSColor.unemphasizedSelectedContentBackgroundColor)
+            } else {
+                backgroundColor
+            }
         }
     }
 

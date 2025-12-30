@@ -10,7 +10,7 @@ struct QuickTerminalView: View {
     var body: some View {
         VStack(spacing: 0) {
             if tabManager.tabs.count > 1 {
-                QuickTerminalTabBarView(tabManager: tabManager)
+                QuickTerminalTabBarView(ghostty: ghostty, tabManager: tabManager)
             }
             TerminalView(
                 ghostty: ghostty,

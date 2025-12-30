@@ -9,17 +9,39 @@ extension UTType {
 }
 
 struct QuickTerminalTabBarView: View {
+    @ObservedObject var ghostty: Ghostty.App
     @ObservedObject var tabManager: QuickTerminalTabManager
 
     @State private var isHoveringNewTabButton = false
     @State private var tabBeingRenamed: QuickTerminalTab?
     @State private var renameText: String = ""
 
-    private var newTabButtonBackgroundColor: Color {
-        if isHoveringNewTabButton {
-            Color(NSColor.underPageBackgroundColor)
+    /// Whether the glass effect is enabled in the config
+    private var isGlassEnabled: Bool {
+        ghostty.config.backgroundBlur.isGlassStyle
+    }
+
+    private var tabBarBackgroundColor: Color {
+        if isGlassEnabled {
+            Color.clear
         } else {
             Color(NSColor.controlBackgroundColor)
+        }
+    }
+
+    private var newTabButtonBackgroundColor: Color {
+        if isGlassEnabled {
+            if isHoveringNewTabButton {
+                Color.white.opacity(0.1)
+            } else {
+                Color.clear
+            }
+        } else {
+            if isHoveringNewTabButton {
+                Color(NSColor.underPageBackgroundColor)
+            } else {
+                Color(NSColor.controlBackgroundColor)
+            }
         }
     }
 
@@ -29,7 +51,7 @@ struct QuickTerminalTabBarView: View {
             renderAddNewTabButton()
         }
         .frame(height: Constants.height)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(tabBarBackgroundColor)
         .sheet(item: $tabBeingRenamed) { tab in
             RenameTabSheet(
                 title: $renameText,
@@ -93,6 +115,7 @@ struct QuickTerminalTabBarView: View {
             content: QuickTerminalTabItemView(
                 tab: tab,
                 isHighlighted: tabManager.currentTab?.id == tab.id,
+                isGlassEnabled: isGlassEnabled,
                 onSelect: { tabManager.selectTab(tab) },
                 onClose: {
                     if NSEvent.modifierFlags.contains(.option) {
