@@ -4,8 +4,10 @@ import GhosttyKit
 extension Ghostty {
     /// The UIView implementation for a terminal surface.
     class SurfaceView: UIView, ObservableObject {
+        typealias ID = UUID
+
         /// Unique ID per surface
-        let uuid: UUID
+        let id: UUID
 
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes. This is public because the callbacks go
@@ -43,7 +45,10 @@ extension Ghostty {
         
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil
-        
+
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
         
@@ -60,7 +65,7 @@ extension Ghostty {
         private(set) var surface: ghostty_surface_t?
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
-            self.uuid = uuid ?? .init()
+            self.id = uuid ?? .init()
 
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer

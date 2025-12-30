@@ -360,7 +360,7 @@ pub const Canvas = struct {
     pub fn strokePath(
         self: *Canvas,
         path: z2d.Path,
-        opts: z2d.painter.StrokeOpts,
+        opts: z2d.painter.StrokeOptions,
         color: Color,
     ) z2d.painter.StrokeError!void {
         try z2d.painter.stroke(
@@ -380,7 +380,7 @@ pub const Canvas = struct {
     pub fn innerStrokePath(
         self: *Canvas,
         path: z2d.Path,
-        opts: z2d.painter.StrokeOpts,
+        opts: z2d.painter.StrokeOptions,
         color: Color,
     ) (z2d.painter.StrokeError || z2d.painter.FillError)!void {
         // On one surface we fill the shape, this will be a mask we
@@ -459,7 +459,7 @@ pub const Canvas = struct {
     pub fn fillPath(
         self: *Canvas,
         path: z2d.Path,
-        opts: z2d.painter.FillOpts,
+        opts: z2d.painter.FillOptions,
         color: Color,
     ) z2d.painter.FillError!void {
         try z2d.painter.fill(

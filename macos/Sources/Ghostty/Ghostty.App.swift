@@ -578,7 +578,10 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
-                
+
+            case GHOSTTY_ACTION_KEY_TABLE:
+                keyTable(app, target: target, v: action.action.key_table)
+
             case GHOSTTY_ACTION_PROGRESS_REPORT:
                 progressReport(app, target: target, v: action.action.progress_report)
 
@@ -1778,7 +1781,32 @@ extension Ghostty {
                 assertionFailure()
             }
         }
-        
+
+        private static func keyTable(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_key_table_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("key table does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let action = Ghostty.Action.KeyTable(c: v) else { return }
+
+                NotificationCenter.default.post(
+                    name: Notification.didChangeKeyTable,
+                    object: surfaceView,
+                    userInfo: [Notification.KeyTableKey: action]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func progressReport(
             _ app: ghostty_app_t,
             target: ghostty_target_s,

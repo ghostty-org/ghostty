@@ -454,6 +454,12 @@ typedef struct {
   size_t len;
 } ghostty_config_color_list_s;
 
+// config.RepeatableCommand
+typedef struct {
+  const ghostty_command_s* commands;
+  size_t len;
+} ghostty_config_command_list_s;
+
 // config.Palette
 typedef struct {
   ghostty_config_color_s colors[256];
@@ -691,6 +697,27 @@ typedef struct {
   ghostty_input_trigger_s trigger;
 } ghostty_action_key_sequence_s;
 
+// apprt.action.KeyTable.Tag
+typedef enum {
+  GHOSTTY_KEY_TABLE_ACTIVATE,
+  GHOSTTY_KEY_TABLE_DEACTIVATE,
+  GHOSTTY_KEY_TABLE_DEACTIVATE_ALL,
+} ghostty_action_key_table_tag_e;
+
+// apprt.action.KeyTable.CValue
+typedef union {
+  struct {
+    const char *name;
+    size_t len;
+  } activate;
+} ghostty_action_key_table_u;
+
+// apprt.action.KeyTable.C
+typedef struct {
+  ghostty_action_key_table_tag_e tag;
+  ghostty_action_key_table_u value;
+} ghostty_action_key_table_s;
+
 // apprt.action.ColorKind
 typedef enum {
   GHOSTTY_ACTION_COLOR_KIND_FOREGROUND = -1,
@@ -836,6 +863,7 @@ typedef enum {
   GHOSTTY_ACTION_FLOAT_WINDOW,
   GHOSTTY_ACTION_SECURE_INPUT,
   GHOSTTY_ACTION_KEY_SEQUENCE,
+  GHOSTTY_ACTION_KEY_TABLE,
   GHOSTTY_ACTION_COLOR_CHANGE,
   GHOSTTY_ACTION_RELOAD_CONFIG,
   GHOSTTY_ACTION_CONFIG_CHANGE,
@@ -881,6 +909,7 @@ typedef union {
   ghostty_action_float_window_e float_window;
   ghostty_action_secure_input_e secure_input;
   ghostty_action_key_sequence_s key_sequence;
+  ghostty_action_key_table_s key_table;
   ghostty_action_color_change_s color_change;
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
@@ -1021,7 +1050,6 @@ void ghostty_surface_set_color_scheme(ghostty_surface_t,
                                       ghostty_color_scheme_e);
 ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
                                                           ghostty_input_mods_e);
-void ghostty_surface_commands(ghostty_surface_t, ghostty_command_s**, size_t*);
 bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
 bool ghostty_surface_key_is_binding(ghostty_surface_t, ghostty_input_key_s);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);

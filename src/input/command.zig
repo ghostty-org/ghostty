@@ -43,13 +43,34 @@ pub const Command = struct {
         return true;
     }
 
-    /// Convert this command to a C struct.
+    /// Convert this command to a C struct at comptime.
     pub fn comptimeCval(self: Command) C {
         assert(@inComptime());
 
         return .{
             .action_key = @tagName(self.action),
             .action = std.fmt.comptimePrint("{f}", .{self.action}),
+            .title = self.title,
+            .description = self.description,
+        };
+    }
+
+    /// Convert this command to a C struct at runtime.
+    ///
+    /// This shares memory with the original command.
+    ///
+    /// The action string is allocated using the provided allocator. You can
+    /// free the slice directly if you need to but we recommend an arena
+    /// for this.
+    pub fn cval(self: Command, alloc: Allocator) Allocator.Error!C {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        self.action.format(&buf.writer) catch return error.OutOfMemory;
+        const action = try buf.toOwnedSliceSentinel(0);
+
+        return .{
+            .action_key = @tagName(self.action),
+            .action = action.ptr,
             .title = self.title,
             .description = self.description,
         };

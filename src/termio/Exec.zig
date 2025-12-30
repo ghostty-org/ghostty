@@ -750,15 +750,15 @@ const Subprocess = struct {
                     else => "sh",
                 } };
 
+            // Always set up shell features (GHOSTTY_SHELL_FEATURES). These are
+            // used by both automatic and manual shell integrations.
+            try shell_integration.setupFeatures(
+                &env,
+                cfg.shell_integration_features,
+            );
+
             const force: ?shell_integration.Shell = switch (cfg.shell_integration) {
                 .none => {
-                    // Even if shell integration is none, we still want to
-                    // set up the feature env vars
-                    try shell_integration.setupFeatures(
-                        &env,
-                        cfg.shell_integration_features,
-                    );
-
                     // This is a source of confusion for users despite being
                     // opt-in since it results in some Ghostty features not
                     // working. We always want to log it.
@@ -784,7 +784,6 @@ const Subprocess = struct {
                 default_shell_command,
                 &env,
                 force,
-                cfg.shell_integration_features,
             ) orelse {
                 log.warn("shell could not be detected, no automatic shell integration will be injected", .{});
                 break :shell default_shell_command;

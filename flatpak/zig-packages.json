@@ -61,9 +61,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251201-150531-bfb3ee1/ghostty-themes.tgz",
-    "dest": "vendor/p/N-V-__8AANFEAwCzzNzNs3Gaq8pzGNl2BbeyFBwTyO5iZJL-",
-    "sha256": "e5078f050952b33f56dabe334d2dd00fe70301ec8e6e1479d44d80909dd92149"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20251222-150520-0add1e1.tgz",
+    "dest": "vendor/p/N-V-__8AAIdIAwAOceDblkuOARUyuTKbDdGPjPClPLhMeIfU",
+    "sha256": "70c2040d91587629426af84be69590ea345eac65054992232f06f1368b2c49e8"
   },
   {
     "type": "archive",
@@ -169,9 +169,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T.tar.gz",
-    "dest": "vendor/p/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T",
-    "sha256": "f90a824685f0ac5035fe5fa85af615c8055e6c6422b401503618bd537115af10"
+    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz",
+    "dest": "vendor/p/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ",
+    "sha256": "69f21da2efd5ee0937fe55c4d09e48afc4fb2f91a01ef167c8c275ae046797f7"
   },
   {
     "type": "archive",

@@ -66,6 +66,10 @@ fn buildGlslang(
         "-fno-sanitize-trap=undefined",
     });
 
+    if (target.result.os.tag == .freebsd) {
+        try flags.append(b.allocator, "-fPIC");
+    }
+
     if (upstream_) |upstream| {
         lib.addCSourceFiles(.{
             .root = upstream.path(""),

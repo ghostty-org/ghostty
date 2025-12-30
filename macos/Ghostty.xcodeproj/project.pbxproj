@@ -66,6 +66,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/macOS/AppDelegate.swift,
+				"App/macOS/AppDelegate+Ghostty.swift",
 				App/macOS/main.swift,
 				App/macOS/MainMenu.xib,
 				Features/About/About.xib,
@@ -118,6 +119,7 @@
 				Features/Terminal/TerminalRestorable.swift,
 				Features/Terminal/TerminalTabColor.swift,
 				Features/Terminal/TerminalView.swift,
+				Features/Terminal/TerminalViewContainer.swift,
 				"Features/Terminal/Window Styles/HiddenTitlebarTerminalWindow.swift",
 				"Features/Terminal/Window Styles/Terminal.xib",
 				"Features/Terminal/Window Styles/TerminalHiddenTitlebar.xib",
@@ -137,15 +139,16 @@
 				Features/Update/UpdateSimulator.swift,
 				Features/Update/UpdateViewModel.swift,
 				"Ghostty/FullscreenMode+Extension.swift",
-				Ghostty/Ghostty.Command.swift,
 				Ghostty/Ghostty.Error.swift,
 				Ghostty/Ghostty.Event.swift,
 				Ghostty/Ghostty.Input.swift,
 				Ghostty/Ghostty.Surface.swift,
-				Ghostty/InspectorView.swift,
 				"Ghostty/NSEvent+Extension.swift",
-				Ghostty/SurfaceScrollView.swift,
-				Ghostty/SurfaceView_AppKit.swift,
+				"Ghostty/Surface View/InspectorView.swift",
+				"Ghostty/Surface View/SurfaceDragSource.swift",
+				"Ghostty/Surface View/SurfaceGrabHandle.swift",
+				"Ghostty/Surface View/SurfaceScrollView.swift",
+				"Ghostty/Surface View/SurfaceView_AppKit.swift",
 				Helpers/AppInfo.swift,
 				Helpers/CodableBridge.swift,
 				Helpers/Cursor.swift,
@@ -166,6 +169,7 @@
 				"Helpers/Extensions/NSView+Extension.swift",
 				"Helpers/Extensions/NSWindow+Extension.swift",
 				"Helpers/Extensions/NSWorkspace+Extension.swift",
+				"Helpers/Extensions/Transferable+Extension.swift",
 				"Helpers/Extensions/UndoManager+Extension.swift",
 				"Helpers/Extensions/View+Extension.swift",
 				Helpers/Fullscreen.swift,
@@ -187,7 +191,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/iOS/iOSApp.swift,
-				Ghostty/SurfaceView_UIKit.swift,
+				"Ghostty/Surface View/SurfaceView_UIKit.swift",
 			);
 			target = A5B30530299BEAAA0047F10C /* Ghostty */;
 		};

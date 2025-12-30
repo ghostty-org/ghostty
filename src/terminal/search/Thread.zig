@@ -257,18 +257,46 @@ fn select(self: *Thread, sel: ScreenSearch.Select) !void {
     self.opts.mutex.lock();
     defer self.opts.mutex.unlock();
 
-    // The selection will trigger a selection change notification
-    // if it did change.
-    if (try screen_search.select(sel)) scroll: {
-        if (screen_search.selected) |m| {
-            // Selection changed, let's scroll the viewport to see it
-            // since we have the lock anyways.
-            const screen = self.opts.terminal.screens.get(
-                s.last_screen.key,
-            ) orelse break :scroll;
-            screen.scroll(.{ .pin = m.highlight.start.* });
+    // Make the selection. Ignore the result because we don't
+    // care if the selection didn't change.
+    _ = try screen_search.select(sel);
+
+    // Grab our match if we have one. If we don't have a selection
+    // then we do nothing.
+    const flattened = screen_search.selectedMatch() orelse return;
+
+    // No matter what we reset our selected match cache. This will
+    // trigger a callback which will trigger the renderer to wake up
+    // so it can be notified the screen scrolled.
+    s.last_screen.selected = null;
+
+    // Grab the current screen and see if this match is visible within
+    // the viewport already. If it is, we do nothing.
+    const screen = self.opts.terminal.screens.get(
+        s.last_screen.key,
+    ) orelse return;
+
+    // Grab the viewport. Viewports and selections are usually small
+    // so this check isn't very expensive, despite appearing O(N^2),
+    // both Ns are usually equal to 1.
+    var it = screen.pages.pageIterator(
+        .right_down,
+        .{ .viewport = .{} },
+        null,
+    );
+    const hl_chunks = flattened.chunks.slice();
+    while (it.next()) |chunk| {
+        for (0..hl_chunks.len) |i| {
+            const hl_chunk = hl_chunks.get(i);
+            if (chunk.overlaps(.{
+                .node = hl_chunk.node,
+                .start = hl_chunk.start,
+                .end = hl_chunk.end,
+            })) return;
         }
     }
+
+    screen.scroll(.{ .pin = flattened.startPin() });
 }
 
 /// Change the search term to the given value.

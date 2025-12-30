@@ -130,7 +130,7 @@ class NativeFullscreen: FullscreenBase, FullscreenStyle {
 
 class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     var fullscreenMode: FullscreenMode { .nonNative }
-    
+
     // Non-native fullscreen never supports tabs because tabs require
     // the "titled" style and we don't have it for non-native fullscreen.
     var supportsTabs: Bool { false }
@@ -223,7 +223,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Being untitled let's our content take up the full frame.
         window.styleMask.remove(.titled)
 
-        // We dont' want the non-native fullscreen window to be resizable
+        // We don't want the non-native fullscreen window to be resizable
         // from the edges.
         window.styleMask.remove(.resizable)
 
@@ -277,7 +277,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             if let window = window as? TerminalWindow, window.isTabBar(c) {
                 continue
             }
-            
+
             if window.titlebarAccessoryViewControllers.firstIndex(of: c) == nil {
                 window.addTitlebarAccessoryViewController(c)
             }
@@ -286,7 +286,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Removing "titled" also clears our toolbar
         window.toolbar = savedState.toolbar
         window.toolbarStyle = savedState.toolbarStyle
-        
+
         // If the window was previously in a tab group that isn't empty now,
         // we re-add it. We have to do this because our process of doing non-native
         // fullscreen removes the window from the tab group.
@@ -412,7 +412,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.toolbar = window.toolbar
             self.toolbarStyle = window.toolbarStyle
             self.dock = window.screen?.hasDock ?? false
-            
+
             self.titlebarAccessoryViewControllers = if (window.hasTitleBar) {
                 // Accessing titlebarAccessoryViewControllers without a titlebar triggers a crash.
                 window.titlebarAccessoryViewControllers

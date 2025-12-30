@@ -474,7 +474,7 @@ class TerminalWindow: NSWindow {
         let forceOpaque = terminalController?.isBackgroundOpaque ?? false
         if !styleMask.contains(.fullScreen) &&
             !forceOpaque &&
-            surfaceConfig.backgroundOpacity < 1
+            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle)
         {
             isOpaque = false
 
@@ -483,26 +483,14 @@ class TerminalWindow: NSWindow {
             // Terminal.app more easily.
             backgroundColor = .white.withAlphaComponent(0.001)
 
-            // Add liquid glass behind terminal content
-            if #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle {
-                setupGlassLayer()
-            } else if let appDelegate = NSApp.delegate as? AppDelegate {
-                // If we had a prior glass layer we should remove it
-                if #available(macOS 26.0, *) {
-                    removeGlassLayer()
-                }
-                
+            // We don't need to set blur when using glass
+            if !surfaceConfig.backgroundBlur.isGlassStyle,  let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
             }
         } else {
             isOpaque = true
-
-            // Remove liquid glass when not transparent
-            if #available(macOS 26.0, *) {
-                removeGlassLayer()
-            }
 
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
             self.backgroundColor = backgroundColor.withAlphaComponent(1)
@@ -581,50 +569,6 @@ class TerminalWindow: NSWindow {
             NotificationCenter.default.removeObserver(observer)
         }
     }
-
-#if compiler(>=6.2)
-    // MARK: Glass
-
-    @available(macOS 26.0, *)
-    private func setupGlassLayer() {
-        // Remove existing glass effect view
-        removeGlassLayer()
-    
-        // Get the window content view (parent of the NSHostingView)
-        guard let contentView else { return }
-        guard let windowContentView = contentView.superview else { return }
-
-        // Create NSGlassEffectView for native glass effect
-        let effectView = NSGlassEffectView()
-
-        // Map Ghostty config to NSGlassEffectView style
-        switch derivedConfig.backgroundBlur {
-        case .macosGlassRegular:
-            effectView.style = NSGlassEffectView.Style.regular
-        case .macosGlassClear:
-            effectView.style = NSGlassEffectView.Style.clear
-        default:
-            // Should not reach here since we check for glass style before calling
-            // setupGlassLayer()
-            assertionFailure()
-        }
-
-        effectView.cornerRadius = derivedConfig.windowCornerRadius
-        effectView.tintColor = preferredBackgroundColor
-        effectView.frame = windowContentView.bounds
-        effectView.autoresizingMask = [.width, .height]
-
-        // Position BELOW the terminal content to act as background
-        windowContentView.addSubview(effectView, positioned: .below, relativeTo: contentView)
-        glassEffectView = effectView
-    }
-
-    @available(macOS 26.0, *)
-    private func removeGlassLayer() {
-        glassEffectView?.removeFromSuperview()
-        glassEffectView = nil
-    }
-#endif // compiler(>=6.2)
     
     // MARK: Config
 

@@ -215,7 +215,7 @@ pub fn RefCountedSet(
             OutOfMemory,
 
             /// The set needs to be rehashed, as there are many dead
-            /// items with lower IDs which are inaccessible for re-use.
+            /// items with lower IDs which are inaccessible for reuse.
             NeedsRehash,
         };
 
@@ -437,7 +437,7 @@ pub fn RefCountedSet(
         }
 
         /// Delete an item, removing any references from
-        /// the table, and freeing its ID to be re-used.
+        /// the table, and freeing its ID to be reused.
         fn deleteItem(self: *Self, base: anytype, id: Id, ctx: Context) void {
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
@@ -585,7 +585,7 @@ pub fn RefCountedSet(
                 const item = &items[id];
 
                 // If there's a dead item then we resurrect it
-                // for our value so that we can re-use its ID,
+                // for our value so that we can reuse its ID,
                 // unless its ID is greater than the one we're
                 // given (i.e. prefer smaller IDs).
                 if (item.meta.ref == 0) {
@@ -645,7 +645,7 @@ pub fn RefCountedSet(
             }
 
             // Our chosen ID may have changed if we decided
-            // to re-use a dead item's ID, so we make sure
+            // to reuse a dead item's ID, so we make sure
             // the chosen bucket contains the correct ID.
             table[new_item.meta.bucket] = chosen_id;
 

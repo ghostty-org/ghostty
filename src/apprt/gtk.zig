@@ -10,4 +10,5 @@ pub const WeakRef = @import("gtk/weak_ref.zig").WeakRef;
 test {
     @import("std").testing.refAllDecls(@This());
     _ = @import("gtk/ext.zig");
+    _ = @import("gtk/key.zig");
 }

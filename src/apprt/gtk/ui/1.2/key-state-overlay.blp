@@ -1,0 +1,58 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyKeyStateOverlay: Adw.Bin {
+  visible: bind $has_state(template.has-tables, template.has-sequence) as <bool>;
+  valign-target: end;
+  halign: center;
+  valign: bind template.valign-target;
+
+  GestureDrag {
+    button: 1;
+    propagation-phase: capture;
+    drag-end => $on_drag_end();
+  }
+
+  Adw.Bin {
+    Box container {
+      styles [
+        "background",
+        "key-state-overlay",
+      ]
+
+      orientation: horizontal;
+      spacing: 6;
+
+      Image {
+        icon-name: "input-keyboard-symbolic";
+        pixel-size: 16;
+      }
+
+      Label tables_label {
+        visible: bind template.has-tables;
+        label: bind $tables_text(template.tables) as <string>;
+        xalign: 0.0;
+      }
+
+      Label chevron_label {
+        visible: bind $show_chevron(template.has-tables, template.has-sequence) as <bool>;
+        label: "›";
+
+        styles [
+          "dim-label",
+        ]
+      }
+
+      Label sequence_label {
+        visible: bind template.has-sequence;
+        label: bind $sequence_text(template.sequence) as <string>;
+        xalign: 0.0;
+      }
+
+      Spinner pending_spinner {
+        visible: bind template.has-sequence;
+        spinning: bind template.has-sequence;
+      }
+    }
+  }
+}

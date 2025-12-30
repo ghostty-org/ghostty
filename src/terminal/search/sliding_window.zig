@@ -575,9 +575,16 @@ pub const SlidingWindow = struct {
             );
         }
 
+        // If our written data is empty, then there is nothing to
+        // add to our data set.
+        const written = encoded.written();
+        if (written.len == 0) {
+            self.assertIntegrity();
+            return 0;
+        }
+
         // Get our written data. If we're doing a reverse search then we
         // need to reverse all our encodings.
-        const written = encoded.written();
         switch (self.direction) {
             .forward => {},
             .reverse => {
@@ -1635,5 +1642,35 @@ test "SlidingWindow single append reversed soft wrapped" {
         } }, screen.pages.pointFromPin(.active, sel.end));
     }
     try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
+
+// This tests a real bug that occurred where a whitespace-only page
+// that encodes to zero bytes would crash.
+test "SlidingWindow append whitespace only node" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "x");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+
+    // By setting the empty page to wrap we get a zero-byte page.
+    // This is invasive but its otherwise hard to reproduce naturally
+    // without creating a slow test.
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const last_row = node.data.getRow(node.data.size.rows - 1);
+    last_row.wrap = true;
+
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    _ = try w.append(node);
+
+    // No matches expected
     try testing.expect(w.next() == null);
 }

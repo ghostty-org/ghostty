@@ -1521,6 +1521,11 @@ class: ?[:0]const u8 = null,
 ///     specifically output that key (e.g. `ctrl+a>ctrl+a=text:foo`) or
 ///     press an unbound key which will send both keys to the program.
 ///
+///   * If an unbound key is pressed during a sequence and a `catch_all`
+///     binding exists that would `ignore` the input, the entire sequence
+///     is dropped and nothing happens. Otherwise, the entire sequence is
+///     encoded and sent to the running program as if no keybind existed.
+///
 ///   * If a prefix in a sequence is previously bound, the sequence will
 ///     override the previous binding. For example, if `ctrl+a` is bound to
 ///     `new_window` and `ctrl+a>n` is bound to `new_tab`, pressing `ctrl+a`
@@ -1666,6 +1671,90 @@ class: ?[:0]const u8 = null,
 ///
 ///  - Notably, global shortcuts have not been implemented on wlroots-based
 ///    compositors like Sway (see [upstream issue](https://github.com/emersion/xdg-desktop-portal-wlr/issues/240)).
+///
+/// ## Chained Actions
+///
+/// A keybind can have multiple actions by using the `chain` keyword for
+/// subsequent actions. When a keybind is activated, all chained actions are
+/// executed in order. The syntax is:
+///
+/// ```ini
+/// keybind = ctrl+a=new_window
+/// keybind = chain=goto_split:left
+/// ```
+///
+/// This binds `ctrl+a` to first open a new window, then move focus to the
+/// left split. Each `chain` entry appends an action to the most recently
+/// defined keybind. You can chain as many actions as you want:
+///
+/// ```ini
+/// keybind = ctrl+a=new_window
+/// keybind = chain=goto_split:left
+/// keybind = chain=toggle_fullscreen
+/// ```
+///
+/// Chained actions cannot have prefixes like `global:` or `unconsumed:`.
+/// The flags from the original keybind apply to the entire chain.
+///
+/// Chained actions work with key sequences as well. For example:
+///
+/// ```ini
+/// keybind = ctrl+a>n=new_window
+/// keybind = chain=goto_split:left
+/// ````
+///
+/// Chains with key sequences apply to the most recent binding in the
+/// sequence.
+///
+/// Chained keybinds are available since Ghostty 1.3.0.
+///
+/// ## Key Tables
+///
+/// You may also create a named set of keybindings known as a "key table."
+/// A key table must be explicitly activated for the bindings to become
+/// available. This can be used to implement features such as a
+/// "copy mode", "vim mode", etc. Generically, this can implement modal
+/// keyboard input.
+///
+/// Key tables are defined using the syntax `<table>/<binding>`. The
+/// `<binding>` value is everything documented above for keybinds. The
+/// `<table>` value is the name of the key table. Table names can contain
+/// anything except `/`, `=`, `+`, and `>`. The characters `+` and `>` are
+/// reserved for keybind syntax (modifier combinations and key sequences).
+/// For example `foo/ctrl+a=new_window` defines a binding within a table
+/// named `foo`.
+///
+/// Tables are activated and deactivated using the binding actions
+/// `activate_key_table:<name>` and `deactivate_key_table`. Other table
+/// related binding actions also exist; see the documentation for a full list.
+/// These are the primary way to interact with key tables.
+///
+/// Binding lookup proceeds from the innermost table outward, so keybinds in
+/// the default table remain available unless explicitly unbound in an inner
+/// table.
+///
+/// A key table has some special syntax and handling:
+///
+///   * `<name>/` (with no binding) defines and clears a table, resetting all
+///     of its keybinds and settings.
+///
+///   * You cannot activate a table that is already the innermost table; such
+///     attempts are ignored. However, the same table can appear multiple times
+///     in the stack as long as it is not innermost (e.g., `A -> B -> A -> B`
+///     is valid, but `A -> B -> B` is not).
+///
+///   * A table can be activated in one-shot mode using
+///     `activate_key_table_once:<name>`. A one-shot table is automatically
+///     deactivated when any non-catch-all binding is invoked.
+///
+///   * Key sequences work within tables: `foo/ctrl+a>ctrl+b=new_window`.
+///     If an invalid key is pressed, the sequence ends but the table remains
+///     active.
+///
+///   * Prefixes like `global:` work within tables:
+///     `foo/global:ctrl+a=new_window`.
+///
+/// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
 
 /// Horizontal window padding. This applies padding between the terminal cells
@@ -3271,7 +3360,7 @@ else
 ///    more subtle border.
 @"gtk-toolbar-style": GtkToolbarStyle = .raised,
 
-/// The style of the GTK titlbar. Available values are `native` and `tabs`.
+/// The style of the GTK titlebar. Available values are `native` and `tabs`.
 ///
 /// The `native` titlebar style is a traditional titlebar with a title, a few
 /// buttons and window controls. A separate tab bar will show up below the
@@ -6600,12 +6689,21 @@ pub const Keybinds = struct {
         // We look for '/' only before the first '=' to avoid matching
         // action arguments like "foo=text:/hello".
         const eq_idx = std.mem.indexOfScalar(u8, value, '=') orelse value.len;
-        if (std.mem.indexOfScalar(u8, value[0..eq_idx], '/')) |slash_idx| {
+        if (std.mem.indexOfScalar(u8, value[0..eq_idx], '/')) |slash_idx| table: {
             const table_name = value[0..slash_idx];
-            const binding = value[slash_idx + 1 ..];
 
-            // Table name cannot be empty
-            if (table_name.len == 0) return error.InvalidFormat;
+            // Length zero is valid, so you can set `/=action` for the slash key
+            if (table_name.len == 0) break :table;
+
+            // Ignore '+', '>' because they can be part of sequences and
+            // triggers. This lets things like `ctrl+/=action` work.
+            if (std.mem.indexOfAny(
+                u8,
+                table_name,
+                "+>",
+            ) != null) break :table;
+
+            const binding = value[slash_idx + 1 ..];
 
             // Get or create the table
             const gop = try self.tables.getOrPut(alloc, table_name);
@@ -6704,6 +6802,21 @@ pub const Keybinds = struct {
                         self_leaf,
                         other_leaf,
                     )) return false;
+                },
+
+                .leaf_chained => {
+                    const self_chain = self_entry.value_ptr.*.leaf_chained;
+                    const other_chain = other_entry.value_ptr.*.leaf_chained;
+
+                    if (self_chain.flags != other_chain.flags) return false;
+                    if (self_chain.actions.items.len != other_chain.actions.items.len) return false;
+                    for (self_chain.actions.items, other_chain.actions.items) |a1, a2| {
+                        if (!equalField(
+                            inputpkg.Binding.Action,
+                            a1,
+                            a2,
+                        )) return false;
+                    }
                 },
             }
         }
@@ -6956,6 +7069,105 @@ pub const Keybinds = struct {
         // Should be in root set, not a table
         try testing.expectEqual(1, keybinds.set.bindings.count());
         try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI slash as key with modifier is not a table" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // ctrl+/ should be parsed as a keybind with '/' as the key, not a table
+        try keybinds.parseCLI(alloc, "ctrl+/=text:foo");
+
+        // Should be in root set, not a table
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI shift+slash as key is not a table" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // shift+/ should be parsed as a keybind, not a table
+        try keybinds.parseCLI(alloc, "shift+/=ignore");
+
+        // Should be in root set, not a table
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI bare slash as key is not a table" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Bare / as a key should work (empty table name is rejected)
+        try keybinds.parseCLI(alloc, "/=text:foo");
+
+        // Should be in root set, not a table
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI slash in key sequence is not a table" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Key sequence ending with / should work
+        try keybinds.parseCLI(alloc, "ctrl+a>ctrl+/=new_window");
+
+        // Should be in root set, not a table
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI table with slash in binding" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Table with a binding that uses / as the key
+        try keybinds.parseCLI(alloc, "mytable//=text:foo");
+
+        // Should be in the table
+        try testing.expectEqual(0, keybinds.set.bindings.count());
+        try testing.expectEqual(1, keybinds.tables.count());
+        try testing.expect(keybinds.tables.contains("mytable"));
+        try testing.expectEqual(1, keybinds.tables.get("mytable").?.bindings.count());
+    }
+
+    test "parseCLI table with sequence containing slash" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Table with a key sequence that ends with /
+        try keybinds.parseCLI(alloc, "mytable/a>/=new_window");
+
+        // Should be in the table
+        try testing.expectEqual(0, keybinds.set.bindings.count());
+        try testing.expectEqual(1, keybinds.tables.count());
+        try testing.expect(keybinds.tables.contains("mytable"));
     }
 
     test "clone with tables" {
@@ -7829,15 +8041,37 @@ pub const SplitPreserveZoom = packed struct {
 };
 
 pub const RepeatableCommand = struct {
-    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
+    const Self = @This();
 
-    pub fn init(self: *RepeatableCommand, alloc: Allocator) !void {
+    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
+    value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty,
+
+    /// ghostty_config_command_list_s
+    pub const C = extern struct {
+        commands: [*]inputpkg.Command.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .commands = self.value_c.items.ptr,
+            .len = self.value_c.items.len,
+        };
+    }
+
+    pub fn init(self: *Self, alloc: Allocator) !void {
         self.value = .empty;
+        self.value_c = .empty;
+        errdefer {
+            self.value.deinit(alloc);
+            self.value_c.deinit(alloc);
+        }
         try self.value.appendSlice(alloc, inputpkg.command.defaults);
+        try self.value_c.appendSlice(alloc, inputpkg.command.defaultsC);
     }
 
     pub fn parseCLI(
-        self: *RepeatableCommand,
+        self: *Self,
         alloc: Allocator,
         input_: ?[]const u8,
     ) !void {
@@ -7845,8 +8079,13 @@ pub const RepeatableCommand = struct {
         const input = input_ orelse "";
         if (input.len == 0) {
             self.value.clearRetainingCapacity();
+            self.value_c.clearRetainingCapacity();
             return;
         }
+
+        // Reserve space in our lists
+        try self.value.ensureUnusedCapacity(alloc, 1);
+        try self.value_c.ensureUnusedCapacity(alloc, 1);
 
         const cmd = try cli.args.parseAutoStruct(
             inputpkg.Command,
@@ -7854,17 +8093,22 @@ pub const RepeatableCommand = struct {
             input,
             null,
         );
-        try self.value.append(alloc, cmd);
+        const cmd_c = try cmd.cval(alloc);
+        self.value.appendAssumeCapacity(cmd);
+        self.value_c.appendAssumeCapacity(cmd_c);
     }
 
     /// Deep copy of the struct. Required by Config.
-    pub fn clone(self: *const RepeatableCommand, alloc: Allocator) Allocator.Error!RepeatableCommand {
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         const value = try self.value.clone(alloc);
         for (value.items) |*item| {
             item.* = try item.clone(alloc);
         }
 
-        return .{ .value = value };
+        return .{
+            .value = value,
+            .value_c = try self.value_c.clone(alloc),
+        };
     }
 
     /// Compare if two of our value are equal. Required by Config.
@@ -8019,6 +8263,50 @@ pub const RepeatableCommand = struct {
             try testing.expect(item.action == .text);
             try testing.expectEqualStrings("kurwa", item.action.text);
         }
+    }
+
+    test "RepeatableCommand cval" {
+        const testing = std.testing;
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,action:ignore");
+        try list.parseCLI(alloc, "title:Bar,description:bobr,action:text:ale bydle");
+
+        try testing.expectEqual(@as(usize, 2), list.value.items.len);
+        try testing.expectEqual(@as(usize, 2), list.value_c.items.len);
+
+        const cv = list.cval();
+        try testing.expectEqual(@as(usize, 2), cv.len);
+
+        // First entry
+        try testing.expectEqualStrings("Foo", std.mem.sliceTo(cv.commands[0].title, 0));
+        try testing.expectEqualStrings("ignore", std.mem.sliceTo(cv.commands[0].action_key, 0));
+        try testing.expectEqualStrings("ignore", std.mem.sliceTo(cv.commands[0].action, 0));
+
+        // Second entry
+        try testing.expectEqualStrings("Bar", std.mem.sliceTo(cv.commands[1].title, 0));
+        try testing.expectEqualStrings("bobr", std.mem.sliceTo(cv.commands[1].description, 0));
+        try testing.expectEqualStrings("text", std.mem.sliceTo(cv.commands[1].action_key, 0));
+        try testing.expectEqualStrings("text:ale bydle", std.mem.sliceTo(cv.commands[1].action, 0));
+    }
+
+    test "RepeatableCommand cval cleared" {
+        const testing = std.testing;
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,action:ignore");
+        try testing.expectEqual(@as(usize, 1), list.cval().len);
+
+        try list.parseCLI(alloc, "");
+        try testing.expectEqual(@as(usize, 0), list.cval().len);
     }
 };
 

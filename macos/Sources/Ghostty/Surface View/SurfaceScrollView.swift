@@ -120,18 +120,20 @@ class SurfaceScrollView: NSView {
             self?.handleScrollerStyleChange()
         })
 
-        // Listen for frame change events. See the docstring for
-        // handleFrameChange for why this is necessary.
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification,
-            object: nil,
-            // Since this observer is used to immediately override the event
-            // that produced the notification, we let it run synchronously on
-            // the posting thread.
-            queue: nil
-        ) { [weak self] notification in
-            self?.handleFrameChange(notification)
-        })
+        // Listen for frame change events on macOS 26.0. See the docstring for
+        // handleFrameChangeForNSScrollPocket for why this is necessary.
+        if #unavailable(macOS 26.1) { if #available(macOS 26.0, *) {
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: nil,
+                // Since this observer is used to immediately override the event
+                // that produced the notification, we let it run synchronously on
+                // the posting thread.
+                queue: nil
+            ) { [weak self] notification in
+                self?.handleFrameChangeForNSScrollPocket(notification)
+            })
+        }}
 
         // Listen for derived config changes to update scrollbar settings live
         surfaceView.$derivedConfig
@@ -328,7 +330,10 @@ class SurfaceScrollView: NSView {
     /// and reset their frame to zero.
     ///
     /// See also https://developer.apple.com/forums/thread/798392.
-    private func handleFrameChange(_ notification: Notification) {
+    ///
+    /// This bug is only present in macOS 26.0.
+    @available(macOS, introduced: 26.0, obsoleted: 26.1)
+    private func handleFrameChangeForNSScrollPocket(_ notification: Notification) {
         guard let window = window as? HiddenTitlebarTerminalWindow else { return }
         guard !window.styleMask.contains(.fullScreen) else { return }
         guard let view = notification.object as? NSView else { return }

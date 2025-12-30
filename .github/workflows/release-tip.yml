@@ -232,7 +232,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
@@ -466,7 +466,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
@@ -650,7 +650,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version

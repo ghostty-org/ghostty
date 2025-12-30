@@ -10,7 +10,7 @@ pub const ButtonState = enum(c_int) {
     press,
 };
 
-/// Possible mouse buttons. We only track up to 11 because thats the maximum
+/// Possible mouse buttons. We only track up to 11 because that's the maximum
 /// button input that terminal mouse tracking handles without becoming
 /// ambiguous.
 ///

@@ -26,6 +26,7 @@ const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
+const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
@@ -360,6 +361,44 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"key-sequence" = struct {
+            pub const name = "key-sequence";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeySequence,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const @"key-table" = struct {
+            pub const name = "key-table";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeyTable,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -553,6 +592,9 @@ pub const Surface = extern struct {
         /// The search overlay
         search_overlay: *SearchOverlay,
 
+        /// The key state overlay
+        key_state_overlay: *KeyStateOverlay,
+
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
 
@@ -616,6 +658,10 @@ pub const Surface = extern struct {
         hscroll_policy: gtk.ScrollablePolicy = .natural,
         vscroll_policy: gtk.ScrollablePolicy = .natural,
         vadj_signal_group: ?*gobject.SignalGroup = null,
+
+        // Key state tracking for key sequences and tables
+        key_sequence: std.ArrayListUnmanaged([:0]const u8) = .empty,
+        key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
 
         // Template binds
         child_exited_overlay: *ChildExited,
@@ -776,6 +822,74 @@ pub const Surface = extern struct {
     pub fn redrawInspector(self: *Self) void {
         const priv = self.private();
         if (priv.inspector) |v| v.queueRender();
+    }
+
+    /// Handle a key sequence action from the apprt.
+    pub fn keySequenceAction(
+        self: *Self,
+        value: apprt.action.KeySequence,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-sequence".impl.param_spec);
+
+        switch (value) {
+            .trigger => |trigger| {
+                // Convert the trigger to a human-readable label
+                var buf: std.Io.Writer.Allocating = .init(alloc);
+                defer buf.deinit();
+                if (gtk_key.labelFromTrigger(&buf.writer, trigger)) |success| {
+                    if (!success) return;
+                } else |_| return error.OutOfMemory;
+
+                // Make space
+                try priv.key_sequence.ensureUnusedCapacity(alloc, 1);
+
+                // Copy and append
+                const duped = try buf.toOwnedSliceSentinel(0);
+                errdefer alloc.free(duped);
+                priv.key_sequence.appendAssumeCapacity(duped);
+            },
+            .end => {
+                // Free all the stored strings and clear
+                for (priv.key_sequence.items) |s| alloc.free(s);
+                priv.key_sequence.clearAndFree(alloc);
+            },
+        }
+    }
+
+    /// Handle a key table action from the apprt.
+    pub fn keyTableAction(
+        self: *Self,
+        value: apprt.action.KeyTable,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-table".impl.param_spec);
+
+        switch (value) {
+            .activate => |name| {
+                // Duplicate the name string and push onto stack
+                const duped = try alloc.dupeZ(u8, name);
+                errdefer alloc.free(duped);
+                try priv.key_tables.append(alloc, duped);
+            },
+            .deactivate => {
+                // Pop and free the top table
+                if (priv.key_tables.pop()) |s| alloc.free(s);
+            },
+            .deactivate_all => {
+                // Free all tables and clear
+                for (priv.key_tables.items) |s| alloc.free(s);
+                priv.key_tables.clearAndFree(alloc);
+            },
+        }
     }
 
     pub fn showOnScreenKeyboard(self: *Self, event: ?*gdk.Event) bool {
@@ -1787,6 +1901,14 @@ pub const Surface = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
+
+        // Clean up key sequence and key table state
+        const alloc = Application.default().allocator();
+        for (priv.key_sequence.items) |s| alloc.free(s);
+        priv.key_sequence.deinit(alloc);
+        for (priv.key_tables.items) |s| alloc.free(s);
+        priv.key_tables.deinit(alloc);
+
         self.clearCgroup();
 
         gobject.Object.virtual_methods.finalize.call(
@@ -1871,6 +1993,20 @@ pub const Surface = extern struct {
             &size,
         );
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
+    }
+
+    /// Get the key sequence list. Full transfer.
+    fn getKeySequence(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_sequence.items) catch null;
+    }
+
+    /// Get the key table list. Full transfer.
+    fn getKeyTable(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_tables.items) catch null;
     }
 
     /// Return the min size, if set.
@@ -3236,6 +3372,7 @@ pub const Surface = extern struct {
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(ResizeOverlay);
             gobject.ext.ensureType(SearchOverlay);
+            gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -3256,6 +3393,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
             class.bindTemplateChildPrivate("search_overlay", .{});
+            class.bindTemplateChildPrivate("key_state_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
@@ -3307,6 +3445,8 @@ pub const Surface = extern struct {
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,
+                properties.@"key-sequence".impl,
+                properties.@"key-table".impl,
                 properties.@"min-size".impl,
                 properties.@"mouse-shape".impl,
                 properties.@"mouse-hidden".impl,

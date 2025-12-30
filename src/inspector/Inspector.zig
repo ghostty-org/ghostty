@@ -1213,7 +1213,7 @@ fn renderTermioWindow(self: *Inspector) void {
             cimgui.c.igText("%s", ev.str.ptr);
 
             // If the event is selected, we render info about it. For now
-            // we put this in the last column because thats the widest and
+            // we put this in the last column because that's the widest and
             // imgui has no way to make a column span.
             if (ev.imgui_selected) {
                 {

@@ -47,6 +47,18 @@ label.url-overlay.right {
 }
 
 /*
+ * GhosttySurface key state overlay
+ */
+.key-state-overlay {
+  padding: 6px 10px;
+  margin: 8px;
+  border-radius: 8px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+/*
  * GhosttySurface resize overlay
  */
 label.resize-overlay {

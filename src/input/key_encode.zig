@@ -153,7 +153,7 @@ fn kitty(
 
         // IME confirmation still sends an enter key so if we have enter
         // and UTF8 text we just send it directly since we assume that is
-        // whats happening. See legacy()'s similar logic for more details
+        // what's happening. See legacy()'s similar logic for more details
         // on how to verify this.
         if (event.utf8.len > 0) utf8: {
             switch (event.key) {

@@ -671,7 +671,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    private func closeWindowImmediately() {
+    func closeWindowImmediately() {
         guard let window = window else { return }
 
         registerUndoForCloseWindow()
@@ -936,11 +936,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = NSHostingView(rootView: TerminalView(
+        window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self,
-        ))
+        )
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -952,9 +952,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .contentIntrinsicSize:
                 // Content intrinsic size requires a short delay so that AppKit
                 // can layout our SwiftUI views.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak window] in
-                    guard let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak self, weak window] in
+                    guard let self, let window else { return }
                     defaultSize.apply(to: window)
+                    if let screen = window.screen ?? NSScreen.main {
+                        let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
+                        window.setFrameOrigin(frame.origin)
+                    }
                 }
             }
         }

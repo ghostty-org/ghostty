@@ -163,11 +163,11 @@ in
       };
     }
     {
-      name = "N-V-__8AANFEAwCzzNzNs3Gaq8pzGNl2BbeyFBwTyO5iZJL-";
+      name = "N-V-__8AAIdIAwAOceDblkuOARUyuTKbDdGPjPClPLhMeIfU";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251201-150531-bfb3ee1/ghostty-themes.tgz";
-        hash = "sha256-5QePBQlSsz9W2r4zTS3QD+cDAeyObhR51E2AkJ3ZIUk=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20251222-150520-0add1e1.tgz";
+        hash = "sha256-cMIEDZFYdilCavhL5pWQ6jRerGUFSZIjLwbxNossSeg=";
       };
     }
     {
@@ -307,11 +307,11 @@ in
       };
     }
     {
-      name = "z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T";
+      name = "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://deps.files.ghostty.org/z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T.tar.gz";
-        hash = "sha256-+QqCRoXwrFA1/l+oWvYVyAVebGQitAFQNhi9U3EVrxA=";
+        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz";
+        hash = "sha256-afIdou/V7gk3/lXE0J5Ir8T7L5GgHvFnyMJ1rgRnl/c=";
       };
     }
     {

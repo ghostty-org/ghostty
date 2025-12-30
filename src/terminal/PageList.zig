@@ -3821,6 +3821,15 @@ pub const PageIterator = struct {
         pub fn fullPage(self: Chunk) bool {
             return self.start == 0 and self.end == self.node.data.size.rows;
         }
+
+        /// Returns true if this chunk overlaps with the given other chunk
+        /// in any way.
+        pub fn overlaps(self: Chunk, other: Chunk) bool {
+            if (self.node != other.node) return false;
+            if (self.end <= other.start) return false;
+            if (self.start >= other.end) return false;
+            return true;
+        }
     };
 };
 

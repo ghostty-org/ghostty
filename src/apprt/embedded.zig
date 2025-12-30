@@ -155,7 +155,7 @@ pub const App = struct {
         while (it.next()) |entry| {
             switch (entry.value_ptr.*) {
                 .leader => {},
-                .leaf => |leaf| if (leaf.flags.global) return true,
+                inline .leaf, .leaf_chained => |leaf| if (leaf.flags.global) return true,
             }
         }
 
@@ -1698,23 +1698,6 @@ pub const CAPI = struct {
                 surface.app.keyboardLayout().detectOptionAsAlt(),
         );
         return @intCast(@as(input.Mods.Backing, @bitCast(result)));
-    }
-
-    /// Returns the current possible commands for a surface
-    /// in the output parameter. The memory is owned by libghostty
-    /// and doesn't need to be freed.
-    export fn ghostty_surface_commands(
-        surface: *Surface,
-        out: *[*]const input.Command.C,
-        len: *usize,
-    ) void {
-        // In the future we may use this information to filter
-        // some commands.
-        _ = surface;
-
-        const commands = input.command.defaultsC;
-        out.* = commands.ptr;
-        len.* = commands.len;
     }
 
     /// Send this for raw keypresses (i.e. the keyDown event on macOS).

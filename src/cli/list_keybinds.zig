@@ -95,18 +95,35 @@ const TriggerNode = struct {
 };
 
 const ChordBinding = struct {
+    table_name: ?[]const u8 = null,
     triggers: std.SinglyLinkedList,
-    action: Binding.Action,
+    actions: []const Binding.Action,
 
     // Order keybinds based on various properties
-    //    1. Longest chord sequence
-    //    2. Most active modifiers
-    //    3. Alphabetically by active modifiers
-    //    4. Trigger key order
+    //    1. Default bindings before table bindings (tables grouped at end)
+    //    2. Longest chord sequence
+    //    3. Most active modifiers
+    //    4. Alphabetically by active modifiers
+    //    5. Trigger key order
+    //    6. Within tables, sort by table name
     // These properties propagate through chorded keypresses
     //
     // Adapted from Binding.lessThan
     pub fn lessThan(_: void, lhs: ChordBinding, rhs: ChordBinding) bool {
+        const lhs_has_table = lhs.table_name != null;
+        const rhs_has_table = rhs.table_name != null;
+
+        if (lhs_has_table != rhs_has_table) {
+            return !lhs_has_table;
+        }
+
+        if (lhs_has_table) {
+            const table_cmp = std.mem.order(u8, lhs.table_name.?, rhs.table_name.?);
+            if (table_cmp != .eq) {
+                return table_cmp == .lt;
+            }
+        }
+
         const lhs_len = lhs.triggers.len();
         const rhs_len = rhs.triggers.len();
 
@@ -231,10 +248,30 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
 
     const win = vx.window();
 
-    // Generate a list of bindings, recursively traversing chorded keybindings
+    // Collect default bindings, recursively flattening chords
     var iter = keybinds.set.bindings.iterator();
-    const bindings, const widest_chord = try iterateBindings(alloc, &iter, &win);
+    const default_bindings, var widest_chord = try iterateBindings(alloc, &iter, &win);
 
+    var bindings_list: std.ArrayList(ChordBinding) = .empty;
+    try bindings_list.appendSlice(alloc, default_bindings);
+
+    // Collect key table bindings
+    var widest_table_prefix: u16 = 0;
+    var table_iter = keybinds.tables.iterator();
+    while (table_iter.next()) |table_entry| {
+        const table_name = table_entry.key_ptr.*;
+        var binding_iter = table_entry.value_ptr.bindings.iterator();
+        const table_bindings, const table_width = try iterateBindings(alloc, &binding_iter, &win);
+        for (table_bindings) |*b| {
+            b.table_name = table_name;
+        }
+
+        try bindings_list.appendSlice(alloc, table_bindings);
+        widest_chord = @max(widest_chord, table_width);
+        widest_table_prefix = @max(widest_table_prefix, @as(u16, @intCast(win.gwidth(table_name) + win.gwidth("/"))));
+    }
+
+    const bindings = bindings_list.items;
     std.mem.sort(ChordBinding, bindings, {}, ChordBinding.lessThan);
 
     // Set up styles for each modifier
@@ -242,12 +279,22 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
     const ctrl_style: vaxis.Style = .{ .fg = .{ .index = 2 } };
     const alt_style: vaxis.Style = .{ .fg = .{ .index = 3 } };
     const shift_style: vaxis.Style = .{ .fg = .{ .index = 4 } };
+    const table_style: vaxis.Style = .{ .fg = .{ .index = 8 } };
 
     // Print the list
     for (bindings) |bind| {
         win.clear();
 
         var result: vaxis.Window.PrintResult = .{ .col = 0, .row = 0, .overflow = false };
+
+        if (bind.table_name) |name| {
+            result = win.printSegment(
+                .{ .text = name, .style = table_style },
+                .{ .col_offset = result.col },
+            );
+            result = win.printSegment(.{ .text = "/", .style = table_style }, .{ .col_offset = result.col });
+        }
+
         var maybe_trigger = bind.triggers.first;
         while (maybe_trigger) |node| : (maybe_trigger = node.next) {
             const trigger: *TriggerNode = .get(node);
@@ -281,16 +328,32 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
             }
         }
 
-        const action = try std.fmt.allocPrint(alloc, "{f}", .{bind.action});
-        // If our action has an argument, we print the argument in a different color
-        if (std.mem.indexOfScalar(u8, action, ':')) |idx| {
-            _ = win.print(&.{
-                .{ .text = action[0..idx] },
-                .{ .text = action[idx .. idx + 1], .style = .{ .dim = true } },
-                .{ .text = action[idx + 1 ..], .style = .{ .fg = .{ .index = 5 } } },
-            }, .{ .col_offset = widest_chord + 3 });
-        } else {
-            _ = win.printSegment(.{ .text = action }, .{ .col_offset = widest_chord + 3 });
+        var action_col: u16 = widest_table_prefix + widest_chord + 3;
+        for (bind.actions, 0..) |act, i| {
+            if (i > 0) {
+                const chain_result = win.printSegment(
+                    .{ .text = ", ", .style = .{ .dim = true } },
+                    .{ .col_offset = action_col },
+                );
+                action_col = chain_result.col;
+            }
+
+            const action = try std.fmt.allocPrint(alloc, "{f}", .{act});
+            // If our action has an argument, we print the argument in a different color
+            if (std.mem.indexOfScalar(u8, action, ':')) |idx| {
+                const print_result = win.print(&.{
+                    .{ .text = action[0..idx] },
+                    .{ .text = action[idx .. idx + 1], .style = .{ .dim = true } },
+                    .{ .text = action[idx + 1 ..], .style = .{ .fg = .{ .index = 5 } } },
+                }, .{ .col_offset = action_col });
+                action_col = print_result.col;
+            } else {
+                const print_result = win.printSegment(
+                    .{ .text = action },
+                    .{ .col_offset = action_col },
+                );
+                action_col = print_result.col;
+            }
         }
         try vx.prettyPrint(writer);
     }
@@ -326,7 +389,6 @@ fn iterateBindings(
 
         switch (bind.value_ptr.*) {
             .leader => |leader| {
-
                 // Recursively iterate on the set of bindings for this leader key
                 var n_iter = leader.bindings.iterator();
                 const sub_bindings, const max_width = try iterateBindings(alloc, &n_iter, win);
@@ -347,10 +409,23 @@ fn iterateBindings(
                 const node = try alloc.create(TriggerNode);
                 node.* = .{ .data = bind.key_ptr.* };
 
+                const actions = try alloc.alloc(Binding.Action, 1);
+                actions[0] = leaf.action;
+
                 widest_chord = @max(widest_chord, width);
                 try bindings.append(alloc, .{
                     .triggers = .{ .first = &node.node },
-                    .action = leaf.action,
+                    .actions = actions,
+                });
+            },
+            .leaf_chained => |leaf| {
+                const node = try alloc.create(TriggerNode);
+                node.* = .{ .data = bind.key_ptr.* };
+
+                widest_chord = @max(widest_chord, width);
+                try bindings.append(alloc, .{
+                    .triggers = .{ .first = &node.node },
+                    .actions = leaf.actions.items,
                 });
             },
         }

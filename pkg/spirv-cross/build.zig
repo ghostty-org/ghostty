@@ -74,6 +74,10 @@ fn buildSpirvCross(
         "-fno-sanitize-trap=undefined",
     });
 
+    if (target.result.os.tag == .freebsd) {
+        try flags.append(b.allocator, "-fPIC");
+    }
+
     if (b.lazyDependency("spirv_cross", .{})) |upstream| {
         lib.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
