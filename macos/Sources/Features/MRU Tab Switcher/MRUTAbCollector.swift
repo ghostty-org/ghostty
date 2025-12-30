@@ -2,10 +2,14 @@ import AppKit
 import SwiftUI
 
 class MRUTabCollector {
-  static func collectAllTabs() -> [MRUTabEntry] {
+  static func collectAllTabs(excluding currentWindow: NSWindow? = nil) -> [MRUTabEntry] {
     var entries: [MRUTabEntry] = []
 
     for window in NSApp.windows {
+      if window === currentWindow {
+        continue
+      }
+
       guard let controller = window.windowController as? BaseTerminalController else {
         continue
       }

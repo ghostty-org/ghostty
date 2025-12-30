@@ -127,7 +127,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                             MRUTabSwitcherView(
                                 isPresented: $viewModel.mruTabSwitcherIsShowing,
                                 backgroundColor: ghostty.config.backgroundColor,
-                                tabs: MRUTabCollector.collectAllTabs(),
+                                tabs: MRUTabCollector.collectAllTabs(excluding: NSApp.keyWindow),
                                 onSelect: { entry in
                                     entry.window.makeKeyAndOrderFront(nil)
 
