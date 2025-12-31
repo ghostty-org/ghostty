@@ -953,6 +953,8 @@ class BaseTerminalController: NSWindowController,
             // to do this.
             if let c = sourceController as? TerminalController {
                 c.closeTabImmediately()
+            } else if let qc = sourceController as? QuickTerminalController {
+                qc.resetSurfaceTree()
             } else {
                 // Not a TerminalController so we always undo into a new window.
                 _ = TerminalController.newWindow(
