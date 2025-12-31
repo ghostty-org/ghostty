@@ -265,6 +265,28 @@ private class QuickTerminalTabContextMenuView: NSView {
         closeOthersItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
         menu.addItem(closeOthersItem)
 
+        // Close Tabs to the Right
+        let closeRightItem = NSMenuItem(title: "Close Tabs to the Right", action: #selector(closeTabsToTheRight), keyEquivalent: "")
+        closeRightItem.target = self
+        closeRightItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
+        // Disable if this is the last tab
+        if let tabIndex = tabManager.tabs.firstIndex(where: { $0.id == tab.id }) {
+            closeRightItem.isEnabled = tabIndex < tabManager.tabs.count - 1
+        }
+        menu.addItem(closeRightItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Move Tab to New Window
+        let moveToNewWindowItem = NSMenuItem(title: "Move Tab to New Window", action: #selector(moveTabToNewWindow), keyEquivalent: "")
+        moveToNewWindowItem.target = self
+        if #available(macOS 26.0, *) {
+            moveToNewWindowItem.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
+        } else {
+            moveToNewWindowItem.image = NSImage(systemSymbolName: "rectangle", accessibilityDescription: nil)
+        }
+        menu.addItem(moveToNewWindowItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Change Title...
@@ -292,12 +314,18 @@ private class QuickTerminalTabContextMenuView: NSView {
     }
 
     @objc private func closeOtherTabs() {
-        guard let tab = tab, let tabManager = tabManager else { return }
-        tabManager.tabs.forEach { otherTab in
-            if otherTab.id != tab.id {
-                tabManager.closeTab(otherTab)
-            }
-        }
+        guard let tab = tab else { return }
+        tabManager?.closeAllTabs(except: tab)
+    }
+
+    @objc private func closeTabsToTheRight() {
+        guard let tab = tab else { return }
+        tabManager?.closeTabsToTheRight(of: tab)
+    }
+
+    @objc private func moveTabToNewWindow() {
+        guard let tab = tab else { return }
+        tabManager?.moveTabToNewWindow(tab)
     }
 
     @objc private func changeTitle() {

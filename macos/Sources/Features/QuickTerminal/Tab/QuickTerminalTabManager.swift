@@ -170,6 +170,16 @@ class QuickTerminalTabManager: ObservableObject {
         }
     }
 
+    func closeTabsToTheRight(of tab: QuickTerminalTab) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+
+        let toClose = tabs.enumerated().filter { $0.offset > index }.map { $0.element }
+
+        for tabToClose in toClose {
+            self.closeTab(tabToClose)
+        }
+    }
+
     func moveTab(from source: IndexSet, to destination: Int) {
         tabs.move(fromOffsets: source, toOffset: destination)
     }
