@@ -961,10 +961,9 @@ class BaseTerminalController: NSWindowController,
                     confirmUndo: false)
             }
         } else {
-            // The source isn't empty so we can do a simple replace which will handle
+            // The source isn't empty so we can do a simple remove which will handle
             // the undo properly.
-            sourceController.replaceSurfaceTree(
-                sourceTreeWithoutNode)
+            sourceController.removeSurfaceNode(sourceNode)
         }
         
         // Add in the surface to our tree
