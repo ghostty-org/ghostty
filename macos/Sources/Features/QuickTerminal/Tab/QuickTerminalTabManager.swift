@@ -138,6 +138,23 @@ class QuickTerminalTabManager: ObservableObject {
         selectTab(newTab)
     }
 
+    /// Adds an existing surface tree as a new tab in the quick terminal.
+    /// Used when moving a tab from a regular terminal window to the quick terminal.
+    func addTabWithSurfaceTree(
+        _ surfaceTree: SplitTree<Ghostty.SurfaceView>,
+        title: String? = nil,
+        tabColor: TerminalTabColor = .none
+    ) {
+        let tabIndex = tabs.count + 1
+        let newTab = QuickTerminalTab(
+            surfaceTree: surfaceTree,
+            title: title ?? "Terminal \(tabIndex)"
+        )
+        newTab.tabColor = tabColor
+        tabs.append(newTab)
+        selectTab(newTab)
+    }
+
     func selectTab(_ tab: QuickTerminalTab) {
         guard currentTab?.id != tab.id else { return }
 

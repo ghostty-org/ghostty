@@ -1184,6 +1184,65 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    @IBAction func moveTabToQuickTerminal(_ sender: Any?) {
+        guard let window = window else { return }
+        guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+
+        // Get the tab color from the window
+        let tabColor = (window as? TerminalWindow)?.tabColor ?? .none
+
+        // Get the title from the window
+        let title = window.title
+
+        // Get the surface tree and clear it from this controller BEFORE transferring
+        // This prevents the surfaces from being closed when the window closes
+        let tree = surfaceTree
+        surfaceTree = .init()
+
+        // Close the original window/tab first
+        if let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
+            tabGroup.removeWindow(window)
+            window.close()
+        } else {
+            window.close()
+        }
+
+        // Add the surface tree to the quick terminal
+        let quickController = appDelegate.quickController
+        quickController.tabManager.addTabWithSurfaceTree(
+            tree,
+            title: title,
+            tabColor: tabColor
+        )
+
+        // Show the quick terminal (use animateIn to ensure it's shown, not toggled)
+        if !quickController.visible {
+            quickController.animateIn()
+        }
+
+        // Ensure focus is properly set after the window is ready
+        // Use asyncAfter to give the view hierarchy time to update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Make the quick terminal window key first
+            if let qtWindow = quickController.window {
+                qtWindow.makeKeyAndOrderFront(nil)
+            }
+
+            NSApp.activate(ignoringOtherApps: true)
+
+            // Focus the first surface in the transferred tree
+            if let surface = quickController.surfaceTree.first {
+                quickController.focusSurface(surface)
+                quickController.syncFocusToSurfaceTree()
+
+                // Force a re-render of all surfaces
+                for surfaceView in quickController.surfaceTree {
+                    surfaceView.sizeDidChange(surfaceView.bounds.size)
+                }
+            }
+        }
+    }
+
     @IBAction func returnToDefaultSize(_ sender: Any?) {
         guard let window, let defaultSize else { return }
         defaultSize.apply(to: window)
