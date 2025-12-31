@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 
 extension Ghostty {
+    /// This is only true when the user is dragging the surface.
+    ///
+    /// We need this to allow global events when the surface
+    /// can't receive events callback when dragging
+    private(set) static var isDraggingSurface = false
+
     /// A preference key that propagates the ID of the SurfaceView currently being dragged,
     /// or nil if no surface is being dragged.
     struct DraggingSurfaceKey: PreferenceKey {
@@ -189,6 +195,7 @@ extension Ghostty {
             }
             
             onDragStateChanged?(true)
+            Ghostty.isDraggingSurface = true
             let session = beginDraggingSession(with: [item], event: event, source: self)
             
             // We need to disable this so that endedAt happens immediately for our
@@ -253,6 +260,7 @@ extension Ghostty {
 
             isTracking = false
             onDragStateChanged?(false)
+            Ghostty.isDraggingSurface = false
         }
     }
 }
