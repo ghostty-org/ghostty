@@ -344,7 +344,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
-        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
+        tree: SplitTree<Ghostty.SurfaceView>? = nil,
+        confirmUndo: Bool = true,
     ) -> TerminalController? {
         // Making sure that we're dealing with a TerminalController. If not,
         // then we just create a new window.
@@ -367,7 +369,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Create a new window and add it to the parent
-        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig, withSurfaceTree: tree)
         guard let window = controller.window else { return controller }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
@@ -444,7 +446,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // https://github.com/ghostty-org/ghostty/pull/9512
                 DispatchQueue.main.async {
                     undoManager.disableUndoRegistration {
-                        target.closeTab(nil)
+                        if confirmUndo {
+                            target.closeTab(nil)
+                        } else {
+                            target.closeTabImmediately()
+                        }
                     }
                 }
 

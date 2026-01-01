@@ -105,6 +105,11 @@ extension Ghostty {
         /// Whether the current drag was cancelled by pressing escape.
         private var dragCancelledByEscape: Bool = false
 
+        /// Action type for a no-target drag operation.
+        ///
+        /// Non-nil only when the drag creates a new window or tab.
+        private var dragNoTargetAction: SurfaceDragNoTargetAction?
+
         deinit {
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
@@ -219,13 +224,50 @@ extension Ghostty {
                 }
                 return event
             }
+            dragNoTargetAction = nil
         }
         
         func draggingSession(
             _ session: NSDraggingSession,
             movedTo screenPoint: NSPoint
         ) {
-            NSCursor.closedHand.set()
+            let endsInWindow = NSApplication.shared.windows.contains { window in
+                window.isVisible && window.frame.contains(screenPoint)
+            }
+            let endsInWindowContent = NSApplication.shared.windows.contains { window in
+                // TODO: Handle cases where two windows overlap.
+                //
+                // One fix is to check `window.isKeyWindow` here,
+                // but that can introduce lag, which some users might find unacceptable.
+                // I haven't found an elegant solution yet.
+                window.isVisible && window.convertToScreen(window.contentLayoutRect).contains(screenPoint)
+            }
+            let newTabButtonCellUnderCursor = NSApp.accessibilityHitTest(screenPoint) as? NSButtonCell
+            let endsOnNewTabButton = newTabButtonCellUnderCursor?.action == Selector(("_newTabWithinWindow:"))
+
+            let endsOnTab = (NSApp.accessibilityHitTest(screenPoint) as? NSCell)?.controlView?.firstSuperview(withClassName: "NSTabButton") != nil || (NSApp.accessibilityHitTest(screenPoint) as? NSView)?.className == "NSTabButton"
+            let surfaceCanBeDraggedOutsideAsNewWindowOrTab: Bool = if
+                let surfaceView, let ctrl = window?.windowController as? BaseTerminalController,
+                ctrl.surfaceShouldBeDraggedOutsideAsNewWindowOrTab(surfaceView) {
+                true
+            } else {
+                false
+            }
+
+            if endsInWindowContent || endsOnTab {
+                NSCursor.closedHand.set()
+                // move between surface trees
+                dragNoTargetAction = nil
+            } else if endsOnNewTabButton, surfaceCanBeDraggedOutsideAsNewWindowOrTab {
+                NSCursor.dragCopy.set()
+                dragNoTargetAction = .newTab(parent: newTabButtonCellUnderCursor?.controlView?.window)
+            } else if !endsInWindow, surfaceCanBeDraggedOutsideAsNewWindowOrTab {
+                NSCursor.dragCopy.set()
+                dragNoTargetAction = .newWindow(position: screenPoint)
+            } else {
+                NSCursor.operationNotAllowed.set()
+                dragNoTargetAction = nil // invalid
+            }
         }
         
         func draggingSession(
@@ -237,23 +279,25 @@ extension Ghostty {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
-
-            if operation == [] && !dragCancelledByEscape {
-                let endsInWindow = NSApplication.shared.windows.contains { window in
-                    window.isVisible && window.frame.contains(screenPoint)
-                }
-                if !endsInWindow {
-                    NotificationCenter.default.post(
-                        name: .ghosttySurfaceDragEndedNoTarget,
-                        object: surfaceView,
-                        userInfo: [Foundation.Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey: screenPoint]
-                    )
-                }
+            
+            if let dragNoTargetAction, !dragCancelledByEscape {
+                NotificationCenter.default.post(
+                    name: .ghosttySurfaceDragEndedNoTarget,
+                    object: surfaceView,
+                    userInfo: [
+                        Foundation.Notification.Name.ghosttySurfaceDragEndedNoTargetActionKey: dragNoTargetAction,
+                    ]
+                )
             }
 
             isTracking = false
             onDragStateChanged?(false)
         }
+    }
+
+    enum SurfaceDragNoTargetAction {
+        case newTab(parent: NSWindow?)
+        case newWindow(position: CGPoint)
     }
 }
 
@@ -263,6 +307,6 @@ extension Notification.Name {
     /// pressing escape. The notification's object is the SurfaceView that was dragged.
     static let ghosttySurfaceDragEndedNoTarget = Notification.Name("ghosttySurfaceDragEndedNoTarget")
     
-    /// Key for the screen point where the drag ended in the userInfo dictionary.
-    static let ghosttySurfaceDragEndedNoTargetPointKey = "endedAtPoint"
+    /// Key for the ``Ghostty/Ghostty/SurfaceDragNoTargetAction``.
+    static let ghosttySurfaceDragEndedNoTargetActionKey = "noTargetAction"
 }
