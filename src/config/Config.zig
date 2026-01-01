@@ -824,6 +824,40 @@ palette: Palette = .{},
 /// the mouse is shown again when a new window, tab, or split is created.
 @"mouse-hide-while-typing": bool = false,
 
+/// The time before the idling progress bar is hidden.
+///
+/// The duration is specified as a series of numbers followed by time units.
+/// Whitespace is allowed between numbers and units. Each number and unit will
+/// be added together to form the total duration.
+///
+/// The allowed time units are as follows:
+///
+///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
+///     are made for leap years or leap seconds.
+///   * `d` - one SI day, or 86400 seconds.
+///   * `h` - one hour, or 3600 seconds.
+///   * `m` - one minute, or 60 seconds.
+///   * `s` - one second.
+///   * `ms` - one millisecond, or 0.001 second.
+///   * `us` or `µs` - one microsecond, or 0.000001 second.
+///   * `ns` - one nanosecond, or 0.000000001 second.
+///
+/// Examples:
+///   * `1h30m`
+///   * `45s`
+///
+/// Units can be repeated and will be added together. This means that
+/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
+/// A future update may disallow this.
+///
+/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
+/// value larger than this will be clamped to the maximum value.
+///
+/// GTK only.
+///
+/// Available since 1.3.0
+@"progress-bar-timeout": Duration = .{ .duration = 15 * std.time.ns_per_ms },
+
 /// When to scroll the surface to the bottom. The format of this is a list of
 /// options to enable separated by commas. If you prefix an option with `no-`
 /// then it is disabled. If you omit an option, its default value is used.

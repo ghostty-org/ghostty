@@ -1005,12 +1005,16 @@ pub const Surface = extern struct {
         assert(value.state != .remove);
         progress_bar.as(gtk.Widget).setVisible(@intFromBool(true));
 
+        const progress_bar_timeout_ms = if (priv.config) |cfg|
+            cfg.get().@"progress-bar-timeout".asMilliseconds()
+        else
+            15 * std.time.ms_per_s;
+
         // Start our timer to remove bad actor programs that stall
         // the progress bar.
-        const progress_bar_timeout_seconds = 15;
         assert(priv.progress_bar_timer == null);
         priv.progress_bar_timer = glib.timeoutAdd(
-            progress_bar_timeout_seconds * std.time.ms_per_s,
+            progress_bar_timeout_ms,
             progressBarTimer,
             self,
         );
