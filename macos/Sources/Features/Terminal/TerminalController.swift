@@ -203,7 +203,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
         let parent: NSWindow? = explicitParent ?? preferredParent?.window
-
         if let parent {
             if parent.styleMask.contains(.fullScreen) {
                 // If our previous window was fullscreen then we want our new window to
@@ -228,6 +227,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+        // Seed lastCascadePoint from the current window's screen before the cascade happens.
+        let parentCascadePoint: NSPoint? = parent.map { parent in
+            let oldFrame = parent.frame
+            let point = parent.cascadeTopLeft(from: NSZeroPoint)
+            if parent.frame != oldFrame {
+                parent.setFrame(oldFrame, display: false)
+            }
+            return point
+        }
 
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
         // take effect. Our best theory is there is some next-event-loop-tick logic
@@ -236,6 +244,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // Only cascade if we aren't fullscreen.
             if let window = c.window {
                 if (!window.styleMask.contains(.fullScreen)) {
+                    if let parentCascadePoint {
+                        Self.lastCascadePoint = parentCascadePoint
+                    }
                     Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
                 }
             }
@@ -292,7 +303,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Calculate the target frame based on the tree's view bounds
         let treeSize: CGSize? = tree.root?.viewBounds()
-
         DispatchQueue.main.async {
             if let window = c.window {
                 // If we have a tree size, resize the window's content to match
@@ -306,6 +316,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                         window.setFrameTopLeftPoint(position)
                         window.constrainToScreen()
                     } else {
+
                         Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
                     }
                 }
@@ -463,7 +474,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         return controller
     }
-    
+
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -544,7 +555,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         tabWindowsHash = v
         self.relabelTabs()
     }
-    
+
     override func syncAppearance() {
         // When our focus changes, we update our window appearance based on the
         // currently focused surface.
@@ -945,7 +956,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // Make it the key window
                 window.makeKeyAndOrderFront(nil)
             }
-            
+
             // Restore focus to the previously focused surface
             if let focusedUUID = undoState.focusedSurface,
                let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
@@ -1530,24 +1541,24 @@ extension TerminalController {
             guard let window, let tabGroup = window.tabGroup else { return false }
             guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
             return tabGroup.windows.enumerated().contains { $0.offset > currentIndex }
-            
+
         case #selector(returnToDefaultSize):
             guard let window else { return false }
-            
+
             // Native fullscreen windows can't revert to default size.
             if window.styleMask.contains(.fullScreen) {
                 return false
             }
-            
+
             // If we're fullscreen at all then we can't change size
             if fullscreenStyle?.isFullscreen ?? false {
                 return false
             }
-            
+
             // If our window is already the default size or we don't have a
             // default size, then disable.
             return defaultSize?.isChanged(for: window) ?? false
-            
+
         default:
             return super.validateMenuItem(item)
         }

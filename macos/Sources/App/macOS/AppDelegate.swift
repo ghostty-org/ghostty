@@ -107,7 +107,7 @@ class AppDelegate: NSObject,
         switch quickTerminalControllerState {
         case .initialized(let controller):
             return controller
-            
+
         case .pendingRestore(let state):
             let controller = QuickTerminalController(
                 ghostty,
@@ -117,7 +117,7 @@ class AppDelegate: NSObject,
             )
             quickTerminalControllerState = .initialized(controller)
             return controller
-            
+
         case .uninitialized:
             let controller = QuickTerminalController(
                 ghostty,
@@ -165,7 +165,7 @@ class AppDelegate: NSObject,
             // Disable the automatic full screen menu item because we handle
             // it manually.
             "NSFullScreenMenuItemEverywhere": false,
-            
+
             // On macOS 26 RC1, the autofill heuristic controller causes unusable levels
             // of slowdowns and CPU usage in the terminal window under certain [unknown]
             // conditions. We don't know exactly why/how. This disables the full heuristic
@@ -291,12 +291,12 @@ class AppDelegate: NSObject,
         case .app:
             // Don't have to do anything.
             break
-            
+
         case .zig_run, .cli:
             // Part of launch services (clicking an app, using `open`, etc.) activates
             // the application and brings it to the front. When using the CLI we don't
             // get this behavior, so we have to do it manually.
-            
+
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
@@ -346,7 +346,7 @@ class AppDelegate: NSObject,
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let windows = NSApplication.shared.windows
         if (windows.isEmpty) { return .terminateNow }
-        
+
         // If we've already accepted to install an update, then we don't need to
         // confirm quit. The user is already expecting the update to happen.
         if updateController.isInstalling {
@@ -441,17 +441,17 @@ class AppDelegate: NSObject,
         // Ghostty will validate as well but we can avoid creating an entirely new
         // surface by doing our own validation here. We can also show a useful error
         // this way.
-        
+
         var isDirectory = ObjCBool(true)
         guard FileManager.default.fileExists(atPath: filename, isDirectory: &isDirectory) else { return false }
-        
+
         // Set to true if confirmation is required before starting up the
         // new terminal.
         var requiresConfirm: Bool = false
-        
+
         // Initialize the surface config which will be used to create the tab or window for the opened file.
         var config = Ghostty.SurfaceConfiguration()
-        
+
         if (isDirectory.boolValue) {
             // When opening a directory, check the configuration to decide
             // whether to open in a new tab or new window.
@@ -463,24 +463,24 @@ class AppDelegate: NSObject,
             // because there is a sandbox escape possible if a sandboxed application
             // somehow is tricked into `open`-ing a non-sandboxed application.
             requiresConfirm = true
-            
+
             // When opening a file, we want to execute the file. To do this, we
             // don't override the command directly, because it won't load the
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
             config.initialInput = "\(filename); exit\n"
-            
+
             // For commands executed directly, we want to ensure we wait after exit
             // because in most cases scripts don't block on exit and we don't want
             // the window to just flash closed once complete.
             config.waitAfterCommand = true
-            
+
             // Set the parent directory to our working directory so that relative
             // paths in scripts work.
             config.workingDirectory = (filename as NSString).deletingLastPathComponent
         }
-        
+
         if requiresConfirm {
             // Confirmation required. We use an app-wide NSAlert for now. In the future we
             // may want to show this as a sheet on the focused window (especially if we're
@@ -493,12 +493,12 @@ class AppDelegate: NSObject,
             switch (alert.runModal()) {
             case .alertFirstButtonReturn:
                 break
-                
+
             default:
                 return false
             }
         }
-        
+
         switch ghostty.config.macosDockDropBehavior {
         case .new_tab:
             _ = TerminalController.newTab(
@@ -508,7 +508,7 @@ class AppDelegate: NSObject,
             )
         case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
-        
+
         return true
     }
 
@@ -819,9 +819,12 @@ class AppDelegate: NSObject,
     }
 
     @objc private func ghosttyNewWindow(_ notification: Notification) {
+        let surfaceView = notification.object as? Ghostty.SurfaceView
+        let parentWindow = surfaceView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        Ghostty.logger.debug("NEW WINDOW PARENT = \(String(describing: parentWindow))")
         let config = configAny as? Ghostty.SurfaceConfiguration
-        _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+        _ = TerminalController.newWindow(ghostty, withBaseConfig: config, withParent: parentWindow)
     }
 
     @objc private func ghosttyNewTab(_ notification: Notification) {
@@ -1040,18 +1043,18 @@ class AppDelegate: NSObject,
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will save window state")
-        
+
         guard ghostty.config.windowSaveState != "never" else { return }
-        
+
         // Encode our quick terminal state if we have it.
         switch quickTerminalControllerState {
         case .initialized(let controller) where controller.restorable:
             let data = QuickTerminalRestorableState(from: controller)
             data.encode(with: coder)
-            
+
         case .pendingRestore(let state):
             state.encode(with: coder)
-            
+
         default:
             break
         }
@@ -1059,7 +1062,7 @@ class AppDelegate: NSObject,
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
-        
+
         // Decode our quick terminal state.
         if ghostty.config.windowSaveState != "never",
             let state = QuickTerminalRestorableState(coder: coder) {
