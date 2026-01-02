@@ -17,6 +17,10 @@ pub const OSC = struct {
     /// request.
     terminator: Terminator = .st,
 
+    pub fn deinit(self: *OSC, alloc: std.mem.Allocator) void {
+        self.list.deinit(alloc);
+    }
+
     /// We don't currently support encoding this to C in any way.
     pub const C = void;
 

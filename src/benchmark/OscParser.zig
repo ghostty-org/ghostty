@@ -101,7 +101,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
         };
 
         for (osc_buf[0..len]) |c| self.parser.next(c);
-        _ = self.parser.end(std.ascii.control_code.bel);
+        std.mem.doNotOptimizeAway(self.parser.end(std.ascii.control_code.bel));
         self.parser.reset();
     }
 }
