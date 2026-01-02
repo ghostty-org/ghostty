@@ -37,6 +37,9 @@ const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
+const directory_config = @import("directory_config.zig");
+pub const DirectoryConfig = directory_config.DirectoryConfig;
+pub const RepeatableDirectoryConfig = directory_config.RepeatableDirectoryConfig;
 
 // We do this instead of importing all of terminal/main.zig to
 // limit the dependency graph. This is important because some things
@@ -2285,6 +2288,90 @@ keybind: Keybinds = .{},
 /// nested `config-file` value.
 @"config-file": RepeatablePath = .{},
 
+/// Map directory glob patterns to configuration files for per-directory
+/// overrides. When the terminal's working directory matches a pattern,
+/// the corresponding configuration file is loaded and applied.
+///
+/// Format: `pattern:config-file-path`
+///
+/// The pattern supports glob-style matching:
+///
+///   * `*` matches any characters within a single path component
+///   * `**` matches any characters across path components (recursive)
+///   * Exact paths match exactly
+///
+/// The config file path can be absolute or relative to the main config file.
+/// Prepend `~` to use home directory expansion.
+///
+/// Example:
+///
+/// ```
+/// directory-config = ~/work/*:~/.config/ghostty/profiles/work.conf
+/// directory-config = ~/personal/*:~/.config/ghostty/profiles/personal.conf
+/// ```
+///
+/// ## Applied Settings (Visual Only)
+///
+/// Only the following visual/surface-scoped settings are applied from
+/// directory config files. All other settings are ignored.
+///
+/// Fonts:
+///   * `font-family`, `font-family-bold`, `font-family-italic`,
+///     `font-family-bold-italic`
+///   * `font-size`, `font-style`, `font-style-bold`, `font-style-italic`,
+///     `font-style-bold-italic`
+///   * `font-synthetic-style`, `font-feature`, `font-variation`
+///   * `adjust-cell-width`, `adjust-cell-height`, `adjust-font-baseline`,
+///     `adjust-underline-position`, `adjust-underline-thickness`,
+///     `adjust-strikethrough-position`, `adjust-strikethrough-thickness`,
+///     `adjust-overline-position`, `adjust-overline-thickness`,
+///     `adjust-cursor-thickness`, `adjust-cursor-height`, `adjust-box-thickness`
+///
+/// Colors:
+///   * `background`, `foreground`, `palette`
+///   * `cursor-color`, `cursor-text`, `cursor-opacity`
+///   * `selection-foreground`, `selection-background`, `selection-invert-fg-bg`
+///   * `minimum-contrast`, `bold-is-bright`
+///
+/// Visual Effects:
+///   * `background-opacity`, `background-blur`
+///   * `custom-shader`, `custom-shader-animation`
+///   * `unfocused-split-opacity`, `unfocused-split-fill`
+///
+/// Layout:
+///   * `window-padding-x`, `window-padding-y`, `window-padding-balance`,
+///     `window-padding-color`
+///
+/// ## Excluded Settings (Ignored)
+///
+/// The following settings are NOT applied from directory configs:
+///
+///   * Window-level: `window-decoration`, `window-width`, `window-height`,
+///     `window-title-*`
+///   * Behavior: `keybind`, `command`, `shell-integration-features`, `mouse-*`
+///   * System: `quit-after-last-window-closed`, `confirm-close-surface`
+///
+/// This restriction ensures that directory configs only affect visual
+/// appearance, not terminal behavior or window management.
+///
+/// ## Multiple Panes
+///
+/// When you have multiple split panes in one window, each pane independently
+/// applies its directory config based on its own working directory. This
+/// means different panes can have different fonts, colors, and visual styles.
+///
+/// When you `cd` out of a matching directory (into a directory that doesn't
+/// match any pattern), the configuration reverts to the base settings.
+///
+/// This feature requires shell integration to be enabled, as Ghostty uses
+/// OSC 7 escape sequences to detect directory changes.
+///
+/// This configuration can be repeated to define multiple directory mappings.
+/// When multiple patterns match, the most specific pattern wins. Specificity
+/// is determined by the number of literal (non-wildcard) characters in the
+/// pattern.
+@"directory-config": RepeatableDirectoryConfig = .{},
+
 /// When this is true, the default configuration file paths will be loaded.
 /// The default configuration file paths are currently only the XDG
 /// config path ($XDG_CONFIG_HOME/ghostty/config.ghostty).
@@ -4124,6 +4211,13 @@ fn expandPaths(self: *Config, base: []const u8) !void {
                     );
                 }
             },
+            RepeatableDirectoryConfig => {
+                try @field(self, field.name).expand(
+                    arena_alloc,
+                    base,
+                    &self._diagnostics,
+                );
+            },
             else => {},
         }
     }
@@ -4692,7 +4786,9 @@ pub fn clone(
     return result;
 }
 
-fn cloneValue(
+/// Clone a single config field value with deep copy semantics.
+/// Used by Config.clone() and for merging directory configs.
+pub fn cloneValue(
     alloc: Allocator,
     comptime T: type,
     src: T,

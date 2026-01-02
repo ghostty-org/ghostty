@@ -137,6 +137,12 @@ config: DerivedConfig,
 /// is sent whenever this changes.
 config_conditional_state: configpkg.ConditionalState,
 
+/// The base configuration before any directory-config overrides are applied.
+/// This is stored so we can properly merge directory config overrides on top of
+/// the base, and revert to base when leaving a matched directory. This is owned
+/// by Surface and must be deinited when updated or in deinit.
+base_config: ?configpkg.Config = null,
+
 /// This is set to true if our IO thread notifies us our child exited.
 /// This is used to determine if we need to confirm, hold open, etc.
 child_exited: bool = false,
@@ -164,6 +170,15 @@ command_timer: ?std.time.Instant = null,
 
 /// Search state
 search: ?Search = null,
+
+/// The currently matched directory config pattern, or null if no pattern matches.
+/// This is used to detect when we need to apply/revert directory config overrides.
+/// This string is owned by Surface and must be freed in deinit.
+matched_directory_pattern: ?[:0]const u8 = null,
+
+/// The current working directory (last reported via OSC 7).
+/// This is stored so we can re-evaluate directory configs on config reload.
+current_pwd: ?[:0]const u8 = null,
 
 /// Used to rate limit BEL handling.
 last_bell_time: ?std.time.Instant = null,
@@ -334,6 +349,9 @@ const DerivedConfig = struct {
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
     notify_on_command_finish_after: Duration,
 
+    /// Directory-based configuration overrides
+    directory_config: configpkg.RepeatableDirectoryConfig,
+
     const Link = struct {
         regex: oni.Regex,
         action: input.Link.Action,
@@ -408,6 +426,7 @@ const DerivedConfig = struct {
             .notify_on_command_finish = config.@"notify-on-command-finish",
             .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
             .notify_on_command_finish_after = config.@"notify-on-command-finish-after",
+            .directory_config = try config.@"directory-config".clone(alloc),
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -470,13 +489,62 @@ pub fn init(
 
     // We want a config pointer for everything so we get that either
     // based on our conditional state or the original config.
-    const config: *const configpkg.Config = if (config_) |*c| config: {
+    const effective_config: *const configpkg.Config = if (config_) |*c| config: {
         // We want to preserve our original working directory. We
         // don't need to dupe memory here because termio will derive
         // it. We preserve this so directory inheritance works.
         c.@"working-directory" = config_original.@"working-directory";
         break :config c;
     } else config_original;
+
+    // Check if initial working directory matches any directory-config pattern.
+    // If so, we merge the directory config's visual settings BEFORE creating
+    // DerivedConfig, so the surface starts with the correct appearance.
+    var dir_merged_config_: ?configpkg.Config = null;
+    var initial_pwd: ?[:0]const u8 = null;
+    var initial_pattern: ?[:0]const u8 = null;
+    defer if (dir_merged_config_) |*c| c.deinit();
+
+    const config: *const configpkg.Config = config: {
+        const wd = effective_config.@"working-directory" orelse break :config effective_config;
+        const match = effective_config.@"directory-config".findMatch(wd) orelse break :config effective_config;
+
+        // Load the directory config file
+        var dir_config = configpkg.Config.default(alloc) catch |err| {
+            log.warn("failed to create default config for directory merge err={}", .{err});
+            break :config effective_config;
+        };
+        defer dir_config.deinit();
+
+        dir_config.loadFile(alloc, match.config_path) catch |err| {
+            log.warn("failed to load directory config {s} at init: {}", .{ match.config_path, err });
+            break :config effective_config;
+        };
+        dir_config.finalize() catch |err| {
+            log.warn("failed to finalize directory config err={}", .{err});
+            break :config effective_config;
+        };
+
+        // Clone the effective config and merge visual settings
+        dir_merged_config_ = effective_config.clone(alloc) catch |err| {
+            log.warn("failed to clone config for directory merge err={}", .{err});
+            break :config effective_config;
+        };
+
+        mergeVisualSettings(&dir_merged_config_.?, &dir_config) catch |err| {
+            log.warn("failed to merge directory config visual settings err={}", .{err});
+            dir_merged_config_.?.deinit();
+            dir_merged_config_ = null;
+            break :config effective_config;
+        };
+
+        // Store initial PWD and pattern for later tracking
+        initial_pwd = alloc.dupeZ(u8, wd) catch null;
+        initial_pattern = alloc.dupeZ(u8, match.pattern) catch null;
+
+        log.info("applying directory config from {s} at surface init", .{match.config_path});
+        break :config &dir_merged_config_.?;
+    };
 
     // Get our configuration
     var derived_config = try DerivedConfig.init(alloc, config);
@@ -571,6 +639,13 @@ pub fn init(
     var io_thread = try termio.Thread.init(alloc);
     errdefer io_thread.deinit();
 
+    // Clone the base config (before directory overrides) for later reload/revert.
+    // This is needed so that when we revert directory config, we have the original.
+    const base_config_clone = effective_config.clone(alloc) catch |err| base_err: {
+        log.warn("failed to clone base config at init err={}", .{err});
+        break :base_err null;
+    };
+
     self.* = .{
         .alloc = alloc,
         .app = app,
@@ -598,6 +673,11 @@ pub fn init(
         // Our conditional state is initialized to the app state. This
         // lets us get the most likely correct color theme and so on.
         .config_conditional_state = app.config_conditional_state,
+
+        // Directory config state - initialized if working directory matched a pattern
+        .current_pwd = initial_pwd,
+        .matched_directory_pattern = initial_pattern,
+        .base_config = base_config_clone,
     };
 
     // The command we're going to execute
@@ -815,6 +895,11 @@ pub fn deinit(self: *Surface) void {
     if (self.renderer_state.preedit) |p| self.alloc.free(p.codepoints);
     self.alloc.destroy(self.renderer_state.mutex);
     self.config.deinit();
+
+    // Clean up directory config state
+    if (self.current_pwd) |cwd| self.alloc.free(cwd);
+    if (self.matched_directory_pattern) |pattern| self.alloc.free(pattern);
+    if (self.base_config) |*bc| bc.deinit();
 
     log.info("surface closed addr={x}", .{@intFromPtr(self)});
 }
@@ -1042,14 +1127,38 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             defer w.deinit();
 
             // We always allocate for this because we need to null-terminate.
-            const str = try self.alloc.dupeZ(u8, w.slice());
-            defer self.alloc.free(str);
+            // On macOS, we also need to canonicalize the path because the
+            // filesystem is case-insensitive but the shell may send paths
+            // with different casing than the actual filesystem uses.
+            const str = str: {
+                const raw = try self.alloc.dupeZ(u8, w.slice());
 
+                // On macOS, resolve to canonical path to fix case sensitivity
+                if (comptime builtin.os.tag == .macos) {
+                    var buf: [std.fs.max_path_bytes]u8 = undefined;
+                    var dir = std.fs.openDirAbsolute(raw, .{}) catch break :str raw;
+                    defer dir.close();
+                    if (dir.realpath(".", &buf)) |canonical| {
+                        self.alloc.free(raw);
+                        break :str try self.alloc.dupeZ(u8, canonical);
+                    } else |_| {}
+                }
+                break :str raw;
+            };
+
+            // Store the current pwd (freeing any previous one)
+            if (self.current_pwd) |old| self.alloc.free(old);
+            self.current_pwd = str;
+
+            // Notify the apprt of the pwd change (for proxy icon, etc.)
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .pwd,
                 .{ .pwd = str },
             );
+
+            // Check if we need to apply/revert directory-specific config
+            self.checkDirectoryConfig(str);
         },
 
         .close => self.close(),
@@ -1735,6 +1844,14 @@ pub fn updateConfig(
     self.config.deinit();
     self.config = derived;
 
+    // Store the base config for directory-config merging. We clone it because
+    // the original is owned by the caller (app) and may be freed after this call.
+    if (self.base_config) |*bc| bc.deinit();
+    self.base_config = config.clone(self.alloc) catch |err| clone_err: {
+        log.warn("failed to clone base config for directory-config support err={}", .{err});
+        break :clone_err null;
+    };
+
     // If our mouse is hidden but we disabled mouse hiding, then show it again.
     if (!self.config.mouse_hide_while_typing and self.mouse.hidden) {
         self.showMouse();
@@ -1808,6 +1925,179 @@ pub fn updateConfig(
         .config_change,
         .{ .config = config },
     );
+
+    // Re-apply directory config if we have a current working directory.
+    // This handles the case where the main config is reloaded - we need to
+    // re-evaluate the directory-config patterns (which may have changed)
+    // and re-apply any matching config on top of the new base config.
+    if (self.current_pwd) |current_pwd| {
+        // Force re-application by clearing the pattern match state.
+        // Even if the same pattern matches, the base config has changed,
+        // so we need to re-merge directory overrides on top of new base.
+        if (self.matched_directory_pattern) |old| self.alloc.free(old);
+        self.matched_directory_pattern = null;
+
+        self.checkDirectoryConfig(current_pwd);
+    }
+}
+
+/// Check if the current directory matches any directory-config patterns
+/// and apply the corresponding configuration overrides if the match changed.
+fn checkDirectoryConfig(self: *Surface, cwd: [:0]const u8) void {
+    // Find the best matching directory config for this cwd
+    const match = self.config.directory_config.findMatch(cwd);
+
+    // Get the pattern string for comparison (null if no match)
+    const new_pattern: ?[]const u8 = if (match) |m| m.pattern else null;
+
+    // Check if the match changed by comparing values (not pointers)
+    const current_pattern = self.matched_directory_pattern;
+    const changed = changed: {
+        if (current_pattern == null and new_pattern == null) break :changed false;
+        if (current_pattern == null or new_pattern == null) break :changed true;
+        break :changed !std.mem.eql(u8, current_pattern.?, new_pattern.?);
+    };
+
+    if (!changed) return;
+
+    // Free the old pattern (we own this memory)
+    if (self.matched_directory_pattern) |old| self.alloc.free(old);
+
+    // Clone the new pattern into our own memory to avoid use-after-free
+    // when config is reloaded
+    self.matched_directory_pattern = if (new_pattern) |p|
+        self.alloc.dupeZ(u8, p) catch null
+    else
+        null;
+
+    if (match) |m| {
+        // Load and apply the directory-specific config
+        self.applyDirectoryConfig(m.config_path) catch |err| {
+            log.warn("failed to load directory config {s}: {}", .{ m.config_path, err });
+        };
+    } else {
+        // Revert to base config (no directory match)
+        self.revertDirectoryConfig() catch |err| {
+            log.warn("failed to revert directory config: {}", .{err});
+        };
+    }
+}
+
+/// Apply configuration overrides from a directory-specific config file.
+/// Only visual settings are applied (fonts, colors, shaders, padding).
+/// See `allowed_directory_config_fields` in directory_config.zig for the full list.
+fn applyDirectoryConfig(self: *Surface, config_path: [:0]const u8) !void {
+    // We need the base config to merge onto
+    const base = self.base_config orelse {
+        log.warn("cannot apply directory config: no base config stored", .{});
+        return error.NoBaseConfig;
+    };
+
+    // Load the directory config file
+    var dir_config = try configpkg.Config.default(self.alloc);
+    defer dir_config.deinit();
+
+    dir_config.loadFile(self.alloc, config_path) catch |err| {
+        log.warn("failed to load directory config file {s}: {}", .{ config_path, err });
+        return err;
+    };
+    try dir_config.finalize();
+
+    log.info("applying directory config from {s}", .{config_path});
+
+    // Create a merged config: clone base and override visual-only settings
+    var merged = try base.clone(self.alloc);
+    defer merged.deinit();
+
+    // Merge only visual/surface-scoped settings from the directory config
+    try mergeVisualSettings(&merged, &dir_config);
+
+    // Apply the merged config (similar to updateConfig but without storing as base)
+    try self.applyMergedConfig(&merged);
+}
+
+/// Revert to the base configuration (when leaving a directory-config matched directory).
+fn revertDirectoryConfig(self: *Surface) !void {
+    log.info("reverting to base config (no directory match)", .{});
+
+    // Use the stored base config to revert
+    if (self.base_config) |*base| {
+        try self.applyMergedConfig(base);
+    } else {
+        log.warn("cannot revert directory config: no base config stored", .{});
+        return error.NoBaseConfig;
+    }
+}
+
+/// Apply a merged/modified config to the surface. This is similar to the core
+/// logic in updateConfig but doesn't store the config as base_config (since
+/// we're applying directory overrides on top of the already-stored base).
+fn applyMergedConfig(self: *Surface, config: *const configpkg.Config) !void {
+    // Create new derived config
+    const derived = DerivedConfig.init(self.alloc, config) catch |err| {
+        log.err("error creating derived config for directory override err={}", .{err});
+        return err;
+    };
+    self.config.deinit();
+    self.config = derived;
+
+    // Update font if needed
+    try self.setFontSize(font_size: {
+        if (self.font_size_adjusted) {
+            break :font_size self.font_size;
+        }
+        var size = self.font_size;
+        size.points = std.math.clamp(config.@"font-size", 1.0, 255.0);
+        break :font_size size;
+    });
+
+    // Send config changes to renderer and termio
+    var renderer_message = try rendererpkg.Message.initChangeConfig(self.alloc, config);
+    errdefer renderer_message.deinit();
+    var termio_config_ptr = try self.alloc.create(termio.Termio.DerivedConfig);
+    errdefer self.alloc.destroy(termio_config_ptr);
+    termio_config_ptr.* = try termio.Termio.DerivedConfig.init(self.alloc, config);
+    errdefer termio_config_ptr.deinit();
+
+    _ = self.renderer_thread.mailbox.push(renderer_message, .{ .forever = {} });
+    self.queueIo(.{
+        .change_config = .{
+            .alloc = self.alloc,
+            .ptr = termio_config_ptr,
+        },
+    }, .unlocked);
+
+    // Wake up threads to process
+    self.queueRender() catch |err| {
+        log.warn("failed to notify renderer of config change err={}", .{err});
+    };
+
+    // Notify the window of config change
+    _ = try self.rt_app.performAction(
+        .{ .surface = self },
+        .config_change,
+        .{ .config = config },
+    );
+}
+
+/// Merge only visual/surface-scoped settings from overlay config onto base config.
+/// This uses the explicit allowlist from directory_config.allowed_directory_config_fields.
+/// Fields are deep cloned into base's arena to avoid double-free issues.
+fn mergeVisualSettings(base: *configpkg.Config, overlay: *const configpkg.Config) Allocator.Error!void {
+    const dir_config = @import("config/directory_config.zig");
+    const alloc = base._arena.?.allocator();
+
+    // Use comptime to iterate through fields and merge only allowed ones.
+    // Each field is deep cloned to avoid double-free when both configs are deinited.
+    inline for (std.meta.fields(configpkg.Config)) |field| {
+        if (dir_config.isAllowedField(field.name)) {
+            @field(base, field.name) = try configpkg.Config.cloneValue(
+                alloc,
+                field.type,
+                @field(overlay, field.name),
+            );
+        }
+    }
 }
 
 const InitialSizeError = error{
