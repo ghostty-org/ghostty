@@ -333,6 +333,7 @@ const DerivedConfig = struct {
     notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
     notify_on_command_finish_after: Duration,
+    key_remaps: []const input.KeyRemap,
 
     const Link = struct {
         regex: oni.Regex,
@@ -408,6 +409,7 @@ const DerivedConfig = struct {
             .notify_on_command_finish = config.@"notify-on-command-finish",
             .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
             .notify_on_command_finish_after = config.@"notify-on-command-finish-after",
+            .key_remaps = config.@"key-remap".value.items,
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -2576,8 +2578,14 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 /// then Ghosty will act as though the binding does not exist.
 pub fn keyEventIsBinding(
     self: *Surface,
-    event: input.KeyEvent,
+    event_orig: input.KeyEvent,
 ) bool {
+    // Apply key remappings for consistency with keyCallback
+    var event = event_orig;
+    if (self.config.key_remaps.len > 0) {
+        event.mods = input.KeyRemap.applyRemaps(self.config.key_remaps, event_orig.mods);
+    }
+
     switch (event.action) {
         .release => return false,
         .press, .repeat => {},
@@ -2605,9 +2613,16 @@ pub fn keyEventIsBinding(
 /// sending to the terminal, etc.
 pub fn keyCallback(
     self: *Surface,
-    event: input.KeyEvent,
+    event_orig: input.KeyEvent,
 ) !InputEffect {
-    // log.warn("text keyCallback event={}", .{event});
+    // log.warn("text keyCallback event={}", .{event_orig});
+
+    // Apply key remappings to transform modifiers before any processing.
+    // This allows users to remap modifier keys at the app level.
+    var event = event_orig;
+    if (self.config.key_remaps.len > 0) {
+        event.mods = input.KeyRemap.applyRemaps(self.config.key_remaps, event_orig.mods);
+    }
 
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
@@ -2645,7 +2660,6 @@ pub fn keyCallback(
         event,
         if (insp_ev) |*ev| ev else null,
     )) |v| return v;
-
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
         self.renderer_state.mutex.lock();
