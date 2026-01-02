@@ -147,3 +147,131 @@ test "StringMap searchIterator" {
 
     try testing.expect(try it.next() == null);
 }
+
+test "StringMap searchIterator URL detection" {
+    if (comptime !build_options.oniguruma) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const url = @import("../config/url.zig");
+
+    // Initialize URL regex
+    try oni.testing.ensureInit();
+    var re = try oni.Regex.init(
+        url.regex,
+        .{},
+        oni.Encoding.utf8,
+        oni.Syntax.default,
+        null,
+    );
+    defer re.deinit();
+
+    // Initialize our screen with text containing a URL
+    var s = try Screen.init(alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello https://example.com/path world");
+
+    // Get the line
+    const line = s.selectLine(.{
+        .pin = s.pages.pin(.{ .active = .{
+            .x = 10,
+            .y = 0,
+        } }).?,
+    }).?;
+    var map: StringMap = undefined;
+    const sel_str = try s.selectionString(alloc, .{
+        .sel = line,
+        .trim = false,
+        .map = &map,
+    });
+    alloc.free(sel_str);
+    defer map.deinit(alloc);
+
+    // Search for URL match
+    var it = map.searchIterator(re);
+    {
+        var match = (try it.next()).?;
+        defer match.deinit();
+
+        const sel = match.selection();
+        // URL should start at x=6 ("https://example.com/path" starts after "hello ")
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 6,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        // URL should end at x=29 (end of "/path")
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 29,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    try testing.expect(try it.next() == null);
+}
+
+test "StringMap searchIterator URL with click position" {
+    if (comptime !build_options.oniguruma) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const url = @import("../config/url.zig");
+
+    // Initialize URL regex
+    try oni.testing.ensureInit();
+    var re = try oni.Regex.init(
+        url.regex,
+        .{},
+        oni.Encoding.utf8,
+        oni.Syntax.default,
+        null,
+    );
+    defer re.deinit();
+
+    // Initialize our screen with text containing a URL
+    var s = try Screen.init(alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello https://example.com world");
+
+    // Simulate clicking on "example" (x=14)
+    const click_pin = s.pages.pin(.{ .active = .{
+        .x = 14,
+        .y = 0,
+    } }).?;
+
+    // Get the line
+    const line = s.selectLine(.{
+        .pin = click_pin,
+    }).?;
+    var map: StringMap = undefined;
+    const sel_str = try s.selectionString(alloc, .{
+        .sel = line,
+        .trim = false,
+        .map = &map,
+    });
+    alloc.free(sel_str);
+    defer map.deinit(alloc);
+
+    // Search for URL match and verify click position is within URL
+    var it = map.searchIterator(re);
+    var found_url = false;
+    while (true) {
+        var match = (try it.next()) orelse break;
+        defer match.deinit();
+
+        const sel = match.selection();
+        if (sel.contains(&s, click_pin)) {
+            found_url = true;
+            // Verify URL bounds
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 6,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 24,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
+            break;
+        }
+    }
+    try testing.expect(found_url);
+}

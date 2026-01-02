@@ -4141,9 +4141,18 @@ pub fn mouseButtonCallback(
                 }
             },
 
-            // Double click, select the word under our mouse
+            // Double click, select the word under our mouse.
+            // First try to detect if we're clicking on a URL to select the entire URL.
             2 => {
-                const sel_ = self.io.terminal.screens.active.selectWord(pin.*);
+                const sel_ = sel: {
+                    // Try link detection without requiring modifier keys
+                    const link_result = self.linkAtPin(pin.*, null) catch null;
+                    if (link_result) |result| {
+                        // Only select URLs (links with .open action)
+                        if (result[0] == .open) break :sel result[1];
+                    }
+                    break :sel self.io.terminal.screens.active.selectWord(pin.*);
+                };
                 if (sel_) |sel| {
                     try self.io.terminal.screens.active.select(sel);
                     try self.queueRender();
@@ -4364,11 +4373,26 @@ fn linkAtPos(
         return .{ ._open_osc8, sel };
     }
 
-    // If we have no OSC8 links then we fallback to regex-based URL detection.
-    // If we have no configured links we can save a lot of work going forward.
+    // Fall back to regex-based link detection
+    return self.linkAtPin(mouse_pin, mouse_mods);
+}
+
+/// Core link detection at a pin position using regex patterns.
+/// When mouse_mods is null, skips highlight/modifier checks (for double-click).
+///
+/// Requires the renderer state mutex is held.
+fn linkAtPin(
+    self: *Surface,
+    mouse_pin: terminal.Pin,
+    mouse_mods: ?input.Mods,
+) !?struct {
+    input.Link.Action,
+    terminal.Selection,
+} {
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+
     if (self.config.links.len == 0) return null;
 
-    // Get the line we're hovering over.
     const line = screen.selectLine(.{
         .pin = mouse_pin,
         .whitespace = null,
@@ -4383,11 +4407,13 @@ fn linkAtPos(
     }));
     defer strmap.deinit(self.alloc);
 
-    // Go through each link and see if we clicked it
     for (self.config.links) |link| {
-        switch (link.highlight) {
-            .always, .hover => {},
-            .always_mods, .hover_mods => |v| if (!v.equal(mouse_mods)) continue,
+        // Skip highlight/mods check when mouse_mods is null (double-click mode)
+        if (mouse_mods) |mods| {
+            switch (link.highlight) {
+                .always, .hover => {},
+                .always_mods, .hover_mods => |v| if (!v.equal(mods)) continue,
+            }
         }
 
         var it = strmap.searchIterator(link.regex);
