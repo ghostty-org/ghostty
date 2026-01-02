@@ -376,25 +376,25 @@ extension Ghostty {
             let surface = self.surfaceUserdata(from: userdata)
             guard let pasteboard = NSPasteboard.ghostty(location) else { return }
             guard let content = content, len > 0 else { return }
-            
+
             // Convert the C array to Swift array
             let contentArray = (0..<len).compactMap { i in
                 Ghostty.ClipboardContent.from(content: content[i])
             }
             guard !contentArray.isEmpty else { return }
-            
+
             // Assert there is only one text/plain entry. For security reasons we need
             // to guarantee this for now since our confirmation dialog only shows one.
             assert(contentArray.filter({ $0.mime == "text/plain" }).count <= 1,
                    "clipboard contents should have at most one text/plain entry")
-            
+
             if !confirm {
                 // Declare all types
                 let types = contentArray.compactMap { item in
                     NSPasteboard.PasteboardType(mimeType: item.mime)
                 }
                 pasteboard.declareTypes(types, owner: nil)
-                
+
                 // Set data for each type
                 for item in contentArray {
                     guard let type = NSPasteboard.PasteboardType(mimeType: item.mime) else { continue }
@@ -407,7 +407,7 @@ extension Ghostty {
             guard let textPlainContent = contentArray.first(where: { $0.mime == "text/plain" }) else {
                 return
             }
-            
+
             NotificationCenter.default.post(
                 name: Notification.confirmClipboard,
                 object: surface,
@@ -564,6 +564,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
                 toggleCommandPalette(app, target: target)
 
+            case GHOSTTY_ACTION_TOGGLE_MRU_TAB_SWITCHER:
+                toggleMRUTabSwitcher(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
                 toggleMaximize(app, target: target)
 
@@ -602,7 +605,7 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
                 checkForUpdates(app)
-                
+
             case GHOSTTY_ACTION_OPEN_URL:
                 return openURL(action.action.open_url)
 
@@ -676,12 +679,12 @@ extension Ghostty {
                 appDelegate.checkForUpdates(nil)
             }
         }
-        
+
         private static func openURL(
             _ v: ghostty_action_open_url_s
         ) -> Bool {
             let action = Ghostty.Action.OpenURL(c: v)
-            
+
             // If the URL doesn't have a valid scheme we assume its a file path. The URL
             // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
             // them into schema-less URLs, but these won't open properly in text editors.
@@ -692,7 +695,7 @@ extension Ghostty {
             } else {
                 url = URL(filePath: action.url)
             }
-            
+
             switch action.kind {
             case .text:
                 // Open with the default editor for `*.ghostty` file or just system text editor
@@ -701,15 +704,15 @@ extension Ghostty {
                     NSWorkspace.shared.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
                     return true
                 }
-                
+
             case .html:
                 // The extension will be HTML and we do the right thing automatically.
                 break
-                
+
             case .unknown:
                 break
             }
-            
+
             // Open with the default application for the URL
             NSWorkspace.shared.open(url)
             return true
@@ -983,6 +986,29 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 NotificationCenter.default.post(
                     name: .ghosttyCommandPaletteDidToggle,
+                    object: surfaceView
+                )
+
+
+            default:
+                assertionFailure()
+            }
+        }
+
+
+        private static func toggleMRUTabSwitcher(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle command palette does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyMRUTabSwitcherDidToggle,
                     object: surfaceView
                 )
 
@@ -1812,7 +1838,7 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                
+
                 let progressReport = Ghostty.Action.ProgressReport(c: v)
                 DispatchQueue.main.async {
                     if progressReport.state == .remove {
@@ -1839,7 +1865,7 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                
+
                 let scrollbar = Ghostty.Action.Scrollbar(c: v)
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateScrollbar,

@@ -32,9 +32,12 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
-    
+
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
+
+    /// Show or hide the MRU tab switcher
+    var mruTabSwitcherIsShowing: Bool { get set }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -46,7 +49,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
     // An optional delegate to receive information about terminal changes.
     weak var delegate: (any TerminalViewDelegate)? = nil
-    
+
     // The most recently focused surface, equal to focusedSurface when
     // it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView> = .init()
@@ -116,7 +119,34 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }
-                
+
+                if viewModel.mruTabSwitcherIsShowing {
+                    GeometryReader { geometry in
+                        VStack {
+                            Spacer().frame(height: geometry.size.height * 0.1)
+
+                            MRUTabSwitcherView(
+                                isPresented: $viewModel.mruTabSwitcherIsShowing,
+                                backgroundColor: ghostty.config.backgroundColor,
+                                tabs: MRUTabCollector.collectAllTabs(excluding: NSApp.keyWindow),
+                                onSelect: { entry in
+                                    entry.window.makeKeyAndOrderFront(nil)
+
+                                    DispatchQueue.main.async {
+                                        if let controller = entry.window.windowController as? BaseTerminalController,
+                                            let surface = controller.focusedSurface {
+                                                entry.window.makeFirstResponder(surface)
+                                        }
+                                    }
+                                }
+                            )
+
+                            Spacer()
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                    }
+                }
+
                 // Show update information above all else.
                 if viewModel.updateOverlayIsVisible {
                     UpdateOverlay()
@@ -132,7 +162,7 @@ fileprivate struct UpdateOverlay: View {
         if let appDelegate = NSApp.delegate as? AppDelegate {
             VStack {
                 Spacer()
-                
+
                 HStack {
                     Spacer()
                     UpdatePill(model: appDelegate.updateViewModel)

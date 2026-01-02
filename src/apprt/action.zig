@@ -115,6 +115,9 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
+    /// Toggle the MRU tab switcher. This currently only works on macOS.
+    toggle_mru_tab_switcher,
+
     /// Toggle the window background opacity. This only has an effect
     /// if the window started as transparent (non-opaque), and toggles
     /// it between fully opaque and the configured background opacity.
@@ -343,6 +346,7 @@ pub const Action = union(Key) {
         toggle_quick_terminal,
         toggle_command_palette,
         toggle_visibility,
+        toggle_mru_tab_switcher,
         toggle_background_opacity,
         move_tab,
         goto_tab,
