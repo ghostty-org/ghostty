@@ -1042,6 +1042,13 @@ pub const PageFormatter = struct {
             }
 
             if (blank_rows > 0) {
+                // Reset style before emitting newlines to prevent background
+                // colors from bleeding into the next line's leading cells.
+                if (!style.default()) {
+                    try self.formatStyleClose(writer);
+                    style = .{};
+                }
+
                 const sequence: []const u8 = switch (self.opts.emit) {
                     // Plaintext just uses standard newlines because newlines
                     // on their own usually move the cursor back in anywhere
@@ -1113,12 +1120,16 @@ pub const PageFormatter = struct {
 
                 // If we have a zero value, then we accumulate a counter. We
                 // only want to turn zero values into spaces if we have a non-zero
-                // char sometime later.
-                if (!cell.hasText()) {
+                // char sometime later. However, for styled formats (VT, HTML), if
+                // the cell has styling (e.g., background color), we must emit it
+                // to preserve the visual appearance.
+                const dominated_by_style = self.opts.emit.styled() and
+                    (!cell.isEmpty() or cell.hasStyling());
+                if (!dominated_by_style and !cell.hasText()) {
                     blank_cells += 1;
                     continue;
                 }
-                if (cell.codepoint() == ' ' and self.opts.trim) {
+                if (cell.codepoint() == ' ' and self.opts.trim and !dominated_by_style) {
                     blank_cells += 1;
                     continue;
                 }
@@ -1215,24 +1226,46 @@ pub const PageFormatter = struct {
                             }
                         }
 
-                        try self.writeCell(tag, writer, cell);
+                        // For styled cells without text, emit a space to carry the styling
+                        if (cell.hasText()) {
+                            try self.writeCell(tag, writer, cell);
+                        } else {
+                            try writer.writeByte(' ');
+                        }
 
                         // If we have a point map, all codepoints map to this
                         // cell.
                         if (self.point_map) |*map| {
-                            var discarding: std.Io.Writer.Discarding = .init(&.{});
-                            try self.writeCell(tag, &discarding.writer, cell);
-                            for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                            const byte_count: usize = if (cell.hasText()) count: {
+                                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                                try self.writeCell(tag, &discarding.writer, cell);
+                                break :count discarding.count;
+                            } else 1;
+                            for (0..byte_count) |_| map.map.append(map.alloc, .{
                                 .x = x,
                                 .y = y,
                             }) catch return error.WriteFailed;
                         }
                     },
 
-                    // Unreachable since we do hasText() above
-                    .bg_color_palette,
-                    .bg_color_rgb,
-                    => unreachable,
+                    // Cells with only background color (no text). Emit a space
+                    // with the appropriate background color SGR sequence.
+                    .bg_color_palette => {
+                        const index = cell.content.color_palette;
+                        try self.emitBgColorSgr(writer, index, null, &style);
+                        try writer.writeByte(' ');
+                        if (self.point_map) |*map| {
+                            map.map.append(map.alloc, .{ .x = x, .y = y }) catch return error.WriteFailed;
+                        }
+                    },
+                    .bg_color_rgb => {
+                        const rgb = cell.content.color_rgb;
+                        try self.emitBgColorSgr(writer, null, rgb, &style);
+                        try writer.writeByte(' ');
+                        if (self.point_map) |*map| {
+                            map.map.append(map.alloc, .{ .x = x, .y = y }) catch return error.WriteFailed;
+                        }
+                    },
                 }
             }
         }
@@ -1344,6 +1377,55 @@ pub const PageFormatter = struct {
                         }
                     },
                 }
+            },
+        }
+    }
+
+    /// Emit background color SGR sequence for bg_color_* content tags.
+    /// Updates the style tracking to reflect the emitted background.
+    fn emitBgColorSgr(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        palette_index: ?u8,
+        rgb: ?Cell.RGB,
+        style: *Style,
+    ) std.Io.Writer.Error!void {
+        switch (self.opts.emit) {
+            .plain => {},
+            .vt => {
+                // Close previous style if non-default
+                if (!style.default()) try writer.writeAll("\x1b[0m");
+                // Emit background color
+                if (palette_index) |idx| {
+                    try writer.print("\x1b[48;5;{d}m", .{idx});
+                } else if (rgb) |c| {
+                    try writer.print("\x1b[48;2;{d};{d};{d}m", .{ c.r, c.g, c.b });
+                }
+                // Update style tracking - set bg_color so we know to reset later
+                style.* = .{};
+                style.bg_color = if (palette_index) |idx|
+                    .{ .palette = idx }
+                else if (rgb) |c|
+                    .{ .rgb = .{ .r = c.r, .g = c.g, .b = c.b } }
+                else
+                    .none;
+            },
+            .html => {
+                // Close previous tag if needed
+                if (!style.default()) try writer.writeAll("</div>");
+                // Emit background color as inline style
+                if (palette_index) |idx| {
+                    try writer.print("<div style=\"display: inline;background-color: var(--vt-palette-{d});\">", .{idx});
+                } else if (rgb) |c| {
+                    try writer.print("<div style=\"display: inline;background-color: #{x:0>2}{x:0>2}{x:0>2};\">", .{ c.r, c.g, c.b });
+                }
+                style.* = .{};
+                style.bg_color = if (palette_index) |idx|
+                    .{ .palette = idx }
+                else if (rgb) |c|
+                    .{ .rgb = .{ .r = c.r, .g = c.g, .b = c.b } }
+                else
+                    .none;
             },
         }
     }
@@ -3345,7 +3427,9 @@ test "Page VT multi-line with styles" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\r\n\x1b[0m\x1b[3msecond\x1b[0m", output);
+    // Note: style is reset before newline to prevent background colors from
+    // bleeding to the next line's leading cells.
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\x1b[0m\r\n\x1b[0m\x1b[3msecond\x1b[0m", output);
 
     // Verify point map matches output length
     try testing.expectEqual(output.len, point_map.items.len);
@@ -5818,4 +5902,58 @@ test "Page codepoint_map empty map" {
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
     try testing.expectEqualStrings("hello world", output);
+}
+
+test "Page VT background color on trailing blank cells" {
+    // This test reproduces a bug where trailing cells with background color
+    // but no text are emitted as plain spaces without SGR sequences.
+    // This causes TUIs like htop to lose background colors on rehydration.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 20,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Simulate a TUI row: "CPU:" with text, then trailing cells with red background
+    // to end of line (no text after the colored region).
+    // \x1b[41m sets red background, then EL fills rest of row with that bg.
+    try s.nextSlice("CPU:\x1b[41m\x1b[K");
+    // Reset colors and move to next line with different content
+    try s.nextSlice("\x1b[0m\r\nline2");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.opts.trim = false; // Don't trim so we can see the trailing behavior
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // The output should preserve the red background SGR for trailing cells on line 1.
+    // Bug: the first row outputs "CPU:\r\n" only - losing the background color fill.
+    // The red background should appear BEFORE the newline, not after.
+
+    // Find position of CRLF
+    const crlf_pos = std.mem.indexOf(u8, output, "\r\n") orelse {
+        // No CRLF found, fail the test
+        return error.TestUnexpectedResult;
+    };
+
+    // Check that red background (48;5;1) appears BEFORE the newline (on line 1)
+    const line1 = output[0..crlf_pos];
+    const has_red_bg_line1 = std.mem.indexOf(u8, line1, "\x1b[41m") != null or
+        std.mem.indexOf(u8, line1, "\x1b[48;5;1m") != null;
+
+    // This should be true but currently fails due to the bug
+    try testing.expect(has_red_bg_line1);
 }
