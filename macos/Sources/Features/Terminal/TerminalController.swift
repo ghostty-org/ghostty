@@ -310,11 +310,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     ///   - ghostty: The Ghostty app instance.
     ///   - tree: The split tree to use for the new window.
     ///   - position: Optional screen position (top-left corner) for the new window.
-    ///               If nil, the window will cascade from the last cascade point.
+    ///               If nil, the window will cascade from the original window where the tree is from.
     static func newWindow(
         _ ghostty: Ghostty.App,
         tree: SplitTree<Ghostty.SurfaceView>,
-        position: NSPoint? = nil,
+        position: NSPoint,
         confirmUndo: Bool = true,
     ) -> TerminalController {
         let c = TerminalController.init(ghostty, withSurfaceTree: tree)
@@ -331,12 +331,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
 
                 if !window.styleMask.contains(.fullScreen) {
-                    if let position {
-                        window.setFrameTopLeftPoint(position)
-                        window.constrainToScreen()
-                    } else {
-                        Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
-                    }
+                    window.setFrameTopLeftPoint(position)
+                    window.constrainToScreen()
                 }
             }
 
@@ -362,7 +358,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     withTarget: ghostty,
                     expiresAfter: target.undoExpiration
                 ) { ghostty in
-                    _ = TerminalController.newWindow(ghostty, tree: tree)
+                    _ = TerminalController.newWindow(ghostty, tree: tree, position: position)
                 }
             }
         }
