@@ -2310,6 +2310,10 @@ keybind: Keybinds = .{},
 /// directory-config = ~/personal/*:~/.config/ghostty/profiles/personal.conf
 /// ```
 ///
+/// If the configuration file does not exist or cannot be read, an error
+/// will be logged and the directory pattern will be ignored. Invalid
+/// patterns are silently ignored during parsing.
+///
 /// ## Applied Settings (Visual Only)
 ///
 /// Only the following visual/surface-scoped settings are applied from
@@ -2364,7 +2368,9 @@ keybind: Keybinds = .{},
 /// match any pattern), the configuration reverts to the base settings.
 ///
 /// This feature requires shell integration to be enabled, as Ghostty uses
-/// OSC 7 escape sequences to detect directory changes.
+/// OSC 7 escape sequences to detect directory changes. See
+/// `shell-integration-features` to configure shell integration; the `osc7`
+/// feature must not be disabled for this option to work.
 ///
 /// This configuration can be repeated to define multiple directory mappings.
 /// When multiple patterns match, the most specific pattern wins. Specificity
