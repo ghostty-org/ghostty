@@ -487,6 +487,9 @@ class QuickTerminalTabManager: ObservableObject {
     }
 
     @objc func onGoToTab(_ notification: Notification) {
+        // Only respond to goto_tab when the quick terminal window is focused
+        guard controller?.window?.isKeyWindow == true else { return }
+
         guard let tabEnumAny = notification.userInfo?[Ghostty.Notification.GotoTabKey] else { return }
         guard let tabEnum = tabEnumAny as? ghostty_action_goto_tab_e else { return }
 
