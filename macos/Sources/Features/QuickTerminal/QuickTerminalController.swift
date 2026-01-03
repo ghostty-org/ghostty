@@ -304,7 +304,7 @@ class QuickTerminalController: BaseTerminalController {
         // If its the root, we check if the process exited. If it did,
         // then we do empty the tree.
         if surface.processExited {
-            surfaceTree = .init()
+            resetSurfaceTree()
             return
         }
 
@@ -314,6 +314,10 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     // MARK: Methods
+
+    func resetSurfaceTree() {
+        surfaceTree = .init()
+    }
 
     func toggle() {
         if (visible) {
