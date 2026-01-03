@@ -23,7 +23,7 @@ struct QuickTerminalTabBarView: View {
 
     private var tabBarBackgroundColor: Color {
         if isGlassEnabled {
-            Color.clear
+            Color.white.opacity(0.15)
         } else {
             Color(NSColor.controlBackgroundColor)
         }
@@ -32,9 +32,9 @@ struct QuickTerminalTabBarView: View {
     private var newTabButtonBackgroundColor: Color {
         if isGlassEnabled {
             if isHoveringNewTabButton {
-                Color.white.opacity(0.1)
+                Color.white.opacity(0.25)
             } else {
-                Color.clear
+                Color.white.opacity(0.1)
             }
         } else {
             if isHoveringNewTabButton {

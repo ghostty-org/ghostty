@@ -15,11 +15,11 @@ struct QuickTerminalTabItemView: View {
     private var backgroundColor: Color {
         if isGlassEnabled {
             if isHighlighted {
-                Color.white.opacity(0.2)
+                Color.white.opacity(0.28)
             } else if isHovering {
-                Color.white.opacity(0.1)
+                Color.white.opacity(0.18)
             } else {
-                Color.clear
+                Color.white.opacity(0.05)
             }
         } else {
             if isHighlighted {
@@ -35,7 +35,7 @@ struct QuickTerminalTabItemView: View {
     private var closeButtonBackgroundColor: Color {
         if isGlassEnabled {
             if isHoveringCloseButton {
-                Color.white.opacity(0.15)
+                Color.white.opacity(0.3)
             } else {
                 backgroundColor
             }
