@@ -33,14 +33,16 @@ extension Ghostty {
             return diags
         }
 
-        init() {
-            if let cfg = Self.loadConfig() {
-                self.config = cfg
-            }
+        init(config: ghostty_config_t?) {
+            self.config = config
         }
 
-        init(clone config: ghostty_config_t) {
-            self.config = ghostty_config_clone(config)
+        convenience init(at path: String? = nil, finalize: Bool = true) {
+            self.init(config: Self.loadConfig(at: path, finalize: finalize))
+        }
+
+        convenience init(clone config: ghostty_config_t) {
+            self.init(config: ghostty_config_clone(config))
         }
 
         deinit {
@@ -48,7 +50,10 @@ extension Ghostty {
         }
 
         /// Initializes a new configuration and loads all the values.
-        static private func loadConfig() -> ghostty_config_t? {
+        /// - Parameters:
+        ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
+        ///   - finalize: Whether to finalize the configuration to populate default values.
+        static private func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
                 logger.critical("ghostty_config_new failed")
@@ -59,7 +64,11 @@ extension Ghostty {
             // We only do this on macOS because other Apple platforms do not have the
             // same filesystem concept.
 #if os(macOS)
-            ghostty_config_load_default_files(cfg);
+            if let path {
+                ghostty_config_load_file(cfg, path)
+            } else {
+                ghostty_config_load_default_files(cfg)
+            }
 
             // We only load CLI args when not running in Xcode because in Xcode we
             // pass some special parameters to control the debugger.
@@ -74,9 +83,10 @@ extension Ghostty {
             // have to do this synchronously. When we support config updating we can do
             // this async and update later.
 
-            // Finalize will make our defaults available.
-            ghostty_config_finalize(cfg)
-
+            if finalize {
+                // Finalize will make our defaults available.
+                ghostty_config_finalize(cfg)
+            }
             // Log any configuration errors. These will be automatically shown in a
             // pop-up window too.
             let diagsCount = ghostty_config_diagnostics_count(cfg)
