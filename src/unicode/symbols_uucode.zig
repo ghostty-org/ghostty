@@ -34,7 +34,10 @@ pub fn main() !void {
     var buf: [4096]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buf);
     try t.writeZig(&stdout.interface);
-    try stdout.end();
+    // Use flush instead of end to avoid Windows issue where stdout.end()
+    // tries to truncate the console handle which is not supported.
+    // See: https://github.com/ghostty-org/ghostty/issues/10147
+    try stdout.interface.flush();
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
