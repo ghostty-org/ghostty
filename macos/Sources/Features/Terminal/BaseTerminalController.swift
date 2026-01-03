@@ -726,14 +726,29 @@ class BaseTerminalController: NSWindowController,
         target.highlight()
     }
 
+    /// Verifies two conditions:
+    /// 1) the `surface` exists in the current tree; and
+    /// 2) it can be dragged into a new window or tab.
+    func surfaceShouldBeDraggedOutsideAsNewWindowOrTab(_ surface: Ghostty.SurfaceView) -> Bool {
+        guard surfaceTree.root?.node(view: surface) != nil else {
+            // Not in this tree; this controller isn't responsible.
+            return false
+        }
+        // If our tree isn't split, then we never create a new window, because
+        // it is already a single split.
+        return surfaceTree.isSplit
+    }
+
     @objc private func ghosttySurfaceDragEndedNoTarget(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
-        
-        // If our tree isn't split, then we never create a new window, because
-        // it is already a single split.
-        guard surfaceTree.isSplit else { return }
-        
+
+        guard
+            let action = notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetActionKey] as? Ghostty.SurfaceDragNoTargetAction
+        else {
+            return
+        }
+
         // If we are removing our focused surface then we move it. We need to
         // keep track of our old one so undo sends focus back to the right place.
         let oldFocusedSurface = focusedSurface
@@ -753,13 +768,25 @@ class BaseTerminalController: NSWindowController,
         defer {
             undoManager?.endUndoGrouping()
         }
-        
+
         replaceSurfaceTree(removedTree, moveFocusFrom: oldFocusedSurface)
-        _ = TerminalController.newWindow(
-            ghostty,
-            tree: newTree,
-            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
-            confirmUndo: false)
+
+        switch action {
+        case .newTab(let parent):
+            _ = TerminalController.newTab(
+                ghostty,
+                from: parent,
+                tree: newTree,
+                confirmUndo: false,
+            )
+        case .newWindow(let position):
+            _ = TerminalController.newWindow(
+                ghostty,
+                tree: newTree,
+                position: position,
+                confirmUndo: false,
+            )
+        }
     }
 
     // MARK: Local Events
