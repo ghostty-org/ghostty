@@ -1191,8 +1191,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Get the tab color from the window
         let tabColor = (window as? TerminalWindow)?.tabColor ?? .none
 
-        // Get the title from the window
+        // Get the title and title override
         let title = window.title
+        let customTitle = titleOverride
 
         // Get the surface tree and clear it from this controller BEFORE transferring
         // This prevents the surfaces from being closed when the window closes
@@ -1212,6 +1213,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         quickController.tabManager.addTabWithSurfaceTree(
             tree,
             title: title,
+            titleOverride: customTitle,
             tabColor: tabColor
         )
 

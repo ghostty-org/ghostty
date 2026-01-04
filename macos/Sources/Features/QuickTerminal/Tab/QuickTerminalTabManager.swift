@@ -143,6 +143,7 @@ class QuickTerminalTabManager: ObservableObject {
     func addTabWithSurfaceTree(
         _ surfaceTree: SplitTree<Ghostty.SurfaceView>,
         title: String? = nil,
+        titleOverride: String? = nil,
         tabColor: TerminalTabColor = .none
     ) {
         let tabIndex = tabs.count + 1
@@ -150,6 +151,7 @@ class QuickTerminalTabManager: ObservableObject {
             surfaceTree: surfaceTree,
             title: title ?? "Terminal \(tabIndex)"
         )
+        newTab.titleOverride = titleOverride
         newTab.tabColor = tabColor
         tabs.append(newTab)
         selectTab(newTab)
