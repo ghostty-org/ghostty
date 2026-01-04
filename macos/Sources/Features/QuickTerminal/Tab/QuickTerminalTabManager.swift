@@ -42,19 +42,20 @@ class QuickTerminalTabManager: ObservableObject {
     /// The current tab being dragged
     @Published var draggedTab: QuickTerminalTab? {
         didSet {
-            if draggedTab != nil {
-                startDragMonitor()
-            } else {
-                stopDragMonitor()
+            if draggedTab == nil {
+                dropTargetIndex = nil
+                draggedTabWidth = nil
             }
         }
     }
+    /// The index where a dragged tab will be dropped (for showing placeholder)
+    @Published var dropTargetIndex: Int?
+    /// The width of the tab being dragged (captured at drag start)
+    var draggedTabWidth: CGFloat?
 
     /// Reference to the "quick" terminal Controller
     weak var controller: QuickTerminalController?
 
-    /// Event monitor for detecting when a drag ends outside the window
-    private var dragEventMonitor: Any?
 
     var currentTabIndex: Int? {
         tabs.firstIndex { $0.id == currentTab?.id }
@@ -117,10 +118,6 @@ class QuickTerminalTabManager: ObservableObject {
         } else if let first = tabs.first {
             selectTab(first)
         }
-    }
-
-    deinit {
-        stopDragMonitor()
     }
 
     // MARK: Methods
@@ -289,91 +286,6 @@ class QuickTerminalTabManager: ObservableObject {
                 selectTab(tabs[newIndex])
             }
         }
-    }
-
-    // MARK: - Drag Monitoring
-
-    /// Local event monitor for drag end detection
-    private var localDragEventMonitor: Any?
-
-    /// Captured mouse location when drag ends (before async processing)
-    private var dragEndLocation: NSPoint?
-
-    private func startDragMonitor() {
-        // Don't create multiple monitors
-        guard dragEventMonitor == nil else { return }
-
-        // Monitor for left mouse up events globally to detect when drag ends
-        // outside our application
-        dragEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            self?.handleDragEnd()
-        }
-
-        // Also monitor local events in case the drag ends within our app
-        // but outside the quick terminal window
-        localDragEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            self?.handleDragEnd()
-            return event
-        }
-    }
-
-    private func stopDragMonitor() {
-        if let monitor = dragEventMonitor {
-            NSEvent.removeMonitor(monitor)
-            dragEventMonitor = nil
-        }
-        if let monitor = localDragEventMonitor {
-            NSEvent.removeMonitor(monitor)
-            localDragEventMonitor = nil
-        }
-        dragEndLocation = nil
-    }
-
-    private func handleDragEnd() {
-        // Capture mouse location immediately before any async processing
-        dragEndLocation = NSEvent.mouseLocation
-
-        // Small delay to allow drop delegate to process first
-        // This prevents race conditions between performDrop clearing draggedTab
-        // and the event monitor checking it
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.processDragEnd()
-        }
-    }
-
-    private func processDragEnd() {
-        // Must have a tab being dragged (if nil, drop delegate already handled it)
-        guard let tab = draggedTab else {
-            dragEndLocation = nil
-            return
-        }
-        guard let window = controller?.window else {
-            draggedTab = nil
-            dragEndLocation = nil
-            return
-        }
-
-        // Use captured location from when drag ended
-        let mouseLocation = dragEndLocation ?? NSEvent.mouseLocation
-        let windowFrame = window.frame
-
-        if !windowFrame.contains(mouseLocation) {
-            // Mouse is outside the quick terminal window
-            // Check if we're over another Ghostty terminal window's tab bar area
-            if let targetWindow = findGhosttyWindowAtLocation(mouseLocation),
-               isInTabBarArea(mouseLocation, of: targetWindow) {
-                // Add as a tab to the existing window
-                moveTabToExistingWindow(tab, targetWindow: targetWindow)
-            } else {
-                // Create a new standalone window
-                moveTabToNewWindow(tab, at: mouseLocation)
-            }
-        } else {
-            // Mouse is inside the window but not on a tab - just clear the dragged tab
-            draggedTab = nil
-        }
-
-        dragEndLocation = nil
     }
 
     /// Finds a Ghostty terminal window (not quick terminal) at the given screen location.

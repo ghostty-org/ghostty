@@ -70,11 +70,11 @@ struct QuickTerminalTabBarView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
                         ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                            renderTabItem(tab, index: index)
-                                .id(tab.id)
+                            renderDraggableTab(tab, at: index)
                         }
                     }
                     .frame(minWidth: geometry.size.width)
+                    .animation(.easeInOut(duration: 0.2), value: tabManager.dropTargetIndex)
                 }
                 .onChange(of: tabManager.currentTab?.id) { newTabId in
                     if let tabId = newTabId {
@@ -85,6 +85,46 @@ struct QuickTerminalTabBarView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private func renderDraggableTab(_ tab: QuickTerminalTab, at index: Int) -> some View {
+        let isDraggedTab = tabManager.draggedTab?.id == tab.id
+        let sourceIndex = tabManager.draggedTab.flatMap { drag in
+            tabManager.tabs.firstIndex(where: { $0.id == drag.id })
+        }
+        let dropTargetIsAtSource = tabManager.dropTargetIndex == nil ||
+            tabManager.dropTargetIndex == sourceIndex
+
+        // Placeholder before this tab (when dragging from right)
+        if let dropIndex = tabManager.dropTargetIndex,
+           let source = sourceIndex,
+           dropIndex == index && source > index && !isDraggedTab {
+            renderDropPlaceholder()
+        }
+
+        // The tab itself (collapsed when being dragged elsewhere)
+        if isDraggedTab {
+            renderTabItem(tab, index: index)
+                .id(tab.id)
+                .opacity(0)
+                .frame(width: dropTargetIsAtSource ? nil : 0)
+        } else {
+            renderTabItem(tab, index: index)
+                .id(tab.id)
+        }
+
+        // Placeholder after this tab (when dragging from left)
+        if let dropIndex = tabManager.dropTargetIndex,
+           let source = sourceIndex,
+           dropIndex == index && source < index && !isDraggedTab {
+            renderDropPlaceholder()
+        }
+    }
+
+    @ViewBuilder private func renderDropPlaceholder() -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: tabManager.draggedTabWidth ?? Constants.dropPlaceholderWidth, height: Constants.height)
     }
 
     @ViewBuilder private func renderAddNewTabButton() -> some View {
@@ -138,46 +178,9 @@ struct QuickTerminalTabBarView: View {
             tabManager: tabManager
         )
         .frame(maxWidth: .infinity)
-        .onDrop(
-            of: [.quickTerminalTab],
-            delegate: QuickTerminalTabDropDelegate(
-                item: tab,
-                tabManager: tabManager,
-                currentTab: tabManager.draggedTab
-            )
-        )
 
         Divider()
             .background(Color(NSColor.separatorColor))
-    }
-}
-
-struct QuickTerminalTabDropDelegate: DropDelegate {
-    let item: QuickTerminalTab
-    let tabManager: QuickTerminalTabManager
-    let currentTab: QuickTerminalTab?
-
-    func performDrop(info: DropInfo) -> Bool {
-        // Clear the dragged tab state since drop was successful
-        tabManager.draggedTab = nil
-        return true
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard
-            let currentTab,
-            let source = tabManager.tabs.firstIndex(where: { $0.id == currentTab.id }),
-            let dest = tabManager.tabs.firstIndex(where: { $0.id == item.id })
-        else { return }
-
-        if tabManager.tabs[dest].id != currentTab.id {
-            let guardedDest = dest > source ? dest + 1 : dest
-            tabManager.moveTab(from: IndexSet(integer: source), to: guardedDest)
-        }
-    }
-
-    func dropExited(info: DropInfo) {
-        // Don't clear draggedTab here - let the event monitor handle drops outside the window
     }
 }
 
@@ -186,6 +189,7 @@ extension QuickTerminalTabBarView {
         static let height: CGFloat = 24
         static let addNewTabButtonHorizontalPadding: CGFloat = 8
         static let addNewTabButtonSize: CGFloat = 50
+        static let dropPlaceholderWidth: CGFloat = QuickTerminalTabItemView.Constants.minWidth
     }
 }
 
