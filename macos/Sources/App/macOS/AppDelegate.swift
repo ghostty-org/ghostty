@@ -53,6 +53,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
     @IBOutlet private var menuBringAllToFront: NSMenuItem?
+    @IBOutlet private var menuMoveTabToQuickTerminal: NSMenuItem?
     @IBOutlet private var menuZoomSplit: NSMenuItem?
     @IBOutlet private var menuPreviousSplit: NSMenuItem?
     @IBOutlet private var menuNextSplit: NSMenuItem?
@@ -596,6 +597,11 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+        if #available(macOS 26.0, *) {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
+        } else {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        }
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
