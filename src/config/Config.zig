@@ -6459,6 +6459,13 @@ pub const Keybinds = struct {
                 .{ .jump_to_prompt = 1 },
             );
 
+            // Toggle MRU Tab switcher
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } },
+                .{ .toggle_mru_tab_switcher = {} },
+            );
+
             // Mac windowing
             try self.set.put(
                 alloc,
