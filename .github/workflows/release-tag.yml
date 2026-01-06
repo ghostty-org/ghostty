@@ -105,6 +105,11 @@ jobs:
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz ghostty-source.tar.gz
 
+      - name: Generate Terminfo
+        run: |
+          nix develop -c zig build -Demit-terminfo=true
+          cp zig-out/share/terminfo/ghostty.terminfo .
+
       - name: Sign Tarball
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
@@ -121,6 +126,7 @@ jobs:
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig
             ghostty-source.tar.gz
             ghostty-source.tar.gz.minisig
+            ghostty.terminfo
 
   build-macos:
     needs: [setup]
@@ -166,6 +172,7 @@ jobs:
             zig build \
             -Doptimize=ReleaseFast \
             -Demit-macos-app=false \
+            -Demit-terminfo=true \
             -Dversion-string=${GHOSTTY_VERSION}
 
       # The native app is built with native XCode tooling. This also does
@@ -385,6 +392,7 @@ jobs:
           mv ghostty-macos-universal.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal.zip
           mv ghostty-macos-universal-dsym.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal-dsym.zip
           mv Ghostty.dmg blob/${GHOSTTY_VERSION}/Ghostty.dmg
+          mv ghostty.terminfo blob/${GHOSTTY_VERSION}/ghostty.terminfo
           mv appcast.xml blob/${GHOSTTY_VERSION}/appcast-staged.xml
       - name: Upload to R2
         uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4

@@ -179,6 +179,11 @@ jobs:
           nix develop -c zig build distcheck
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
 
+      - name: Generate Terminfo
+        run: |
+          nix develop -c zig build -Demit-terminfo=true
+          cp zig-out/share/terminfo/ghostty.terminfo .
+
       - name: Sign Tarball
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
@@ -195,6 +200,7 @@ jobs:
           files: |
             ghostty-source.tar.gz
             ghostty-source.tar.gz.minisig
+            ghostty.terminfo
           token: ${{ secrets.GH_RELEASE_TOKEN }}
 
   build-macos:
@@ -251,7 +257,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseFast -Demit-macos-app=false
+        run: nix develop -c zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Demit-terminfo=true
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -485,7 +491,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=Debug -Demit-macos-app=false
+        run: nix develop -c zig build -Doptimize=Debug -Demit-macos-app=false -Demit-terminfo=true
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -669,7 +675,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseSafe -Demit-macos-app=false
+        run: nix develop -c zig build -Doptimize=ReleaseSafe -Demit-macos-app=false -Demit-terminfo=true
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
