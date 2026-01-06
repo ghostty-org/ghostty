@@ -51,6 +51,7 @@ jobs:
           curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-macos-universal.zip" | grep -q "^200$" || exit 1
           curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-macos-universal-dsym.zip" | grep -q "^200$" || exit 1
           curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/Ghostty.dmg" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty.terminfo" | grep -q "^200$" || exit 1
           curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/appcast-staged.xml" | grep -q "^200$" || exit 1
 
       - name: Download Staged Appcast
