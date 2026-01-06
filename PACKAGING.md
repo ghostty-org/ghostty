@@ -20,7 +20,10 @@ at `release.files.ghostty.org` in the following URL format where
 ```
 https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz
 https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz.minisig
+https://release.files.ghostty.org/VERSION/ghostty.terminfo
 ```
+
+The `ghostty.terminfo` file is the generated terminfo source for the release.
 
 Signature files are signed with
 [minisign](https://jedisct1.github.io/minisign/)
@@ -83,7 +86,8 @@ zig build \
   --prefix /usr \
   --system /tmp/offline-cache/p \
   -Doptimize=ReleaseFast \
-  -Dcpu=baseline
+  -Dcpu=baseline \
+  -Demit-terminfo=true
 ```
 
 The build options are covered in the next section, but this will build
@@ -117,6 +121,11 @@ relevant to package maintainers:
 - `-Dcpu=baseline`: Build for the "baseline" CPU of the target architecture.
   This avoids building for newer CPU features that may not be available on
   all target machines.
+
+- `-Demit-terminfo=true`: Install the Ghostty terminfo source file to
+  `share/terminfo/ghostty.terminfo` (or `share/site-terminfo` on FreeBSD).
+  Release builds default to false, so enable this if your package ships
+  terminfo.
 
 - `-Dtarget=$arch-$os-$abi`: Build for a specific target triple. This is
   often necessary for system packages to specify a specific minimum Linux
