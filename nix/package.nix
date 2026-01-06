@@ -96,6 +96,7 @@ in
       "--system"
       "${finalAttrs.deps}"
       "-Dversion-string=${finalAttrs.version}-${revision}-nix"
+      "-Demit-terminfo=true"
       "-Dgtk-x11=${lib.boolToString enableX11}"
       "-Dgtk-wayland=${lib.boolToString enableWayland}"
       "-Dstrip=${lib.boolToString strip}"
