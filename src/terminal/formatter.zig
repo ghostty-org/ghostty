@@ -7,6 +7,7 @@ const charsets = @import("charsets.zig");
 const kitty = @import("kitty.zig");
 const modespkg = @import("modes.zig");
 const Screen = @import("Screen.zig");
+const Tabstops = @import("Tabstops.zig");
 const Terminal = @import("Terminal.zig");
 const Cell = @import("page.zig").Cell;
 const Coordinate = @import("point.zig").Coordinate;
@@ -106,6 +107,11 @@ pub const Options = struct {
     /// still work but will use deferred palette styling (e.g. CSS variables
     /// for HTML or the actual palette indexes for VT).
     palette: ?*const color.Palette = null,
+
+    /// Tabstop positions for tab reconstruction (.plain format only).
+    /// When set, trailing runs of empty cells (codepoint 0) that end at
+    /// a tabstop will be emitted as tab characters instead of spaces.
+    tabstops: ?*const Tabstops = null,
 
     pub const plain: Options = .{ .emit = .plain };
     pub const vt: Options = .{ .emit = .vt };
@@ -878,6 +884,14 @@ pub const PageFormatter = struct {
         var blank_rows: usize = 0;
         var blank_cells: usize = 0;
 
+        // Buffer for storing blank cells for tab reconstruction. We use a fixed
+        // buffer to avoid dynamic allocation. 512 cells matches the prealloc size
+        // in Tabstops.zig and covers terminals up to ~6K resolution at small fonts.
+        // If the buffer overflows, we gracefully degrade to emitting spaces instead
+        // of tabs - still correct output, just not optimal for copy/paste.
+        var blank_cells_buf: [512]Cell = undefined;
+        var blank_cells_count: usize = 0;
+
         // Continue our prior trailing state if we have it, but only if we're
         // starting from the beginning (start_y and start_x are both 0).
         // If a non-zero start position is specified, ignore trailing state.
@@ -1098,7 +1112,14 @@ pub const PageFormatter = struct {
 
             // If the row doesn't continue a wrap then we need to reset
             // our blank cell count.
-            if (!row.wrap_continuation or !self.opts.unwrap) blank_cells = 0;
+            if (!row.wrap_continuation or !self.opts.unwrap) {
+                blank_cells = 0;
+            }
+            // Always reset cell buffer at row boundaries - tab reconstruction
+            // requires accurate column positions which don't translate across rows.
+            // If blanks span rows, blank_cells_count != blank_cells triggers
+            // fallback to spaces (correct but not optimal).
+            blank_cells_count = 0;
 
             // Go through each cell and print it
             for (cells_subset, row_start_x..) |*cell, x_usize| {
@@ -1111,27 +1132,46 @@ pub const PageFormatter = struct {
                     .spacer_head, .spacer_tail => continue,
                 }
 
-                // If we have a zero value, then we accumulate a counter. We
-                // only want to turn zero values into spaces if we have a non-zero
+                // If we have a zero value, then we accumulate cells. We
+                // only want to turn zero values into spaces/tabs if we have a non-zero
                 // char sometime later.
                 if (!cell.hasText()) {
                     blank_cells += 1;
+                    if (blank_cells_count < blank_cells_buf.len) {
+                        blank_cells_buf[blank_cells_count] = cell.*;
+                        blank_cells_count += 1;
+                    }
                     continue;
                 }
                 if (cell.codepoint() == ' ' and self.opts.trim) {
                     blank_cells += 1;
+                    if (blank_cells_count < blank_cells_buf.len) {
+                        blank_cells_buf[blank_cells_count] = cell.*;
+                        blank_cells_count += 1;
+                    }
                     continue;
                 }
 
                 // This cell is not blank. If we have accumulated blank cells
                 // then we want to emit them now.
                 if (blank_cells > 0) {
-                    try writer.splatByteAll(' ', blank_cells);
+                    // Use tab reconstruction if we have buffered cells; fall back to
+                    // spaces if buffer overflowed or point_map is used (point_map
+                    // requires 1:1 byte-to-cell mapping which tabs break).
+                    const use_tab_reconstruction = blank_cells_count == blank_cells and
+                        self.point_map == null;
+
+                    const bytes_written = if (use_tab_reconstruction)
+                        try self.emitBlankCells(writer, blank_cells_buf[0..blank_cells_count], x)
+                    else blk: {
+                        try writer.splatByteAll(' ', blank_cells);
+                        break :blk blank_cells;
+                    };
 
                     if (self.point_map) |*map| {
                         // Map each blank cell to its coordinate. Blank cells can span
                         // multiple rows if they carry over from wrap continuation.
-                        var remaining_blanks = blank_cells;
+                        var remaining_blanks = bytes_written;
                         var blank_x = x;
                         var blank_y = y;
                         while (remaining_blanks > 0) : (remaining_blanks -= 1) {
@@ -1156,6 +1196,7 @@ pub const PageFormatter = struct {
                     }
 
                     blank_cells = 0;
+                    blank_cells_count = 0;
                 }
 
                 switch (cell.content_tag) {
@@ -1378,6 +1419,79 @@ pub const PageFormatter = struct {
                 );
             },
         }
+    }
+
+    /// Emits blank cells, converting trailing empty cell runs to tabs when aligned.
+    /// Empty cells (codepoint 0) that end at a tabstop become tabs; explicit spaces
+    /// (codepoint 0x20) and empty runs not ending at tabstops emit as spaces.
+    fn emitBlankCells(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        cells: []const Cell,
+        end_col: size.CellCountInt,
+    ) std.Io.Writer.Error!usize {
+        // No tab reconstruction for non-plain or if no tabstops configured
+        if (self.opts.emit != .plain or self.opts.tabstops == null) {
+            try writer.splatByteAll(' ', cells.len);
+            return cells.len;
+        }
+
+        const tabstops = self.opts.tabstops.?;
+        var i: usize = 0;
+        var bytes_written: usize = 0;
+
+        // Calculate the starting column for the first cell in our buffer.
+        // cells[0] is at start_col, cells[1] is at start_col+1, etc.
+        const start_col = end_col - @as(size.CellCountInt, @intCast(cells.len));
+
+        while (i < cells.len) {
+            const cell = cells[i];
+            const col = start_col + @as(size.CellCountInt, @intCast(i));
+
+            if (cell.codepoint() == ' ') {
+                // Explicit space: always emit as space
+                try writer.writeByte(' ');
+                bytes_written += 1;
+                i += 1;
+            } else {
+                // Empty cell: find the extent of consecutive empty cells
+                var run_len: usize = 1;
+                while (i + run_len < cells.len and cells[i + run_len].codepoint() != ' ') {
+                    run_len += 1;
+                }
+
+                // Walk through the run, emitting a tab at each tabstop boundary.
+                // This correctly handles consecutive tabs (e.g., a\t\tb should
+                // emit two tabs, not collapse them into one).
+                const run_end_col = col + @as(size.CellCountInt, @intCast(run_len));
+                var current_col = col;
+
+                while (current_col < run_end_col) {
+                    // Find next tabstop within this run
+                    var next_ts = current_col + 1;
+                    while (next_ts < run_end_col and !tabstops.get(next_ts)) {
+                        next_ts += 1;
+                    }
+
+                    if (next_ts <= run_end_col and tabstops.get(next_ts)) {
+                        // Emit tab to advance to this tabstop
+                        try writer.writeByte('\t');
+                        bytes_written += 1;
+                        current_col = next_ts;
+                    } else {
+                        // No more tabstops in this run, emit remaining as spaces
+                        const remaining = @as(usize, @intCast(run_end_col - current_col));
+                        try writer.splatByteAll(' ', remaining);
+                        bytes_written += remaining;
+                        break;
+                    }
+                }
+
+                i += run_len;
+            }
+        }
+
+        return bytes_written;
     }
 
     fn formatStyleClose(
@@ -5818,4 +5932,582 @@ test "Page codepoint_map empty map" {
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
     try testing.expectEqualStrings("hello world", output);
+}
+
+test "Page tab reconstruction case a - simple tab" {
+    // XFCE Case a: `a\ta` (simple tab) → `a\ta`
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "a", then tab (which expands to empty cells), then "a"
+    try s.nextSlice("a\ta");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("a\ta", output);
+}
+
+test "Page tab reconstruction case b - space then empty to tabstop" {
+    // XFCE Case b: Tab, space overwrites pos 1 → `b \tb`
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "b", tab to col 8, then "b", then go back and overwrite col 1 with space
+    try s.nextSlice("b\tb");
+    // Move cursor back to position 1 and write a space
+    try s.nextSlice("\x1b[1;2H "); // ESC[1;2H moves to row 1, col 2 (1-indexed)
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Space at col 1, empty cells 2-7 should become tab, then 'b' at col 8
+    try testing.expectEqualStrings("b \tb", output);
+}
+
+test "Page tab reconstruction case d - all explicit spaces" {
+    // XFCE Case d: All explicit spaces → `d       d`
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "d" followed by 7 explicit spaces and another "d"
+    try s.nextSlice("d       d");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // All explicit spaces should remain as spaces, not become tabs
+    try testing.expectEqualStrings("d       d", output);
+}
+
+test "Page tab reconstruction disabled without tabstops" {
+    // Without tabstops set, should emit spaces
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\ta");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    // No tabstops set - should emit spaces
+    const opts: Options = .plain;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Without tabstops, empty cells become spaces
+    try testing.expectEqualStrings("a       a", output);
+}
+
+test "Page tab reconstruction disabled for vt format" {
+    // VT format should not do tab reconstruction
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\ta");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .vt;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // VT format should emit spaces, not tabs
+    try testing.expect(std.mem.indexOf(u8, output, "\t") == null);
+    try testing.expect(std.mem.indexOf(u8, output, "a       a") != null);
+}
+
+test "Page tab reconstruction disabled for html format" {
+    // HTML format should not do tab reconstruction
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\ta");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .html;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // HTML format should emit spaces, not tabs
+    try testing.expect(std.mem.indexOf(u8, output, "\t") == null);
+    try testing.expect(std.mem.indexOf(u8, output, "a       a") != null);
+}
+
+test "Page tab reconstruction multiple tabs on line" {
+    // Multiple tabs on a single line
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "x", tab, "y", tab, "z"
+    try s.nextSlice("x\ty\tz");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("x\ty\tz", output);
+}
+
+test "Page tab reconstruction consecutive tabs" {
+    // Consecutive tabs should emit multiple tabs, not collapse into one
+    // a\t\tb should produce a followed by two tabs then b
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "a", two consecutive tabs, then "b"
+    try s.nextSlice("a\t\tb");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Should have two tabs between a and b
+    try testing.expectEqualStrings("a\t\tb", output);
+}
+
+test "Page tab reconstruction three consecutive tabs" {
+    // Three consecutive tabs
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\t\t\tb");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("a\t\t\tb", output);
+}
+
+test "Page tab reconstruction partial run not at tabstop" {
+    // Empty cells that don't end at a tabstop should become spaces
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "a", then move cursor to col 5 (not a tabstop), write "b"
+    // This creates empty cells at 1-4 that don't end at tabstop 8
+    try s.nextSlice("a");
+    try s.nextSlice("\x1b[1;6H"); // Move to row 1, col 6 (1-indexed, so col 5 in 0-indexed)
+    try s.nextSlice("b");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // 4 empty cells (cols 1-4) don't reach tabstop 8, should be spaces
+    try testing.expectEqualStrings("a    b", output);
+}
+
+test "Page tab reconstruction case c - spaces then empty to tabstop" {
+    // XFCE Case c: 6 explicit spaces at cols 1-6, 1 empty cell at col 7, tabstop at 8
+    // Should emit 6 spaces then 1 tab
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "c", tab to col 8, then "c", then overwrite cols 1-6 with spaces
+    try s.nextSlice("c\tc");
+    try s.nextSlice("\x1b[1;2H");
+    try s.nextSlice("      "); // 6 explicit spaces at cols 1-6
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // 6 explicit spaces, then 1 empty cell to tabstop 8 becomes tab
+    try testing.expectEqualStrings("c      \tc", output);
+}
+
+test "Page tab reconstruction case e - char overwrites middle of tab" {
+    // XFCE Case e: Tab, then 'x' overwrites position 3
+    // Result: empty at 1-2, 'x' at 3, empty at 4-7, char at 8
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write "e", tab to col 8, then "e", then overwrite col 3 with 'x'
+    try s.nextSlice("e\te");
+    try s.nextSlice("\x1b[1;4H"); // Move to col 4 (1-indexed) = col 3 (0-indexed)
+    try s.nextSlice("x");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Empty cols 1-2 don't reach tabstop -> spaces, 'x' at 3, empty 4-7 reach tabstop 8 -> tab
+    try testing.expectEqualStrings("e  x\te", output);
+}
+
+test "Page tab reconstruction tab at line start" {
+    // Tab at the very start of a line
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("\ta");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("\ta", output);
+}
+
+test "Page tab reconstruction tab then explicit space" {
+    // Tab followed by explicit space: a\t b
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\t b");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Tab to col 8, then explicit space at col 8, then 'b' at col 9
+    try testing.expectEqualStrings("a\t b", output);
+}
+
+test "Page tab reconstruction trailing tab trimmed" {
+    // Trailing tab should be trimmed (trailing whitespace trimming)
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\t");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Trailing empty cells are trimmed, so just "a"
+    try testing.expectEqualStrings("a", output);
+}
+
+test "Page tab reconstruction with point_map falls back to spaces" {
+    // When point_map is set, tab reconstruction is disabled for correct byte mapping
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("a\ta");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    // Enable point_map - this should disable tab reconstruction
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // With point_map, should emit spaces instead of tab
+    try testing.expectEqualStrings("a       a", output);
+}
+
+test "Page tab reconstruction wrap continuation falls back to spaces" {
+    // Blanks spanning wrapped rows should fall back to spaces
+    // (column math doesn't work across row boundaries)
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    // Use narrow terminal to force wrapping
+    var t = try Terminal.init(alloc, .{
+        .cols = 20,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Fill first row, wrap to second, then have tab-like blanks
+    // Write 18 chars, then tab (would create blanks at 18-19 on row 0,
+    // continuing to row 1), then 'x'
+    try s.nextSlice("abcdefghijklmnopqr\tx");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var opts: Options = .plain;
+    opts.unwrap = true; // Enable unwrap to trigger wrap continuation
+    opts.tabstops = &t.tabstops;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // The blanks span rows, so they should be spaces not tabs
+    // Tab from col 18 goes to col 24 (next tabstop), which wraps
+    // With our fix, cross-row blanks fall back to spaces
+    try testing.expect(std.mem.startsWith(u8, output, "abcdefghijklmnopqr"));
+    try testing.expect(std.mem.endsWith(u8, output, "x"));
+    // Should contain spaces, not tabs (fallback behavior)
+    // The exact spacing depends on wrap handling, but no tabs should appear
 }

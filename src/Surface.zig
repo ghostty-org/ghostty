@@ -2223,6 +2223,7 @@ fn copySelectionToClipboards(
         .background = self.io.terminal.colors.background.get(),
         .foreground = self.io.terminal.colors.foreground.get(),
         .palette = &self.io.terminal.colors.palette.current,
+        .tabstops = &self.io.terminal.tabstops,
     };
 
     const ScreenFormatter = terminal.formatter.ScreenFormatter;
