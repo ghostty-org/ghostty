@@ -628,7 +628,7 @@ pub fn init(
             .env_override = config.env,
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
-            .working_directory = config.@"working-directory",
+            .working_directory = if (config.@"working-directory") |wd| wd.resolved() else null,
             .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
 

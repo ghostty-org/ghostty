@@ -3217,7 +3217,7 @@ pub const Surface = extern struct {
 
         // Properties that can impact surface init
         if (priv.font_size_request) |size| config.@"font-size" = size.points;
-        if (priv.pwd) |pwd| config.@"working-directory" = pwd;
+        if (priv.pwd) |pwd| config.@"working-directory" = .{ .path = pwd };
 
         // Initialize the surface
         surface.init(

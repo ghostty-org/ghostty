@@ -36,6 +36,7 @@ const RepeatableReadableIO = @import("io.zig").RepeatableReadableIO;
 const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
+pub const WorkingDirectory = @import("working_directory.zig").WorkingDirectory;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
 
 // We do this instead of importing all of terminal/main.zig to
@@ -1427,7 +1428,7 @@ class: ?[:0]const u8 = null,
 ///   * `home` - The home directory of the executing user.
 ///
 ///   * `inherit` - The working directory of the launching process.
-@"working-directory": ?[]const u8 = null,
+@"working-directory": ?WorkingDirectory = null,
 
 /// Key bindings. The format is `trigger=action`. Duplicate triggers will
 /// overwrite previously set values. The list of actions is available in
@@ -4134,6 +4135,20 @@ fn expandPaths(self: *Config, base: []const u8) !void {
                     );
                 }
             },
+            WorkingDirectory => {
+                try @field(self, field.name).expand(
+                    arena_alloc,
+                    &self._diagnostics,
+                );
+            },
+            ?WorkingDirectory => {
+                if (@field(self, field.name)) |*wd| {
+                    try wd.expand(
+                        arena_alloc,
+                        &self._diagnostics,
+                    );
+                }
+            },
             else => {},
         }
     }
@@ -4289,19 +4304,24 @@ pub fn finalize(self: *Config) !void {
     }
 
     // The default for the working directory depends on the system.
-    const wd = self.@"working-directory" orelse if (probable_cli)
+    const wd: WorkingDirectory = self.@"working-directory" orelse if (probable_cli)
         // From the CLI, we want to inherit where we were launched from.
-        "inherit"
+        .inherit
     else
         // Otherwise we typically just want the home directory because
         // our pwd is probably a runtime state dir or root or something
         // (launchers and desktop environments typically do this).
-        "home";
+        .home;
+
+    // Set the default if it wasn't already set
+    if (self.@"working-directory" == null) {
+        self.@"working-directory" = wd;
+    }
 
     // If we are missing either a command or home directory, we need
     // to look up defaults which is kind of expensive. We only do this
     // on desktop.
-    const wd_home = std.mem.eql(u8, "home", wd);
+    const wd_home = (wd == .home);
     if ((comptime !builtin.target.cpu.arch.isWasm()) and
         (comptime !builtin.is_test))
     {
@@ -4341,7 +4361,7 @@ pub fn finalize(self: *Config) !void {
                     if (wd_home) {
                         var buf: [std.fs.max_path_bytes]u8 = undefined;
                         if (try internal_os.home(&buf)) |home| {
-                            self.@"working-directory" = try alloc.dupe(u8, home);
+                            self.@"working-directory" = .{ .path = try alloc.dupeZ(u8, home) };
                         }
                     }
                 },
@@ -4359,7 +4379,7 @@ pub fn finalize(self: *Config) !void {
                     if (wd_home) {
                         if (pw.home) |home| {
                             log.info("default working directory src=passwd value={s}", .{home});
-                            self.@"working-directory" = home;
+                            self.@"working-directory" = .{ .path = home };
                         }
                     }
 
@@ -4387,10 +4407,6 @@ pub fn finalize(self: *Config) !void {
             }
         },
     }
-
-    // If we have the special value "inherit" then set it to null which
-    // does the same. In the future we should change to a tagged union.
-    if (std.mem.eql(u8, wd, "inherit")) self.@"working-directory" = null;
 
     // Default our click interval
     if (self.@"click-repeat-interval" == 0 and
@@ -10289,5 +10305,156 @@ test "compatibility: window new-window" {
             MacOSDockDropBehavior.@"new-window",
             cfg.@"macos-dock-drop-behavior",
         );
+    }
+}
+
+test "working-directory: tilde expansion" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+
+    {
+        // Test tilde expansion in config file
+        const data = "working-directory = ~/dev\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"working-directory" != null);
+        const wd = cfg.@"working-directory".?;
+        try testing.expect(wd == .path);
+        try testing.expect(std.fs.path.isAbsolute(wd.path));
+        try testing.expect(std.mem.endsWith(u8, wd.path, "/dev"));
+    }
+
+    {
+        // Test tilde expansion via CLI
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--working-directory=~/test",
+        } };
+        try cfg.loadIter(alloc, &it);
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        try cfg.expandPaths(try std.fs.cwd().realpath(".", &buf));
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"working-directory" != null);
+        const wd = cfg.@"working-directory".?;
+        try testing.expect(wd == .path);
+        try testing.expect(std.fs.path.isAbsolute(wd.path));
+        try testing.expect(std.mem.endsWith(u8, wd.path, "/test"));
+    }
+}
+
+test "working-directory: special values" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        // Test "home" value
+        const data = "working-directory = home\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        // Before finalize, should be .home
+        try testing.expect(cfg.@"working-directory" != null);
+        try testing.expect(cfg.@"working-directory".? == .home);
+
+        try cfg.finalize();
+        // After finalize, .home stays as .home in tests (home resolution is skipped in tests)
+        // In production, it would be resolved to .path with actual home directory
+        try testing.expect(cfg.@"working-directory" != null);
+        const wd = cfg.@"working-directory".?;
+        try testing.expect(wd == .home);
+    }
+
+    {
+        // Test "inherit" value
+        const data = "working-directory = inherit\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"working-directory" != null);
+        try testing.expect(cfg.@"working-directory".? == .inherit);
+    }
+
+    {
+        // Test "~" value (should be equivalent to "home")
+        const data = "working-directory = ~\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        // Before finalize, should be .home
+        try testing.expect(cfg.@"working-directory" != null);
+        try testing.expect(cfg.@"working-directory".? == .home);
+
+        try cfg.finalize();
+        // After finalize, .home stays as .home in tests
+        try testing.expect(cfg.@"working-directory" != null);
+        const wd = cfg.@"working-directory".?;
+        try testing.expect(wd == .home);
+    }
+
+    {
+        // Test "~" value via CLI
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--working-directory=~",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"working-directory" != null);
+        const wd = cfg.@"working-directory".?;
+        try testing.expect(wd == .home);
+    }
+}
+
+test "working-directory: absolute path unchanged" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        const data = "working-directory = /usr/local\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"working-directory" != null);
+        const wd = cfg.@"working-directory".?;
+        try testing.expect(wd == .path);
+        try testing.expectEqualStrings(wd.path, "/usr/local");
     }
 }

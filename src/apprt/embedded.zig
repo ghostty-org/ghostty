@@ -512,7 +512,7 @@ pub const Surface = struct {
                     break :wd;
                 }
 
-                config.@"working-directory" = wd;
+                config.@"working-directory" = .{ .path = try config.arenaAlloc().dupeZ(u8, wd) };
             }
         }
 
