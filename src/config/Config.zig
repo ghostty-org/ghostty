@@ -4105,6 +4105,43 @@ fn expandPaths(self: *Config, base: []const u8) !void {
         .{ .expand = try arena_alloc.dupe(u8, base) },
     );
 
+    // Special handling for working-directory: expand tilde if present
+    // working-directory is ?[]const u8, not Path, so it needs manual expansion
+    if (self.@"working-directory") |wd| {
+        // Skip special values that shouldn't be expanded
+        if (!std.mem.eql(u8, wd, "home") and !std.mem.eql(u8, wd, "inherit")) {
+            // Treat bare "~" as equivalent to "home"
+            if (std.mem.eql(u8, wd, "~")) {
+                self.@"working-directory" = "home";
+            }
+            // Check if it starts with ~/ and expand it
+            else if (std.mem.startsWith(u8, wd, "~/")) expand: {
+                // Windows isn't supported yet
+                if (comptime builtin.os.tag == .windows) break :expand;
+
+                var buf: [std.fs.max_path_bytes]u8 = undefined;
+                const expanded = internal_os.expandHome(wd, &buf) catch |err| {
+                    try self._diagnostics.append(arena_alloc, .{
+                        .message = try std.fmt.allocPrintSentinel(
+                            arena_alloc,
+                            "error expanding home directory for working-directory {s}: {}",
+                            .{ wd, err },
+                            0,
+                        ),
+                    });
+                    break :expand;
+                };
+
+                log.debug(
+                    "expanding working-directory from home directory: path={s}",
+                    .{expanded},
+                );
+
+                self.@"working-directory" = try arena_alloc.dupe(u8, expanded);
+            }
+        }
+    }
+
     // Expand all of our paths
     inline for (@typeInfo(Config).@"struct".fields) |field| {
         switch (field.type) {
