@@ -66,6 +66,14 @@ extension Backport where Content: View {
         return content
         #endif
     }
+
+    nonisolated func contentMargins(_ edges: Edge.Set = .all, _ length: CGFloat?, for placement: BackportContentMarginPlacement = .automatic) -> some View {
+        if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
+            return content.contentMargins(edges, length, for: placement.official)
+        } else {
+            return content
+        }
+    }
 }
 
 enum BackportVisibility {
@@ -79,6 +87,19 @@ enum BackportVisibility {
         case .automatic: return .automatic
         case .visible: return .visible
         case .hidden: return .hidden
+        }
+    }
+}
+
+enum BackportContentMarginPlacement {
+    case automatic, scrollContent, scrollIndicators
+
+    @available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *)
+    var official: ContentMarginPlacement {
+        switch self {
+        case .automatic: return .automatic
+        case .scrollContent: return .scrollContent
+        case .scrollIndicators: return .scrollIndicators
         }
     }
 }
