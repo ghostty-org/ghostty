@@ -1073,6 +1073,12 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
 
+        .scroll_to_bottom => {
+            self.queueIo(.{
+                .scroll_viewport = .{ .bottom = {} },
+            }, .unlocked);
+        },
+
         .report_color_scheme => |force| self.reportColorScheme(force),
 
         .present_surface => try self.presentSurface(),
