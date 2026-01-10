@@ -16,6 +16,7 @@ const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const SplitToolbar = @import("split_toolbar.zig").SplitToolbar;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -997,6 +998,14 @@ const SplitTreeSplit = extern struct {
 
         // Template bindings
         paned: *gtk.Paned,
+        split_overlay: *gtk.Overlay,
+        split_toolbar: *SplitToolbar,
+
+        /// Timer for hiding the toolbar after hover
+        hover_timer: ?c_uint = null,
+
+        /// Whether the toolbar is currently visible
+        toolbar_visible: bool = false,
 
         pub var offset: c_int = 0;
     };
@@ -1171,6 +1180,84 @@ const SplitTreeSplit = extern struct {
     }
 
     //---------------------------------------------------------------
+    // Hover handlers for split toolbar
+
+    fn panedEnter(
+        _: *gtk.EventControllerMotion,
+        _: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        // Cancel hide timer if pending
+        if (priv.hover_timer) |timer| {
+            if (glib.Source.remove(timer) == 0) {
+                log.warn("unable to remove hover timer", .{});
+            }
+            priv.hover_timer = null;
+        }
+
+        // Show toolbar
+        if (!priv.toolbar_visible) {
+            priv.toolbar_visible = true;
+            priv.split_toolbar.setVisible(true);
+
+            // Update toolbar with current surface and state
+            const split_tree = ext.getAncestor(SplitTree, self.as(gtk.Widget)) orelse return;
+            const surface = split_tree.getActiveSurface() orelse return;
+            const config = surface.getConfig();
+
+            priv.split_toolbar.setSurface(surface);
+            priv.split_toolbar.setConfig(config);
+            priv.split_toolbar.setZoomed(split_tree.isZoomed());
+        }
+    }
+
+    fn panedLeave(
+        _: *gtk.EventControllerMotion,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        // Schedule hide after 500ms delay
+        if (priv.hover_timer) |timer| {
+            if (glib.Source.remove(timer) == 0) {
+                log.warn("unable to remove hover timer", .{});
+            }
+        }
+        priv.hover_timer = glib.timeoutAdd(500, onHoverTimeout, self);
+    }
+
+    fn onHoverTimeout(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        const priv = self.private();
+
+        priv.hover_timer = null;
+        priv.toolbar_visible = false;
+        priv.split_toolbar.setVisible(false);
+
+        return 0; // Remove source
+    }
+
+    fn toolbarCloseRequest(
+        _: *SplitToolbar,
+        self: *Self,
+    ) callconv(.c) void {
+        const split_tree = ext.getAncestor(SplitTree, self.as(gtk.Widget)) orelse return;
+        const surface = split_tree.getActiveSurface() orelse return;
+        Surface.signals.@"close-request".impl.emit(surface, null, .{}, null);
+    }
+
+    fn toolbarToggleZoom(
+        _: *SplitToolbar,
+        self: *Self,
+    ) callconv(.c) void {
+        const split_tree = ext.getAncestor(SplitTree, self.as(gtk.Widget)) orelse return;
+        SplitTree.actionZoom(null, null, split_tree);
+    }
+
+    //---------------------------------------------------------------
     // Virtual methods
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1180,6 +1267,14 @@ const SplitTreeSplit = extern struct {
                 log.warn("unable to remove idle source", .{});
             }
             priv.idle = null;
+        }
+
+        // Cancel hover timer
+        if (priv.hover_timer) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove hover timer", .{});
+            }
+            priv.hover_timer = null;
         }
 
         gtk.Widget.disposeTemplate(
@@ -1212,6 +1307,7 @@ const SplitTreeSplit = extern struct {
         pub const Instance = Self;
 
         fn init(class: *Class) callconv(.c) void {
+            gobject.ext.ensureType(SplitToolbar);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
@@ -1223,11 +1319,17 @@ const SplitTreeSplit = extern struct {
 
             // Bindings
             class.bindTemplateChildPrivate("paned", .{});
+            class.bindTemplateChildPrivate("split_overlay", .{});
+            class.bindTemplateChildPrivate("split_toolbar", .{});
 
             // Template Callbacks
             class.bindTemplateCallback("notify_max_position", &propMaxPosition);
             class.bindTemplateCallback("notify_min_position", &propMinPosition);
             class.bindTemplateCallback("notify_position", &propPosition);
+            class.bindTemplateCallback("paned_enter", &panedEnter);
+            class.bindTemplateCallback("paned_leave", &panedLeave);
+            class.bindTemplateCallback("toolbar_close_request", &toolbarCloseRequest);
+            class.bindTemplateCallback("toolbar_toggle_zoom", &toolbarToggleZoom);
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);

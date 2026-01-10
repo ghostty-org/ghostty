@@ -1,0 +1,64 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttySplitToolbar: Adw.Bin {
+  styles [
+    "split-toolbar",
+  ]
+
+  Revealer revealer {
+    reveal-child: bind template.visible;
+    transition-type: slide_down;
+    transition-duration: 200;
+    can-focus: false;
+    can-target: false;
+
+    Box toolbar_box {
+      styles [
+        "background",
+        "toolbar",
+      ]
+
+      orientation: horizontal;
+      spacing: 8;
+      halign: center;
+      valign: start;
+
+      Label title_label {
+        label: bind $computed_title(
+          template.config,
+          template.surface as <$GhosttySurface>.title,
+          template.surface as <$GhosttySurface>.title-override,
+          template.zoomed,
+          template.surface as <$GhosttySurface>.bell-ringing
+        ) as <string>;
+        max-width-chars: 50;
+        ellipsize: end;
+      }
+
+      Separator {
+        orientation: vertical;
+      }
+
+      Box controls {
+        orientation: horizontal;
+        spacing: 4;
+
+        Button zoom_button {
+          icon-name: bind template.zoomed ? "zoom-out-symbolic" : "zoom-in-symbolic";
+          tooltip-text: bind template.zoomed ? _("Unzoom Split") : _("Zoom Split");
+          clicked => $zoom_clicked();
+        }
+
+        Button close_button {
+          icon-name: "window-close-symbolic";
+          tooltip-text: _("Close Split");
+          clicked => $close_clicked();
+          styles [
+            "destructive-action",
+          ]
+        }
+      }
+    }
+  }
+}

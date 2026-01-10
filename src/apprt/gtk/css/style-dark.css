@@ -6,3 +6,12 @@
   background-color: rgba(36, 36, 36, 1);
   background-clip: content-box;
 }
+
+/*
+ * Split Toolbar (Dark Mode)
+ */
+
+.split-toolbar .toolbar {
+  background-color: rgba(36, 36, 36, 0.95);
+  outline-color: rgba(170, 170, 170, 0.6);
+}
