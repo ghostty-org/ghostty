@@ -9,6 +9,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const unicode = @import("../unicode/main.zig");
+const uucode = @import("uucode");
 
 const ansi = @import("ansi.zig");
 const modespkg = @import("modes.zig");
@@ -361,7 +362,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         if (prev.cell.codepoint() == 0) break :grapheme;
 
         const grapheme_break = brk: {
-            var state: unicode.GraphemeBreakState = .{};
+            var state: uucode.grapheme.BreakState = .default;
             var cp1: u21 = prev.cell.content.codepoint;
             if (prev.cell.hasGrapheme()) {
                 const cps = self.screens.active.cursor.page_pin.node.data.lookupGrapheme(prev.cell).?;
@@ -512,7 +513,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
             const prev_props = unicode.table.get(prev.content.codepoint);
-            const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
+            const emoji = prev_props.grapheme_break == .extended_pictographic;
             if (!emoji) return;
         }
 
@@ -4012,6 +4013,53 @@ test "Terminal: overwrite multicodepoint grapheme tail clears grapheme data" {
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), page.graphemeCount());
+}
+
+test "Terminal: print breaks valid grapheme cluster with Prepend + ASCII for speed" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+    t.modes.set(.grapheme_cluster, true);
+
+    // Make sure we're not at cursor.x == 0 for the next char.
+    try t.print('_');
+
+    // U+0600 ARABIC NUMBER SIGN (Prepend)
+    try t.print(0x0600);
+    try t.print('1');
+
+    // We should have 3 cells taken up, each narrow. Note that this is
+    // **incorrect** grapheme break behavior, since a Prepend code point should
+    // not break with the one following it per UAX #29 GB9b. However, as an
+    // optimization we assume a grapheme break when c <= 255, and note that
+    // this deviation only affects these very uncommon scenarios (e.g. the
+    // Arabic number sign should precede Arabic-script digits).
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 3), t.screens.active.cursor.x);
+    // This is what we'd expect if we did break correctly:
+    //try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x0600), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        // This is what we'd expect if we did break correctly:
+        //try testing.expect(cell.hasGrapheme());
+        //try testing.expectEqualSlices(u21, &.{'1'}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '1'), cell.content.codepoint);
+        // This is what we'd expect if we did break correctly:
+        //try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
 }
 
 test "Terminal: print writes to bottom if scrolled" {
