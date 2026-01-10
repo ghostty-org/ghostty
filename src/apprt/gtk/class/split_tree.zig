@@ -12,10 +12,12 @@ const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
+const ExpiringUndoStack = @import("../expiring_undo_stack.zig").ExpiringUndoStack;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const Window = @import("window.zig").Window;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -265,6 +267,61 @@ pub const SplitTree = extern struct {
             "new split at={} direction={} old_tree={f} new_tree={f}",
             .{ handle, direction, old_tree, &new_tree },
         );
+
+        // Replace our tree
+        self.setTree(&new_tree);
+    }
+
+    /// Restore an existing surface to this split tree.
+    /// This is used for undo operations - the surface was previously closed
+    /// but is being restored. The surface is added to the tree as a new split.
+    /// The caller transfers ownership of the surface reference to the tree.
+    pub fn restoreSurface(self: *Self, surface: *Surface) Allocator.Error!void {
+        const alloc = Application.default().allocator();
+
+        // Bind is-split property for restored surface
+        _ = self.as(gobject.Object).bindProperty(
+            "is-split",
+            surface.as(gobject.Object),
+            "is-split",
+            .{ .sync_create = true },
+        );
+
+        // Create our tree containing just this surface
+        var single_tree = try Surface.Tree.init(alloc, surface);
+        defer single_tree.deinit();
+
+        // We want to move our focus to the restored surface.
+        // But we need to be careful to restore state if we fail.
+        const old_last_focused = self.private().last_focused.get();
+        defer if (old_last_focused) |v| v.unref(); // unref strong ref from get
+        self.private().last_focused.set(surface);
+        errdefer self.private().last_focused.set(old_last_focused);
+
+        // If we have no tree yet, then this becomes our tree and we're done.
+        const old_tree = self.getTree() orelse {
+            self.setTree(&single_tree);
+            return;
+        };
+
+        // The handle we create the split relative to. Use the active surface
+        // or root if there's no active surface.
+        const handle = self.getActiveSurfaceHandle() orelse .root;
+
+        // Create our split! Always add to the right for now.
+        var new_tree = try old_tree.split(
+            alloc,
+            handle,
+            .right,
+            0.5, // Always split equally for restored surfaces
+            &single_tree,
+        );
+        defer new_tree.deinit();
+        log.debug("restored surface at={} old_tree={f} new_tree={f}", .{
+            handle,
+            old_tree,
+            &new_tree,
+        });
 
         // Replace our tree
         self.setTree(&new_tree);
@@ -747,6 +804,30 @@ pub const SplitTree = extern struct {
             // of the handle we're removing.
             break :next_focus old_tree.nodes[next_handle.idx()].leaf;
         };
+
+        // Capture the surface for undo before removing it from the tree.
+        // We ref it to keep it alive during the undo window.
+        const surface_to_capture: ?*Surface = surface: {
+            const node = old_tree.nodes[handle.idx()];
+            break :surface switch (node) {
+                .leaf => |s| s,
+                .split => null, // We only capture single surfaces for now
+            };
+        };
+
+        if (surface_to_capture) |surface| {
+            if (Application.default().undoStack()) |stack| {
+                // Get the window to store in the undo entry
+                const window = ext.getAncestor(Window, self.as(gtk.Widget));
+                if (window) |w| {
+                    // Ref the surface to keep it alive
+                    _ = surface.as(gobject.Object).ref();
+
+                    // Push to undo stack
+                    _ = stack.push(.split, &.{surface}, w, 0);
+                }
+            }
+        }
 
         // Remove it from the tree.
         var new_tree = old_tree.remove(

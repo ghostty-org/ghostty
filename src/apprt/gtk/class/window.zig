@@ -29,6 +29,8 @@ const Tab = @import("tab.zig").Tab;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
+const expiring_undo_stack = @import("../expiring_undo_stack.zig");
+const ExpiringUndoStack = expiring_undo_stack.ExpiringUndoStack;
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -435,6 +437,90 @@ pub const Window = extern struct {
         );
 
         return page;
+    }
+
+    /// Restore a single surface to the current tab's split tree.
+    /// This is called during undo of a split close operation.
+    /// The caller transfers ownership of the surface reference to the tree.
+    pub fn restoreSurface(self: *Self, surface: *Surface) !void {
+        const priv = self.private();
+
+        // Get the currently selected tab
+        const page = priv.tab_view.getSelectedPage() orelse {
+            return error.NoSelectedTab;
+        };
+
+        const child = page.getChild();
+        const tab = gobject.ext.cast(Tab, child) orelse {
+            return error.InvalidTab;
+        };
+
+        // Add the surface to the tab's split tree
+        try tab.getSplitTree().restoreSurface(surface);
+    }
+
+    /// Restore a tab with the given surfaces.
+    /// This is called during undo of a tab close operation.
+    /// The caller transfers ownership of the surface references to the tree.
+    pub fn restoreTab(self: *Self, surfaces: []const *Surface, tab_index: u32) !void {
+        const priv = self.private();
+
+        // Create a new tab (this auto-creates a surface, but we'll replace it)
+        const tab = gobject.ext.newInstance(Tab, .{
+            .config = priv.config,
+        });
+
+        // Calculate insert position - try to restore to original position
+        const total = priv.tab_view.getNPages();
+        const position: c_int = if (tab_index <= total) @intCast(tab_index) else total;
+
+        // Add the page
+        const page = priv.tab_view.insert(tab.as(gtk.Widget), position);
+        priv.tab_view.setSelectedPage(page);
+
+        // Create property bindings
+        _ = tab.as(gobject.Object).bindProperty(
+            "title",
+            page.as(gobject.Object),
+            "title",
+            .{ .sync_create = true },
+        );
+        _ = tab.as(gobject.Object).bindProperty(
+            "tooltip",
+            page.as(gobject.Object),
+            "tooltip",
+            .{ .sync_create = true },
+        );
+
+        // Bind signals
+        const split_tree = tab.getSplitTree();
+        _ = SplitTree.signals.changed.connect(
+            split_tree,
+            *Self,
+            tabSplitTreeChanged,
+            self,
+            .{},
+        );
+
+        // Now restore the surfaces. The first surface replaces the auto-created
+        // tree, and subsequent surfaces are added as splits.
+        if (surfaces.len > 0) {
+            // Restore all surfaces to the split tree
+            for (surfaces) |surface| {
+                split_tree.restoreSurface(surface) catch |err| {
+                    log.warn("failed to restore surface to tab: {}", .{err});
+                    // Continue trying to restore other surfaces
+                };
+            }
+        }
+
+        // Run an initial notification for the surface tree
+        tabSplitTreeChanged(
+            split_tree,
+            null,
+            split_tree.getTree(),
+            self,
+        );
     }
 
     pub const SelectTab = union(enum) {
@@ -1320,6 +1406,38 @@ pub const Window = extern struct {
         self.as(gtk.Window).destroy();
     }
 
+    /// Capture all surfaces from a tab for undo before closing it.
+    /// Returns true if surfaces were captured successfully.
+    fn captureTabForUndo(page: *adw.TabPage, window: *Self, tab_index: u32) void {
+        const child = page.getChild();
+        const tab = gobject.ext.cast(Tab, child) orelse return;
+
+        // Get the undo stack
+        const stack = Application.default().undoStack() orelse return;
+
+        // Get the surface tree from the tab
+        const tree = tab.getSurfaceTree() orelse return;
+
+        // Collect all surfaces from the tree
+        var surfaces: [expiring_undo_stack.MaxSurfacesPerEntry]*Surface = undefined;
+        var count: usize = 0;
+
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (count >= expiring_undo_stack.MaxSurfacesPerEntry) break;
+            const surface = entry.view;
+            // Ref the surface to keep it alive
+            _ = surface.as(gobject.Object).ref();
+            surfaces[count] = surface;
+            count += 1;
+        }
+
+        if (count > 0) {
+            _ = stack.push(.tab, surfaces[0..count], window, tab_index);
+            log.debug("captured {} surfaces for tab undo at index {}", .{ count, tab_index });
+        }
+    }
+
     fn closeConfirmationCloseTab(
         _: *CloseConfirmationDialog,
         page: *adw.TabPage,
@@ -1331,6 +1449,13 @@ pub const Window = extern struct {
             log.warn("close confirmation called for non-existent page", .{});
             return;
         };
+
+        // Get the window for undo capture
+        if (ext.getAncestor(Self, tab_view.as(gtk.Widget))) |window| {
+            const tab_index: u32 = @intCast(tab_view.getPagePosition(page));
+            captureTabForUndo(page, window, tab_index);
+        }
+
         tab_view.closePageFinish(page, @intFromBool(true));
     }
 
@@ -1361,6 +1486,10 @@ pub const Window = extern struct {
         // If the tab says it doesn't need confirmation then we go ahead
         // and close immediately.
         if (!tab.getNeedsConfirmQuit()) {
+            // Capture surfaces for undo before closing
+            const tab_index: u32 = @intCast(priv.tab_view.getPagePosition(page));
+            captureTabForUndo(page, self, tab_index);
+
             priv.tab_view.closePageFinish(page, @intFromBool(true));
             return @intFromBool(true);
         }
