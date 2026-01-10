@@ -1,5 +1,7 @@
 import Foundation
+#if !DOCK_TILE_PLUGIN
 import GhosttyKit
+#endif
 
 extension OSColor {
     var isLightColor: Bool {
@@ -92,7 +94,7 @@ extension OSColor {
 }
 
 // MARK: Ghostty Types
-
+#if !DOCK_TILE_PLUGIN
 extension OSColor {
     /// Create a color from a Ghostty color.
     convenience init(ghostty: ghostty_config_color_s) {
@@ -102,3 +104,4 @@ extension OSColor {
         self.init(red: red, green: green, blue: blue, alpha: 1)
     }
 }
+#endif
