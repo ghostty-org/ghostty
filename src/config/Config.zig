@@ -6647,6 +6647,22 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_right }, .mods = .{ .alt = true } },
                 .{ .esc = "f" },
             );
+        } else {
+            // Non-macOS (Linux/GTK) keybindings
+
+            // Undo/redo - Ctrl+Z / Ctrl+Shift+Z
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'z' }, .mods = .{ .ctrl = true } },
+                .{ .undo = {} },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'z' }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .redo = {} },
+                .{ .performable = true },
+            );
         }
     }
 
