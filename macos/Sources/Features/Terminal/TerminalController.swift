@@ -224,27 +224,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // otherwise the focused terminal, otherwise an arbitrary one.
         let parent: NSWindow? = explicitParent ?? preferredParent?.window
 
-        if let parent {
-            if parent.styleMask.contains(.fullScreen) {
-                // If our previous window was fullscreen then we want our new window to
-                // be fullscreen. This behavior actually doesn't match the native tabbing
-                // behavior of macOS apps where new windows create tabs when in native
-                // fullscreen but this is how we've always done it. This matches iTerm2
-                // behavior.
+        if let parent, parent.styleMask.contains(.fullScreen) {
+            // If our previous window was fullscreen then we want our new window to
+            // be fullscreen. This behavior actually doesn't match the native tabbing
+            // behavior of macOS apps where new windows create tabs when in native
+            // fullscreen but this is how we've always done it. This matches iTerm2
+            // behavior.
+            c.toggleFullscreen(mode: .native)
+        } else if let fullscreenMode = ghostty.config.windowFullscreen {
+            switch fullscreenMode {
+            case .native:
+                // Native has to be done immediately so that our stylemask contains
+                // fullscreen for the logic later in this method.
                 c.toggleFullscreen(mode: .native)
-            } else if ghostty.config.windowFullscreen {
-                switch (ghostty.config.windowFullscreenMode) {
-                case .native:
-                    // Native has to be done immediately so that our stylemask contains
-                    // fullscreen for the logic later in this method.
-                    c.toggleFullscreen(mode: .native)
 
-                case .nonNative, .nonNativeVisibleMenu, .nonNativePaddedNotch:
-                    // If we're non-native then we have to do it on a later loop
-                    // so that the content view is setup.
-                    DispatchQueue.main.async {
-                        c.toggleFullscreen(mode: ghostty.config.windowFullscreenMode)
-                    }
+            case .nonNative, .nonNativeVisibleMenu, .nonNativePaddedNotch:
+                // If we're non-native then we have to do it on a later loop
+                // so that the content view is setup.
+                DispatchQueue.main.async {
+                    c.toggleFullscreen(mode: fullscreenMode)
                 }
             }
         }
