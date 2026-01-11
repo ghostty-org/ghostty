@@ -2695,7 +2695,33 @@ pub fn adjustCapacity(
     // Insert this page and destroy the old page
     self.pages.insertBefore(node, new_node);
     self.pages.remove(node);
-    self.destroyNode(node);
+
+    // If we're replacing a standard-size page with a non-standard page,
+    // we need to munmap the old page instead of returning it to the pool.
+    // This prevents a memory leak where pooled pages accumulate without
+    // being reused (since future allocations will be non-standard).
+    const old_size = page.memory.len;
+    const new_size = new_page.memory.len;
+    if (old_size <= std_size and new_size > std_size) {
+        // Munmap the standard page directly, similar to how we handle
+        // non-standard pages in destroyNodeExt().
+
+        // Update accounting
+        self.page_size -= page.memory.len;
+
+        // Free the memory directly with the page allocator instead of
+        // returning it to the pool.
+        @memset(page.memory, 0);
+        const page_alloc = self.pool.pages.arena.child_allocator;
+        page_alloc.free(page.memory);
+
+        // Destroy just the node (memory already freed above)
+        self.pool.nodes.destroy(node);
+    } else {
+        // Normal path: either both standard (can reuse via pool) or
+        // both non-standard (will munmap in destroyNode)
+        self.destroyNode(node);
+    }
 
     new_page.assertIntegrity();
     return new_node;
