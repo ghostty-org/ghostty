@@ -781,9 +781,14 @@ pub const Surface = extern struct {
         // If not in a split, never show the title bar
         if (is_split == 0) return @intFromBool(false);
 
-        // Check config option (default to true if config unavailable)
-        const config = if (config_) |v| v.get() else return @intFromBool(true);
+        // Check config option (default to false if config unavailable)
+        const config = if (config_) |v| v.get() else return @intFromBool(false);
         return @intFromBool(config.@"split-title-bar");
+    }
+
+    /// Handle split close button click
+    fn splitCloseClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
+        self.close();
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -3447,6 +3452,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
             class.bindTemplateCallback("should_split_title_be_shown", &closureShouldSplitTitleBeShown);
+            class.bindTemplateCallback("split_close_clicked", &splitCloseClicked);
             class.bindTemplateCallback("search_stop", &searchStop);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);

@@ -1,4 +1,5 @@
 using Gtk 4.0;
+using Gdk 4.0;
 using Adw 1;
 
 Adw.StatusPage error_page {
@@ -193,24 +194,41 @@ Box surface_container {
 
   // Split title bar - only visible when in a split and config enabled
   Revealer split_title_revealer {
+    visible: bind $should_split_title_be_shown(template.config, template.is-split) as <bool>;
     reveal-child: bind $should_split_title_be_shown(template.config, template.is-split) as <bool>;
     transition-type: none;
     transition-duration: 0;
-    // Prevent revealer from capturing input events
-    can-focus: false;
-    can-target: false;
-    focusable: false;
 
-    Label {
+    Box {
       styles [
         "background",
         "split-title-bar",
       ]
 
-      halign: fill;
-      xalign: 0.5;
-      label: bind template.title;
-      ellipsize: end;
+      orientation: horizontal;
+
+      Label {
+        halign: fill;
+        hexpand: true;
+        xalign: 0.5;
+        label: bind template.title;
+        ellipsize: end;
+      }
+
+      Button {
+        styles [
+          "flat",
+          "circular",
+        ]
+
+        icon-name: "window-close-symbolic";
+        tooltip-text: _("Close Split");
+        clicked => $split_close_clicked();
+
+        cursor: Gdk.Cursor {
+          name: "pointer";
+        };
+      }
     }
   }
 
