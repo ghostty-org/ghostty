@@ -11,7 +11,7 @@ extension Ghostty {
         private var ellipsisVisible: Bool {
             surfaceView.mouseOverSurface && surfaceView.cursorVisible
         }
-        
+
         var body: some View {
             ZStack {
                 SurfaceDragSource(
@@ -26,7 +26,7 @@ extension Ghostty {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.primary.opacity(isHovering ? 0.8 : 0.3))
-                        .offset(y: -2)
+                        .offset(y: -3)
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
