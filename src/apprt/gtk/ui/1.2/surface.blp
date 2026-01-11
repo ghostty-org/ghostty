@@ -191,7 +191,6 @@ Overlay terminal_page {
 // Split title bar container - wraps terminal_page with optional title bar
 Box surface_container {
   orientation: vertical;
-
   // Split title bar - only visible when in a split and config enabled
   Revealer split_title_revealer {
     visible: bind $should_split_title_be_shown(template.config, template.is-split) as <bool>;
