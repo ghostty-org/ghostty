@@ -2729,6 +2729,10 @@ inline fn createPageExt(
     page.data.size.rows = 0;
     serial.* += 1;
 
+    // This is a very important requirement to ensure we pool
+    // our pages properly.
+    assert(page.data.memory.len == layout.total_size);
+
     if (total_size) |v| {
         // Accumulate page size now. We don't assert or check max size
         // because we may exceed it here temporarily as we are allocating
