@@ -426,6 +426,13 @@ pub const Application = extern struct {
             alloc.destroy(stack);
             priv.undo_stack = null;
         }
+
+        // Flush GLib main loop to ensure surfaces are finalized before
+        // Core App asserts font_grid_set.count() == 0. The unref() calls
+        // in stack.deinit() schedule finalizations asynchronously.
+        const ctx = glib.MainContext.default();
+        while (glib.MainContext.iteration(ctx, 0) != 0) {}
+
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
@@ -639,6 +646,11 @@ pub const Application = extern struct {
                 // tries to free on its own. I think this is probably a bug in
                 // the fcitx ime widget but still, we don't want a double free!
                 if (gobject.ext.isA(window, Window)) {
+                    // Force cleanup of all Core surfaces before destroying.
+                    // GObject finalization is async, but Core App.deinit asserts
+                    // font_grid_set.count() == 0, so we must cleanup synchronously.
+                    const ghostty_window = gobject.ext.cast(Window, window).?;
+                    ghostty_window.forceDeinitAllSurfaces();
                     window.destroy();
                 }
             }
@@ -749,6 +761,11 @@ pub const Application = extern struct {
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
 
+            .undo => {
+                self.performUndo();
+                return true;
+            },
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -761,7 +778,6 @@ pub const Application = extern struct {
             .color_change,
             .reset_window_size,
             .check_for_updates,
-            .undo,
             .redo,
             .readonly,
             => {
@@ -1775,6 +1791,12 @@ pub const Application = extern struct {
         _: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
+        self.performUndo();
+    }
+
+    /// Perform undo operation - restores the last closed surface/tab.
+    /// Called from both GTK action and keybinding action.
+    pub fn performUndo(self: *Self) void {
         const stack = self.undoStack() orelse {
             log.debug("undo action: no undo stack available", .{});
             return;

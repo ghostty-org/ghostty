@@ -59,13 +59,12 @@ pub const ExpiringUndoStack = struct {
     /// Timeout duration in milliseconds.
     timeout_ms: u32,
 
-    /// Create a new ExpiringUndoStack with the given timeout.
-    /// Timeout is in seconds (matching the config format).
-    pub fn init(timeout_seconds: u32) Self {
+    /// Create a new ExpiringUndoStack with the given timeout in milliseconds.
+    pub fn init(timeout_ms: u32) Self {
         return .{
             .entries = [_]?UndoEntry{null} ** MaxEntries,
             .len = 0,
-            .timeout_ms = timeout_seconds * std.time.ms_per_s,
+            .timeout_ms = timeout_ms,
         };
     }
 
@@ -184,8 +183,9 @@ pub const ExpiringUndoStack = struct {
             entry.surface_count,
         });
 
-        // Unref all surfaces - this may destroy them if they're the last ref
+        // Force cleanup core surfaces and unref
         for (entry.surfaces[0..entry.surface_count]) |surface| {
+            surface.forceDeinitCore();
             surface.as(gobject.Object).unref();
         }
 
@@ -212,10 +212,16 @@ pub const ExpiringUndoStack = struct {
         }
     }
 
-    /// Clean up an entry by unrefing its surfaces.
+    /// Clean up an entry by deiniting core surfaces and unrefing.
+    /// The forceDeinitCore call ensures the Core surface releases its
+    /// font_grid ref before the Core App's assertion in deinit.
     fn cleanupEntry(self: *Self, entry: *UndoEntry) void {
         _ = self;
         for (entry.surfaces[0..entry.surface_count]) |surface| {
+            // Force cleanup of core surface before unref.
+            // This ensures font_grid refs are released synchronously
+            // rather than waiting for GObject finalization.
+            surface.forceDeinitCore();
             surface.as(gobject.Object).unref();
         }
     }

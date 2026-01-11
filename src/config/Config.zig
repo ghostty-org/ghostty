@@ -6101,7 +6101,7 @@ pub const Keybinds = struct {
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .alt = true } },
                 .{ .close_tab = .this },
             );
             try self.set.putFlags(

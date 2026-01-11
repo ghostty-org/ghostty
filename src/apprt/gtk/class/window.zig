@@ -459,6 +459,29 @@ pub const Window = extern struct {
         try tab.getSplitTree().restoreSurface(surface);
     }
 
+    /// Force cleanup of all surfaces in this window. Called during application
+    /// shutdown to ensure all Core surfaces release their font_grid refs before
+    /// the Core App assertion runs. This is needed because GObject finalization
+    /// is asynchronous and may not complete before the Core App is destroyed.
+    pub fn forceDeinitAllSurfaces(self: *Self) void {
+        const priv = self.private();
+        const tab_view = priv.tab_view;
+        const n_pages = tab_view.getNPages();
+
+        var i: c_int = 0;
+        while (i < n_pages) : (i += 1) {
+            const page = tab_view.getNthPage(i);
+            const child = page.getChild();
+            const tab = gobject.ext.cast(Tab, child) orelse continue;
+            const tree = tab.getSurfaceTree() orelse continue;
+
+            var it = tree.iterator();
+            while (it.next()) |entry| {
+                entry.view.forceDeinitCore();
+            }
+        }
+    }
+
     /// Restore a tab with the given surfaces.
     /// This is called during undo of a tab close operation.
     /// The caller transfers ownership of the surface references to the tree.
@@ -1241,6 +1264,10 @@ pub const Window = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
+
+        // Force cleanup of all Core surfaces before GObject finalization.
+        // This ensures font_grid refs are released synchronously.
+        self.forceDeinitAllSurfaces();
 
         priv.command_palette.set(null);
 
