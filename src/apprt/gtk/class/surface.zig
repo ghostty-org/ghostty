@@ -3393,7 +3393,7 @@ pub const Surface = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 2,
                     .name = "surface",
                 }),
             );
