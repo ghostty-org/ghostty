@@ -1233,7 +1233,7 @@ const ReflowCursor = struct {
                 // with graphemes then we increase capacity.
                 if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
                     try self.adjustCapacity(list, .{
-                        .grapheme_bytes = cap.grapheme_bytes * 2,
+                        .grapheme_bytes = self.page.capacity.grapheme_bytes * 2,
                     });
                 }
 
@@ -1250,8 +1250,9 @@ const ReflowCursor = struct {
                     // Grow our capacity until we can
                     // definitely fit the extra bytes.
                     const required = cps.len * @sizeOf(u21);
-                    var new_grapheme_capacity: usize = cap.grapheme_bytes;
-                    while (new_grapheme_capacity - cap.grapheme_bytes < required) {
+                    const current_grapheme_capacity = self.page.capacity.grapheme_bytes;
+                    var new_grapheme_capacity: usize = current_grapheme_capacity;
+                    while (new_grapheme_capacity - current_grapheme_capacity < required) {
                         new_grapheme_capacity *= 2;
                     }
                     try self.adjustCapacity(list, .{
@@ -1272,7 +1273,7 @@ const ReflowCursor = struct {
                 // with a hyperlink then we increase capacity.
                 if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
                     try self.adjustCapacity(list, .{
-                        .hyperlink_bytes = cap.hyperlink_bytes * 2,
+                        .hyperlink_bytes = self.page.capacity.hyperlink_bytes * 2,
                     });
                 }
 
@@ -1294,8 +1295,9 @@ const ReflowCursor = struct {
                 } else |_| {
                     // Grow our capacity until we can
                     // definitely fit the extra bytes.
-                    var new_string_capacity: usize = cap.string_bytes;
-                    while (new_string_capacity - cap.string_bytes < additional_required_string_capacity) {
+                    const current_string_capacity = self.page.capacity.string_bytes;
+                    var new_string_capacity: usize = current_string_capacity;
+                    while (new_string_capacity - current_string_capacity < additional_required_string_capacity) {
                         new_string_capacity *= 2;
                     }
                     try self.adjustCapacity(list, .{
@@ -1316,7 +1318,7 @@ const ReflowCursor = struct {
                     // no actual change or with an increased hyperlink cap.
                     try self.adjustCapacity(list, switch (err) {
                         error.OutOfMemory => .{
-                            .hyperlink_bytes = cap.hyperlink_bytes * 2,
+                            .hyperlink_bytes = self.page.capacity.hyperlink_bytes * 2,
                         },
                         error.NeedsRehash => .{},
                     });
@@ -1360,7 +1362,7 @@ const ReflowCursor = struct {
                     // no actual change or with an increased style cap.
                     try self.adjustCapacity(list, switch (err) {
                         error.OutOfMemory => .{
-                            .styles = cap.styles * 2,
+                            .styles = self.page.capacity.styles * 2,
                         },
                         error.NeedsRehash => .{},
                     });
