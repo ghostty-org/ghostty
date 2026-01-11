@@ -70,6 +70,21 @@ label.resize-overlay {
 }
 
 /*
+ * GhosttySurface split title bar
+ */
+.split-title-bar {
+  padding: 4px 10px;
+  background-color: alpha(@window_bg_color, 0.9);
+  color: @accent_color;
+}
+
+.split-title-bar button {
+  min-width: 20px;
+  min-height: 20px;
+  padding: 2px;
+}
+
+/*
  * GhosttyClipboardConfirmationDialog
  *
  * Based on boxed-list-separate:

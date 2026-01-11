@@ -48,6 +48,7 @@ pub const blueprints: []const Blueprint = &.{
     .{ .major = 1, .minor = 5, .name = "split-tree" },
     .{ .major = 1, .minor = 5, .name = "split-tree-split" },
     .{ .major = 1, .minor = 2, .name = "surface" },
+    .{ .major = 1, .minor = 5, .name = "surface" },
     .{ .major = 1, .minor = 5, .name = "surface-scrolled-window" },
     .{ .major = 1, .minor = 5, .name = "surface-title-dialog" },
     .{ .major = 1, .minor = 3, .name = "surface-child-exited" },

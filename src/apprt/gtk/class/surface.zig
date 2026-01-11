@@ -3357,6 +3357,11 @@ pub const Surface = extern struct {
         };
     }
 
+    /// Handle split close button click
+    fn splitCloseClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
+        self.close();
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3378,7 +3383,7 @@ pub const Surface = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 2,
+                    .minor = 5,
                     .name = "surface",
                 }),
             );
