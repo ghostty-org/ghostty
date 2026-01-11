@@ -996,7 +996,7 @@ palette: Palette = .{},
 /// This is a GTK-only feature.
 ///
 /// Available since: 1.3.0
-@"split-title-bar": bool = true,
+@"split-title-bar": bool = false,
 
 /// Control when Ghostty preserves a zoomed split. Under normal circumstances,
 /// any operation that changes focus or layout of the split tree in a window
