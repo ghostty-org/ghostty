@@ -78,12 +78,6 @@ label.resize-overlay {
   color: @accent_color;
 }
 
-.split-title-bar button {
-  min-width: 20px;
-  min-height: 20px;
-  padding: 2px;
-}
-
 /*
  * GhosttyClipboardConfirmationDialog
  *
@@ -185,35 +179,4 @@ label.resize-overlay {
    */
   margin: 0;
   padding: 0;
-}
-
-/*
- * Split Toolbar
- */
-
-.split-toolbar .toolbar {
-  padding: 6px 12px;
-  margin: 4px;
-  border-radius: 8px;
-  background-color: rgba(255, 255, 255, 0.95);
-  outline-style: solid;
-  outline-color: rgba(85, 85, 85, 0.8);
-  outline-width: 1px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.split-toolbar label {
-  font-weight: 500;
-  font-size: 11pt;
-}
-
-.split-toolbar button {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  border-radius: 4px;
-}
-
-.split-toolbar separator {
-  margin: 0 4px;
 }

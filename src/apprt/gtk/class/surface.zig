@@ -771,6 +771,21 @@ pub const Surface = extern struct {
         return @intFromBool(focused == 0 and is_split != 0);
     }
 
+    /// Callback used to determine whether the split title bar should be shown.
+    /// Only shows when in a split and the config option is enabled.
+    fn closureShouldSplitTitleBeShown(
+        _: *Self,
+        config_: ?*Config,
+        is_split: c_int,
+    ) callconv(.c) c_int {
+        // If not in a split, never show the title bar
+        if (is_split == 0) return @intFromBool(false);
+
+        // Check config option (default to true if config unavailable)
+        const config = if (config_) |v| v.get() else return @intFromBool(true);
+        return @intFromBool(config.@"split-title-bar");
+    }
+
     pub fn toggleFullscreen(self: *Self) void {
         signals.@"toggle-fullscreen".impl.emit(
             self,
@@ -3357,11 +3372,6 @@ pub const Surface = extern struct {
         };
     }
 
-    /// Handle split close button click
-    fn splitCloseClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
-        self.close();
-    }
-
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3436,6 +3446,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("should_split_title_be_shown", &closureShouldSplitTitleBeShown);
             class.bindTemplateCallback("search_stop", &searchStop);
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);

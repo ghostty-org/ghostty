@@ -191,11 +191,15 @@ Overlay terminal_page {
 Box surface_container {
   orientation: vertical;
 
-  // Split title bar - only visible when in a split
+  // Split title bar - only visible when in a split and config enabled
   Revealer split_title_revealer {
-    reveal-child: bind template.is-split;
+    reveal-child: bind $should_split_title_be_shown(template.config, template.is-split) as <bool>;
     transition-type: none;
     transition-duration: 0;
+    // Prevent revealer from capturing input events
+    can-focus: false;
+    can-target: false;
+    focusable: false;
 
     Label {
       styles [

@@ -989,6 +989,15 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
+/// Whether to show a title bar at the top of each split. The title bar shows
+/// the split's title (as set by OSC 0/2 or the config default) and helps
+/// identify different splits when multiple are visible.
+///
+/// This is a GTK-only feature.
+///
+/// Available since: 1.3.0
+@"split-title-bar": bool = true,
+
 /// Control when Ghostty preserves a zoomed split. Under normal circumstances,
 /// any operation that changes focus or layout of the split tree in a window
 /// will unzoom any zoomed split. This configuration allows you to control
