@@ -43,8 +43,8 @@ struct TerminautSessionView: View {
     @EnvironmentObject private var ghostty: Ghostty.App
     @StateObject private var stateWatcher = SessionStateWatcher()
 
-    // Control panel width - roughly 1/3 of 16" MacBook Pro screen
-    private let controlPanelWidth: CGFloat = 500
+    // Control panel takes 25% of width
+    private let controlPanelRatio: CGFloat = 0.25
 
     /// Get current session's surface view
     private var currentSurfaceView: Ghostty.SurfaceView? {
@@ -55,35 +55,38 @@ struct TerminautSessionView: View {
     var body: some View {
         let closeSurfacePublisher = NotificationCenter.default.publisher(for: Notification.Name("com.mitchellh.ghostty.closeSurface"))
 
-        HStack(spacing: 0) {
-            // Left 2/3: Tab bar + Terminal
-            VStack(spacing: 0) {
-                // Tab bar (only show if multiple sessions)
-                if coordinator.activeSessions.count > 1 {
-                    TabBarView(
-                        sessions: coordinator.activeSessions,
-                        selectedIndex: coordinator.selectedSessionIndex,
-                        onSelect: { index in
-                            coordinator.switchToSession(at: index)
-                        },
-                        onClose: { index in
-                            coordinator.closeSession(at: index)
-                        }
-                    )
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Left 75%: Tab bar + Terminal
+                VStack(spacing: 0) {
+                    // Tab bar (only show if multiple sessions)
+                    if coordinator.activeSessions.count > 1 {
+                        TabBarView(
+                            sessions: coordinator.activeSessions,
+                            selectedIndex: coordinator.selectedSessionIndex,
+                            onSelect: { index in
+                                coordinator.switchToSession(at: index)
+                            },
+                            onClose: { index in
+                                coordinator.closeSession(at: index)
+                            }
+                        )
+                    }
+
+                    // Terminal
+                    terminalPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(width: geometry.size.width * 0.75)
 
-                // Terminal
-                terminalPane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Right 25%: Control Panel
+                ControlPanelView(
+                    project: project,
+                    stateWatcher: stateWatcher,
+                    onReturnToLauncher: onReturnToLauncher
+                )
+                .frame(width: geometry.size.width * 0.25)
             }
-
-            // Right 1/3: Control Panel
-            ControlPanelView(
-                project: project,
-                stateWatcher: stateWatcher,
-                onReturnToLauncher: onReturnToLauncher
-            )
-            .frame(width: controlPanelWidth)
         }
         .onReceive(closeSurfacePublisher) { notification in
             // When a surface closes (e.g., user types "exit"), close that session
@@ -185,7 +188,7 @@ struct TerminalSurface: View {
 /// Control panel with all interactive panels
 struct ControlPanelView: View {
     let project: Project
-    let stateWatcher: SessionStateWatcher
+    @ObservedObject var stateWatcher: SessionStateWatcher
     let onReturnToLauncher: () -> Void
 
     @State private var selectedPanel: Int = 0
@@ -201,11 +204,11 @@ struct ControlPanelView: View {
             // Scrollable panels
             ScrollView {
                 VStack(spacing: 12) {
-                    // Usage/Quota panel (first)
-                    QuotaPanel(state: stateWatcher.state)
+                    // Context panel (session context window)
+                    ContextPanel(state: stateWatcher.state)
 
-                    // Tools panel
-                    ToolsPanel(state: stateWatcher.state)
+                    // Usage/Quota panel (weekly usage)
+                    QuotaPanel(state: stateWatcher.state)
 
                     // Todos panel
                     TodosPanel(state: stateWatcher.state)
@@ -284,12 +287,12 @@ struct ControlPanelView: View {
 
 // MARK: - Panel Components
 
-struct QuotaPanel: View {
+struct ContextPanel: View {
     let state: SessionState
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("USAGE")
+            Text("CONTEXT")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(.gray)
 
@@ -300,17 +303,74 @@ struct QuotaPanel: View {
                         .fill(Color.white.opacity(0.1))
 
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(quotaColor)
-                        .frame(width: geo.size.width * quotaPercent / 100)
+                        .fill(contextColor)
+                        .frame(width: geo.size.width * contextPercent / 100)
                 }
             }
             .frame(height: 16)
 
             // Percentage
-            Text("\(Int(quotaPercent))%")
+            Text("\(Int(contextPercent))%")
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .foregroundColor(quotaColor)
+                .foregroundColor(contextColor)
                 .frame(width: 45, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(panelBackground)
+    }
+
+    private var contextPercent: Double {
+        if let ctx = state.context, let used = ctx.usedPercent {
+            return Double(used)
+        }
+        return state.contextPercent ?? 0
+    }
+
+    private var contextColor: Color {
+        if contextPercent > 80 { return .red }
+        if contextPercent > 60 { return .orange }
+        return .green
+    }
+}
+
+struct QuotaPanel: View {
+    let state: SessionState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Text("USAGE")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.gray)
+
+                // Progress bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.white.opacity(0.1))
+
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(quotaColor)
+                            .frame(width: geo.size.width * quotaPercent / 100)
+                    }
+                }
+                .frame(height: 16)
+
+                // Percentage
+                Text("\(Int(quotaPercent))%")
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(quotaColor)
+                    .frame(width: 45, alignment: .trailing)
+            }
+
+            // Reset time
+            HStack {
+                Spacer()
+                Text("Resets \(resetTimeString)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.gray)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -326,35 +386,10 @@ struct QuotaPanel: View {
         if quotaPercent > 50 { return .orange }
         return .green
     }
-}
 
-struct ToolsPanel: View {
-    let state: SessionState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            panelHeader("TOOLS")
-
-            if let tool = state.currentTool {
-                HStack(spacing: 10) {
-                    Image(systemName: "hammer.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.cyan)
-                    Text(tool)
-                        .font(.system(size: 14, design: .monospaced))
-                        .foregroundColor(.white)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-            } else {
-                Text("No active tool")
-                    .font(.system(size: 14, design: .monospaced))
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-            }
-        }
-        .background(panelBackground)
+    private var resetTimeString: String {
+        // Resets Monday at midnight PT
+        return "Mon 12:00 AM PT"
     }
 }
 

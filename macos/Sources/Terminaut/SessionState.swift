@@ -72,6 +72,7 @@ class SessionStateWatcher: ObservableObject {
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         statesDir = home.appendingPathComponent(".terminaut/states")
+        print("[StateWatcher] INIT - statesDir: \(statesDir.path)")
         startWatching()
     }
 
@@ -81,46 +82,44 @@ class SessionStateWatcher: ObservableObject {
 
     /// Set the project path to watch for
     func watchProject(path: String) {
+        log("watchProject called with: \(path)")
         projectPath = path
-        findAndWatchStateFile()
+
+        // Compute project state file name (same logic as statusline.sh)
+        let projectName = URL(fileURLWithPath: path).lastPathComponent
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        let stateFile = statesDir.appendingPathComponent("project-\(projectName).json")
+        log("Looking for project state file: \(stateFile.path)")
+
+        if FileManager.default.fileExists(atPath: stateFile.path) {
+            watchFile(stateFile)
+        } else {
+            log("Project state file not found, waiting...")
+            // Start timer to check for file creation
+            startPolling()
+        }
+    }
+
+    private func startPolling() {
+        scanTimer?.invalidate()
+        scanTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self, !self.projectPath.isEmpty else { return }
+            let projectName = URL(fileURLWithPath: self.projectPath).lastPathComponent
+                .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+            let stateFile = self.statesDir.appendingPathComponent("project-\(projectName).json")
+            if FileManager.default.fileExists(atPath: stateFile.path) {
+                self.log("Project state file found: \(stateFile.path)")
+                self.watchFile(stateFile)
+                self.scanTimer?.invalidate()
+            }
+        }
     }
 
     func startWatching() {
         // Create directory if needed
         try? FileManager.default.createDirectory(at: statesDir, withIntermediateDirectories: true)
-
-        // Watch the directory for new files
-        dirDescriptor = open(statesDir.path, O_EVTONLY)
-        guard dirDescriptor >= 0 else {
-            print("Failed to open states directory for monitoring")
-            return
-        }
-
-        dirMonitor = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: dirDescriptor,
-            eventMask: [.write],
-            queue: .main
-        )
-
-        dirMonitor?.setEventHandler { [weak self] in
-            self?.findAndWatchStateFile()
-        }
-
-        dirMonitor?.setCancelHandler { [weak self] in
-            guard let fd = self?.dirDescriptor, fd >= 0 else { return }
-            close(fd)
-            self?.dirDescriptor = -1
-        }
-
-        dirMonitor?.resume()
-
-        // Also scan periodically in case we miss events
-        scanTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.findAndWatchStateFile()
-        }
-
-        // Initial scan
-        findAndWatchStateFile()
+        log("startWatching: statesDir=\(statesDir.path)")
+        // Actual watching starts when watchProject is called
     }
 
     func stopWatching() {
@@ -136,43 +135,23 @@ class SessionStateWatcher: ObservableObject {
         }
     }
 
-    private func findAndWatchStateFile() {
-        guard !projectPath.isEmpty else { return }
-
-        // Expand ~ in project path for comparison
-        let expandedProjectPath = projectPath.replacingOccurrences(of: "~", with: FileManager.default.homeDirectoryForCurrentUser.path)
-
-        // Scan all state files to find one matching our project
-        guard let files = try? FileManager.default.contentsOfDirectory(at: statesDir, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return
-        }
-
-        var bestMatch: (url: URL, date: Date)? = nil
-
-        for file in files where file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let cwd = json["cwd"] as? String else { continue }
-
-            // Expand ~ in cwd for comparison
-            let expandedCwd = cwd.replacingOccurrences(of: "~", with: FileManager.default.homeDirectoryForCurrentUser.path)
-
-            // Check if this state file matches our project
-            if expandedCwd == expandedProjectPath || expandedCwd.hasPrefix(expandedProjectPath + "/") || expandedProjectPath.hasPrefix(expandedCwd + "/") {
-                let modDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
-                if bestMatch == nil || modDate > bestMatch!.date {
-                    bestMatch = (file, modDate)
-                }
+    private func log(_ msg: String) {
+        print("[StateWatcher] \(msg)")
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".terminaut/watcher.log")
+        let line = "\(Date()): \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: url) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            } else {
+                try? data.write(to: url)
             }
-        }
-
-        // If we found a matching file, watch it
-        if let match = bestMatch, match.url != currentStateFile {
-            watchFile(match.url)
         }
     }
 
     private func watchFile(_ url: URL) {
+        log("watchFile: \(url.lastPathComponent)")
         // Stop watching old file
         fileMonitor?.cancel()
         if fileDescriptor >= 0 {
@@ -215,11 +194,12 @@ class SessionStateWatcher: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let newState = try decoder.decode(SessionState.self, from: data)
+            log("readState: contextPercent=\(newState.contextPercent ?? -1), quotaPercent=\(newState.quotaPercent ?? -1), todos=\(newState.todos?.count ?? 0)")
             DispatchQueue.main.async {
                 self.state = newState
             }
         } catch {
-            // State file may be empty or malformed during writes
+            log("readState error: \(error)")
         }
     }
 }
