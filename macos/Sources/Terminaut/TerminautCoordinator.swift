@@ -58,7 +58,7 @@ class TerminautCoordinator: ObservableObject {
             if let ghostty = ghosttyApp, let app = ghostty.app {
                 var config = Ghostty.SurfaceConfiguration()
                 config.workingDirectory = project.path
-                config.command = "/Users/pete/.local/bin/claude"
+                config.command = "/Users/pete/.local/bin/claude -c"
                 config.waitAfterCommand = false  // Close immediately when process exits
                 surfaceView = Ghostty.SurfaceView(app, baseConfig: config)
             }

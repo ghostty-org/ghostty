@@ -145,7 +145,7 @@ struct TerminautSessionView: View {
             TerminalSurface(
                 app: app,
                 workingDirectory: project.path,
-                command: "/Users/pete/.local/bin/claude"
+                command: "/Users/pete/.local/bin/claude -c"
             )
         } else {
             // Fallback if ghostty not ready
