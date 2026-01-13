@@ -9,26 +9,26 @@ struct TodosPanel: View {
             panelHeader("TODOS")
 
             if let todos = state.todos, !todos.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(todos) { todo in
                         todoRow(todo)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             } else {
                 Text("No active tasks")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 14, design: .monospaced))
                     .foregroundColor(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
             }
         }
         .background(panelBackground)
     }
 
     private func todoRow(_ todo: SessionState.TodoItem) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 8) {
             // Status indicator
             statusIcon(for: todo.status)
 
@@ -36,11 +36,11 @@ struct TodosPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 if todo.status == "in_progress", let activeForm = todo.activeForm {
                     Text(activeForm)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
                         .foregroundColor(.cyan)
                 } else {
                     Text(todo.content)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 14, design: .monospaced))
                         .foregroundColor(todo.status == "completed" ? .gray : .white)
                         .strikethrough(todo.status == "completed")
                 }
@@ -65,6 +65,6 @@ struct TodosPanel: View {
                     .foregroundColor(.gray)
             }
         }
-        .font(.system(size: 12))
+        .font(.system(size: 16))
     }
 }

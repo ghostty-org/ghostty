@@ -151,13 +151,13 @@ struct ControlPanelView: View {
 
     private var projectHeader: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(project.name)
-                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .font(.system(size: 20, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
 
                 Text(project.path)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 13, design: .monospaced))
                     .foregroundColor(.gray)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -170,34 +170,34 @@ struct ControlPanelView: View {
                 onReturnToLauncher()
             } label: {
                 Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 16))
+                    .font(.system(size: 20))
                     .foregroundColor(.gray)
             }
             .buttonStyle(.plain)
             .help("Return to Launcher (Cmd+L)")
         }
-        .padding(12)
+        .padding(16)
     }
 
     private var controlsFooter: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 24) {
             controlHint(key: "D-pad", action: "Navigate")
             controlHint(key: "A", action: "Select")
             controlHint(key: "B", action: "Back")
             controlHint(key: "Start", action: "Launcher")
         }
-        .font(.system(size: 10, design: .monospaced))
+        .font(.system(size: 12, design: .monospaced))
         .foregroundColor(.gray)
-        .padding(12)
+        .padding(16)
     }
 
     private func controlHint(key: String, action: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Text(key)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
                 .background(Color.white.opacity(0.1))
-                .cornerRadius(3)
+                .cornerRadius(4)
             Text(action)
         }
     }
@@ -209,29 +209,29 @@ struct ContextPanel: View {
     let state: SessionState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             panelHeader("CONTEXT")
 
             HStack {
                 // Context usage bar
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: 6)
                             .fill(Color.white.opacity(0.1))
 
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: 6)
                             .fill(contextColor)
                             .frame(width: geo.size.width * (state.contextPercent ?? 0) / 100)
                     }
                 }
-                .frame(height: 20)
+                .frame(height: 28)
 
                 Text("\(Int(state.contextPercent ?? 0))%")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
                     .foregroundColor(contextColor)
-                    .frame(width: 50, alignment: .trailing)
+                    .frame(width: 60, alignment: .trailing)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
         .background(panelBackground)
@@ -249,25 +249,26 @@ struct ToolsPanel: View {
     let state: SessionState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             panelHeader("TOOLS")
 
             if let tool = state.currentTool {
-                HStack {
+                HStack(spacing: 10) {
                     Image(systemName: "hammer.fill")
+                        .font(.system(size: 16))
                         .foregroundColor(.cyan)
                     Text(tool)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: 14, design: .monospaced))
                         .foregroundColor(.white)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
             } else {
                 Text("No active tool")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 14, design: .monospaced))
                     .foregroundColor(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
             }
         }
         .background(panelBackground)
@@ -276,14 +277,14 @@ struct ToolsPanel: View {
 
 struct AgentsPanel: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             panelHeader("AGENTS / BACKGROUND")
 
             Text("No background tasks")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 14, design: .monospaced))
                 .foregroundColor(.gray)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
         }
         .background(panelBackground)
     }

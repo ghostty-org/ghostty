@@ -8,21 +8,21 @@ struct GitPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             panelHeader("GIT")
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 // Branch name
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10))
+                        .font(.system(size: 14))
                         .foregroundColor(.purple)
 
                     Text(state.gitBranch ?? "---")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .foregroundColor(.white)
                         .lineLimit(1)
                 }
 
                 // Stats row
-                HStack(spacing: 16) {
+                HStack(spacing: 20) {
                     gitStat(
                         icon: "circle.fill",
                         value: state.gitUncommitted ?? 0,
@@ -49,24 +49,24 @@ struct GitPanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
         .background(panelBackground)
     }
 
     private func gitStat(icon: String, value: Int, label: String, color: Color) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 8))
+                .font(.system(size: 12))
                 .foregroundColor(color)
 
             Text("\(value)")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
                 .foregroundColor(color)
 
             Text(label)
-                .font(.system(size: 9, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(.gray)
         }
     }

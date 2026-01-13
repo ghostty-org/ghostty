@@ -209,12 +209,27 @@ struct KeyboardHandlerView: NSViewRepresentable {
 
     func updateNSView(_ nsView: KeyboardCapturingView, context: Context) {
         nsView.onKeyDown = onKeyDown
+        // Ensure we're first responder when view updates
+        DispatchQueue.main.async {
+            if nsView.window?.firstResponder != nsView {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
     }
 
     class KeyboardCapturingView: NSView {
         var onKeyDown: ((NSEvent) -> Bool)?
 
         override var acceptsFirstResponder: Bool { true }
+        override var canBecomeKeyView: Bool { true }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // Become first responder when added to window
+            DispatchQueue.main.async { [weak self] in
+                self?.window?.makeFirstResponder(self)
+            }
+        }
 
         override func keyDown(with event: NSEvent) {
             if let handler = onKeyDown, handler(event) {

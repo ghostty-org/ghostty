@@ -8,7 +8,7 @@ struct VitalsPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             panelHeader("VITALS")
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 vitalGauge(
                     label: "Context",
                     value: state.contextPercent ?? 0,
@@ -21,40 +21,40 @@ struct VitalsPanel: View {
                     color: quotaColor
                 )
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
         .background(panelBackground)
     }
 
     private func vitalGauge(label: String, value: Double, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(label)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 14, design: .monospaced))
                     .foregroundColor(.gray)
 
                 Spacer()
 
                 Text(String(format: "%.0f%%", value))
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
                     .foregroundColor(color)
             }
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     // Background bar
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.white.opacity(0.1))
-                        .frame(height: 8)
+                        .frame(height: 12)
 
                     // Value bar
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(color)
-                        .frame(width: geometry.size.width * CGFloat(value / 100.0), height: 8)
+                        .frame(width: geometry.size.width * CGFloat(value / 100.0), height: 12)
                 }
             }
-            .frame(height: 8)
+            .frame(height: 12)
         }
     }
 

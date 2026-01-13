@@ -8,13 +8,13 @@ struct StatusPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             panelHeader("STATUS")
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 statusRow(label: "Model", value: state.model ?? "---")
                 statusRow(label: "Version", value: state.version ?? "---")
                 statusRow(label: "Path", value: shortenedPath(state.cwd))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
         .background(panelBackground)
     }
@@ -22,12 +22,12 @@ struct StatusPanel: View {
     private func statusRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 13, design: .monospaced))
                 .foregroundColor(.gray)
-                .frame(width: 50, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
