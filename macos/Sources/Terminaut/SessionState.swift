@@ -15,6 +15,7 @@ struct SessionState: Codable {
     var gitBehind: Int?
     var currentTool: String?
     var todos: [TodoItem]?
+    var openPRs: [PullRequest]?
     var timestamp: Date?
     var context: ContextBreakdown?
 
@@ -23,6 +24,15 @@ struct SessionState: Codable {
         let content: String
         let status: String
         let activeForm: String?
+    }
+
+    struct PullRequest: Codable, Identifiable {
+        var id: Int { number }
+        let number: Int
+        let title: String
+        let author: String?
+        let isDraft: Bool?
+        let updatedAt: String?
     }
 
     /// Context window usage data from Claude Code
