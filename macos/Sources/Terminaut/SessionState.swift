@@ -16,12 +16,41 @@ struct SessionState: Codable {
     var currentTool: String?
     var todos: [TodoItem]?
     var timestamp: Date?
+    var context: ContextBreakdown?
 
     struct TodoItem: Codable, Identifiable {
         var id: String { content }
         let content: String
         let status: String
         let activeForm: String?
+    }
+
+    /// Context window usage data from Claude Code
+    struct ContextBreakdown: Codable {
+        // Totals for the session
+        var totalInputTokens: Int?
+        var totalOutputTokens: Int?
+        var maxTokens: Int?
+        var usedPercent: Int?
+        var remainingPercent: Int?
+
+        // Current API call usage
+        var currentInput: Int?
+        var currentOutput: Int?
+        var cacheCreation: Int?
+        var cacheRead: Int?
+
+        /// Total tokens used (input + output)
+        var totalTokens: Int? {
+            guard let input = totalInputTokens, let output = totalOutputTokens else { return nil }
+            return input + output
+        }
+
+        /// Calculate percentage of max tokens
+        func percent(of value: Int?) -> Double {
+            guard let value = value, let max = maxTokens, max > 0 else { return 0 }
+            return Double(value) / Double(max) * 100
+        }
     }
 
     static let empty = SessionState()

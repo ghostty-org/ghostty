@@ -280,38 +280,44 @@ struct ContextPanel: View {
     let state: SessionState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            panelHeader("CONTEXT")
+        HStack(spacing: 12) {
+            Text("🧠")
+                .font(.system(size: 14))
 
-            HStack {
-                // Context usage bar
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.white.opacity(0.1))
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white.opacity(0.1))
 
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(contextColor)
-                            .frame(width: geo.size.width * (state.contextPercent ?? 0) / 100)
-                    }
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(contextColor)
+                        .frame(width: geo.size.width * usedPercent / 100)
                 }
-                .frame(height: 28)
-
-                Text("\(Int(state.contextPercent ?? 0))%")
-                    .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundColor(contextColor)
-                    .frame(width: 60, alignment: .trailing)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            .frame(height: 16)
+
+            // Used percentage (matches statusline)
+            Text("\(Int(usedPercent))%")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundColor(contextColor)
+                .frame(width: 45, alignment: .trailing)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(panelBackground)
     }
 
+    private var usedPercent: Double {
+        if let ctx = state.context, let used = ctx.usedPercent {
+            return Double(used)
+        }
+        return state.contextPercent ?? 0
+    }
+
     private var contextColor: Color {
-        let pct = state.contextPercent ?? 0
-        if pct > 80 { return .red }
-        if pct > 60 { return .orange }
+        if usedPercent > 80 { return .red }
+        if usedPercent > 60 { return .orange }
         return .green
     }
 }
