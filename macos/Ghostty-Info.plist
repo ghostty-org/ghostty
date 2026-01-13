@@ -104,9 +104,9 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.mitchellh.ghosttySurfaceId</string>
+			<string>com.peteknowsai.terminautSurfaceId</string>
 			<key>UTTypeDescription</key>
-			<string>Ghostty Surface Identifier</string>
+			<string>Terminaut Surface Identifier</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

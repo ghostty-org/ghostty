@@ -334,9 +334,9 @@ class AppDelegate: NSObject,
             //   - if we're opening a URL since `application(_:openFile:)` is called before this.
             //   - if we're restoring from persisted state
             if TerminalController.all.isEmpty && derivedConfig.initialWindow {
-                undoManager.disableUndoRegistration()
-                _ = TerminalController.newWindow(ghostty)
-                undoManager.enableUndoRegistration()
+                // Terminaut mode: Create single fullscreen window with launcher
+                // SwiftUI handles transitions between launcher and sessions
+                _ = TerminautCoordinator.shared.createMainWindow(ghostty: ghostty)
             }
         }
     }
