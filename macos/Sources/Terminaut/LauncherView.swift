@@ -7,13 +7,25 @@ struct LauncherView: View {
     @State private var searchText: String = ""
     @FocusState private var isFocused: Bool
 
+    /// Active session project IDs (for highlighting)
+    var activeProjectIds: Set<UUID> = []
+
     var onSelect: (Project) -> Void
 
+    /// Projects sorted with active sessions at top
+    private var sortedProjects: [Project] {
+        let projects = projectStore.projects
+        let active = projects.filter { activeProjectIds.contains($0.id) }
+        let inactive = projects.filter { !activeProjectIds.contains($0.id) }
+        return active + inactive
+    }
+
     private var filteredProjects: [Project] {
+        let projects = sortedProjects
         if searchText.isEmpty {
-            return projectStore.projects
+            return projects
         }
-        return projectStore.projects.filter {
+        return projects.filter {
             $0.name.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -44,7 +56,8 @@ struct LauncherView: View {
                             ForEach(Array(filteredProjects.enumerated()), id: \.element.id) { index, project in
                                 ProjectTile(
                                     project: project,
-                                    isSelected: index == projectStore.selectedIndex && searchText.isEmpty
+                                    isSelected: index == projectStore.selectedIndex && searchText.isEmpty,
+                                    isActive: activeProjectIds.contains(project.id)
                                 )
                                 .onTapGesture {
                                     projectStore.selectedIndex = index
@@ -223,13 +236,14 @@ struct KeyboardHandlerView: NSViewRepresentable {
 struct ProjectTile: View {
     let project: Project
     let isSelected: Bool
+    var isActive: Bool = false
 
     var body: some View {
         VStack(spacing: 12) {
             // Icon area
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.cyan.opacity(0.3) : Color.white.opacity(0.1))
+                    .fill(iconBackgroundColor)
                     .frame(width: 80, height: 80)
 
                 if let icon = project.icon {
@@ -237,9 +251,28 @@ struct ProjectTile: View {
                         .font(.system(size: 36))
                 } else {
                     // Default folder icon
-                    Image(systemName: "folder.fill")
+                    Image(systemName: isActive ? "terminal.fill" : "folder.fill")
                         .font(.system(size: 32))
-                        .foregroundColor(isSelected ? .cyan : .gray)
+                        .foregroundColor(iconColor)
+                }
+
+                // Active badge
+                if isActive {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 12, height: 12)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.black, lineWidth: 2)
+                                )
+                        }
+                        Spacer()
+                    }
+                    .frame(width: 80, height: 80)
+                    .padding(4)
                 }
             }
 
@@ -249,24 +282,47 @@ struct ProjectTile: View {
                 .foregroundColor(.white)
                 .lineLimit(1)
 
-            // Activity indicator (asterisk for active sessions)
-            if project.hasActivity {
-                Text("*")
-                    .font(.system(size: 20, weight: .bold))
+            // Active label
+            if isActive {
+                Text("ACTIVE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(.green)
             }
         }
         .frame(width: 180, height: 160)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(isSelected ? Color.cyan : Color.clear, lineWidth: 2)
+                .stroke(borderColor, lineWidth: isActive ? 2 : (isSelected ? 2 : 0))
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.white.opacity(0.05))
+                        .fill(tileBackgroundColor)
                 )
         )
         .scaleEffect(isSelected ? 1.05 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+
+    private var iconBackgroundColor: Color {
+        if isSelected { return Color.cyan.opacity(0.3) }
+        if isActive { return Color.green.opacity(0.2) }
+        return Color.white.opacity(0.1)
+    }
+
+    private var iconColor: Color {
+        if isSelected { return .cyan }
+        if isActive { return .green }
+        return .gray
+    }
+
+    private var borderColor: Color {
+        if isSelected { return .cyan }
+        if isActive { return .green.opacity(0.5) }
+        return .clear
+    }
+
+    private var tileBackgroundColor: Color {
+        if isActive { return Color.green.opacity(0.05) }
+        return Color.white.opacity(0.05)
     }
 }
 

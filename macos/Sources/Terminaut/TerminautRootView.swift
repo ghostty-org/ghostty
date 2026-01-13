@@ -12,12 +12,16 @@ struct TerminautRootView: View {
             Color.black.ignoresSafeArea()
 
             if coordinator.showLauncher {
-                LauncherView(projectStore: ProjectStore.shared) { project in
+                LauncherView(
+                    projectStore: ProjectStore.shared,
+                    activeProjectIds: Set(coordinator.activeSessions.map { $0.project.id })
+                ) { project in
                     coordinator.launchProject(project)
                 }
                 .transition(.opacity)
             } else if let project = coordinator.activeProject {
                 TerminautSessionView(
+                    coordinator: coordinator,
                     project: project,
                     onReturnToLauncher: {
                         coordinator.returnToLauncher()
@@ -32,6 +36,7 @@ struct TerminautRootView: View {
 
 /// Session view with embedded terminal and control panel
 struct TerminautSessionView: View {
+    @ObservedObject var coordinator: TerminautCoordinator
     let project: Project
     let onReturnToLauncher: () -> Void
 
@@ -41,11 +46,34 @@ struct TerminautSessionView: View {
     // Control panel width - roughly 1/3 of 16" MacBook Pro screen
     private let controlPanelWidth: CGFloat = 500
 
+    /// Get current session's surface view
+    private var currentSurfaceView: Ghostty.SurfaceView? {
+        guard coordinator.selectedSessionIndex < coordinator.activeSessions.count else { return nil }
+        return coordinator.activeSessions[coordinator.selectedSessionIndex].surfaceView
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            // Left 2/3: Terminal
-            terminalPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Left 2/3: Tab bar + Terminal
+            VStack(spacing: 0) {
+                // Tab bar (only show if multiple sessions)
+                if coordinator.activeSessions.count > 1 {
+                    TabBarView(
+                        sessions: coordinator.activeSessions,
+                        selectedIndex: coordinator.selectedSessionIndex,
+                        onSelect: { index in
+                            coordinator.switchToSession(at: index)
+                        },
+                        onClose: { index in
+                            coordinator.closeSession(at: index)
+                        }
+                    )
+                }
+
+                // Terminal
+                terminalPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
             // Right 1/3: Control Panel
             ControlPanelView(
@@ -59,7 +87,11 @@ struct TerminautSessionView: View {
 
     @ViewBuilder
     private var terminalPane: some View {
-        if let app = ghostty.app {
+        if let surfaceView = currentSurfaceView {
+            // Use stored surface from session
+            Ghostty.SurfaceWrapper(surfaceView: surfaceView)
+        } else if let app = ghostty.app {
+            // Fallback: create new surface (shouldn't happen normally)
             TerminalSurface(
                 app: app,
                 workingDirectory: project.path,

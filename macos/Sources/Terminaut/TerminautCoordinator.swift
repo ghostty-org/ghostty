@@ -13,16 +13,26 @@ class TerminautCoordinator: ObservableObject {
     /// The currently active project (when in session mode)
     @Published var activeProject: Project?
 
-    /// Active sessions for tab management (future)
+    /// Active sessions for tab management
     @Published var activeSessions: [Session] = []
 
     /// Currently selected session index (for tabs)
     @Published var selectedSessionIndex: Int = 0
 
+    /// Reference to ghostty app for creating surfaces
+    weak var ghosttyApp: Ghostty.App?
+
+    /// Session struct that holds the project and its terminal surface
     struct Session: Identifiable {
         let id = UUID()
         let project: Project
+        var surfaceView: Ghostty.SurfaceView?
         var hasActivity: Bool = false
+
+        init(project: Project, surfaceView: Ghostty.SurfaceView? = nil) {
+            self.project = project
+            self.surfaceView = surfaceView
+        }
     }
 
     private init() {
@@ -42,8 +52,17 @@ class TerminautCoordinator: ObservableObject {
             selectedSessionIndex = existingIndex
             activeProject = project
         } else {
-            // Create new session
-            let session = Session(project: project)
+            // Create new session with SurfaceView
+            var surfaceView: Ghostty.SurfaceView? = nil
+
+            if let ghostty = ghosttyApp, let app = ghostty.app {
+                var config = Ghostty.SurfaceConfiguration()
+                config.workingDirectory = project.path
+                config.command = "/Users/pete/.local/bin/claude"
+                surfaceView = Ghostty.SurfaceView(app, baseConfig: config)
+            }
+
+            let session = Session(project: project, surfaceView: surfaceView)
             activeSessions.append(session)
             selectedSessionIndex = activeSessions.count - 1
             activeProject = project
@@ -60,19 +79,28 @@ class TerminautCoordinator: ObservableObject {
 
     /// Close current session and return to launcher
     func closeCurrentSession() {
-        guard !activeSessions.isEmpty else {
+        closeSession(at: selectedSessionIndex)
+    }
+
+    /// Close session at specific index
+    func closeSession(at index: Int) {
+        guard index >= 0, index < activeSessions.count else {
             returnToLauncher()
             return
         }
 
-        activeSessions.remove(at: selectedSessionIndex)
+        activeSessions.remove(at: index)
 
         if activeSessions.isEmpty {
             activeProject = nil
             showLauncher = true
         } else {
-            // Select previous or first session
-            selectedSessionIndex = min(selectedSessionIndex, activeSessions.count - 1)
+            // Adjust selection if needed
+            if selectedSessionIndex >= activeSessions.count {
+                selectedSessionIndex = activeSessions.count - 1
+            } else if index < selectedSessionIndex {
+                selectedSessionIndex -= 1
+            }
             activeProject = activeSessions[selectedSessionIndex].project
         }
     }
@@ -192,6 +220,9 @@ extension TerminautCoordinator {
     /// Creates the single fullscreen window for Terminaut
     /// Call this from AppDelegate on launch
     func createMainWindow(ghostty: Ghostty.App) -> NSWindow {
+        // Store reference for creating surfaces later
+        self.ghosttyApp = ghostty
+
         let rootView = TerminautRootView(coordinator: self)
             .environmentObject(ghostty)
 
