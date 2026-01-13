@@ -145,7 +145,7 @@ struct TerminautSessionView: View {
             TerminalSurface(
                 app: app,
                 workingDirectory: project.path,
-                command: "/Users/pete/.local/bin/claude -c"
+                command: "/Users/pete/.local/bin/claude --continue"
             )
         } else {
             // Fallback if ghostty not ready
@@ -175,6 +175,9 @@ struct TerminalSurface: View {
         var config = Ghostty.SurfaceConfiguration()
         config.workingDirectory = workingDirectory
         config.command = command
+        // Set PATH so claude doesn't complain about ~/.local/bin not being in PATH
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        config.environmentVariables["PATH"] = "\(homePath)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
         // Initialize surface view with config
         _surfaceView = StateObject(wrappedValue: Ghostty.SurfaceView(app, baseConfig: config))

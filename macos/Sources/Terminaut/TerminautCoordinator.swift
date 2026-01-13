@@ -58,8 +58,11 @@ class TerminautCoordinator: ObservableObject {
             if let ghostty = ghosttyApp, let app = ghostty.app {
                 var config = Ghostty.SurfaceConfiguration()
                 config.workingDirectory = project.path
-                config.command = "/Users/pete/.local/bin/claude -c"
+                config.command = "/Users/pete/.local/bin/claude --continue"
                 config.waitAfterCommand = false  // Close immediately when process exits
+                // Set PATH so claude doesn't complain about ~/.local/bin not being in PATH
+                let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+                config.environmentVariables["PATH"] = "\(homePath)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
                 surfaceView = Ghostty.SurfaceView(app, baseConfig: config)
             }
 
