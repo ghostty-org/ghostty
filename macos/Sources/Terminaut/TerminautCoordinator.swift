@@ -58,7 +58,7 @@ class TerminautCoordinator: ObservableObject {
             if let ghostty = ghosttyApp, let app = ghostty.app {
                 var config = Ghostty.SurfaceConfiguration()
                 config.workingDirectory = project.path
-                config.command = "/bin/zsh -ic '/Users/pete/.local/bin/claude --continue'"
+                config.command = "/Users/pete/.local/bin/claude -c"
                 config.waitAfterCommand = false  // Close immediately when process exits
                 // Set PATH so claude doesn't complain about ~/.local/bin not being in PATH
                 let homePath = FileManager.default.homeDirectoryForCurrentUser.path
