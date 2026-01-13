@@ -7,6 +7,7 @@ struct LauncherView: View {
     @State private var searchText: String = ""
     @State private var displaySelectedIndex: Int = 0
     @FocusState private var isFocused: Bool
+    @State private var keyboardViewId: UUID = UUID()
 
     /// Active session project IDs in activation order (first activated = first in array)
     var activeProjectIdsOrdered: [UUID] = []
@@ -92,10 +93,18 @@ struct LauncherView: View {
             }
         }
         .focused($isFocused)
-        .onAppear { isFocused = true }
+        .onAppear {
+            isFocused = true
+            // Force keyboard handler to recreate and regain focus
+            keyboardViewId = UUID()
+            // Also try after a delay to ensure terminal has released focus
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                keyboardViewId = UUID()
+            }
+        }
         .background(KeyboardHandlerView { event in
             handleKeyEvent(event)
-        })
+        }.id(keyboardViewId))
     }
 
     // MARK: - Subviews
@@ -245,16 +254,24 @@ struct KeyboardHandlerView: NSViewRepresentable {
     func makeNSView(context: Context) -> KeyboardCapturingView {
         let view = KeyboardCapturingView()
         view.onKeyDown = onKeyDown
+        // Immediately try to become first responder
+        DispatchQueue.main.async {
+            view.window?.makeFirstResponder(view)
+        }
         return view
     }
 
     func updateNSView(_ nsView: KeyboardCapturingView, context: Context) {
         nsView.onKeyDown = onKeyDown
-        // Ensure we're first responder when view updates
+        // Aggressively grab focus with multiple attempts
         DispatchQueue.main.async {
-            if nsView.window?.firstResponder != nsView {
-                nsView.window?.makeFirstResponder(nsView)
-            }
+            nsView.window?.makeFirstResponder(nsView)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            nsView.window?.makeFirstResponder(nsView)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            nsView.window?.makeFirstResponder(nsView)
         }
     }
 

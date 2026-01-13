@@ -59,6 +59,7 @@ class TerminautCoordinator: ObservableObject {
                 var config = Ghostty.SurfaceConfiguration()
                 config.workingDirectory = project.path
                 config.command = "/Users/pete/.local/bin/claude"
+                config.waitAfterCommand = false  // Close immediately when process exits
                 surfaceView = Ghostty.SurfaceView(app, baseConfig: config)
             }
 
@@ -82,7 +83,7 @@ class TerminautCoordinator: ObservableObject {
         closeSession(at: selectedSessionIndex)
     }
 
-    /// Close session at specific index
+    /// Close session at specific index - always returns to launcher
     func closeSession(at index: Int) {
         guard index >= 0, index < activeSessions.count else {
             returnToLauncher()
@@ -91,11 +92,11 @@ class TerminautCoordinator: ObservableObject {
 
         activeSessions.remove(at: index)
 
+        // Always return to launcher when closing a session
         if activeSessions.isEmpty {
             activeProject = nil
-            showLauncher = true
         } else {
-            // Adjust selection if needed
+            // Adjust selection for when user returns from launcher
             if selectedSessionIndex >= activeSessions.count {
                 selectedSessionIndex = activeSessions.count - 1
             } else if index < selectedSessionIndex {
@@ -103,6 +104,7 @@ class TerminautCoordinator: ObservableObject {
             }
             activeProject = activeSessions[selectedSessionIndex].project
         }
+        showLauncher = true
     }
 
     /// Switch to a specific session tab

@@ -559,10 +559,8 @@ pub const Surface = struct {
             );
         }
 
-        // Wait after command
-        if (opts.wait_after_command) {
-            config.@"wait-after-command" = true;
-        }
+        // Wait after command - always apply the option value
+        config.@"wait-after-command" = opts.wait_after_command;
 
         // Initialize our surface right away. We're given a view that is
         // ready to use.
