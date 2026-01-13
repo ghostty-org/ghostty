@@ -98,6 +98,14 @@ struct TerminautSessionView: View {
                 }
             }
         }
+        .onAppear {
+            // Start watching for state files matching this project
+            stateWatcher.watchProject(path: project.path)
+        }
+        .onChange(of: project.path) { newPath in
+            // Update watcher if project changes
+            stateWatcher.watchProject(path: newPath)
+        }
     }
 
     /// Current session ID for view identity
@@ -193,8 +201,8 @@ struct ControlPanelView: View {
             // Scrollable panels
             ScrollView {
                 VStack(spacing: 12) {
-                    // Context panel
-                    ContextPanel(state: stateWatcher.state)
+                    // Usage/Quota panel (first)
+                    QuotaPanel(state: stateWatcher.state)
 
                     // Tools panel
                     ToolsPanel(state: stateWatcher.state)
@@ -276,13 +284,14 @@ struct ControlPanelView: View {
 
 // MARK: - Panel Components
 
-struct ContextPanel: View {
+struct QuotaPanel: View {
     let state: SessionState
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("🧠")
-                .font(.system(size: 14))
+            Text("USAGE")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.gray)
 
             // Progress bar
             GeometryReader { geo in
@@ -291,16 +300,16 @@ struct ContextPanel: View {
                         .fill(Color.white.opacity(0.1))
 
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(contextColor)
-                        .frame(width: geo.size.width * usedPercent / 100)
+                        .fill(quotaColor)
+                        .frame(width: geo.size.width * quotaPercent / 100)
                 }
             }
             .frame(height: 16)
 
-            // Used percentage (matches statusline)
-            Text("\(Int(usedPercent))%")
+            // Percentage
+            Text("\(Int(quotaPercent))%")
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .foregroundColor(contextColor)
+                .foregroundColor(quotaColor)
                 .frame(width: 45, alignment: .trailing)
         }
         .padding(.horizontal, 16)
@@ -308,16 +317,13 @@ struct ContextPanel: View {
         .background(panelBackground)
     }
 
-    private var usedPercent: Double {
-        if let ctx = state.context, let used = ctx.usedPercent {
-            return Double(used)
-        }
-        return state.contextPercent ?? 0
+    private var quotaPercent: Double {
+        return state.quotaPercent ?? 0
     }
 
-    private var contextColor: Color {
-        if usedPercent > 80 { return .red }
-        if usedPercent > 60 { return .orange }
+    private var quotaColor: Color {
+        if quotaPercent > 80 { return .red }
+        if quotaPercent > 50 { return .orange }
         return .green
     }
 }
