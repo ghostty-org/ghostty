@@ -18,9 +18,11 @@ struct LauncherView: View {
         }
     }
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 180, maximum: 220), spacing: 20)
-    ]
+    // Fixed 6 columns for predictable keyboard navigation
+    private let columnCount = 6
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 24), count: columnCount)
+    }
 
     var body: some View {
         ZStack {
@@ -28,13 +30,10 @@ struct LauncherView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header
-                headerView
-
-                // Search bar
+                // Search bar at top
                 searchBar
                     .padding(.horizontal, 40)
-                    .padding(.top, 20)
+                    .padding(.top, 24)
 
                 // Project grid
                 ScrollView {
@@ -75,25 +74,6 @@ struct LauncherView: View {
     }
 
     // MARK: - Subviews
-
-    private var headerView: some View {
-        VStack(spacing: 8) {
-            Text("TERMINAUT")
-                .font(.system(size: 48, weight: .bold, design: .monospaced))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.cyan, .blue],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-
-            Text("Select a project to launch Claude Code")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.gray)
-        }
-        .padding(.top, 60)
-    }
 
     private var searchBar: some View {
         HStack {
@@ -164,16 +144,16 @@ struct LauncherView: View {
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
         switch event.keyCode {
         case 126: // Up arrow
-            projectStore.moveSelection(by: -columnsCount)
+            projectStore.moveVertical(by: -1, columnCount: columnCount)
             return true
         case 125: // Down arrow
-            projectStore.moveSelection(by: columnsCount)
+            projectStore.moveVertical(by: 1, columnCount: columnCount)
             return true
         case 123: // Left arrow
-            projectStore.moveSelection(by: -1)
+            projectStore.moveHorizontal(by: -1, columnCount: columnCount)
             return true
         case 124: // Right arrow
-            projectStore.moveSelection(by: 1)
+            projectStore.moveHorizontal(by: 1, columnCount: columnCount)
             return true
         case 36: // Return/Enter
             if let project = projectStore.selectedProject {
@@ -192,8 +172,7 @@ struct LauncherView: View {
     }
 
     private var columnsCount: Int {
-        // Approximate columns based on typical window width
-        4
+        columnCount
     }
 }
 

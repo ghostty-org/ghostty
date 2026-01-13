@@ -146,6 +146,57 @@ class ProjectStore: ObservableObject {
         selectedIndex = (selectedIndex + delta + projects.count) % projects.count
     }
 
+    /// Grid-aware vertical navigation that stays in the same column
+    func moveVertical(by rowDelta: Int, columnCount: Int) {
+        guard !projects.isEmpty else { return }
+
+        let currentRow = selectedIndex / columnCount
+        let currentCol = selectedIndex % columnCount
+        let totalRows = (projects.count + columnCount - 1) / columnCount
+
+        var targetRow = currentRow + rowDelta
+
+        if targetRow < 0 {
+            // Wrap to bottom - find last row that has this column
+            targetRow = totalRows - 1
+            var targetIndex = targetRow * columnCount + currentCol
+            while targetIndex >= projects.count && targetRow > 0 {
+                targetRow -= 1
+                targetIndex = targetRow * columnCount + currentCol
+            }
+            selectedIndex = min(targetIndex, projects.count - 1)
+        } else if targetRow >= totalRows {
+            // Wrap to top
+            selectedIndex = currentCol
+        } else {
+            // Normal move
+            let targetIndex = targetRow * columnCount + currentCol
+            if targetIndex < projects.count {
+                selectedIndex = targetIndex
+            } else {
+                // Target doesn't exist (partial row), wrap to top of column
+                selectedIndex = currentCol
+            }
+        }
+    }
+
+    /// Horizontal navigation with row wrapping
+    func moveHorizontal(by colDelta: Int, columnCount: Int) {
+        guard !projects.isEmpty else { return }
+
+        let newIndex = selectedIndex + colDelta
+
+        if newIndex < 0 {
+            // Wrap to end of previous row or last item
+            selectedIndex = max(0, selectedIndex - 1)
+        } else if newIndex >= projects.count {
+            // At the end, wrap to start
+            selectedIndex = 0
+        } else {
+            selectedIndex = newIndex
+        }
+    }
+
     var selectedProject: Project? {
         guard selectedIndex >= 0, selectedIndex < projects.count else { return nil }
         return projects[selectedIndex]
