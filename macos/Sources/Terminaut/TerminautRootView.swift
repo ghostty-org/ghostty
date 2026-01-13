@@ -53,6 +53,8 @@ struct TerminautSessionView: View {
     }
 
     var body: some View {
+        let closeSurfacePublisher = NotificationCenter.default.publisher(for: Notification.Name("com.mitchellh.ghostty.closeSurface"))
+
         HStack(spacing: 0) {
             // Left 2/3: Tab bar + Terminal
             VStack(spacing: 0) {
@@ -82,6 +84,19 @@ struct TerminautSessionView: View {
                 onReturnToLauncher: onReturnToLauncher
             )
             .frame(width: controlPanelWidth)
+        }
+        .onReceive(closeSurfacePublisher) { notification in
+            // When a surface closes (e.g., user types "exit"), close that session
+            guard let surface = notification.object as? Ghostty.SurfaceView else { return }
+            let processAlive = notification.userInfo?["process_alive"] as? Bool ?? true
+
+            // Only auto-close if the process exited (not alive)
+            if !processAlive {
+                // Find which session this surface belongs to and close it
+                if let index = coordinator.activeSessions.firstIndex(where: { $0.surfaceView === surface }) {
+                    coordinator.closeSession(at: index)
+                }
+            }
         }
     }
 
