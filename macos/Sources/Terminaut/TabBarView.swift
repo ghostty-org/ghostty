@@ -37,34 +37,38 @@ struct TabItemView: View {
 
     @State private var isHovered: Bool = false
 
+    // Fixed width for consistent tab sizing
+    private let tabWidth: CGFloat = 160
+
     var body: some View {
         HStack(spacing: 8) {
-            // Activity indicator (green dot)
-            if hasActivity {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 6, height: 6)
-            }
+            // Activity indicator (green dot) - always reserve space
+            Circle()
+                .fill(hasActivity ? Color.green : Color.clear)
+                .frame(width: 6, height: 6)
 
-            // Project name
+            // Project name - truncate to fit fixed width
             Text(project.name)
                 .font(.system(size: 13, weight: isSelected ? .semibold : .regular, design: .monospaced))
                 .foregroundColor(isSelected ? .white : .gray)
                 .lineLimit(1)
+                .truncationMode(.tail)
 
-            // Close button (shows on hover or when selected)
-            if isSelected || isHovered {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(.plain)
-                .frame(width: 16, height: 16)
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(4)
+            Spacer(minLength: 0)
+
+            // Close button - always present but visibility controlled by opacity
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.gray)
             }
+            .buttonStyle(.plain)
+            .frame(width: 16, height: 16)
+            .background(Color.white.opacity(0.1))
+            .cornerRadius(4)
+            .opacity(isSelected || isHovered ? 1 : 0)
         }
+        .frame(width: tabWidth)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(

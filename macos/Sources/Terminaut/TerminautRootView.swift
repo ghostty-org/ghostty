@@ -14,7 +14,7 @@ struct TerminautRootView: View {
             if coordinator.showLauncher {
                 LauncherView(
                     projectStore: ProjectStore.shared,
-                    activeProjectIds: Set(coordinator.activeSessions.map { $0.project.id })
+                    activeProjectIdsOrdered: coordinator.activeSessions.map { $0.project.id }
                 ) { project in
                     coordinator.launchProject(project)
                 }
@@ -85,11 +85,35 @@ struct TerminautSessionView: View {
         }
     }
 
+    /// Current session ID for view identity
+    private var currentSessionId: UUID? {
+        guard coordinator.selectedSessionIndex < coordinator.activeSessions.count else { return nil }
+        return coordinator.activeSessions[coordinator.selectedSessionIndex].id
+    }
+
+    /// Focus the terminal surface so user can type immediately
+    private func focusTerminal(_ surfaceView: Ghostty.SurfaceView) {
+        // Small delay to ensure view is in hierarchy
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            surfaceView.window?.makeFirstResponder(surfaceView)
+        }
+    }
+
     @ViewBuilder
     private var terminalPane: some View {
         if let surfaceView = currentSurfaceView {
-            // Use stored surface from session
+            // Use stored surface from session - .id() forces SwiftUI to swap views when session changes
             Ghostty.SurfaceWrapper(surfaceView: surfaceView)
+                .id(currentSessionId)
+                .onAppear {
+                    focusTerminal(surfaceView)
+                }
+                .onChange(of: currentSessionId) { _ in
+                    // Re-focus terminal when switching tabs
+                    if let sv = currentSurfaceView {
+                        focusTerminal(sv)
+                    }
+                }
         } else if let app = ghostty.app {
             // Fallback: create new surface (shouldn't happen normally)
             TerminalSurface(

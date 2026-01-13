@@ -5,18 +5,30 @@ import AppKit
 struct LauncherView: View {
     @ObservedObject var projectStore: ProjectStore
     @State private var searchText: String = ""
+    @State private var displaySelectedIndex: Int = 0
     @FocusState private var isFocused: Bool
 
-    /// Active session project IDs (for highlighting)
-    var activeProjectIds: Set<UUID> = []
+    /// Active session project IDs in activation order (first activated = first in array)
+    var activeProjectIdsOrdered: [UUID] = []
 
     var onSelect: (Project) -> Void
 
-    /// Projects sorted with active sessions at top
+    /// Set for quick lookup
+    private var activeProjectIds: Set<UUID> {
+        Set(activeProjectIdsOrdered)
+    }
+
+    /// Projects sorted with active sessions at top, in activation order
     private var sortedProjects: [Project] {
         let projects = projectStore.projects
-        let active = projects.filter { activeProjectIds.contains($0.id) }
+        let projectsById = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+
+        // Active projects in activation order
+        let active = activeProjectIdsOrdered.compactMap { projectsById[$0] }
+
+        // Inactive projects in original order
         let inactive = projects.filter { !activeProjectIds.contains($0.id) }
+
         return active + inactive
     }
 
@@ -56,11 +68,11 @@ struct LauncherView: View {
                             ForEach(Array(filteredProjects.enumerated()), id: \.element.id) { index, project in
                                 ProjectTile(
                                     project: project,
-                                    isSelected: index == projectStore.selectedIndex && searchText.isEmpty,
+                                    isSelected: index == displaySelectedIndex && searchText.isEmpty,
                                     isActive: activeProjectIds.contains(project.id)
                                 )
                                 .onTapGesture {
-                                    projectStore.selectedIndex = index
+                                    displaySelectedIndex = index
                                     onSelect(project)
                                 }
                             }
@@ -155,22 +167,25 @@ struct LauncherView: View {
     // MARK: - Keyboard Handling
 
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        let projects = filteredProjects
+        guard !projects.isEmpty else { return false }
+
         switch event.keyCode {
         case 126: // Up arrow
-            projectStore.moveVertical(by: -1, columnCount: columnCount)
+            moveVertical(by: -1, in: projects)
             return true
         case 125: // Down arrow
-            projectStore.moveVertical(by: 1, columnCount: columnCount)
+            moveVertical(by: 1, in: projects)
             return true
         case 123: // Left arrow
-            projectStore.moveHorizontal(by: -1, columnCount: columnCount)
+            moveHorizontal(by: -1, in: projects)
             return true
         case 124: // Right arrow
-            projectStore.moveHorizontal(by: 1, columnCount: columnCount)
+            moveHorizontal(by: 1, in: projects)
             return true
         case 36: // Return/Enter
-            if let project = projectStore.selectedProject {
-                onSelect(project)
+            if displaySelectedIndex < projects.count {
+                onSelect(projects[displaySelectedIndex])
             }
             return true
         case 15: // R key
@@ -184,8 +199,42 @@ struct LauncherView: View {
         }
     }
 
-    private var columnsCount: Int {
-        columnCount
+    private func moveVertical(by rowDelta: Int, in projects: [Project]) {
+        let totalRows = (projects.count + columnCount - 1) / columnCount
+        let currentRow = displaySelectedIndex / columnCount
+        let currentCol = displaySelectedIndex % columnCount
+
+        var targetRow = currentRow + rowDelta
+
+        if targetRow < 0 {
+            targetRow = totalRows - 1
+            var targetIndex = targetRow * columnCount + currentCol
+            while targetIndex >= projects.count && targetRow > 0 {
+                targetRow -= 1
+                targetIndex = targetRow * columnCount + currentCol
+            }
+            displaySelectedIndex = min(targetIndex, projects.count - 1)
+        } else if targetRow >= totalRows {
+            displaySelectedIndex = currentCol
+        } else {
+            let targetIndex = targetRow * columnCount + currentCol
+            if targetIndex < projects.count {
+                displaySelectedIndex = targetIndex
+            } else {
+                displaySelectedIndex = currentCol
+            }
+        }
+    }
+
+    private func moveHorizontal(by colDelta: Int, in projects: [Project]) {
+        let newIndex = displaySelectedIndex + colDelta
+        if newIndex < 0 {
+            displaySelectedIndex = max(0, displaySelectedIndex - 1)
+        } else if newIndex >= projects.count {
+            displaySelectedIndex = 0
+        } else {
+            displaySelectedIndex = newIndex
+        }
     }
 }
 
