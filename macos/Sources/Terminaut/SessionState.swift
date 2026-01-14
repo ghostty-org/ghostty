@@ -33,6 +33,12 @@ struct SessionState: Codable {
         let author: String?
         let isDraft: Bool?
         let updatedAt: String?
+        let state: String?      // "open", "closed", "merged"
+        let closedAt: String?   // ISO timestamp when closed
+
+        var isClosed: Bool {
+            state == "closed" || state == "MERGED"
+        }
     }
 
     /// Context window usage data from Claude Code

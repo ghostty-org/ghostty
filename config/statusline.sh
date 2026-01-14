@@ -251,10 +251,22 @@ if [ "$HAS_JQ" -eq 1 ]; then
 
       # Only fetch PRs for peteknowsai repos
       if [ "$repo_owner" = "peteknowsai" ]; then
+        # Fetch open PRs
         pr_data=$($GH_BIN pr list --repo "$repo_path" --state open --limit 10 --json number,title,author,isDraft,updatedAt 2>/dev/null)
         if [ -n "$pr_data" ] && [ "$pr_data" != "null" ]; then
-          # Transform to match our struct (author is nested object with login)
-          open_prs=$(echo "$pr_data" | jq -c '[.[] | {number, title, author: .author.login, isDraft, updatedAt}]' 2>/dev/null || echo "[]")
+          open_prs=$(echo "$pr_data" | jq -c '[.[] | {number, title, author: .author.login, isDraft, updatedAt, state: "open", closedAt: null}]' 2>/dev/null || echo "[]")
+        fi
+
+        # Fetch recently closed/merged PRs (within last hour)
+        one_hour_ago=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+        closed_data=$($GH_BIN pr list --repo "$repo_path" --state closed --limit 10 --json number,title,author,isDraft,updatedAt,closedAt,state 2>/dev/null)
+        if [ -n "$closed_data" ] && [ "$closed_data" != "null" ]; then
+          # Filter to only PRs closed within the last hour and transform
+          recent_closed=$(echo "$closed_data" | jq -c --arg cutoff "$one_hour_ago" '[.[] | select(.closedAt >= $cutoff) | {number, title, author: .author.login, isDraft, updatedAt, state, closedAt}]' 2>/dev/null || echo "[]")
+          # Merge open and recently closed PRs
+          if [ "$recent_closed" != "[]" ]; then
+            open_prs=$(echo "$open_prs $recent_closed" | jq -s 'add | sort_by(.number) | reverse' 2>/dev/null || echo "$open_prs")
+          fi
         fi
       fi
     fi
