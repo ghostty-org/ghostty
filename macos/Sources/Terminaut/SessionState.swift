@@ -180,13 +180,24 @@ class SessionStateWatcher: ObservableObject {
 
         fileMonitor = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fileDescriptor,
-            eventMask: [.write, .extend, .attrib],
+            eventMask: [.write, .extend, .attrib, .rename, .delete],
             queue: .main
         )
 
         fileMonitor?.setEventHandler { [weak self] in
             guard let self = self, let url = self.currentStateFile else { return }
-            self.readState(from: url)
+            let events = self.fileMonitor?.data ?? []
+
+            // If file was renamed/deleted (atomic write), re-watch it
+            if events.contains(.rename) || events.contains(.delete) {
+                self.log("File replaced (atomic write), re-watching...")
+                // Small delay to let the mv complete
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    self.watchFile(url)
+                }
+            } else {
+                self.readState(from: url)
+            }
         }
 
         fileMonitor?.setCancelHandler { [weak self] in
@@ -204,7 +215,7 @@ class SessionStateWatcher: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let newState = try decoder.decode(SessionState.self, from: data)
-            log("readState: contextPercent=\(newState.contextPercent ?? -1), quotaPercent=\(newState.quotaPercent ?? -1), todos=\(newState.todos?.count ?? 0)")
+            log("readState: contextPercent=\(newState.contextPercent ?? -1), quotaPercent=\(newState.quotaPercent ?? -1), todos=\(newState.todos?.count ?? 0), prs=\(newState.openPRs?.count ?? 0)")
             DispatchQueue.main.async {
                 self.state = newState
             }
