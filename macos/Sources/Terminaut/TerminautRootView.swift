@@ -173,7 +173,7 @@ struct TerminalSurface: View {
         config.workingDirectory = workingDirectory
         // Claude Code has slow startup for non-Apple terminals - this workaround fixes it
         config.environmentVariables["TERM_PROGRAM"] = "Apple_Terminal"
-        config.initialInput = "claude -c\n"
+        config.initialInput = "exec claude -c\n"
 
         // Initialize surface view with config
         _surfaceView = StateObject(wrappedValue: Ghostty.SurfaceView(app, baseConfig: config))

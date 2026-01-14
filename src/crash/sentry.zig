@@ -127,7 +127,7 @@ fn initThread(gpa: Allocator) !void {
 
         break :cache_dir try internal_os.xdg.cache(
             alloc,
-            .{ .subdir = "ghostty/sentry" },
+            .{ .subdir = "terminaut/sentry" },
         );
     };
     sentry.c.sentry_options_set_database_path_n(
