@@ -35,6 +35,8 @@ Controller navigates between panels (D-pad up/down) and within panels (D-pad lef
 
 **Always run `zig build` after making code changes.** Don't wait to be asked - build automatically to catch compile errors early.
 
+**This is Terminaut, not Ghostty.** Always refer to the app as "Terminaut" in code, comments, UI, and documentation. The build output should be `Terminaut.app`, not `Ghostty.app`.
+
 ## Build Commands
 
 ```bash
@@ -42,7 +44,7 @@ Controller navigates between panels (D-pad up/down) and within panels (D-pad lef
 brew install zig
 xcodebuild -downloadComponent MetalToolchain
 
-# Build (creates zig-out/Ghostty.app)
+# Build (creates zig-out/Terminaut.app)
 zig build -Doptimize=ReleaseFast
 
 # Debug build (default, better for development)
@@ -66,7 +68,7 @@ make clean
 **macOS app notes:**
 - Use `zig build`, NOT `xcodebuild` directly
 - Requires Xcode 26 and macOS 26 SDK (can build on macOS 15)
-- Built app outputs to `zig-out/Ghostty.app`
+- Built app outputs to `zig-out/Terminaut.app`
 
 ## Architecture
 
