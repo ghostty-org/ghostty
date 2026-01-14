@@ -231,12 +231,24 @@ struct ControlPanelView: View {
         .background(Color.black.opacity(0.95))
     }
 
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "v\(version).\(build)"
+    }
+
     private var projectHeader: some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
-                Text(project.name)
-                    .font(.system(size: 20, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(project.name)
+                        .font(.system(size: 20, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+
+                    Text(appVersion)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.gray.opacity(0.6))
+                }
 
                 Text(project.path)
                     .font(.system(size: 13, design: .monospaced))

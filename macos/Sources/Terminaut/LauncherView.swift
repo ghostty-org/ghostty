@@ -4,7 +4,6 @@ import AppKit
 /// Game-style full-screen project launcher
 struct LauncherView: View {
     @ObservedObject var projectStore: ProjectStore
-    @State private var searchText: String = ""
     @State private var displaySelectedIndex: Int = 0
     @FocusState private var isFocused: Bool
     @State private var keyboardViewId: UUID = UUID()
@@ -34,13 +33,7 @@ struct LauncherView: View {
     }
 
     private var filteredProjects: [Project] {
-        let projects = sortedProjects
-        if searchText.isEmpty {
-            return projects
-        }
-        return projects.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-        }
+        sortedProjects
     }
 
     // Fixed 6 columns for predictable keyboard navigation
@@ -55,11 +48,6 @@ struct LauncherView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Search bar at top
-                searchBar
-                    .padding(.horizontal, 40)
-                    .padding(.top, 24)
-
                 // Project grid
                 ScrollView {
                     if filteredProjects.isEmpty {
@@ -69,7 +57,7 @@ struct LauncherView: View {
                             ForEach(Array(filteredProjects.enumerated()), id: \.element.id) { index, project in
                                 ProjectTile(
                                     project: project,
-                                    isSelected: index == displaySelectedIndex && searchText.isEmpty,
+                                    isSelected: index == displaySelectedIndex,
                                     isActive: activeProjectIds.contains(project.id)
                                 )
                                 .onTapGesture {
@@ -109,21 +97,6 @@ struct LauncherView: View {
 
     // MARK: - Subviews
 
-    private var searchBar: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.gray)
-
-            TextField("Search projects...", text: $searchText)
-                .textFieldStyle(.plain)
-                .foregroundColor(.white)
-                .font(.system(size: 16, design: .monospaced))
-        }
-        .padding(12)
-        .background(Color.white.opacity(0.1))
-        .cornerRadius(8)
-    }
-
     private var emptyStateView: some View {
         VStack(spacing: 20) {
             Image(systemName: "folder.badge.questionmark")
@@ -146,13 +119,35 @@ struct LauncherView: View {
         .padding(60)
     }
 
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "Terminaut v\(version).\(build)"
+    }
+
     private var footerView: some View {
-        HStack(spacing: 40) {
-            controlHint(key: "Arrow Keys", action: "Navigate")
-            controlHint(key: "Enter", action: "Launch")
-            controlHint(key: "R", action: "Rescan")
-            controlHint(key: "Esc", action: "Quit")
+        HStack {
+            Text(appVersion)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.gray.opacity(0.5))
+
+            Spacer()
+
+            HStack(spacing: 40) {
+                controlHint(key: "Arrow Keys", action: "Navigate")
+                controlHint(key: "Enter", action: "Launch")
+                controlHint(key: "R", action: "Rescan")
+                controlHint(key: "Esc", action: "Quit")
+            }
+
+            Spacer()
+
+            // Spacer to balance the version on the left
+            Text(appVersion)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.clear)
         }
+        .padding(.horizontal, 20)
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.05))
