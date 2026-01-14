@@ -31,6 +31,10 @@ Controller navigates between panels (D-pad up/down) and within panels (D-pad lef
 
 **Why wrap Claude Code?** Native Claude Code hides useful info behind toggles (context %, tool list). Terminaut surfaces this in always-visible panels. Also integrates Teleport (CLI ↔ web session switching) into controller-friendly UI.
 
+## Workflow
+
+**Always run `zig build` after making code changes.** Don't wait to be asked - build automatically to catch compile errors early.
+
 ## Build Commands
 
 ```bash
