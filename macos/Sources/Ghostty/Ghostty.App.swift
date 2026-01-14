@@ -690,7 +690,9 @@ extension Ghostty {
             if let candidate = URL(string: action.url), candidate.scheme != nil {
                 url = candidate
             } else {
-                url = URL(filePath: action.url)
+                // Expand tilde (~) to home directory - URL(filePath:) doesn't do this automatically
+                let expandedPath = (action.url as NSString).expandingTildeInPath
+                url = URL(filePath: expandedPath)
             }
             
             switch action.kind {

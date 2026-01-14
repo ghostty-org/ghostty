@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const apprt = @import("../apprt.zig");
+const homedir = @import("homedir.zig");
 
 const log = std.log.scoped(.@"os-open");
 
@@ -20,21 +21,29 @@ pub fn open(
     kind: apprt.action.OpenUrl.Kind,
     url: []const u8,
 ) !void {
+    // Expand tilde paths (e.g., ~/Documents) to absolute paths.
+    // The system opener (open/xdg-open) doesn't expand ~ like shells do.
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const resolved_url = homedir.expandHome(url, &path_buf) catch |err| blk: {
+        log.warn("failed to expand home in path: {}", .{err});
+        break :blk url;
+    };
+
     var exe: std.process.Child = switch (builtin.os.tag) {
         .linux, .freebsd => .init(
-            &.{ "xdg-open", url },
+            &.{ "xdg-open", resolved_url },
             alloc,
         ),
 
         .windows => .init(
-            &.{ "rundll32", "url.dll,FileProtocolHandler", url },
+            &.{ "rundll32", "url.dll,FileProtocolHandler", resolved_url },
             alloc,
         ),
 
         .macos => .init(
             switch (kind) {
-                .text => &.{ "open", "-t", url },
-                .html, .unknown => &.{ "open", url },
+                .text => &.{ "open", "-t", resolved_url },
+                .html, .unknown => &.{ "open", resolved_url },
             },
             alloc,
         ),
