@@ -171,9 +171,8 @@ struct TerminalSurface: View {
         // Create surface configuration
         var config = Ghostty.SurfaceConfiguration()
         config.workingDirectory = workingDirectory
-        // Set Terminal.app-like env vars for fast Claude startup
+        // Claude Code has slow startup for non-Apple terminals - this workaround fixes it
         config.environmentVariables["TERM_PROGRAM"] = "Apple_Terminal"
-        config.environmentVariables["TERM"] = "xterm-256color"
         config.initialInput = "claude -c\n"
 
         // Initialize surface view with config

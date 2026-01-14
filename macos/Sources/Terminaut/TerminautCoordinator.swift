@@ -58,9 +58,8 @@ class TerminautCoordinator: ObservableObject {
             if let ghostty = ghosttyApp, let app = ghostty.app {
                 var config = Ghostty.SurfaceConfiguration()
                 config.workingDirectory = project.path
-                // Set Terminal.app-like env vars to see if it helps
+                // Claude Code has slow startup for non-Apple terminals - this workaround fixes it
                 config.environmentVariables["TERM_PROGRAM"] = "Apple_Terminal"
-                config.environmentVariables["TERM"] = "xterm-256color"
                 config.initialInput = "claude -c\n"
                 surfaceView = Ghostty.SurfaceView(app, baseConfig: config)
             }
