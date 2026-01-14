@@ -33,7 +33,7 @@ Controller navigates between panels (D-pad up/down) and within panels (D-pad lef
 
 ## Workflow
 
-**Always run `zig build` after making code changes.** Don't wait to be asked - build automatically to catch compile errors early.
+**Always run `./scripts/bump-version.sh && zig build` after making code changes.** Don't wait to be asked - build automatically to catch compile errors early. This bumps the build number so the user can see they're on a new version.
 
 **This is Terminaut, not Ghostty.** Always refer to the app as "Terminaut" in code, comments, UI, and documentation. The build output should be `Terminaut.app`, not `Ghostty.app`.
 
@@ -44,11 +44,11 @@ Controller navigates between panels (D-pad up/down) and within panels (D-pad lef
 brew install zig
 xcodebuild -downloadComponent MetalToolchain
 
-# Build (creates zig-out/Terminaut.app)
-zig build -Doptimize=ReleaseFast
+# Build with version bump (creates zig-out/Terminaut.app)
+./scripts/bump-version.sh && zig build
 
 # Debug build (default, better for development)
-zig build
+./scripts/bump-version.sh && zig build
 
 # Run directly
 zig build run
