@@ -58,12 +58,10 @@ class TerminautCoordinator: ObservableObject {
             if let ghostty = ghosttyApp, let app = ghostty.app {
                 var config = Ghostty.SurfaceConfiguration()
                 config.workingDirectory = project.path
-                config.command = "/Users/pete/.local/bin/claude -c"
-                config.waitAfterCommand = false  // Close immediately when process exits
-                // Set PATH so claude doesn't complain about ~/.local/bin not being in PATH
-                let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-                let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-                config.environmentVariables["PATH"] = "\(homePath)/.local/bin:/opt/homebrew/bin:\(existingPath)"
+                // Set Terminal.app-like env vars to see if it helps
+                config.environmentVariables["TERM_PROGRAM"] = "Apple_Terminal"
+                config.environmentVariables["TERM"] = "xterm-256color"
+                config.initialInput = "claude -c\n"
                 surfaceView = Ghostty.SurfaceView(app, baseConfig: config)
             }
 

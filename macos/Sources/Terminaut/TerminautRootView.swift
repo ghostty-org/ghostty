@@ -144,8 +144,7 @@ struct TerminautSessionView: View {
             // Fallback: create new surface (shouldn't happen normally)
             TerminalSurface(
                 app: app,
-                workingDirectory: project.path,
-                command: "/Users/pete/.local/bin/claude -c"
+                workingDirectory: project.path
             )
         } else {
             // Fallback if ghostty not ready
@@ -162,23 +161,20 @@ struct TerminautSessionView: View {
 struct TerminalSurface: View {
     let app: ghostty_app_t
     let workingDirectory: String
-    let command: String
 
     @StateObject private var surfaceView: Ghostty.SurfaceView
 
-    init(app: ghostty_app_t, workingDirectory: String, command: String) {
+    init(app: ghostty_app_t, workingDirectory: String) {
         self.app = app
         self.workingDirectory = workingDirectory
-        self.command = command
 
         // Create surface configuration
         var config = Ghostty.SurfaceConfiguration()
         config.workingDirectory = workingDirectory
-        config.command = command
-        // Set PATH so claude doesn't complain about ~/.local/bin not being in PATH
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-        config.environmentVariables["PATH"] = "\(homePath)/.local/bin:/opt/homebrew/bin:\(existingPath)"
+        // Set Terminal.app-like env vars for fast Claude startup
+        config.environmentVariables["TERM_PROGRAM"] = "Apple_Terminal"
+        config.environmentVariables["TERM"] = "xterm-256color"
+        config.initialInput = "claude -c\n"
 
         // Initialize surface view with config
         _surfaceView = StateObject(wrappedValue: Ghostty.SurfaceView(app, baseConfig: config))
