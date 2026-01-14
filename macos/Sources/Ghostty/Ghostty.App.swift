@@ -54,9 +54,12 @@ extension Ghostty {
 
             // Create our "runtime" config. The "runtime" is the configuration that ghostty
             // uses to interface with the application runtime environment.
+            // Terminaut: Set supports_selection_clipboard to false so copy-on-select
+            // uses the system clipboard (standard), not a custom selection pasteboard.
+            // This ensures selected text can be pasted anywhere with Cmd+V.
             var runtime_cfg = ghostty_runtime_config_s(
                 userdata: Unmanaged.passUnretained(self).toOpaque(),
-                supports_selection_clipboard: true,
+                supports_selection_clipboard: false,
                 wakeup_cb: { userdata in App.wakeup(userdata) },
                 action_cb: { app, target, action in App.action(app!, target: target, action: action) },
                 read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
@@ -394,11 +397,23 @@ extension Ghostty {
                     NSPasteboard.PasteboardType(mimeType: item.mime)
                 }
                 pasteboard.declareTypes(types, owner: nil)
-                
+
                 // Set data for each type
                 for item in contentArray {
                     guard let type = NSPasteboard.PasteboardType(mimeType: item.mime) else { continue }
                     pasteboard.setString(item.data, forType: type)
+                }
+
+                // Post notification that text was copied (for Terminaut copy indicator)
+                if location == GHOSTTY_CLIPBOARD_STANDARD,
+                   let textContent = contentArray.first(where: { $0.mime == "text/plain" }) {
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: .ghosttyDidCopyToClipboard,
+                            object: surface,
+                            userInfo: ["copiedText": textContent.data]
+                        )
+                    }
                 }
                 return
             }

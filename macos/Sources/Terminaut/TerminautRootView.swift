@@ -73,9 +73,10 @@ struct TerminautSessionView: View {
                         )
                     }
 
-                    // Terminal
+                    // Terminal with copy indicator overlay
                     terminalPane
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .copyIndicator()
                 }
                 .frame(width: geometry.size.width * 0.75)
 

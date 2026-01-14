@@ -181,6 +181,9 @@ class AppDelegate: NSObject,
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Ensure Terminaut config exists before Ghostty initializes
+        ensureTerminautConfig()
+
         // System settings overrides
         UserDefaults.standard.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
@@ -1274,6 +1277,87 @@ class AppDelegate: NSObject,
         func restore() {
             hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
             keyWindow?.value?.makeKey()
+        }
+    }
+}
+
+// MARK: - Terminaut Config
+
+extension AppDelegate {
+    /// Ensures Terminaut-specific config exists
+    /// Creates ~/.config/terminaut/config.terminaut with Terminaut defaults if missing
+    /// Also installs SF Mono Terminal font if not present
+    private func ensureTerminautConfig() {
+        let fileManager = FileManager.default
+
+        // Install SF Mono Terminal font if not already installed
+        installSFMonoTerminalFont()
+
+        let configDir = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/terminaut")
+        let configFile = configDir.appendingPathComponent("config.terminaut")
+
+        // Create directory if needed
+        try? fileManager.createDirectory(
+            at: configDir,
+            withIntermediateDirectories: true
+        )
+
+        // If config doesn't exist, create with Terminaut defaults
+        if !fileManager.fileExists(atPath: configFile.path) {
+            let defaults = """
+            # Terminaut defaults
+            # Auto-copy selection to clipboard (like Zellij)
+            copy-on-select = clipboard
+
+            # Font settings (matches Terminal.app defaults)
+            font-family = SF Mono Terminal
+            font-size = 18
+            adjust-cell-height = 10%
+            font-thicken = true
+
+            # Colors (matches Terminal.app Basic profile)
+            background = 191D27
+            foreground = E0E0E0
+            """
+            try? defaults.write(to: configFile, atomically: true, encoding: .utf8)
+            Self.logger.info("Created Terminaut config at \(configFile.path)")
+        }
+    }
+
+    /// Installs SF Mono Terminal font to ~/Library/Fonts/ if not present
+    /// This font is bundled with Terminal.app but not system-wide accessible
+    private func installSFMonoTerminalFont() {
+        let fileManager = FileManager.default
+        let userFontsDir = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Fonts")
+
+        // Source fonts from Terminal.app
+        let terminalFontsDir = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app/Contents/Resources/Fonts")
+        let fontFiles = [
+            "SFMono-Terminal.ttf",
+            "SFMonoItalic-Terminal.ttf"
+        ]
+
+        // Create user fonts directory if needed
+        try? fileManager.createDirectory(
+            at: userFontsDir,
+            withIntermediateDirectories: true
+        )
+
+        for fontFile in fontFiles {
+            let source = terminalFontsDir.appendingPathComponent(fontFile)
+            let destination = userFontsDir.appendingPathComponent(fontFile)
+
+            // Only copy if not already installed
+            if !fileManager.fileExists(atPath: destination.path) {
+                do {
+                    try fileManager.copyItem(at: source, to: destination)
+                    Self.logger.info("Installed font: \(fontFile)")
+                } catch {
+                    Self.logger.warning("Failed to install font \(fontFile): \(error)")
+                }
+            }
         }
     }
 }

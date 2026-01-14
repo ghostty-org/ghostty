@@ -261,8 +261,9 @@ if [ "$HAS_JQ" -eq 1 ]; then
   fi
   [ -z "$open_prs" ] || [ "$open_prs" = "null" ] && open_prs="[]"
 
-  # Write to per-project state file
-  cat > "$STATE_FILE" <<JSONEOF
+  # Write to per-project state file (atomic: write to temp, then rename)
+  STATE_TMP="${STATE_FILE}.tmp.$$"
+  cat > "$STATE_TMP" <<JSONEOF
 {
   "projectName": "$project_name",
   "model": "$model_escaped",
@@ -290,4 +291,5 @@ if [ "$HAS_JQ" -eq 1 ]; then
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 JSONEOF
+  mv "$STATE_TMP" "$STATE_FILE"
 fi
