@@ -37,7 +37,8 @@ struct SessionState: Codable {
         let closedAt: String?   // ISO timestamp when closed
 
         var isClosed: Bool {
-            state == "closed" || state == "MERGED"
+            guard let s = state?.uppercased() else { return false }
+            return s == "CLOSED" || s == "MERGED"
         }
     }
 
