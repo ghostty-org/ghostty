@@ -247,7 +247,7 @@ struct ControlPanelView: View {
 
                     Text(appVersion)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.6))
+                        .foregroundColor(.orange)
                 }
 
                 Text(project.path)

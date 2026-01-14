@@ -129,7 +129,7 @@ struct LauncherView: View {
         HStack {
             Text(appVersion)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.gray.opacity(0.5))
+                .foregroundColor(.orange)
 
             Spacer()
 

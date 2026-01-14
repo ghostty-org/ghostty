@@ -174,7 +174,14 @@ class SessionStateWatcher: ObservableObject {
         // Read immediately
         readState(from: url)
 
-        // Watch for changes
+        // Start polling timer as fallback (file watcher can be unreliable with atomic writes)
+        scanTimer?.invalidate()
+        scanTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self, let url = self.currentStateFile else { return }
+            self.readState(from: url)
+        }
+
+        // Also watch for changes (faster than polling when it works)
         fileDescriptor = open(url.path, O_EVTONLY)
         guard fileDescriptor >= 0 else { return }
 
