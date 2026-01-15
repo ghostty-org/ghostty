@@ -1868,15 +1868,19 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
                 let startSearch = Ghostty.Action.StartSearch(c: v)
-                let selectionNeedle: String? = {
-                    guard (startSearch.needle ?? "").isEmpty else { return nil }
-                    guard ghostty_surface_has_selection(surface) else { return nil }
-                    var text = ghostty_text_s()
-                    guard ghostty_surface_read_selection(surface, &text) else { return nil }
-                    defer { ghostty_surface_free_text(surface, &text) }
-                    return String(cString: text.text)
-                }()
                 DispatchQueue.main.async {
+                    let selectionNeedle: String? = {
+                        guard (startSearch.needle ?? "").isEmpty else { return nil }
+                        guard ghostty_surface_has_selection(surface) else { return nil }
+                        var text = ghostty_text_s()
+                        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+                        defer { ghostty_surface_free_text(surface, &text) }
+                        let selection = String(cString: text.text)
+                        if selection.contains(where: { $0 == "\n" || $0 == "\r" }) {
+                            return nil
+                        }
+                        return selection
+                    }()
                     if let selectionNeedle, !selectionNeedle.isEmpty {
                         if let searchState = surfaceView.searchState {
                             searchState.needle = selectionNeedle
