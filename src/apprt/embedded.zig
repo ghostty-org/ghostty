@@ -418,6 +418,10 @@ pub const Surface = struct {
     /// that getTitle works without the implementer needing to save it.
     title: ?[:0]const u8 = null,
 
+    /// The user-set title override. When set, this takes precedence over
+    /// the terminal-set title for display purposes.
+    title_override: ?[:0]const u8 = null,
+
     /// Surface initialization options.
     pub const Options = extern struct {
         /// The platform that this surface is being initialized for and
@@ -587,8 +591,9 @@ pub const Surface = struct {
         // Shut down our inspector
         self.freeInspector();
 
-        // Free our title
+        // Free our title and title override
         if (self.title) |v| self.app.core_app.alloc.free(v);
+        if (self.title_override) |v| self.app.core_app.alloc.free(v);
 
         // Remove ourselves from the list of known surfaces in the app.
         self.app.core_app.deleteSurface(self);
@@ -646,6 +651,29 @@ pub const Surface = struct {
 
     pub fn getTitle(self: *Surface) ?[:0]const u8 {
         return self.title;
+    }
+
+    /// Returns the display title, which is the title override if set,
+    /// otherwise the terminal-set title.
+    pub fn getDisplayTitle(self: *Surface) ?[:0]const u8 {
+        return self.title_override orelse self.title;
+    }
+
+    /// Sets the title override. When set, this takes precedence over
+    /// the terminal-set title for display purposes. Pass null to clear.
+    pub fn setTitleOverride(self: *Surface, title: ?[*:0]const u8) !void {
+        const alloc = self.app.core_app.alloc;
+
+        // Free the old title override if it exists
+        if (self.title_override) |v| alloc.free(v);
+
+        // Set the new title override
+        if (title) |t| {
+            const slice = std.mem.sliceTo(t, 0);
+            self.title_override = try alloc.dupeZ(u8, slice);
+        } else {
+            self.title_override = null;
+        }
     }
 
     pub fn supportsClipboard(
@@ -1968,6 +1996,19 @@ pub const CAPI = struct {
             state,
             confirmed,
         );
+    }
+
+    /// Returns the display title (title_override if set, otherwise title).
+    export fn ghostty_surface_get_display_title(ptr: *Surface) ?[*:0]const u8 {
+        const title = ptr.getDisplayTitle() orelse return null;
+        return title.ptr;
+    }
+
+    /// Sets the title override. Pass null to clear.
+    export fn ghostty_surface_set_title_override(ptr: *Surface, title: ?[*:0]const u8) void {
+        ptr.setTitleOverride(title) catch |err| {
+            log.err("error setting title override err={}", .{err});
+        };
     }
 
     export fn ghostty_surface_inspector(ptr: *Surface) ?*Inspector {
