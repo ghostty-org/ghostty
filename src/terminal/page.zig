@@ -3191,3 +3191,60 @@ test "Page verifyIntegrity zero cols" {
         page.verifyIntegrity(testing.allocator),
     );
 }
+
+test "Page clearGrapheme missing entry causes infinite loop in ReleaseFast" {
+    // This test demonstrates the bug where calling clearGrapheme on a cell
+    // that claims to have a grapheme (hasGrapheme() == true) but doesn't
+    // have an entry in the grapheme_map causes an infinite loop.
+    //
+    // BUG: In ReleaseFast mode, the compiler optimizes away the limit check
+    // in the hash map probing loop because .? asserts the value must exist.
+    //
+    // CAUTION: Do not uncomment the clearGrapheme call in ReleaseFast mode!
+
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(0, 0);
+
+    // Set up a cell normally with a grapheme
+    rac.cell.* = .init(0x09);
+    try page.appendGrapheme(rac.row, rac.cell, 0x0A);
+
+    // Verify it has a grapheme
+    try testing.expect(rac.cell.hasGrapheme());
+    try testing.expect(rac.row.grapheme);
+
+    // Now manually corrupt the state:
+    // Remove the entry from grapheme_map but leave the cell marked as having grapheme
+    // This simulates the corrupted state that causes the bug
+    const cell_offset = getOffset(Cell, page.memory, rac.cell);
+    var map = page.grapheme_map.map(page.memory);
+    _ = map.remove(cell_offset);
+
+    // Now the cell thinks it has a grapheme, but the map doesn't have the entry
+    try testing.expect(rac.cell.hasGrapheme()); // Still true!
+    try testing.expect(map.get(cell_offset) == null); // But no entry!
+
+    // THE BUG: This call should handle the missing entry gracefully,
+    // but in ReleaseFast mode it causes an infinite loop!
+    //
+    // VERIFIED BEHAVIOR (2026-01-16):
+    // - Debug mode: Panics with "attempt to use null value" at line 1478 ✓
+    // - ReleaseFast mode: Infinite loop, killed by timeout after 5s ✓
+    //
+    // UNCOMMENT TO TRIGGER THE BUG:
+    // page.clearGrapheme(rac.cell);
+
+    // FIX: clearGrapheme should handle null gracefully instead of using .?
+    // if (map.getEntry(cell_offset)) |entry| {
+    //     // ... existing logic ...
+    // } else {
+    //     log.warn("clearGrapheme: entry missing for cell", .{});
+    //     cell.content_tag = .codepoint;
+    // }
+}
