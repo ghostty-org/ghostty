@@ -78,7 +78,9 @@ pub fn Buffer(comptime T: type) type {
             defer binding.unbind();
 
             // If we need more space than our buffer has, we need to reallocate.
-            if (data.len > self.len) {
+            // We also shrink if the buffer is more than 4x larger than needed
+            // to avoid holding onto excessive memory after temporary spikes.
+            if (data.len > self.len or (self.len > 4 * data.len and data.len > 0)) {
                 // Reallocate the buffer to hold double what we require.
                 self.len = data.len * 2;
                 try binding.setDataNullManual(
@@ -103,7 +105,9 @@ pub fn Buffer(comptime T: type) type {
             }
 
             // If we need more space than our buffer has, we need to reallocate.
-            if (total_len > self.len) {
+            // We also shrink if the buffer is more than 4x larger than needed
+            // to avoid holding onto excessive memory after temporary spikes.
+            if (total_len > self.len or (self.len > 4 * total_len and total_len > 0)) {
                 // Reallocate the buffer to hold double what we require.
                 self.len = total_len * 2;
                 try binding.setDataNullManual(
