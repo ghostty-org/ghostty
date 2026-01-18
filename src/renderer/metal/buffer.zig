@@ -74,9 +74,11 @@ pub fn Buffer(comptime T: type) type {
         /// remaining data in the buffer is left untouched.
         pub fn sync(self: *Self, data: []const T) !void {
             // If we need more bytes than our buffer has, we need to reallocate.
+            // We also shrink if the buffer is more than 4x larger than needed
+            // to avoid holding onto excessive memory after temporary spikes.
             const req_bytes = data.len * @sizeOf(T);
             const avail_bytes = self.buffer.getProperty(c_ulong, "length");
-            if (req_bytes > avail_bytes) {
+            if (req_bytes > avail_bytes or (avail_bytes > 4 * req_bytes and req_bytes > 0)) {
                 // Deallocate previous buffer
                 self.buffer.msgSend(void, objc.sel("release"), .{});
 
@@ -131,9 +133,11 @@ pub fn Buffer(comptime T: type) type {
             }
 
             // If we need more bytes than our buffer has, we need to reallocate.
+            // We also shrink if the buffer is more than 4x larger than needed
+            // to avoid holding onto excessive memory after temporary spikes.
             const req_bytes = total_len * @sizeOf(T);
             const avail_bytes = self.buffer.getProperty(c_ulong, "length");
-            if (req_bytes > avail_bytes) {
+            if (req_bytes > avail_bytes or (avail_bytes > 4 * req_bytes and req_bytes > 0)) {
                 // Deallocate previous buffer
                 self.buffer.msgSend(void, objc.sel("release"), .{});
 
