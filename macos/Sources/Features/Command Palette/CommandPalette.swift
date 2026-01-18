@@ -59,6 +59,7 @@ struct CommandOption: Identifiable, Hashable {
 
 struct CommandPaletteView: View {
     @Binding var isPresented: Bool
+    @Binding var isJumpPalette: Bool
     var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     var options: [CommandOption]
     @State private var query = ""
@@ -105,7 +106,7 @@ struct CommandPaletteView: View {
         }
 
         VStack(alignment: .leading, spacing: 0) {
-            CommandPaletteQuery(query: $query, isTextFieldFocused: _isTextFieldFocused) { event in
+            CommandPaletteQuery(isJumpPalette: $isJumpPalette, query: $query, isTextFieldFocused: _isTextFieldFocused) { event in
                 switch (event) {
                 case .exit:
                     isPresented = false
@@ -230,11 +231,13 @@ struct CommandPaletteView: View {
 
 /// The text field for building the query for the command palette.
 fileprivate struct CommandPaletteQuery: View {
+    @Binding var isJumpPalette: Bool
     @Binding var query: String
     var onEvent: ((KeyboardEvent) -> Void)? = nil
     @FocusState private var isTextFieldFocused: Bool
 
-    init(query: Binding<String>, isTextFieldFocused: FocusState<Bool>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
+    init(isJumpPalette: Binding<Bool>, query: Binding<String>, isTextFieldFocused: FocusState<Bool>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
+        _isJumpPalette = isJumpPalette
         _query = query
         self.onEvent = onEvent
         _isTextFieldFocused = isTextFieldFocused
@@ -266,7 +269,8 @@ fileprivate struct CommandPaletteQuery: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
 
-            TextField("Execute a command…", text: $query)
+            let msg = isJumpPalette ? "Search for a session…" : "Execute a command…"
+            TextField(msg, text: $query)
                 .padding()
                 .font(.system(size: 20, weight: .light))
                 .frame(height: 48)
