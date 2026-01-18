@@ -4,6 +4,7 @@ const config = @import("config.zig");
 const config_x = @import("config.x.zig");
 const d = config.default;
 const wcwidth = config_x.wcwidth;
+const grapheme_break_no_control = config_x.grapheme_break_no_control;
 
 const Allocator = std.mem.Allocator;
 
@@ -85,10 +86,15 @@ pub const tables = [_]config.Table{
     },
     .{
         .name = "buildtime",
-        .extensions = &.{ wcwidth, width, is_symbol },
+        .extensions = &.{
+            wcwidth,
+            grapheme_break_no_control,
+            width,
+            is_symbol,
+        },
         .fields = &.{
             width.field("width"),
-            d.field("grapheme_break"),
+            grapheme_break_no_control.field("grapheme_break_no_control"),
             is_symbol.field("is_symbol"),
             d.field("is_emoji_vs_base"),
         },
