@@ -2718,6 +2718,83 @@ pub fn compact(self: *PageList, node: *List.Node) Allocator.Error!?*List.Node {
     new_page.assertIntegrity();
     return new_node;
 }
+
+pub const SplitError = error{
+    // Allocator OOM
+    OutOfMemory,
+    // Page can't be split further because it is already a single row.
+    OutOfSpace,
+};
+
+/// Split the given node in the PageList at the given pin.
+///
+/// The row at the pin and after will be moved into a new page with
+/// the same capacity as the original page. Alternatively, you can "split
+/// above" by splitting the row following the desired split row.
+pub fn split(
+    self: *PageList,
+    p: Pin,
+) SplitError!void {
+    if (build_options.slow_runtime_safety) assert(self.pinIsValid(p));
+
+    const page: *const Page = &p.node.data;
+
+    // A page that is already 1 row can't be split. In the future we can
+    // theoretically maybe split by soft-wrapping multiple pages but that
+    // seems crazy and the rest of our PageList can't handle heterogeneously
+    // sized pages today.
+    if (page.size.rows <= 1) return error.OutOfSpace;
+
+    // Create a new node with the same capacity of managed memory.
+    const target = try self.createPage(page.capacity);
+    errdefer self.destroyNode(target);
+
+    // Determine how many rows we're copying
+    const y_start = p.y;
+    const y_end = page.size.rows;
+    target.data.size.rows = y_end - y_start;
+    assert(target.data.size.rows <= target.data.capacity.rows);
+
+    // Copy our old data. This should NOT fail because we have the
+    // capacity of the old page which already fits the data we requested.
+    target.data.cloneFrom(page, y_start, y_end) catch |err| {
+        log.err(
+            "error cloning rows for split err={}",
+            .{err},
+        );
+
+        // Rather than crash, we return an OutOfSpace to show that
+        // we couldn't split and let our callers gracefully handle it.
+        // Realistically though... this should not happen.
+        return error.OutOfSpace;
+    };
+
+    // From this point forward there is no going back. We have no
+    // error handling. It is possible but we haven't written it.
+    errdefer comptime unreachable;
+
+    // Move any tracked pins from the copied rows
+    for (self.tracked_pins.keys()) |tracked| {
+        if (&tracked.node.data != page or
+            tracked.y < p.y) continue;
+
+        tracked.node = target;
+        tracked.y -= p.y;
+        // p.x remains the same since we're copying the row as-is
+    }
+
+    // Clear our rows
+    for (page.rows.ptr(page.memory)[y_start..y_end]) |*row| {
+        page.clearCells(
+            row,
+            0,
+            page.size.cols,
+        );
+    }
+    page.size.rows -= y_end - y_start;
+
+    self.pages.insertAfter(p.node, target);
+}
 /// This represents the state necessary to render a scrollbar for this
 /// PageList. It has the total size, the offset, and the size of the viewport.
 pub const Scrollbar = struct {
