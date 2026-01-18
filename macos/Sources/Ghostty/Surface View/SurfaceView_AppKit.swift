@@ -574,10 +574,18 @@ extension Ghostty {
                     let prevTitle = titleFromTerminal ?? "👻"
                     titleFromTerminal = nil
                     setTitle(prevTitle)
+                    // Clear the title override so copy_title_to_clipboard uses terminal title
+                    if let surface = self.surface {
+                        ghostty_surface_set_title_override(surface, nil)
+                    }
                 } else {
                     // Set the title and prevent it from being changed automatically
                     titleFromTerminal = title
                     title = newTitle
+                    // Set the title override so copy_title_to_clipboard uses user's title
+                    if let surface = self.surface {
+                        ghostty_surface_set_title_override(surface, newTitle)
+                    }
                 }
             }
 

@@ -1104,6 +1104,8 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+const char* ghostty_surface_get_display_title(ghostty_surface_t);
+void ghostty_surface_set_title_override(ghostty_surface_t, const char*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
