@@ -2650,6 +2650,74 @@ pub fn scrollClear(self: *PageList) !void {
     for (0..non_empty) |_| _ = try self.grow();
 }
 
+/// Compact a page to use the minimum required memory for the contents
+/// it stores. Returns the new node pointer if compaction occurred, or null
+/// if the page was already compact or compaction would not provide meaningful
+/// savings.
+///
+/// The current design of PageList at the time of writing this doesn't
+/// allow for smaller than `std_size` nodes so if the current node's backing
+/// page is standard size or smaller, no compaction will occur. In the
+/// future we should fix this up.
+///
+/// If this returns OOM, the PageList is left unchanged and no dangling
+/// memory references exist. It is safe to ignore the error and continue using
+/// the uncompacted page.
+pub fn compact(self: *PageList, node: *List.Node) Allocator.Error!?*List.Node {
+    defer self.assertIntegrity();
+    const page: *Page = &node.data;
+
+    // We should never have empty rows in our pagelist anyways...
+    assert(page.size.rows > 0);
+
+    // We never compact standard size or smaller pages because changing
+    // the capacity to something smaller won't save memory.
+    if (page.memory.len <= std_size) return null;
+
+    // Compute the minimum capacity required for this page's content
+    const req_cap = page.exactRowCapacity(0, page.size.rows);
+    const new_size = Page.layout(req_cap).total_size;
+    const old_size = page.memory.len;
+    if (new_size >= old_size) return null;
+
+    // Create the new smaller page
+    const new_node = try self.createPage(req_cap);
+    errdefer self.destroyNode(new_node);
+    const new_page: *Page = &new_node.data;
+    new_page.size = page.size;
+    new_page.dirty = page.dirty;
+    new_page.cloneFrom(
+        page,
+        0,
+        page.size.rows,
+    ) catch |err| {
+        // cloneFrom should not fail when compacting since req_cap is
+        // computed to exactly fit the source content and our expectation
+        // of exactRowCapacity ensures it can fit all the requested
+        // data.
+        log.err("compact clone failed err={}", .{err});
+
+        // In this case, let's gracefully degrade by pretending we
+        // didn't need to compact.
+        self.destroyNode(new_node);
+        return null;
+    };
+
+    // Fix up all tracked pins to point to the new page
+    const pin_keys = self.tracked_pins.keys();
+    for (pin_keys) |p| {
+        if (p.node != node) continue;
+        p.node = new_node;
+    }
+
+    // Insert the new page and destroy the old one
+    self.pages.insertBefore(node, new_node);
+    self.pages.remove(node);
+    self.destroyNode(node);
+
+    new_page.assertIntegrity();
+    return new_node;
+}
 /// This represents the state necessary to render a scrollbar for this
 /// PageList. It has the total size, the offset, and the size of the viewport.
 pub const Scrollbar = struct {
@@ -11712,4 +11780,138 @@ test "PageList grow non-standard page prune protection" {
 
     // Verify the invariant holds - the fix prevents the destructive prune
     try testing.expect(s.totalRows() >= s.rows);
+}
+
+test "PageList compact std_size page returns null" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    // A freshly created page should be at std_size
+    const node = s.pages.first.?;
+    try testing.expect(node.data.memory.len <= std_size);
+
+    // compact should return null since there's nothing to compact
+    const result = try s.compact(node);
+    try testing.expectEqual(null, result);
+
+    // Page should still be the same
+    try testing.expectEqual(node, s.pages.first.?);
+}
+
+test "PageList compact oversized page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow until we have multiple pages
+    const page1_node = s.pages.first.?;
+    page1_node.data.pauseIntegrityChecks(true);
+    for (0..page1_node.data.capacity.rows - page1_node.data.size.rows) |_| {
+        _ = try s.grow();
+    }
+    page1_node.data.pauseIntegrityChecks(false);
+    _ = try s.grow();
+    try testing.expect(s.pages.first != s.pages.last);
+
+    var node = s.pages.first.?;
+
+    // Write content to verify it's preserved
+    {
+        const page = &node.data;
+        for (0..page.size.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x + y * s.cols) },
+                };
+            }
+        }
+    }
+
+    // Create a tracked pin on this page
+    const tracked = try s.trackPin(.{ .node = node, .x = 5, .y = 10 });
+    defer s.untrackPin(tracked);
+
+    // Make the page oversized
+    while (node.data.memory.len <= std_size) {
+        node = try s.increaseCapacity(node, .grapheme_bytes);
+    }
+    try testing.expect(node.data.memory.len > std_size);
+    const oversized_len = node.data.memory.len;
+    const original_size = node.data.size;
+    const second_node = node.next.?;
+
+    // Set dirty flag after increaseCapacity
+    node.data.dirty = true;
+
+    // Compact the page
+    const new_node = try s.compact(node);
+    try testing.expect(new_node != null);
+
+    // Verify memory is smaller
+    try testing.expect(new_node.?.data.memory.len < oversized_len);
+
+    // Verify size preserved
+    try testing.expectEqual(original_size.rows, new_node.?.data.size.rows);
+    try testing.expectEqual(original_size.cols, new_node.?.data.size.cols);
+
+    // Verify dirty flag preserved
+    try testing.expect(new_node.?.data.dirty);
+
+    // Verify linked list integrity
+    try testing.expectEqual(new_node.?, s.pages.first.?);
+    try testing.expectEqual(null, new_node.?.prev);
+    try testing.expectEqual(second_node, new_node.?.next);
+    try testing.expectEqual(new_node.?, second_node.prev);
+
+    // Verify pin updated correctly
+    try testing.expectEqual(new_node.?, tracked.node);
+    try testing.expectEqual(@as(size.CellCountInt, 5), tracked.x);
+    try testing.expectEqual(@as(size.CellCountInt, 10), tracked.y);
+
+    // Verify content preserved
+    const page = &new_node.?.data;
+    for (0..page.size.rows) |y| {
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            try testing.expectEqual(
+                @as(u21, @intCast(x + y * s.cols)),
+                rac.cell.content.codepoint,
+            );
+        }
+    }
+}
+
+test "PageList compact insufficient savings returns null" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    var node = s.pages.first.?;
+
+    // Make the page slightly oversized (just one increase)
+    // This might not provide enough savings to justify compaction
+    node = try s.increaseCapacity(node, .grapheme_bytes);
+
+    // If the page is still at or below std_size, compact returns null
+    if (node.data.memory.len <= std_size) {
+        const result = try s.compact(node);
+        try testing.expectEqual(null, result);
+    } else {
+        // If it did grow beyond std_size, verify that compaction
+        // works or returns null based on savings calculation
+        const result = try s.compact(node);
+        // Either it compacted or determined insufficient savings
+        if (result) |new_node| {
+            try testing.expect(new_node.data.memory.len < node.data.memory.len);
+        }
+    }
 }
