@@ -633,6 +633,114 @@ pub const Page = struct {
         HyperlinkError ||
         GraphemeError;
 
+    /// Compute the exact capacity required to store a range of rows from
+    /// this page.
+    ///
+    /// The returned capacity will have the same number of columns as this
+    /// page and the number of rows equal to the range given. The returned
+    /// capacity is by definition strictly less than or equal to this
+    /// page's capacity, so the layout is guaranteed to succeed.
+    ///
+    /// Preconditions:
+    /// - Range must be at least 1 row
+    /// - Start and end must be valid for this page
+    pub fn exactRowCapacity(
+        self: *const Page,
+        y_start: usize,
+        y_end: usize,
+    ) Capacity {
+        assert(y_start < y_end);
+        assert(y_end <= self.size.rows);
+
+        // Track unique IDs using a bitset. Both style IDs and hyperlink IDs
+        // are CellCountInt (u16), so we reuse this set for both to save
+        // stack memory (~8KB instead of ~16KB).
+        const CellCountSet = std.StaticBitSet(std.math.maxInt(size.CellCountInt) + 1);
+        comptime assert(size.StyleCountInt == size.CellCountInt);
+        comptime assert(size.HyperlinkCountInt == size.CellCountInt);
+
+        // Accumulators
+        var id_set: CellCountSet = .initEmpty();
+        var grapheme_bytes: usize = 0;
+        var string_bytes: usize = 0;
+
+        // First pass: count styles and grapheme bytes
+        const rows = self.rows.ptr(self.memory)[y_start..y_end];
+        for (rows) |*row| {
+            const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+            for (cells) |*cell| {
+                if (cell.style_id != stylepkg.default_id) {
+                    id_set.set(cell.style_id);
+                }
+
+                if (cell.hasGrapheme()) {
+                    if (self.lookupGrapheme(cell)) |cps| {
+                        grapheme_bytes += GraphemeAlloc.bytesRequired(u21, cps.len);
+                    }
+                }
+            }
+        }
+        const styles_cap = StyleSet.capacityForCount(id_set.count());
+
+        // Second pass: count hyperlinks and string bytes
+        // We count both unique hyperlinks (for hyperlink_set) and total
+        // hyperlink cells (for hyperlink_map capacity).
+        id_set = .initEmpty();
+        var hyperlink_cells: usize = 0;
+        for (rows) |*row| {
+            const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+            for (cells) |*cell| {
+                if (cell.hyperlink) {
+                    hyperlink_cells += 1;
+                    if (self.lookupHyperlink(cell)) |id| {
+                        // Only count each unique hyperlink once for set sizing
+                        if (!id_set.isSet(id)) {
+                            id_set.set(id);
+
+                            // Get the hyperlink entry to compute string bytes
+                            const entry = self.hyperlink_set.get(self.memory, id);
+                            string_bytes += StringAlloc.bytesRequired(u8, entry.uri.len);
+
+                            switch (entry.id) {
+                                .implicit => {},
+                                .explicit => |slice| {
+                                    string_bytes += StringAlloc.bytesRequired(u8, slice.len);
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The hyperlink_map capacity in layout() is computed as:
+        //   hyperlink_count * hyperlink_cell_multiplier (rounded to power of 2)
+        // We need enough hyperlink_bytes so that when layout() computes
+        // the map capacity, it can accommodate all hyperlink cells. This
+        // is unit tested.
+        const hyperlink_cap = cap: {
+            const hyperlink_count = id_set.count();
+            const hyperlink_set_cap = hyperlink.Set.capacityForCount(hyperlink_count);
+            const hyperlink_map_min = std.math.divCeil(
+                usize,
+                hyperlink_cells,
+                hyperlink_cell_multiplier,
+            ) catch 0;
+            break :cap @max(hyperlink_set_cap, hyperlink_map_min);
+        };
+
+        // All the intCasts below are safe because we should have a
+        // capacity strictly less than or equal to this page's capacity.
+        return .{
+            .cols = self.size.cols,
+            .rows = @intCast(y_end - y_start),
+            .styles = @intCast(styles_cap),
+            .grapheme_bytes = @intCast(grapheme_bytes),
+            .hyperlink_bytes = @intCast(hyperlink_cap * @sizeOf(hyperlink.Set.Item)),
+            .string_bytes = @intCast(string_bytes),
+        };
+    }
+
     /// Clone the contents of another page into this page. The capacities
     /// can be different, but the size of the other page must fit into
     /// this page.
@@ -1569,10 +1677,13 @@ pub const Page = struct {
         const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align.toByteUnits());
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
-        const grapheme_count = std.math.ceilPowerOfTwo(
-            usize,
-            @divFloor(cap.grapheme_bytes, grapheme_chunk),
-        ) catch unreachable;
+        const grapheme_count: usize = count: {
+            if (cap.grapheme_bytes == 0) break :count 0;
+            // Use divCeil to match GraphemeAlloc.layout() which uses alignForward,
+            // ensuring grapheme_map has capacity when grapheme_alloc has chunks.
+            const base = std.math.divCeil(usize, cap.grapheme_bytes, grapheme_chunk) catch unreachable;
+            break :count std.math.ceilPowerOfTwo(usize, base) catch unreachable;
+        };
         const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
@@ -3216,4 +3327,513 @@ test "Page verifyIntegrity zero cols" {
         Page.IntegrityError.ZeroColCount,
         page.verifyIntegrity(testing.allocator),
     );
+}
+
+test "Page exactRowCapacity empty rows" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // Empty page: all capacity fields should be 0 (except cols/rows)
+    const cap = page.exactRowCapacity(0, 5);
+    try testing.expectEqual(10, cap.cols);
+    try testing.expectEqual(5, cap.rows);
+    try testing.expectEqual(0, cap.styles);
+    try testing.expectEqual(0, cap.grapheme_bytes);
+    try testing.expectEqual(0, cap.hyperlink_bytes);
+    try testing.expectEqual(0, cap.string_bytes);
+}
+
+test "Page exactRowCapacity styles" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // No styles: capacity should be 0
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(0, cap.styles);
+    }
+
+    // Add one style to a cell
+    const style1_id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.styled = true;
+        rac.cell.style_id = style1_id;
+    }
+
+    // One unique style - capacity accounts for load factor
+    const cap_one_style = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(StyleSet.capacityForCount(1), cap_one_style.styles);
+    }
+
+    // Add same style to another cell (duplicate) - capacity unchanged
+    {
+        const rac = page.getRowAndCell(1, 0);
+        rac.cell.style_id = style1_id;
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_one_style.styles, cap.styles);
+    }
+
+    // Add a different style
+    const style2_id = try page.styles.add(page.memory, .{ .flags = .{ .italic = true } });
+    {
+        const rac = page.getRowAndCell(2, 0);
+        rac.cell.style_id = style2_id;
+    }
+
+    // Two unique styles - capacity accounts for load factor
+    const cap_two_styles = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(StyleSet.capacityForCount(2), cap_two_styles.styles);
+        try testing.expect(cap_two_styles.styles > cap_one_style.styles);
+    }
+
+    // Style outside the row range should not be counted
+    {
+        const rac = page.getRowAndCell(0, 7);
+        rac.row.styled = true;
+        rac.cell.style_id = try page.styles.add(page.memory, .{ .flags = .{ .underline = .single } });
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_two_styles.styles, cap.styles);
+    }
+
+    // Full range includes the new style
+    {
+        const cap = page.exactRowCapacity(0, 10);
+        try testing.expectEqual(StyleSet.capacityForCount(3), cap.styles);
+    }
+
+    // Verify clone works with exact capacity and produces same result
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        var cloned = try Page.init(cap);
+        defer cloned.deinit();
+        for (0..5) |y| {
+            const src_row = &page.rows.ptr(page.memory)[y];
+            const dst_row = &cloned.rows.ptr(cloned.memory)[y];
+            try cloned.cloneRowFrom(&page, dst_row, src_row);
+        }
+        const cloned_cap = cloned.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap, cloned_cap);
+    }
+}
+
+test "Page exactRowCapacity single style clone" {
+    // Regression test: verify a single style can be cloned with exact capacity.
+    // This tests that capacityForCount properly accounts for ID 0 being reserved.
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 2,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Add exactly one style to row 0
+    const style_id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.styled = true;
+        rac.cell.style_id = style_id;
+    }
+
+    // exactRowCapacity for just row 0 should give capacity for 1 style
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(StyleSet.capacityForCount(1), cap.styles);
+
+    // Create a new page with exact capacity and clone
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+
+    // This must not fail with StyleSetOutOfMemory
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+
+    // Verify the style was cloned correctly
+    const cloned_cell = &cloned.rows.ptr(cloned.memory)[0].cells.ptr(cloned.memory)[0];
+    try testing.expect(cloned_cell.style_id != stylepkg.default_id);
+}
+
+test "Page exactRowCapacity styles max single row" {
+    var page = try Page.init(.{
+        .cols = std.math.maxInt(size.CellCountInt),
+        .rows = 1,
+        .styles = std.math.maxInt(size.StyleCountInt),
+    });
+    defer page.deinit();
+
+    // Style our first row
+    const row = &page.rows.ptr(page.memory)[0];
+    row.styled = true;
+
+    // Fill cells with styles until we get OOM, but limit to a reasonable count
+    // to avoid overflow when computing capacityForCount near maxInt
+    const cells = row.cells.ptr(page.memory)[0..page.size.cols];
+    var count: usize = 0;
+    const max_count: usize = 1000; // Limit to avoid overflow in capacity calculation
+    for (cells, 0..) |*cell, i| {
+        if (count >= max_count) break;
+        const style_id = page.styles.add(page.memory, .{
+            .fg_color = .{ .rgb = .{
+                .r = @intCast(i & 0xFF),
+                .g = @intCast((i >> 8) & 0xFF),
+                .b = 0,
+            } },
+        }) catch break;
+        cell.style_id = style_id;
+        count += 1;
+    }
+
+    // Verify we added a meaningful number of styles
+    try testing.expect(count > 0);
+
+    // Capacity should be at least count (adjusted for load factor)
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(StyleSet.capacityForCount(count), cap.styles);
+}
+
+test "Page exactRowCapacity grapheme_bytes" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // No graphemes: capacity should be 0
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(0, cap.grapheme_bytes);
+    }
+
+    // Add one grapheme (1 codepoint) to a cell - rounds up to grapheme_chunk
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .init('a');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0301); // combining acute accent
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        // 1 codepoint = 4 bytes, rounds up to grapheme_chunk (16)
+        try testing.expectEqual(grapheme_chunk, cap.grapheme_bytes);
+    }
+
+    // Add another grapheme to a different cell - should sum
+    {
+        const rac = page.getRowAndCell(1, 0);
+        rac.cell.* = .init('e');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0300); // combining grave accent
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        // 2 graphemes, each 1 codepoint = 2 * grapheme_chunk
+        try testing.expectEqual(grapheme_chunk * 2, cap.grapheme_bytes);
+    }
+
+    // Add a larger grapheme (multiple codepoints) that fits in one chunk
+    {
+        const rac = page.getRowAndCell(2, 0);
+        rac.cell.* = .init('o');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0301);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0302);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0303);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        // First two cells: 2 * grapheme_chunk
+        // Third cell: 3 codepoints = 12 bytes, rounds up to grapheme_chunk
+        try testing.expectEqual(grapheme_chunk * 3, cap.grapheme_bytes);
+    }
+
+    // Grapheme outside the row range should not be counted
+    {
+        const rac = page.getRowAndCell(0, 7);
+        rac.cell.* = .init('x');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0304);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(grapheme_chunk * 3, cap.grapheme_bytes);
+    }
+
+    // Full range includes the new grapheme
+    {
+        const cap = page.exactRowCapacity(0, 10);
+        try testing.expectEqual(grapheme_chunk * 4, cap.grapheme_bytes);
+    }
+
+    // Verify clone works with exact capacity and produces same result
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        var cloned = try Page.init(cap);
+        defer cloned.deinit();
+        for (0..5) |y| {
+            const src_row = &page.rows.ptr(page.memory)[y];
+            const dst_row = &cloned.rows.ptr(cloned.memory)[y];
+            try cloned.cloneRowFrom(&page, dst_row, src_row);
+        }
+        const cloned_cap = cloned.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap, cloned_cap);
+    }
+}
+
+test "Page exactRowCapacity grapheme_bytes larger than chunk" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Add a grapheme larger than one chunk (grapheme_chunk_len = 4 codepoints)
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.* = .init('a');
+
+    // Add 6 codepoints - requires 2 chunks (6 * 4 = 24 bytes, rounds up to 32)
+    for (0..6) |i| {
+        try page.appendGrapheme(rac.row, rac.cell, @intCast(0x0300 + i));
+    }
+
+    const cap = page.exactRowCapacity(0, 1);
+    // 6 codepoints = 24 bytes, alignForward(24, 16) = 32
+    try testing.expectEqual(32, cap.grapheme_bytes);
+
+    // Verify clone works with exact capacity and produces same result
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+    const cloned_cap = cloned.exactRowCapacity(0, 1);
+    try testing.expectEqual(cap, cloned_cap);
+}
+
+test "Page exactRowCapacity hyperlinks" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // No hyperlinks: capacity should be 0
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(0, cap.hyperlink_bytes);
+        try testing.expectEqual(0, cap.string_bytes);
+    }
+
+    // Add one hyperlink with implicit ID
+    const uri1 = "https://example.com";
+    const id1 = blk: {
+        const rac = page.getRowAndCell(0, 0);
+
+        // Create and add hyperlink entry
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = uri1,
+        });
+        try page.setHyperlink(rac.row, rac.cell, id);
+        break :blk id;
+    };
+    // 1 hyperlink - capacity accounts for load factor
+    const cap_one_link = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(hyperlink.Set.capacityForCount(1) * @sizeOf(hyperlink.Set.Item), cap_one_link.hyperlink_bytes);
+        // URI "https://example.com" = 19 bytes, rounds up to string_chunk (32)
+        try testing.expectEqual(string_chunk, cap_one_link.string_bytes);
+    }
+
+    // Add same hyperlink to another cell (duplicate ID) - capacity unchanged
+    {
+        const rac = page.getRowAndCell(1, 0);
+
+        // Use the same hyperlink ID for another cell
+        page.hyperlink_set.use(page.memory, id1);
+        try page.setHyperlink(rac.row, rac.cell, id1);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_one_link.hyperlink_bytes, cap.hyperlink_bytes);
+        try testing.expectEqual(cap_one_link.string_bytes, cap.string_bytes);
+    }
+
+    // Add a different hyperlink with explicit ID
+    const uri2 = "https://other.example.org/path";
+    const explicit_id = "my-link-id";
+    {
+        const rac = page.getRowAndCell(2, 0);
+
+        const id = try page.insertHyperlink(.{
+            .id = .{ .explicit = explicit_id },
+            .uri = uri2,
+        });
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    // 2 hyperlinks - capacity accounts for load factor
+    const cap_two_links = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(hyperlink.Set.capacityForCount(2) * @sizeOf(hyperlink.Set.Item), cap_two_links.hyperlink_bytes);
+        // First URI: 19 bytes -> 32, Second URI: 30 bytes -> 32, Explicit ID: 10 bytes -> 32
+        try testing.expectEqual(string_chunk * 3, cap_two_links.string_bytes);
+    }
+
+    // Hyperlink outside the row range should not be counted
+    {
+        const rac = page.getRowAndCell(0, 7); // row 7 is outside range [0, 5)
+
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 99 },
+            .uri = "https://outside.example.com",
+        });
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_two_links.hyperlink_bytes, cap.hyperlink_bytes);
+        try testing.expectEqual(cap_two_links.string_bytes, cap.string_bytes);
+    }
+
+    // Full range includes the new hyperlink
+    {
+        const cap = page.exactRowCapacity(0, 10);
+        try testing.expectEqual(hyperlink.Set.capacityForCount(3) * @sizeOf(hyperlink.Set.Item), cap.hyperlink_bytes);
+        // Third URI: 27 bytes -> 32
+        try testing.expectEqual(string_chunk * 4, cap.string_bytes);
+    }
+
+    // Verify clone works with exact capacity and produces same result
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        var cloned = try Page.init(cap);
+        defer cloned.deinit();
+        for (0..5) |y| {
+            const src_row = &page.rows.ptr(page.memory)[y];
+            const dst_row = &cloned.rows.ptr(cloned.memory)[y];
+            try cloned.cloneRowFrom(&page, dst_row, src_row);
+        }
+        const cloned_cap = cloned.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap, cloned_cap);
+    }
+}
+
+test "Page exactRowCapacity single hyperlink clone" {
+    // Regression test: verify a single hyperlink can be cloned with exact capacity.
+    // This tests that capacityForCount properly accounts for ID 0 being reserved.
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 2,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // Add exactly one hyperlink to row 0
+    const uri = "https://example.com";
+    const id = blk: {
+        const rac = page.getRowAndCell(0, 0);
+        const link_id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = uri,
+        });
+        try page.setHyperlink(rac.row, rac.cell, link_id);
+        break :blk link_id;
+    };
+    _ = id;
+
+    // exactRowCapacity for just row 0 should give capacity for 1 hyperlink
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(hyperlink.Set.capacityForCount(1) * @sizeOf(hyperlink.Set.Item), cap.hyperlink_bytes);
+
+    // Create a new page with exact capacity and clone
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+
+    // This must not fail with HyperlinkSetOutOfMemory
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+
+    // Verify the hyperlink was cloned correctly
+    const cloned_cell = &cloned.rows.ptr(cloned.memory)[0].cells.ptr(cloned.memory)[0];
+    try testing.expect(cloned_cell.hyperlink);
+}
+
+test "Page exactRowCapacity hyperlink map capacity for many cells" {
+    // A single hyperlink spanning many cells requires hyperlink_map capacity
+    // based on cell count, not unique hyperlink count.
+    const cols = 50;
+    var page = try Page.init(.{
+        .cols = cols,
+        .rows = 2,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // Add one hyperlink spanning all 50 columns in row 0
+    const uri = "https://example.com";
+    const id = blk: {
+        const rac = page.getRowAndCell(0, 0);
+        const link_id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = uri,
+        });
+        try page.setHyperlink(rac.row, rac.cell, link_id);
+        break :blk link_id;
+    };
+
+    // Apply same hyperlink to remaining cells in row 0
+    for (1..cols) |x| {
+        const rac = page.getRowAndCell(@intCast(x), 0);
+        page.hyperlink_set.use(page.memory, id);
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+
+    // exactRowCapacity must account for 50 hyperlink cells, not just 1 unique hyperlink
+    const cap = page.exactRowCapacity(0, 1);
+
+    // The hyperlink_bytes must be large enough that layout() computes sufficient
+    // hyperlink_map capacity. With hyperlink_cell_multiplier=16, we need at least
+    // ceil(50/16) = 4 hyperlink entries worth of bytes for the map.
+    const min_for_map = std.math.divCeil(usize, cols, hyperlink_cell_multiplier) catch 0;
+    const min_hyperlink_bytes = min_for_map * @sizeOf(hyperlink.Set.Item);
+    try testing.expect(cap.hyperlink_bytes >= min_hyperlink_bytes);
+
+    // Create a new page with exact capacity and clone - must not fail
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+
+    // This must not fail with HyperlinkMapOutOfMemory
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+
+    // Verify all hyperlinks were cloned correctly
+    for (0..cols) |x| {
+        const cloned_cell = &cloned.rows.ptr(cloned.memory)[0].cells.ptr(cloned.memory)[x];
+        try testing.expect(cloned_cell.hyperlink);
+    }
 }

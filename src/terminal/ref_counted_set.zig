@@ -64,6 +64,20 @@ pub fn RefCountedSet(
             @alignOf(Id),
         ));
 
+        /// This is the max load until the set returns OutOfMemory and
+        /// requires more capacity.
+        ///
+        /// Experimentally, this load factor works quite well.
+        pub const load_factor = 0.8125;
+
+        /// Returns the minimum capacity needed to store `n` items,
+        /// accounting for the load factor and the reserved ID 0.
+        pub fn capacityForCount(n: usize) usize {
+            if (n == 0) return 0;
+            // +1 because ID 0 is reserved, so we need at least n+1 slots.
+            return @intFromFloat(@ceil(@as(f64, @floatFromInt(n + 1)) / load_factor));
+        }
+
         /// Set item
         pub const Item = struct {
             /// The value this item represents.
@@ -154,9 +168,6 @@ pub fn RefCountedSet(
             /// The returned layout `cap` property will be 1 more than the number
             /// of items that the set can actually store, since ID 0 is reserved.
             pub fn init(cap: usize) Layout {
-                // Experimentally, this load factor works quite well.
-                const load_factor = 0.8125;
-
                 assert(cap <= @as(usize, @intCast(std.math.maxInt(Id))) + 1);
 
                 // Zero-cap set is valid, return special case

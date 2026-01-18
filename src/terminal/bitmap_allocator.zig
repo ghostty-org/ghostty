@@ -63,6 +63,14 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             };
         }
 
+        /// Returns the number of bytes required to allocate n elements of
+        /// type T. This accounts for the chunk size alignment used by the
+        /// bitmap allocator.
+        pub fn bytesRequired(comptime T: type, n: usize) usize {
+            const byte_count = @sizeOf(T) * n;
+            return alignForward(usize, byte_count, chunk_size);
+        }
+
         /// Allocate n elements of type T. This will return error.OutOfMemory
         /// if there isn't enough space in the backing buffer.
         ///
@@ -954,4 +962,46 @@ test "BitmapAllocator alloc and free two 1.5 bitmaps offset 0.75" {
         &@as([4]u64, @splat(~@as(u64, 0))),
         bm.bitmap.ptr(buf)[0..4],
     );
+}
+
+test "BitmapAllocator bytesRequired" {
+    const testing = std.testing;
+
+    // Chunk size of 16 bytes (like grapheme_chunk in page.zig)
+    {
+        const Alloc = BitmapAllocator(16);
+
+        // Single byte rounds up to chunk size
+        try testing.expectEqual(16, Alloc.bytesRequired(u8, 1));
+        try testing.expectEqual(16, Alloc.bytesRequired(u8, 16));
+        try testing.expectEqual(32, Alloc.bytesRequired(u8, 17));
+
+        // u21 (4 bytes each)
+        try testing.expectEqual(16, Alloc.bytesRequired(u21, 1)); // 4 bytes -> 16
+        try testing.expectEqual(16, Alloc.bytesRequired(u21, 4)); // 16 bytes -> 16
+        try testing.expectEqual(32, Alloc.bytesRequired(u21, 5)); // 20 bytes -> 32
+        try testing.expectEqual(32, Alloc.bytesRequired(u21, 6)); // 24 bytes -> 32
+    }
+
+    // Chunk size of 4 bytes
+    {
+        const Alloc = BitmapAllocator(4);
+
+        try testing.expectEqual(4, Alloc.bytesRequired(u8, 1));
+        try testing.expectEqual(4, Alloc.bytesRequired(u8, 4));
+        try testing.expectEqual(8, Alloc.bytesRequired(u8, 5));
+
+        // u32 (4 bytes each) - exactly one chunk per element
+        try testing.expectEqual(4, Alloc.bytesRequired(u32, 1));
+        try testing.expectEqual(8, Alloc.bytesRequired(u32, 2));
+    }
+
+    // Chunk size of 32 bytes (like string_chunk in page.zig)
+    {
+        const Alloc = BitmapAllocator(32);
+
+        try testing.expectEqual(32, Alloc.bytesRequired(u8, 1));
+        try testing.expectEqual(32, Alloc.bytesRequired(u8, 32));
+        try testing.expectEqual(64, Alloc.bytesRequired(u8, 33));
+    }
 }
