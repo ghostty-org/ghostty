@@ -3370,10 +3370,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             screen_bg: terminal.color.RGB,
             screen_fg: terminal.color.RGB,
         ) !void {
-            // Preedit is rendered inverted
-            const bg = screen_fg;
-            const fg = screen_bg;
-
             // Render the glyph for our preedit text
             const render_ = self.font_grid.renderCodepoint(
                 self.alloc,
@@ -3392,11 +3388,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Add our opaque background cell
             self.cells.bgCell(coord.y, coord.x).* = .{
-                bg.r, bg.g, bg.b, 255,
+                screen_bg.r, screen_bg.g, screen_bg.b, 255,
             };
             if (cp.wide and coord.x < self.cells.size.columns - 1) {
                 self.cells.bgCell(coord.y, coord.x + 1).* = .{
-                    bg.r, bg.g, bg.b, 255,
+                    screen_bg.r, screen_bg.g, screen_bg.b, 255,
                 };
             }
 
@@ -3404,7 +3400,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             try self.cells.add(self.alloc, .text, .{
                 .atlas = .grayscale,
                 .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
-                .color = .{ fg.r, fg.g, fg.b, 255 },
+                .color = .{ screen_fg.r, screen_fg.g, screen_fg.b, 255 },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3412,6 +3408,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     @intCast(render.glyph.offset_y),
                 },
             });
+
+            // Add underline
+            try self.addUnderline(@intCast(coord.x), @intCast(coord.y), .single, screen_fg, 255);
+            if (cp.wide and coord.x < self.cells.size.columns - 1) {
+                try self.addUnderline(@intCast(coord.x + 1), @intCast(coord.y), .single, screen_fg, 255);
+            }
         }
 
         /// Sync the atlas data to the given texture. This copies the bytes
