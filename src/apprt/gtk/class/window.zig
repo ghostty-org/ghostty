@@ -810,6 +810,11 @@ pub const Window = extern struct {
         return self.private().config;
     }
 
+    /// Get the tab view for this window.
+    pub fn getTabView(self: *Self) *adw.TabView {
+        return self.private().tab_view;
+    }
+
     /// Get the current window decoration value for this window.
     pub fn getWindowDecoration(self: *Self) configpkg.WindowDecoration {
         const priv = self.private();
