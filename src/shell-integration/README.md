@@ -76,6 +76,24 @@ allowing us to automatically integrate with the shell. For details
 on the Fish startup process, see the
 [Fish documentation](https://fishshell.com/docs/current/language.html).
 
+### Nushell
+
+For [Nushell](https://www.nushell.sh/), Ghostty prepends to the
+`XDG_DATA_DIRS` directory, making the `ghostty` module available through
+Nushell's vendor autoload mechanism. Ghostty then automatically imports
+the module using the `-e "use ghostty *"` flag when starting Nushell.
+
+Nushell provides many shell features itself, such as `title` and `cursor`,
+so our integration focuses on Ghostty-specific features like `sudo`.
+
+The shell integration is automatically enabled when running Nushell in Ghostty,
+but you can also load it manually is shell integration is disabled:
+
+```nushell
+source $GHOSTTY_RESOURCES_DIR/shell-integration/nushell/vendor/autoload/ghostty.nu
+use ghostty *
+```
+
 ### Zsh
 
 Automatic [Zsh](https://www.zsh.org/) integration works by temporarily setting

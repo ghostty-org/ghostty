@@ -2667,7 +2667,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `detect` - Detect the shell based on the filename.
 ///
-///   * `bash`, `elvish`, `fish`, `zsh` - Use this specific shell injection scheme.
+///   * `bash`, `elvish`, `fish`, `nushell`, `zsh` - Use this specific shell injection scheme.
 ///
 /// The default value is `detect`.
 @"shell-integration": ShellIntegration = .detect,
@@ -8027,6 +8027,7 @@ pub const ShellIntegration = enum {
     bash,
     elvish,
     fish,
+    nushell,
     zsh,
 };
 

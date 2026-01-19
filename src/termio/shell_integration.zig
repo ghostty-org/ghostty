@@ -14,6 +14,7 @@ pub const Shell = enum {
     bash,
     elvish,
     fish,
+    nushell,
     zsh,
 };
 
@@ -57,7 +58,7 @@ pub fn setup(
             env,
         ),
 
-        .elvish, .fish => try setupXdgDataDirs(
+        .nushell => try setupNushell(
             alloc_arena,
             command,
             resource_dir,
@@ -70,6 +71,11 @@ pub fn setup(
             resource_dir,
             env,
         ),
+
+        .elvish, .fish => xdg: {
+            if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
+            break :xdg try command.clone(alloc_arena);
+        },
     } orelse return null;
 
     return .{
@@ -153,6 +159,7 @@ fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
 
     if (std.mem.eql(u8, "elvish", exe)) return .elvish;
     if (std.mem.eql(u8, "fish", exe)) return .fish;
+    if (std.mem.eql(u8, "nu", exe)) return .nushell;
     if (std.mem.eql(u8, "zsh", exe)) return .zsh;
 
     return null;
@@ -166,6 +173,7 @@ test detectShell {
     try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash" }));
     try testing.expectEqual(.elvish, try detectShell(alloc, .{ .shell = "elvish" }));
     try testing.expectEqual(.fish, try detectShell(alloc, .{ .shell = "fish" }));
+    try testing.expectEqual(.nushell, try detectShell(alloc, .{ .shell = "nu" }));
     try testing.expectEqual(.zsh, try detectShell(alloc, .{ .shell = "zsh" }));
 
     if (comptime builtin.target.os.tag.isDarwin()) {
@@ -373,11 +381,8 @@ fn setupBash(
         }
     }
 
-    // Get the command string from the builder, then copy it to the arena
-    // allocator. The stackFallback allocator's memory becomes invalid after
-    // this function returns, so we must copy to the arena.
-    const cmd_str = try cmd.toOwnedSlice();
-    return .{ .shell = try alloc.dupeZ(u8, cmd_str) };
+    // Return a copy of our modified command line to use as the shell command.
+    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
 }
 
 test "bash" {
@@ -595,10 +600,9 @@ test "bash: missing resources" {
 /// from `XDG_DATA_DIRS` when integration is complete.
 fn setupXdgDataDirs(
     alloc: Allocator,
-    command: config.Command,
     resource_dir: []const u8,
     env: *EnvMap,
-) !?config.Command {
+) !bool {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
 
     // Get our path to the shell integration directory.
@@ -609,7 +613,7 @@ fn setupXdgDataDirs(
     );
     var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
         log.warn("unable to open {s}: {}", .{ integ_path, err });
-        return null;
+        return false;
     };
     integ_dir.close();
 
@@ -640,7 +644,7 @@ fn setupXdgDataDirs(
         ),
     );
 
-    return try command.clone(alloc);
+    return true;
 }
 
 test "xdg: empty XDG_DATA_DIRS" {
@@ -656,8 +660,7 @@ test "xdg: empty XDG_DATA_DIRS" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    const command = try setupXdgDataDirs(alloc, .{ .shell = "xdg" }, res.path, &env);
-    try testing.expectEqualStrings("xdg", command.?.shell);
+    try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
@@ -685,8 +688,7 @@ test "xdg: existing XDG_DATA_DIRS" {
 
     try env.put("XDG_DATA_DIRS", "/opt/share");
 
-    const command = try setupXdgDataDirs(alloc, .{ .shell = "xdg" }, res.path, &env);
-    try testing.expectEqualStrings("xdg", command.?.shell);
+    try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
@@ -714,7 +716,150 @@ test "xdg: missing resources" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    try testing.expect(try setupXdgDataDirs(alloc, .{ .shell = "xdg" }, resources_dir, &env) == null);
+    try testing.expect(!try setupXdgDataDirs(alloc, resources_dir, &env));
+    try testing.expectEqual(0, env.count());
+}
+
+/// Set up automatic Nushell shell integration. This works by adding our
+/// shell resource directory to the `XDG_DATA_DIRS` environment variable,
+/// which Nushell will use to load `nushell/vendor/autoload/ghostty.nu`.
+///
+/// We then add `--execute 'use ghostty ...'` to the nu command line to
+/// automatically enable our shelll features.
+fn setupNushell(
+    alloc: Allocator,
+    command: config.Command,
+    resource_dir: []const u8,
+    env: *EnvMap,
+) !?config.Command {
+    // Add our XDG_DATA_DIRS entry (for nushell/vendor/autoload/). This
+    // makes our 'ghostty' module automatically available, even if any
+    // of the later checks abort the rest of our automatic integration.
+    if (!try setupXdgDataDirs(alloc, resource_dir, env)) return null;
+
+    var stack_fallback = std.heap.stackFallback(4096, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    defer cmd.deinit();
+
+    // Iterator that yields each argument in the original command line.
+    // This will allocate once proportionate to the command line length.
+    var iter = try command.argIterator(alloc);
+    defer iter.deinit();
+
+    // Start accumulating arguments with the executable and initial flags.
+    if (iter.next()) |exe| {
+        try cmd.appendArg(exe);
+    } else return null;
+
+    // Tell nu to immediately "use" all of the exported functions in our
+    // 'ghostty' module.
+    //
+    // We can consider making this more specific based on the set of
+    // enabled shell features (e.g. `use ghostty sudo`). At the moment,
+    // shell features are all runtime-guarded in the nushell script.
+    try cmd.appendArg("--execute 'use ghostty *'");
+
+    // Walk through the rest of the given arguments. If we see an option that
+    // would require complex or unsupported integration behavior, we bail out
+    // and skip loading our shell integration. Users can still manually source
+    // the shell integration module.
+    //
+    // Unsupported options:
+    //  -c / --command      -c is always non-interactive
+    //  --lsp               --lsp starts the language server
+    while (iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--command") or std.mem.eql(u8, arg, "--lsp")) {
+            return null;
+        } else if (arg.len > 1 and arg[0] == '-' and arg[1] != '-') {
+            if (std.mem.indexOfScalar(u8, arg, 'c') != null) {
+                return null;
+            }
+            try cmd.appendArg(arg);
+        } else if (std.mem.eql(u8, arg, "-") or std.mem.eql(u8, arg, "--")) {
+            // All remaining arguments should be passed directly to the shell
+            // command. We shouldn't perform any further option processing.
+            try cmd.appendArg(arg);
+            while (iter.next()) |remaining_arg| {
+                try cmd.appendArg(remaining_arg);
+            }
+            break;
+        } else {
+            try cmd.appendArg(arg);
+        }
+    }
+
+    // Return a copy of our modified command line to use as the shell command.
+    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+}
+
+test "nushell" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var res: TmpResourcesDir = try .init(alloc, .nushell);
+    defer res.deinit();
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    const command = try setupNushell(alloc, .{ .shell = "nu" }, res.path, &env);
+    try testing.expectEqualStrings("nu --execute 'use ghostty *'", command.?.shell);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectEqualStrings(
+        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
+    );
+    try testing.expectStringStartsWith(
+        env.get("XDG_DATA_DIRS").?,
+        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+    );
+}
+
+test "nushell: unsupported options" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var res: TmpResourcesDir = try .init(alloc, .nushell);
+    defer res.deinit();
+
+    const cmdlines = [_][:0]const u8{
+        "nu --command exit",
+        "nu --lsp",
+        "nu -c script.sh",
+        "nu -ic script.sh",
+    };
+
+    for (cmdlines) |cmdline| {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+
+        try testing.expect(try setupNushell(alloc, .{ .shell = cmdline }, res.path, &env) == null);
+        try testing.expect(env.get("XDG_DATA_DIRS") != null);
+        try testing.expect(env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR") != null);
+    }
+}
+
+test "nushell: missing resources" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(resources_dir);
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    try testing.expect(try setupNushell(alloc, .{ .shell = "nu" }, resources_dir, &env) == null);
     try testing.expectEqual(0, env.count());
 }
 

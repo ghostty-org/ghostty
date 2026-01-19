@@ -770,6 +770,7 @@ const Subprocess = struct {
                 .bash => .bash,
                 .elvish => .elvish,
                 .fish => .fish,
+                .nushell => .nushell,
                 .zsh => .zsh,
             };
 
