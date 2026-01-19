@@ -4225,8 +4225,8 @@ pub fn mouseButtonCallback(
 
         // Get our viewport pin
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+        const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pos = try self.rt_surface.getCursorPos();
             const pt_viewport = self.posToViewport(pos.x, pos.y);
             const pin = screen.pages.pin(.{
                 .viewport = .{
@@ -4257,8 +4257,14 @@ pub fn mouseButtonCallback(
                     // word selection where we clicked.
                 }
 
-                const sel = screen.selectWord(pin) orelse break :sel;
-                try self.setSelection(sel);
+                // If there is a link at this position, we want to
+                // select the link. Otherwise, select the word.
+                if (try self.linkAtPos(pos)) |link| {
+                    try self.setSelection(link.selection);
+                } else {
+                    const sel = screen.selectWord(pin) orelse break :sel;
+                    try self.setSelection(sel);
+                }
                 try self.queueRender();
 
                 // Don't consume so that we show the context menu in apprt.
