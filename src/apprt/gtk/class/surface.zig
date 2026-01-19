@@ -19,6 +19,7 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
+const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
@@ -673,6 +674,11 @@ pub const Surface = extern struct {
 
         /// The context for this surface (window, tab, or split)
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Whether primary paste (middle-click paste) is enabled via GNOME settings.
+        /// If null, the setting could not be read (non-GNOME system or schema missing).
+        /// If true, middle-click paste is enabled. If false, it's disabled.
+        gtk_enable_primary_paste: ?bool = null,
 
         pub var offset: c_int = 0;
     };
@@ -1511,19 +1517,17 @@ pub const Surface = extern struct {
         const xft_dpi_scale = xft_scale: {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-            const settings = gtk.Settings.getDefault() orelse break :xft_scale 1.0;
-            var value = std.mem.zeroes(gobject.Value);
-            defer value.unset();
-            _ = value.init(gobject.ext.typeFor(c_int));
-            settings.as(gobject.Object).getProperty("gtk-xft-dpi", &value);
-            const gtk_xft_dpi = value.getInt();
+            const gtk_xft_dpi = gsettings.get(.gtk_xft_dpi) orelse {
+                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                break :xft_scale 1.0;
+            };
 
             // Use a value of 1.0 for the XFT DPI scale if the setting is <= 0
             // See:
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/a7738a4d269bfdf4d8d5429ca73ccdd9b2450421
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/9759d3fd81129608dd78116001928f2aed974ead
             if (gtk_xft_dpi <= 0) {
-                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                log.warn("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
                 break :xft_scale 1.0;
             }
 
@@ -1766,6 +1770,13 @@ pub const Surface = extern struct {
         priv.in_keyevent = .false;
         priv.im_composing = false;
         priv.im_len = 0;
+
+        // Read GNOME desktop interface settings for primary paste (middle-click)
+        // This is only relevant on Linux systems with GNOME settings available
+        priv.gtk_enable_primary_paste = gsettings.get(.gtk_enable_primary_paste) orelse blk: {
+            log.warn("gtk-enable-primary-paste was not set, using default value", .{});
+            break :blk false;
+        };
 
         // Set up to handle items being dropped on our surface. Files can be dropped
         // from Nautilus and strings can be dropped from many programs. The order
@@ -2685,6 +2696,13 @@ pub const Surface = extern struct {
 
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        // Check if middle button paste should be disabled based on GNOME settings
+        // If gtk_enable_primary_paste is explicitly false, skip processing middle button
+        if (button == .middle and !(priv.gtk_enable_primary_paste orelse true)) {
+            return;
+        }
+
         const consumed = consumed: {
             const gtk_mods = event.getModifierState();
             const mods = gtk_key.translateMods(gtk_mods);
@@ -2735,6 +2753,12 @@ pub const Surface = extern struct {
         const surface = priv.core_surface orelse return;
         const gtk_mods = event.getModifierState();
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        // Check if middle button paste should be disabled based on GNOME settings
+        // If gtk_enable_primary_paste is explicitly false, skip processing middle button
+        if (button == .middle and !(priv.gtk_enable_primary_paste orelse true)) {
+            return;
+        }
 
         const mods = gtk_key.translateMods(gtk_mods);
         const consumed = surface.mouseButtonCallback(
