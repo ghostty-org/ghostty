@@ -165,6 +165,7 @@ pub const DerivedConfig = struct {
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
     clipboard_write: configpkg.ClipboardAccess,
     enquiry_response: []const u8,
+    conditional_state: configpkg.ConditionalState,
 
     pub fn init(
         alloc_gpa: Allocator,
@@ -185,6 +186,7 @@ pub const DerivedConfig = struct {
             .osc_color_report_format = config.@"osc-color-report-format",
             .clipboard_write = config.@"clipboard-write",
             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
+            .conditional_state = config._conditional_state,
 
             // This has to be last so that we copy AFTER the arena allocations
             // above happen (Zig assigns in order).
@@ -710,6 +712,25 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
         self.terminal_stream.handler.termio_messaged = false;
         self.mailbox.notify();
     }
+}
+
+/// Sends a DSR response for the current color scheme to the pty.
+pub fn colorSchemeReport(self: *Termio, td: *ThreadData, force: bool) !void {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    try self.colorSchemeReportLocked(td, force);
+}
+
+pub fn colorSchemeReportLocked(self: *Termio, td: *ThreadData, force: bool) !void {
+    if (!force and !self.renderer_state.terminal.modes.get(.report_color_scheme)) {
+        return;
+    }
+    const output = switch (self.config.conditional_state.theme) {
+        .light => "\x1B[?997;2n",
+        .dark => "\x1B[?997;1n",
+    };
+    try self.queueWrite(td, output, false);
 }
 
 /// ThreadData is the data created and stored in the termio thread

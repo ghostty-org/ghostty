@@ -16,6 +16,12 @@ pub const Message = union(enum) {
     /// in the future.
     pub const WriteReq = MessageData(u8, 38);
 
+    /// Request a color scheme report is sent to the pty.
+    color_scheme_report: struct {
+        /// Force write the current color scheme
+        force: bool,
+    },
+
     /// Purposely crash the renderer. This is used for testing and debugging.
     /// See the "crash" binding action.
     crash: void,

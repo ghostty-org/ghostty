@@ -1073,8 +1073,6 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
 
-        .report_color_scheme => |force| self.reportColorScheme(force),
-
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
@@ -1384,26 +1382,6 @@ fn passwordInput(self: *Surface, v: bool) !void {
     };
 
     try self.queueRender();
-}
-
-/// Sends a DSR response for the current color scheme to the pty. If
-/// force is false then we only send the response if the terminal mode
-/// 2031 is enabled.
-fn reportColorScheme(self: *Surface, force: bool) void {
-    if (!force) {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-        if (!self.renderer_state.terminal.modes.get(.report_color_scheme)) {
-            return;
-        }
-    }
-
-    const output = switch (self.config_conditional_state.theme) {
-        .light => "\x1B[?997;2n",
-        .dark => "\x1B[?997;1n",
-    };
-
-    self.queueIo(.{ .write_stable = output }, .unlocked);
 }
 
 fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
@@ -5039,7 +5017,7 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
     self.notifyConfigConditionalState();
 
     // If mode 2031 is on, then we report the change live.
-    self.reportColorScheme(false);
+    self.queueIo(.{ .color_scheme_report = .{ .force = false } }, .unlocked);
 }
 
 pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
