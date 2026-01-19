@@ -2532,11 +2532,15 @@ pub fn selectAll(self: *Screen) ?Selection {
 /// end_pt (inclusive). Because it selects "nearest" to start point, start
 /// point can be before or after end point.
 ///
+/// The boundary_codepoints parameter should be a slice of u21 codepoints that
+/// mark word boundaries, passed through to selectWord.
+///
 /// TODO: test this
 pub fn selectWordBetween(
     self: *Screen,
     start: Pin,
     end: Pin,
+    boundary_codepoints: []const u21,
 ) ?Selection {
     const dir: PageList.Direction = if (start.before(end)) .right_down else .left_up;
     var it = start.cellIterator(dir, end);
@@ -2548,7 +2552,7 @@ pub fn selectWordBetween(
         }
 
         // If we found a word, then return it
-        if (self.selectWord(pin)) |sel| return sel;
+        if (self.selectWord(pin, boundary_codepoints)) |sel| return sel;
     }
 
     return null;
@@ -2560,32 +2564,15 @@ pub fn selectWordBetween(
 ///
 /// This will return null if a selection is impossible. The only scenario
 /// this happens is if the point pt is outside of the written screen space.
-pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
+///
+/// The boundary_codepoints parameter should be a slice of u21 codepoints that
+/// mark word boundaries. This is expected to be pre-parsed from the config.
+pub fn selectWord(
+    self: *Screen,
+    pin: Pin,
+    boundary_codepoints: []const u21,
+) ?Selection {
     _ = self;
-
-    // Boundary characters for selection purposes
-    const boundary = &[_]u32{
-        0,
-        ' ',
-        '\t',
-        '\'',
-        '"',
-        '│',
-        '`',
-        '|',
-        ':',
-        ';',
-        ',',
-        '(',
-        ')',
-        '[',
-        ']',
-        '{',
-        '}',
-        '<',
-        '>',
-        '$',
-    };
 
     // If our cell is empty we can't select a word, because we can't select
     // areas where the screen is not yet written.
@@ -2594,9 +2581,9 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
     // Determine if we are a boundary or not to determine what our boundary is.
     const expect_boundary = std.mem.indexOfAny(
-        u32,
-        boundary,
-        &[_]u32{start_cell.content.codepoint},
+        u21,
+        boundary_codepoints,
+        &[_]u21{start_cell.content.codepoint},
     ) != null;
 
     // Go forwards to find our end boundary
@@ -2612,9 +2599,9 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfAny(
-                u32,
-                boundary,
-                &[_]u32{cell.content.codepoint},
+                u21,
+                boundary_codepoints,
+                &[_]u21{cell.content.codepoint},
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
 
@@ -2649,9 +2636,9 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfAny(
-                u32,
-                boundary,
-                &[_]u32{cell.content.codepoint},
+                u21,
+                boundary_codepoints,
+                &[_]u21{cell.content.codepoint},
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 
@@ -7614,6 +7601,12 @@ test "Screen: selectWord" {
     defer s.deinit();
     try s.testWriteString("ABC  DEF\n 123\n456");
 
+    // Default boundary codepoints for word selection
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
+    };
+
     // Outside of active area
     // try testing.expect(s.selectWord(.{ .x = 9, .y = 0 }) == null);
     // try testing.expect(s.selectWord(.{ .x = 0, .y = 5 }) == null);
@@ -7623,7 +7616,7 @@ test "Screen: selectWord" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 0,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -7640,7 +7633,7 @@ test "Screen: selectWord" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 2,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -7657,7 +7650,7 @@ test "Screen: selectWord" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -7674,7 +7667,7 @@ test "Screen: selectWord" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 3,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
@@ -7691,7 +7684,7 @@ test "Screen: selectWord" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 0,
             .y = 1,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -7708,7 +7701,7 @@ test "Screen: selectWord" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 2,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -7729,6 +7722,12 @@ test "Screen: selectWord across soft-wrap" {
     defer s.deinit();
     try s.testWriteString(" 1234012\n 123");
 
+    // Default boundary codepoints for word selection
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
+    };
+
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(contents);
@@ -7740,7 +7739,7 @@ test "Screen: selectWord across soft-wrap" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -7757,7 +7756,7 @@ test "Screen: selectWord across soft-wrap" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 1,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -7774,7 +7773,7 @@ test "Screen: selectWord across soft-wrap" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 3,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -7795,12 +7794,18 @@ test "Screen: selectWord whitespace across soft-wrap" {
     defer s.deinit();
     try s.testWriteString("1       1\n 123");
 
+    // Default boundary codepoints for word selection
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
+    };
+
     // Going forward
     {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -7817,7 +7822,7 @@ test "Screen: selectWord whitespace across soft-wrap" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 1,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -7834,7 +7839,7 @@ test "Screen: selectWord whitespace across soft-wrap" {
         var sel = s.selectWord(s.pages.pin(.{ .active = .{
             .x = 3,
             .y = 0,
-        } }).?).?;
+        } }).?, boundary_codepoints).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -7850,6 +7855,12 @@ test "Screen: selectWord whitespace across soft-wrap" {
 test "Screen: selectWord with character boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
+
+    // Default boundary codepoints for word selection
+    const boundary_codepoints = &[_]u21{
+        0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';',
+        ',', '(', ')',  '[',  ']', '{',   '}', '<', '>', '$',
+    };
 
     const cases = [_][]const u8{
         " 'abc' \n123",
@@ -7881,7 +7892,7 @@ test "Screen: selectWord with character boundary" {
             var sel = s.selectWord(s.pages.pin(.{ .active = .{
                 .x = 2,
                 .y = 0,
-            } }).?).?;
+            } }).?, boundary_codepoints).?;
             defer sel.deinit(&s);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 2,
@@ -7898,7 +7909,7 @@ test "Screen: selectWord with character boundary" {
             var sel = s.selectWord(s.pages.pin(.{ .active = .{
                 .x = 4,
                 .y = 0,
-            } }).?).?;
+            } }).?, boundary_codepoints).?;
             defer sel.deinit(&s);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 2,
@@ -7915,7 +7926,7 @@ test "Screen: selectWord with character boundary" {
             var sel = s.selectWord(s.pages.pin(.{ .active = .{
                 .x = 3,
                 .y = 0,
-            } }).?).?;
+            } }).?, boundary_codepoints).?;
             defer sel.deinit(&s);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 2,
@@ -7934,7 +7945,7 @@ test "Screen: selectWord with character boundary" {
             var sel = s.selectWord(s.pages.pin(.{ .active = .{
                 .x = 1,
                 .y = 0,
-            } }).?).?;
+            } }).?, boundary_codepoints).?;
             defer sel.deinit(&s);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 0,
