@@ -33,6 +33,7 @@ const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig")
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
+const SplitTree = @import("split_tree.zig").SplitTree;
 const i18n = @import("../../../os/i18n.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
@@ -668,6 +669,9 @@ pub const Surface = extern struct {
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
         drop_target: *gtk.DropTarget,
+        surface_drop_target: *gtk.DropTarget,
+        drag_handle: *gtk.Widget,
+        drop_overlay: *gtk.Widget,
         progress_bar_overlay: *gtk.ProgressBar,
         error_page: *adw.StatusPage,
         terminal_page: *gtk.Overlay,
@@ -1782,8 +1786,18 @@ pub const Surface = extern struct {
         };
         priv.drop_target.setGtypes(&drop_target_types, drop_target_types.len);
 
+        // Also have to set up the surface drop target to accept other surfaces
+        var surface_drop_target_types = [_]gobject.Type{
+            getGObjectType(),
+        };
+        priv.surface_drop_target.setGtypes(
+            &surface_drop_target_types,
+            surface_drop_target_types.len,
+        );
+
         // Setup properties we can't set from our Blueprint file.
         self.as(gtk.Widget).setCursorFromName("text");
+        priv.drag_handle.setCursorFromName("grab");
 
         // Initialize our config
         self.propConfig(undefined, null);
@@ -3381,6 +3395,172 @@ pub const Surface = extern struct {
         };
     }
 
+    fn closureSurfaceContentProvider(self: *Self) callconv(.c) *gdk.ContentProvider {
+        var val = gobject.ext.Value.newFrom(self);
+        return gdk.ContentProvider.newForValue(&val);
+    }
+
+    fn surfaceDragBegin(
+        src: *gtk.DragSource,
+        _: *gdk.Drag,
+        self: *Self,
+    ) callconv(.c) void {
+        // The scale of the preview
+        const preview_scale: f32 = 0.2;
+
+        // Snapshot the entire surface widget as the icon preview
+        const paintable = gtk.WidgetPaintable.new(self.as(gtk.Widget));
+        defer paintable.unref();
+
+        // Center the preview
+        const width = self.as(gtk.Widget).getWidth();
+        const height = self.as(gtk.Widget).getHeight();
+        const mid_x = @as(f32, @floatFromInt(width)) / 2;
+        const mid_y = @as(f32, @floatFromInt(height)) / 2;
+
+        // Create a snapshot to render the scaled paintable
+        const snapshot = gtk.Snapshot.new();
+        snapshot.scale(preview_scale, preview_scale);
+        paintable.as(gdk.Paintable).snapshot(
+            snapshot.as(gdk.Snapshot),
+            @floatFromInt(width),
+            @floatFromInt(height),
+        );
+
+        if (snapshot.freeToPaintable(null)) |scaled| {
+            defer scaled.unref();
+            src.setIcon(
+                scaled,
+                @intFromFloat(mid_x * preview_scale),
+                @intFromFloat(mid_y * preview_scale),
+            );
+        } else {
+            // The scaling process somehow failed.
+            // Use the original paintable as a fail-safe
+            log.warn("preview scaling failed - falling back to original paintable", .{});
+            src.setIcon(
+                paintable.as(gdk.Paintable),
+                @intFromFloat(mid_x),
+                @intFromFloat(mid_y),
+            );
+        }
+    }
+
+    fn surfaceDrop(
+        _: *gtk.DropTarget,
+        v: *const gobject.Value,
+        x: f64,
+        y: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        const from = gobject.ext.cast(
+            Self,
+            v.getObject() orelse return,
+        ) orelse {
+            log.warn("surface drop received non-surface object - this is a bug!", .{});
+            return;
+        };
+
+        // TODO: Find a better way to access the split tree from here
+        const st = ext.getAncestor(
+            SplitTree,
+            self.as(gtk.Widget),
+        ) orelse {
+            log.warn("surface is not placed in a split tree", .{});
+            return;
+        };
+
+        const dir = self.calcDropDirection(x, y);
+
+        st.moveSplit(from, self, dir) catch |err| {
+            switch (err) {
+                error.OutOfMemory => log.warn("out of memory", .{}),
+                // FIXME: implement this!
+                error.SourceNotFound => log.debug(
+                    "cross-tree drag-and-drop not yet supported",
+                    .{},
+                ),
+                error.TargetNotFound => log.warn(
+                    "can't seem to find surface in tree - this shouldn't happen!",
+                    .{},
+                ),
+            }
+            return;
+        };
+
+        // Clean up overlay state
+        self.setDropOverlayDirection(null);
+    }
+
+    fn surfaceDropLeave(
+        _: *gtk.DropTarget,
+        self: *Self,
+    ) callconv(.c) void {
+        // Hide overlay
+        self.setDropOverlayDirection(null);
+    }
+
+    fn surfaceDropMotion(
+        _: *gtk.DropTarget,
+        x: f64,
+        y: f64,
+        self: *Self,
+    ) callconv(.c) gdk.DragAction {
+        // Recalculate the drop region
+        const dir = self.calcDropDirection(x, y);
+        self.setDropOverlayDirection(dir);
+        return .{ .move = true };
+    }
+
+    fn propDropValue(
+        tgt: *gtk.DropTarget,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        // Reject the drop if we're dropping a surface onto itself.
+        // Note that we cannot implemented this via the `accept` signal,
+        // since the decision of whether to accept or deny a drop is dependent
+        // on the payload (i.e. the surface being dropped). This is
+        // well-documented in GTK docs.
+
+        const value = tgt.getValue() orelse return;
+        const surface = gobject.ext.cast(
+            Self,
+            value.getObject() orelse return,
+        ) orelse return;
+        if (self == surface) tgt.reject();
+    }
+
+    fn setDropOverlayDirection(self: *Self, dir: ?Tree.Split.Direction) void {
+        const priv = self.private();
+        inline for (&.{ "drop-top", "drop-left", "drop-right", "drop-bottom" }) |c| {
+            priv.drop_overlay.removeCssClass(c);
+        }
+
+        if (dir) |d| priv.drop_overlay.addCssClass(switch (d) {
+            .up => "drop-top",
+            .left => "drop-left",
+            .right => "drop-right",
+            .down => "drop-bottom",
+        });
+    }
+
+    fn calcDropDirection(self: *Self, x: f64, y: f64) Tree.Split.Direction {
+        const width: f64 = @floatFromInt(self.as(gtk.Widget).getWidth());
+        const height: f64 = @floatFromInt(self.as(gtk.Widget).getHeight());
+
+        const l_dist = x / width;
+        const t_dist = y / height;
+        const r_dist = 1 - l_dist;
+        const b_dist = 1 - t_dist;
+        const min = @min(l_dist, t_dist, r_dist, b_dist);
+
+        if (min == l_dist) return .left;
+        if (min == r_dist) return .right;
+        if (min == t_dist) return .up;
+        return .down;
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -3420,6 +3600,9 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("key_state_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
+            class.bindTemplateChildPrivate("surface_drop_target", .{});
+            class.bindTemplateChildPrivate("drag_handle", .{});
+            class.bindTemplateChildPrivate("drop_overlay", .{});
             class.bindTemplateChildPrivate("im_context", .{});
 
             // Template Callbacks
@@ -3459,6 +3642,12 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);
             class.bindTemplateCallback("search_previous_match", &searchPreviousMatch);
+            class.bindTemplateCallback("surface_content_provider", &closureSurfaceContentProvider);
+            class.bindTemplateCallback("surface_drag_begin", &surfaceDragBegin);
+            class.bindTemplateCallback("surface_drop", &surfaceDrop);
+            class.bindTemplateCallback("surface_drop_leave", &surfaceDropLeave);
+            class.bindTemplateCallback("surface_drop_motion", &surfaceDropMotion);
+            class.bindTemplateCallback("notify_drop_value", &propDropValue);
 
             // Properties
             gobject.ext.registerProperties(class, &.{

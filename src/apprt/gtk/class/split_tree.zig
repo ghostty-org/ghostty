@@ -372,6 +372,47 @@ pub const SplitTree = extern struct {
         return true;
     }
 
+    pub const MoveSplitError = Allocator.Error || error{
+        SourceNotFound,
+        TargetNotFound,
+    };
+
+    /// Move the source split onto the target split in a given direction.
+    /// The target split must be located within this tree.
+    pub fn moveSplit(
+        self: *Self,
+        source: *Surface,
+        target: *Surface,
+        dir: Surface.Tree.Split.Direction,
+    ) MoveSplitError!void {
+        const alloc = Application.default().allocator();
+        const tree = self.getTree() orelse return;
+
+        const source_handle = tree.locate(source) orelse return error.SourceNotFound;
+
+        // This really shouldn't fail, but just in case
+        const target_handle = tree.locate(target) orelse return error.TargetNotFound;
+
+        // TODO: is it perhaps possible to condense all of this
+        // into one atomic operation?
+        var branch = try Surface.Tree.init(alloc, source);
+        defer branch.deinit();
+
+        var after_split = try tree.split(
+            alloc,
+            target_handle,
+            dir,
+            0.5,
+            &branch,
+        );
+        defer after_split.deinit();
+
+        var after_remove = try after_split.remove(alloc, source_handle);
+        defer after_remove.deinit();
+
+        self.setTree(&after_remove);
+    }
+
     fn disconnectSurfaceHandlers(self: *Self) void {
         const tree = self.getTree() orelse return;
         var it = tree.iterator();
@@ -688,17 +729,8 @@ pub const SplitTree = extern struct {
 
         // Find the surface in the tree to verify this is valid and
         // set our pending close handle.
-        priv.pending_close = handle: {
-            const tree = self.getTree() orelse return;
-            var it = tree.iterator();
-            while (it.next()) |entry| {
-                if (entry.view == surface) {
-                    break :handle entry.handle;
-                }
-            }
-
-            return;
-        };
+        const tree = self.getTree() orelse return;
+        priv.pending_close = tree.locate(surface) orelse return;
 
         // If we don't need to confirm then just close immediately.
         if (!core.needsConfirmQuit()) {
