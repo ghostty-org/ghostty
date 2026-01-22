@@ -1,0 +1,37 @@
+freebsd_tests_task:
+  name: FreeBSD Tests
+  freebsd_instance:
+    image_family: freebsd-15-0-amd64-zfs
+  only_if: $CIRRUS_PR != "" || $CIRRUS_BRANCH == "main"
+  timeout_in: 30m
+  env:
+    ZIG_LOCAL_CACHE_DIR: /tmp/zig-cache/local
+    ZIG_GLOBAL_CACHE_DIR: /tmp/zig-cache/global
+    CIRRUS_CLONE_DEPTH: 1
+  install_script:
+    - pkg update -f
+    - |
+        pkg install -y \
+          ca_root_nss \
+          curl \
+          devel/blueprint-compiler \
+          devel/gettext \
+          devel/git \
+          devel/pkgconf \
+          graphics/wayland \
+          textproc/hs-pandoc \
+          x11-fonts/jetbrains-mono \
+          x11-toolkits/gtk40 \
+          x11-toolkits/gtk4-layer-shell \
+          x11-toolkits/libadwaita
+  zig_install_script:
+    - ZIG_VERSION=$(sed -n -E 's/^[[:space:]]*\.?minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' build.zig.zon)
+    - fetch -o /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-freebsd-${ZIG_VERSION}.tar.xz"
+    - install -d /opt/zig
+    - tar -xf /tmp/zig.tar.xz -C /opt/zig --strip-components 1
+    - ln -sf /opt/zig/zig /usr/local/bin/zig
+    - zig version
+  test_script:
+    - zig build test
+    - zig build
+    - ./zig-out/bin/ghostty +version
