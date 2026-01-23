@@ -3472,21 +3472,9 @@ pub const Surface = extern struct {
 
         const dir = self.calcDropDirection(x, y);
 
-        st.moveSplit(from, self, dir) catch |err| {
-            switch (err) {
-                error.OutOfMemory => log.warn("out of memory", .{}),
-                // FIXME: implement this!
-                error.SourceNotFound => log.debug(
-                    "cross-tree drag-and-drop not yet supported",
-                    .{},
-                ),
-                error.TargetNotFound => log.warn(
-                    "can't seem to find surface in tree - this shouldn't happen!",
-                    .{},
-                ),
-            }
-            return;
-        };
+        // The only error that could happen here is an OOM,
+        // and in that case we're already milliseconds away from crashing, so...
+        st.moveSplit(from, self, dir) catch return;
 
         // Clean up overlay state
         self.setDropOverlayDirection(null);
