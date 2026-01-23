@@ -8,17 +8,24 @@ export module ghostty {
   export def --wrapped sudo [
     ...args  # Arguments to pass to `sudo`
   ] {
-    mut sudo_args = $args
+    # Expand tildes in arguments (nushell doesn't expand ~ in wrapped function args)
+    mut sudo_args = ($args | each {|arg|
+        if ($arg | str starts-with "~") {
+            $arg | path expand
+        } else {
+            $arg
+        }
+    })
 
     if (has_feature "sudo") {
         # Extract just the sudo options (before the command)
-        let sudo_options = ($args | take until {|arg|
+        let sudo_options = ($sudo_args | take until {|arg|
             not (($arg | str starts-with "-") or ($arg | str contains "="))
         })
 
         # Prepend TERMINFO preservation flag if not using sudoedit
         if (not ("-e" in $sudo_options or "--edit" in $sudo_options)) {
-            $sudo_args = ($args | prepend "--preserve-env=TERMINFO")
+            $sudo_args = ($sudo_args | prepend "--preserve-env=TERMINFO")
         }
     }
 
