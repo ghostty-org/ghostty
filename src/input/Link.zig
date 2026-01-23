@@ -29,6 +29,10 @@ pub const Action = union(enum) {
     /// Open the OSC8 hyperlink under the mouse position. _-prefixed means
     /// this can't be user-specified, it's only used internally.
     _open_osc8: void,
+
+    /// Open a URL template with capture group substitution.
+    /// The template can contain $0-$9 for capture groups, and $$ for literal $.
+    open_url: [:0]const u8,
 };
 
 pub const Highlight = union(enum) {
@@ -49,6 +53,15 @@ pub const Highlight = union(enum) {
     /// detected.
     always_mods: Mods,
     hover_mods: Mods,
+
+    /// Parse a Highlight value from a CLI string.
+    /// Supports: "always", "hover"
+    pub fn parseCLI(input: ?[]const u8) error{InvalidValue}!Highlight {
+        const value = input orelse return error.InvalidValue;
+        if (std.mem.eql(u8, value, "always")) return .always;
+        if (std.mem.eql(u8, value, "hover")) return .hover;
+        return error.InvalidValue;
+    }
 };
 
 /// Returns a new oni.Regex that can be used to match the link.
@@ -66,14 +79,71 @@ pub fn oniRegex(self: *const Link) !oni.Regex {
 pub fn clone(self: *const Link, alloc: Allocator) Allocator.Error!Link {
     return .{
         .regex = try alloc.dupe(u8, self.regex),
-        .action = self.action,
+        .action = switch (self.action) {
+            .open, ._open_osc8 => self.action,
+            .open_url => |url| .{ .open_url = try alloc.dupeZ(u8, url) },
+        },
         .highlight = self.highlight,
     };
 }
 
 /// Check if two links are equal.
 pub fn equal(self: *const Link, other: *const Link) bool {
-    return std.meta.eql(self.action, other.action) and
+    const action_eq = switch (self.action) {
+        .open => other.action == .open,
+        ._open_osc8 => other.action == ._open_osc8,
+        .open_url => |url| switch (other.action) {
+            .open_url => |other_url| std.mem.eql(u8, url, other_url),
+            else => false,
+        },
+    };
+    return action_eq and
         std.meta.eql(self.highlight, other.highlight) and
         std.mem.eql(u8, self.regex, other.regex);
+}
+
+test "clone with open_url" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const original = Link{
+        .regex = "JIRA-(\\d+)",
+        .action = .{ .open_url = "https://jira.example.com/browse/$1" },
+        .highlight = .always,
+    };
+
+    const cloned = try original.clone(alloc);
+    defer alloc.free(cloned.regex);
+    defer alloc.free(cloned.action.open_url);
+
+    try testing.expect(original.equal(&cloned));
+    try testing.expect(cloned.regex.ptr != original.regex.ptr);
+    try testing.expect(cloned.action.open_url.ptr != original.action.open_url.ptr);
+}
+
+test "equal with open_url" {
+    const a = Link{
+        .regex = "TEST",
+        .action = .{ .open_url = "https://example.com/$1" },
+        .highlight = .hover,
+    };
+    const b = Link{
+        .regex = "TEST",
+        .action = .{ .open_url = "https://example.com/$1" },
+        .highlight = .hover,
+    };
+    const c = Link{
+        .regex = "TEST",
+        .action = .{ .open_url = "https://other.com/$1" },
+        .highlight = .hover,
+    };
+    const d = Link{
+        .regex = "TEST",
+        .action = .open,
+        .highlight = .hover,
+    };
+
+    try std.testing.expect(a.equal(&b));
+    try std.testing.expect(!a.equal(&c));
+    try std.testing.expect(!a.equal(&d));
 }

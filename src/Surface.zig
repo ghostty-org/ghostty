@@ -1581,6 +1581,15 @@ fn mouseRefreshLinks(
         }
 
         const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
+
+        // Free capture groups if present (only used for processing, not preview)
+        defer if (link.groups) |groups| {
+            for (groups) |g| {
+                if (g) |str| self.alloc.free(str);
+            }
+            self.alloc.free(groups);
+        };
+
         switch (link.action) {
             .open => {
                 const str = try self.io.terminal.screens.active.selectionString(alloc, .{
@@ -1603,6 +1612,15 @@ fn mouseRefreshLinks(
                 break :link .{
                     .{ .url = try alloc.dupeZ(u8, uri) },
                     self.config.link_previews != .false,
+                };
+            },
+
+            .open_url => |url_template| {
+                // Build URL with capture group substitution for preview
+                const url = try self.substituteUrlTemplate(url_template, link.groups);
+                break :link .{
+                    .{ .url = try alloc.dupeZ(u8, url) },
+                    self.config.link_previews == .true,
                 };
             },
         }
@@ -4361,6 +4379,9 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
 const Link = struct {
     action: input.Link.Action,
     selection: terminal.Selection,
+    /// Capture groups from the regex match (group 0 = full match, 1+ = groups).
+    /// Only populated for open_url action. Caller must free with the allocator.
+    groups: ?[]const ?[]const u8 = null,
 };
 
 /// Returns the link at the given cursor position, if any.
@@ -4438,9 +4459,28 @@ fn linkAtPin(
             defer match.deinit();
             const sel = match.selection();
             if (!sel.contains(screen, mouse_pin)) continue;
+
+            // For open_url actions, extract capture groups before match is deinitialized
+            const groups: ?[]const ?[]const u8 = switch (link.action) {
+                .open_url => groups: {
+                    const count = match.groupCount();
+                    const groups_arr = try self.alloc.alloc(?[]const u8, count);
+                    for (0..count) |i| {
+                        if (match.group(i)) |g| {
+                            groups_arr[i] = try self.alloc.dupe(u8, g);
+                        } else {
+                            groups_arr[i] = null;
+                        }
+                    }
+                    break :groups groups_arr;
+                },
+                else => null,
+            };
+
             return .{
                 .action = link.action,
                 .selection = sel,
+                .groups = groups,
             };
         }
     }
@@ -4473,6 +4513,15 @@ fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
 /// Requires the renderer state mutex is held.
 fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
     const link = try self.linkAtPos(pos) orelse return false;
+
+    // Free capture groups when done
+    defer if (link.groups) |groups| {
+        for (groups) |g| {
+            if (g) |str| self.alloc.free(str);
+        }
+        self.alloc.free(groups);
+    };
+
     switch (link.action) {
         .open => {
             const str = try self.io.terminal.screens.active.selectionString(self.alloc, .{
@@ -4495,9 +4544,65 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
             };
             try self.openUrl(.{ .kind = .unknown, .url = uri });
         },
+
+        .open_url => |url_template| {
+            const url = try self.substituteUrlTemplate(url_template, link.groups);
+            defer self.alloc.free(url);
+            try self.openUrl(.{ .kind = .unknown, .url = url });
+        },
     }
 
     return true;
+}
+
+/// Substitutes capture groups in a URL template.
+/// Template can contain $0-$9 for capture groups, and $$ for literal $.
+/// Missing groups are replaced with empty string.
+fn substituteUrlTemplate(
+    self: *Surface,
+    template: [:0]const u8,
+    groups: ?[]const ?[]const u8,
+) ![]u8 {
+    return substituteUrlTemplateAlloc(self.alloc, template, groups);
+}
+
+/// Substitutes capture groups in a URL template (standalone version for testing).
+fn substituteUrlTemplateAlloc(
+    alloc: Allocator,
+    template: [:0]const u8,
+    groups: ?[]const ?[]const u8,
+) ![]u8 {
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer result.deinit(alloc);
+
+    var i: usize = 0;
+    while (i < template.len) {
+        if (template[i] == '$' and i + 1 < template.len) {
+            const next = template[i + 1];
+            if (next == '$') {
+                // Escaped $$ -> $
+                try result.append(alloc, '$');
+                i += 2;
+                continue;
+            } else if (next >= '0' and next <= '9') {
+                // Capture group reference
+                const group_idx = next - '0';
+                if (groups) |g| {
+                    if (group_idx < g.len) {
+                        if (g[group_idx]) |group_str| {
+                            try result.appendSlice(alloc, group_str);
+                        }
+                    }
+                }
+                i += 2;
+                continue;
+            }
+        }
+        try result.append(alloc, template[i]);
+        i += 1;
+    }
+
+    return result.toOwnedSlice(alloc);
 }
 
 fn openUrl(
@@ -5341,6 +5446,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
             if (try self.linkAtPos(pos)) |link_info| {
+                // Free capture groups if present
+                defer if (link_info.groups) |groups| {
+                    for (groups) |g| {
+                        if (g) |str| self.alloc.free(str);
+                    }
+                    self.alloc.free(groups);
+                };
+
                 const url_text = switch (link_info.action) {
                     .open => url_text: {
                         // For regex links, get the text from selection
@@ -5360,6 +5473,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                             return false;
                         };
                         break :url_text try self.alloc.dupeZ(u8, uri);
+                    },
+
+                    .open_url => |url_template| url_text: {
+                        // For URL template links, substitute capture groups
+                        const url = self.substituteUrlTemplate(url_template, link_info.groups) catch |err| {
+                            log.err("error substituting url template err={}", .{err});
+                            return false;
+                        };
+                        break :url_text try self.alloc.dupeZ(u8, url);
                     },
                 };
                 defer self.alloc.free(url_text);
@@ -6758,4 +6880,80 @@ test "Surface: rectangle selection logic" {
         9, 2, // expected end
         true, //rectangle selection
     );
+}
+
+test "substituteUrlTemplate simple" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups: []const ?[]const u8 = &.{ "JIRA-1234", "1234" };
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/$1", groups);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com/1234", result);
+}
+
+test "substituteUrlTemplate multiple groups" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups: []const ?[]const u8 = &.{ "a-b", "a", "b" };
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/$1/$2", groups);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com/a/b", result);
+}
+
+test "substituteUrlTemplate full match $0" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups: []const ?[]const u8 = &.{"test"};
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/search?q=$0", groups);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com/search?q=test", result);
+}
+
+test "substituteUrlTemplate escaped dollar" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups: []const ?[]const u8 = &.{ "full", "test" };
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/$$1/$1", groups);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com/$1/test", result);
+}
+
+test "substituteUrlTemplate missing group" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups: []const ?[]const u8 = &.{"only0"};
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/$9", groups);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com/", result);
+}
+
+test "substituteUrlTemplate null group" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups: []const ?[]const u8 = &.{ "full", null, "two" };
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/$1/$2", groups);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com//two", result);
+}
+
+test "substituteUrlTemplate no groups" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const result = try substituteUrlTemplateAlloc(alloc, "https://example.com/static", null);
+    defer alloc.free(result);
+
+    try testing.expectEqualStrings("https://example.com/static", result);
 }

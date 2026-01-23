@@ -8093,11 +8093,32 @@ pub const RepeatableLink = struct {
 
     links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
 
+    /// Config struct for parsing link options from CLI.
+    const LinkConfig = struct {
+        regex: ?[]const u8 = null,
+        url: ?[]const u8 = null,
+        highlight: inputpkg.Link.Highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+    };
+
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
-        _ = self;
-        _ = alloc;
-        _ = input_;
-        return error.NotImplemented;
+        const input = input_ orelse "";
+        if (input.len == 0) {
+            self.links.clearRetainingCapacity();
+            return;
+        }
+
+        // Parse comma-separated key:value pairs
+        const parsed = try cli.args.parseAutoStruct(LinkConfig, alloc, input, null);
+
+        // Validate required fields
+        const regex = parsed.regex orelse return error.InvalidValue;
+        const url_template = parsed.url orelse return error.InvalidValue;
+
+        try self.links.append(alloc, .{
+            .regex = try alloc.dupe(u8, regex),
+            .action = .{ .open_url = try alloc.dupeZ(u8, url_template) },
+            .highlight = parsed.highlight,
+        });
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -8132,9 +8153,29 @@ pub const RepeatableLink = struct {
 
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
-        // This currently can't be set so we don't format anything.
-        _ = self;
-        _ = formatter;
+        if (self.links.items.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+        for (self.links.items) |link| {
+            var buf: [4096]u8 = undefined;
+            const highlight_str: []const u8 = switch (link.highlight) {
+                .always => "always",
+                .hover => "hover",
+                .always_mods, .hover_mods => "",
+            };
+            const url_str: []const u8 = switch (link.action) {
+                .open_url => |u| u,
+                else => "",
+            };
+            const formatted = std.fmt.bufPrint(&buf, "regex:{s},url:{s}{s}{s}", .{
+                link.regex,
+                url_str,
+                if (highlight_str.len > 0) ",highlight:" else "",
+                highlight_str,
+            }) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, formatted);
+        }
     }
 };
 
@@ -10408,4 +10449,73 @@ test "compatibility: window new-window" {
             cfg.@"macos-dock-drop-behavior",
         );
     }
+}
+
+test "RepeatableLink parseCLI basic" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var link: RepeatableLink = .{};
+    // Use quoted regex value to allow backslash
+    try link.parseCLI(alloc, "regex:\"JIRA-([0-9]+)\",url:https://jira.example.com/browse/$1");
+
+    try testing.expectEqual(@as(usize, 1), link.links.items.len);
+    const item = link.links.items[0];
+    try testing.expectEqualStrings("JIRA-([0-9]+)", item.regex);
+    try testing.expectEqualStrings("https://jira.example.com/browse/$1", item.action.open_url);
+    // Default highlight should be hover_mods
+    try testing.expectEqual(inputpkg.Link.Highlight.hover_mods, @as(std.meta.Tag(inputpkg.Link.Highlight), item.highlight));
+}
+
+test "RepeatableLink parseCLI with highlight" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var link: RepeatableLink = .{};
+    try link.parseCLI(alloc, "regex:TEST,url:http://test.com,highlight:always");
+
+    try testing.expectEqual(@as(usize, 1), link.links.items.len);
+    const item = link.links.items[0];
+    try testing.expectEqualStrings("TEST", item.regex);
+    try testing.expectEqualStrings("http://test.com", item.action.open_url);
+    try testing.expectEqual(inputpkg.Link.Highlight.always, item.highlight);
+}
+
+test "RepeatableLink parseCLI clear" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var link: RepeatableLink = .{};
+    try link.parseCLI(alloc, "regex:TEST,url:http://test.com");
+    try testing.expectEqual(@as(usize, 1), link.links.items.len);
+
+    // Empty string should clear
+    try link.parseCLI(alloc, "");
+    try testing.expectEqual(@as(usize, 0), link.links.items.len);
+}
+
+test "RepeatableLink parseCLI missing regex" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var link: RepeatableLink = .{};
+    try testing.expectError(error.InvalidValue, link.parseCLI(alloc, "url:http://test.com"));
+}
+
+test "RepeatableLink parseCLI missing url" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var link: RepeatableLink = .{};
+    try testing.expectError(error.InvalidValue, link.parseCLI(alloc, "regex:TEST"));
 }

@@ -89,6 +89,23 @@ pub const Match = struct {
         const end_pt = self.map.map[self.offset + end_idx];
         return .init(start_pt, end_pt, false);
     }
+
+    /// Returns the number of capture groups (including group 0 = full match).
+    pub fn groupCount(self: Match) usize {
+        return self.region.count();
+    }
+
+    /// Returns the string slice for a capture group (0 = full match, 1+ = groups).
+    /// Returns null if the group index is out of bounds or the group was unmatched.
+    pub fn group(self: Match, idx: usize) ?[]const u8 {
+        if (idx >= self.region.count()) return null;
+        const start: c_int = self.region.starts()[idx];
+        const end: c_int = self.region.ends()[idx];
+        if (start < 0 or end < 0) return null; // unmatched optional group
+        const start_usize: usize = @intCast(start);
+        const end_usize: usize = @intCast(end);
+        return self.map.string[self.offset + start_usize .. self.offset + end_usize];
+    }
 };
 
 test "StringMap searchIterator" {
@@ -274,4 +291,99 @@ test "StringMap searchIterator URL with click position" {
         }
     }
     try testing.expect(found_url);
+}
+
+test "Match group extraction" {
+    if (comptime !build_options.oniguruma) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Initialize our regex with capture groups: JIRA-(\d+)
+    try oni.testing.ensureInit();
+    var re = try oni.Regex.init(
+        "JIRA-(\\d+)",
+        .{},
+        oni.Encoding.utf8,
+        oni.Syntax.default,
+        null,
+    );
+    defer re.deinit();
+
+    // Initialize our screen
+    var s = try Screen.init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("Check JIRA-1234 now");
+
+    const line_sel = s.selectLine(.{
+        .pin = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+    }).?;
+    var map: StringMap = undefined;
+    const sel_str = try s.selectionString(alloc, .{
+        .sel = line_sel,
+        .trim = false,
+        .map = &map,
+    });
+    alloc.free(sel_str);
+    defer map.deinit(alloc);
+
+    // Search for match
+    var it = map.searchIterator(re);
+    var match = (try it.next()).?;
+    defer match.deinit();
+
+    // Group 0 = full match "JIRA-1234"
+    try testing.expectEqualStrings("JIRA-1234", match.group(0).?);
+    // Group 1 = first capture group "1234"
+    try testing.expectEqualStrings("1234", match.group(1).?);
+    // Group 2 = out of bounds
+    try testing.expect(match.group(2) == null);
+    // Group count should be 2 (group 0 + group 1)
+    try testing.expectEqual(@as(usize, 2), match.groupCount());
+}
+
+test "Match group with optional groups" {
+    if (comptime !build_options.oniguruma) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Initialize regex with optional group: (foo)?(bar)
+    try oni.testing.ensureInit();
+    var re = try oni.Regex.init(
+        "(foo)?(bar)",
+        .{},
+        oni.Encoding.utf8,
+        oni.Syntax.default,
+        null,
+    );
+    defer re.deinit();
+
+    // Initialize our screen - "bar" without "foo"
+    var s = try Screen.init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("bar");
+
+    const line_sel = s.selectLine(.{
+        .pin = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+    }).?;
+    var map: StringMap = undefined;
+    const sel_str = try s.selectionString(alloc, .{
+        .sel = line_sel,
+        .trim = false,
+        .map = &map,
+    });
+    alloc.free(sel_str);
+    defer map.deinit(alloc);
+
+    var it = map.searchIterator(re);
+    var match = (try it.next()).?;
+    defer match.deinit();
+
+    // Group 0 = full match "bar"
+    try testing.expectEqualStrings("bar", match.group(0).?);
+    // Group 1 = optional "foo" - not matched
+    try testing.expect(match.group(1) == null);
+    // Group 2 = "bar"
+    try testing.expectEqualStrings("bar", match.group(2).?);
 }
