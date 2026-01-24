@@ -1,50 +1,38 @@
 import SwiftUI
 import GhosttyKit
+import Combine
 
 /// A view that cycles through Ghostty's official icon variants.
 struct CyclingIconView: View {
-    @State private var currentIcon: Ghostty.MacOSIcon = .official
-    @State private var isHovering: Bool = false
-
-    private let icons: [Ghostty.MacOSIcon] = [
-        .official,
-        .blueprint,
-        .chalkboard,
-        .microchip,
-        .glass,
-        .holographic,
-        .paper,
-        .retro,
-        .xray,
-    ]
-    private let timerPublisher = Timer.publish(every: 3, on: .main, in: .common)
+    @EnvironmentObject var viewModel: AboutViewModel
 
     var body: some View {
         ZStack {
-            iconView(for: currentIcon)
-                .id(currentIcon)
+            iconView(for: viewModel.currentIcon)
+                .id(viewModel.currentIcon)
         }
-        .animation(.easeInOut(duration: 0.5), value: currentIcon)
+        .animation(.easeInOut(duration: 0.5), value: viewModel.currentIcon)
         .frame(height: 128)
-        .onReceive(timerPublisher.autoconnect()) { _ in
-            if !isHovering {
-                advanceToNextIcon()
-            }
-        }
         .onHover { hovering in
-            isHovering = hovering
+            viewModel.isHovering = hovering
         }
         .onTapGesture {
-            advanceToNextIcon()
+            viewModel.advanceToNextIcon()
         }
-        .help("macos-icon = \(currentIcon.rawValue)")
+        .contextMenu {
+            if let currentIcon = viewModel.currentIcon {
+                Button("Copy Icon Config") {
+                    NSPasteboard.general.setString("macos-icon = \(currentIcon.rawValue)", forType: .string)
+                }
+            }
+        }
         .accessibilityLabel("Ghostty Application Icon")
         .accessibilityHint("Click to cycle through icon variants")
     }
 
     @ViewBuilder
-    private func iconView(for icon: Ghostty.MacOSIcon) -> some View {
-        let iconImage: Image = switch icon.assetName {
+    private func iconView(for icon: Ghostty.MacOSIcon?) -> some View {
+        let iconImage: Image = switch icon?.assetName {
         case let assetName?: Image(assetName)
         case nil: ghosttyIconImage()
         }
@@ -52,11 +40,5 @@ struct CyclingIconView: View {
         iconImage
             .resizable()
             .aspectRatio(contentMode: .fit)
-    }
-
-    private func advanceToNextIcon() {
-        let currentIndex = icons.firstIndex(of: currentIcon) ?? 0
-        let nextIndex = icons.indexWrapping(after: currentIndex)
-        currentIcon = icons[nextIndex]
     }
 }

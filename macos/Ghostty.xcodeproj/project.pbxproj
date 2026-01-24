@@ -117,6 +117,7 @@
 				Features/About/About.xib,
 				Features/About/AboutController.swift,
 				Features/About/AboutView.swift,
+				Features/About/AboutViewModel.swift,
 				Features/About/CyclingIconView.swift,
 				"Features/App Intents/CloseTerminalIntent.swift",
 				"Features/App Intents/CommandPaletteIntent.swift",
