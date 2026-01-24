@@ -240,11 +240,373 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     }
 
     if (b.lazyDependency("fontconfig", .{})) |upstream| {
+
+        // NOTE: This list must be updated from `fc-lang/meson.build` whenever
+        // the fontconfig version is updated.
+        const orths = [_][]const u8{
+            "aa.orth",
+            "ab.orth",
+            "af.orth",
+            "am.orth",
+            "ar.orth",
+            "as.orth",
+            "ast.orth",
+            "av.orth",
+            "ay.orth",
+            "az_az.orth",
+            "az_ir.orth",
+            "ba.orth",
+            "bm.orth",
+            "be.orth",
+            "bg.orth",
+            "bh.orth",
+            "bho.orth",
+            "bi.orth",
+            "bin.orth",
+            "bn.orth",
+            "bo.orth",
+            "br.orth",
+            "bs.orth",
+            "bua.orth",
+            "ca.orth",
+            "ce.orth",
+            "ch.orth",
+            "chm.orth",
+            "chr.orth",
+            "co.orth",
+            "cs.orth",
+            "cu.orth",
+            "cv.orth",
+            "cy.orth",
+            "da.orth",
+            "de.orth",
+            "dz.orth",
+            "el.orth",
+            "en.orth",
+            "eo.orth",
+            "es.orth",
+            "et.orth",
+            "eu.orth",
+            "fa.orth",
+            "fi.orth",
+            "fj.orth",
+            "fo.orth",
+            "fr.orth",
+            "ff.orth",
+            "fur.orth",
+            "fy.orth",
+            "ga.orth",
+            "gd.orth",
+            "gez.orth",
+            "gl.orth",
+            "gn.orth",
+            "gu.orth",
+            "gv.orth",
+            "ha.orth",
+            "haw.orth",
+            "he.orth",
+            "hi.orth",
+            "ho.orth",
+            "hr.orth",
+            "hu.orth",
+            "hy.orth",
+            "ia.orth",
+            "ig.orth",
+            "id.orth",
+            "ie.orth",
+            "ik.orth",
+            "io.orth",
+            "is.orth",
+            "it.orth",
+            "iu.orth",
+            "ja.orth",
+            "ka.orth",
+            "kaa.orth",
+            "ki.orth",
+            "kk.orth",
+            "kl.orth",
+            "km.orth",
+            "kn.orth",
+            "ko.orth",
+            "kok.orth",
+            "ks.orth",
+            "ku_am.orth",
+            "ku_ir.orth",
+            "kum.orth",
+            "kv.orth",
+            "kw.orth",
+            "ky.orth",
+            "la.orth",
+            "lb.orth",
+            "lez.orth",
+            "ln.orth",
+            "lo.orth",
+            "lt.orth",
+            "lv.orth",
+            "mg.orth",
+            "mh.orth",
+            "mi.orth",
+            "mk.orth",
+            "ml.orth",
+            "mn_cn.orth",
+            "mo.orth",
+            "mr.orth",
+            "mt.orth",
+            "my.orth",
+            "nb.orth",
+            "nds.orth",
+            "ne.orth",
+            "nl.orth",
+            "nn.orth",
+            "no.orth",
+            "nr.orth",
+            "nso.orth",
+            "ny.orth",
+            "oc.orth",
+            "om.orth",
+            "or.orth",
+            "os.orth",
+            "pa.orth",
+            "pl.orth",
+            "ps_af.orth",
+            "ps_pk.orth",
+            "pt.orth",
+            "rm.orth",
+            "ro.orth",
+            "ru.orth",
+            "sa.orth",
+            "sah.orth",
+            "sco.orth",
+            "se.orth",
+            "sel.orth",
+            "sh.orth",
+            "shs.orth",
+            "si.orth",
+            "sk.orth",
+            "sl.orth",
+            "sm.orth",
+            "sma.orth",
+            "smj.orth",
+            "smn.orth",
+            "sms.orth",
+            "so.orth",
+            "sq.orth",
+            "sr.orth",
+            "ss.orth",
+            "st.orth",
+            "sv.orth",
+            "sw.orth",
+            "syr.orth",
+            "ta.orth",
+            "te.orth",
+            "tg.orth",
+            "th.orth",
+            "ti_er.orth",
+            "ti_et.orth",
+            "tig.orth",
+            "tk.orth",
+            "tl.orth",
+            "tn.orth",
+            "to.orth",
+            "tr.orth",
+            "ts.orth",
+            "tt.orth",
+            "tw.orth",
+            "tyv.orth",
+            "ug.orth",
+            "uk.orth",
+            "ur.orth",
+            "uz.orth",
+            "ve.orth",
+            "vi.orth",
+            "vo.orth",
+            "vot.orth",
+            "wa.orth",
+            "wen.orth",
+            "wo.orth",
+            "xh.orth",
+            "yap.orth",
+            "yi.orth",
+            "yo.orth",
+            "zh_cn.orth",
+            "zh_hk.orth",
+            "zh_mo.orth",
+            "zh_sg.orth",
+            "zh_tw.orth",
+            "zu.orth",
+            "ak.orth",
+            "an.orth",
+            "ber_dz.orth",
+            "ber_ma.orth",
+            "byn.orth",
+            "crh.orth",
+            "csb.orth",
+            "dv.orth",
+            "ee.orth",
+            "fat.orth",
+            "fil.orth",
+            "hne.orth",
+            "hsb.orth",
+            "ht.orth",
+            "hz.orth",
+            "ii.orth",
+            "jv.orth",
+            "kab.orth",
+            "kj.orth",
+            "kr.orth",
+            "ku_iq.orth",
+            "ku_tr.orth",
+            "kwm.orth",
+            "lg.orth",
+            "li.orth",
+            "mai.orth",
+            "mn_mn.orth",
+            "ms.orth",
+            "na.orth",
+            "ng.orth",
+            "nv.orth",
+            "ota.orth",
+            "pa_pk.orth",
+            "pap_an.orth",
+            "pap_aw.orth",
+            "qu.orth",
+            "quz.orth",
+            "rn.orth",
+            "rw.orth",
+            "sc.orth",
+            "sd.orth",
+            "sg.orth",
+            "sid.orth",
+            "sn.orth",
+            "su.orth",
+            "ty.orth",
+            "wal.orth",
+            "za.orth",
+            "lah.orth",
+            "nqo.orth",
+            "brx.orth",
+            "sat.orth",
+            "doi.orth",
+            "mni.orth",
+            "und_zsye.orth",
+            "und_zmth.orth",
+            "anp.orth",
+            "bhb.orth",
+            "hif.orth",
+            "mag.orth",
+            "raj.orth",
+            "the.orth",
+            "agr.orth",
+            "ayc.orth",
+            "bem.orth",
+            "ckb.orth",
+            "cmn.orth",
+            "dsb.orth",
+            "hak.orth",
+            "lij.orth",
+            "lzh.orth",
+            "mfe.orth",
+            "mhr.orth",
+            "miq.orth",
+            "mjw.orth",
+            "mnw.orth",
+            "nan.orth",
+            "nhn.orth",
+            "niu.orth",
+            "rif.orth",
+            "sgs.orth",
+            "shn.orth",
+            "szl.orth",
+            "tcy.orth",
+            "tpi.orth",
+            "unm.orth",
+            "wae.orth",
+            "yue.orth",
+            "yuw.orth",
+            "got.orth",
+            "cop.orth",
+        };
+
         lib.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
+        lib.addIncludePath(upstream.path("src"));
+        module.addIncludePath(upstream.path("src"));
+
+        const fontconfig_h = b.addConfigHeader(
+            .{
+                .style = .{
+                    .cmake = upstream.path("fontconfig/fontconfig.h.in"),
+                },
+                .include_path = "fontconfig/fontconfig.h",
+            },
+            .{
+                .CACHE_VERSION = "9",
+            },
+        );
+
+        lib.installHeader(fontconfig_h.getOutputFile(), "fontconfig/fontconfig.h");
+        lib.addConfigHeader(fontconfig_h);
+        module.addConfigHeader(fontconfig_h);
+
+        const fcstdint_h = b.addConfigHeader(
+            .{
+                .style = .{
+                    .cmake = upstream.path("src/fcstdint.h.in"),
+                },
+                .include_path = "fcstdint.h",
+            },
+            .{},
+        );
+
+        lib.addConfigHeader(fcstdint_h);
+        module.addConfigHeader(fcstdint_h);
+
+        const generate_fc_lang_h = b.addSystemCommand(&.{"python"});
+        generate_fc_lang_h.addFileArg(upstream.path("fc-lang/fc-lang.py"));
+        for (orths) |orth| {
+            generate_fc_lang_h.addArg(orth);
+            generate_fc_lang_h.addFileInput(upstream.path(b.pathJoin(&.{ "fc-lang", orth })));
+        }
+        generate_fc_lang_h.addArg("--directory");
+        generate_fc_lang_h.addDirectoryArg(upstream.path("fc-lang"));
+        generate_fc_lang_h.addArg("--template");
+        generate_fc_lang_h.addFileArg(upstream.path("fc-lang/fclang.tmpl.h"));
+        generate_fc_lang_h.addArg("--output");
+        const fc_lang_h = generate_fc_lang_h.addOutputFileArg("fclang.h");
+
+        lib.addIncludePath(fc_lang_h.dirname());
+        module.addIncludePath(fc_lang_h.dirname());
+
+        const generate_fc_case_h = b.addSystemCommand(&.{"python"});
+        generate_fc_case_h.addFileArg(upstream.path("fc-case/fc-case.py"));
+        generate_fc_case_h.addFileArg(upstream.path("fc-case/CaseFolding.txt"));
+        generate_fc_case_h.addArg("--template");
+        generate_fc_case_h.addFileArg(upstream.path("fc-case/fccase.tmpl.h"));
+        generate_fc_case_h.addArg("--output");
+        const fc_case_h = generate_fc_case_h.addOutputFileArg("fccase.h");
+
+        lib.addIncludePath(fc_case_h.dirname());
+        module.addIncludePath(fc_case_h.dirname());
+
         lib.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
+            .flags = flags.items,
+        });
+
+        const generate_fcstr_c = b.addSystemCommand(&.{ "sed", "s@../fc-case/fccase.h@fccase.h@g" });
+        generate_fcstr_c.setStdIn(.{ .lazy_path = upstream.path("src/fcstr.c") });
+        const fcstr_c = generate_fcstr_c.captureStdOut();
+
+        const c = b.addWriteFiles();
+        _ = c.addCopyFile(upstream.path("src/fcstdint.h.in"), "fcstdint.h");
+
+        lib.addIncludePath(c.getDirectory());
+        module.addIncludePath(c.getDirectory());
+
+        lib.addCSourceFile(.{
+            .language = .c,
+            .file = fcstr_c,
             .flags = flags.items,
         });
 
@@ -291,7 +653,6 @@ const srcs: []const []const u8 = &.{
     "src/fcrange.c",
     "src/fcserialize.c",
     "src/fcstat.c",
-    "src/fcstr.c",
     "src/fcweight.c",
     "src/fcxml.c",
     "src/ftglue.c",
