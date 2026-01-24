@@ -9,14 +9,14 @@ const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
 
-const log = std.log.scoped(.gtk_ghostty_surface_title_dialog);
+const log = std.log.scoped(.gtk_ghostty_title_dialog);
 
-pub const SurfaceTitleDialog = extern struct {
+pub const TitleDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.AlertDialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttySurfaceTitleDialog",
+        .name = "GhosttyTitleDialog",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -35,6 +35,21 @@ pub const SurfaceTitleDialog = extern struct {
                 .{
                     .default = null,
                     .accessor = C.privateStringFieldAccessor("initial_value"),
+                },
+            );
+        };
+
+        pub const heading = struct {
+            pub const name = "heading";
+            pub const get = impl.get;
+            pub const set = impl.set;
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("heading"),
                 },
             );
         };
@@ -57,6 +72,9 @@ pub const SurfaceTitleDialog = extern struct {
     const Private = struct {
         /// The initial value of the entry field.
         initial_value: ?[:0]const u8 = null,
+
+        /// The dialog heading text.
+        heading: ?[:0]const u8 = null,
 
         // Template bindings
         entry: *gtk.Entry,
@@ -87,6 +105,11 @@ pub const SurfaceTitleDialog = extern struct {
         const priv = self.private();
         if (priv.initial_value) |v| {
             priv.entry.getBuffer().setText(v, -1);
+        }
+
+        // Set the heading if one was provided
+        if (priv.heading) |h| {
+            self.as(adw.AlertDialog).setHeading(h);
         }
 
         // Show it. We could also just use virtual methods to bind to
@@ -138,6 +161,10 @@ pub const SurfaceTitleDialog = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.initial_value = null;
         }
+        if (priv.heading) |v| {
+            glib.free(@ptrCast(@constCast(v)));
+            priv.heading = null;
+        }
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -162,7 +189,7 @@ pub const SurfaceTitleDialog = extern struct {
                 comptime gresource.blueprint(.{
                     .major = 1,
                     .minor = 5,
-                    .name = "surface-title-dialog",
+                    .name = "title-dialog",
                 }),
             );
 
@@ -175,6 +202,7 @@ pub const SurfaceTitleDialog = extern struct {
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.@"initial-value".impl,
+                properties.heading.impl,
             });
 
             // Virtual methods
