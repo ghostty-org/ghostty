@@ -3627,17 +3627,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
 /// Expands tilde and environment variables in a path
 fn expandPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var result = try allocator.alloc(u8, path.len * 2); // estimate
+    var result = try allocator.alloc(u8, path.len * 2);
     var result_len: usize = 0;
 
     var i: usize = 0;
     while (i < path.len) {
         if (path[i] == '~' and (i == 0 or path[i - 1] == '/')) {
-            // Expand ~ to home directory
             var buf: [std.fs.max_path_bytes]u8 = undefined;
             const home = try homedir.home(&buf) orelse return error.NoHome;
 
-            // Resize result if needed
             if (result_len + home.len > result.len) {
                 result = try allocator.realloc(result, result.len * 2);
             }
@@ -3645,27 +3643,23 @@ fn expandPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
             result_len += home.len;
             i += 1;
 
-            // Skip following slash if present
             if (i < path.len and path[i] == '/') {
                 i += 1;
             }
         } else if (path[i] == '$') {
-            // Expand $VAR or ${VAR}
             i += 1;
             var var_name: []const u8 = "";
             var var_end = i;
 
             if (i < path.len and path[i] == '{') {
-                // ${VAR} format
                 i += 1;
                 var_end = i;
                 while (var_end < path.len and path[var_end] != '}') {
                     var_end += 1;
                 }
                 var_name = path[i..var_end];
-                i = var_end + 1; // skip closing }
+                i = var_end + 1;
             } else {
-                // $VAR format
                 while (var_end < path.len and
                     (std.ascii.isAlphanumeric(path[var_end]) or path[var_end] == '_'))
                 {
@@ -3675,7 +3669,6 @@ fn expandPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
                 i = var_end;
             }
 
-            // Get environment variable
             if (std.posix.getenv(var_name)) |var_value| {
                 if (result_len + var_value.len > result.len) {
                     result = try allocator.realloc(result, result.len * 2);
@@ -3684,7 +3677,6 @@ fn expandPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
                 result_len += var_value.len;
             }
         } else {
-            // Regular character
             if (result_len + 1 > result.len) {
                 result = try allocator.realloc(result, result.len * 2);
             }
