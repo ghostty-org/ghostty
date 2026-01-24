@@ -580,11 +580,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const custom_shaders = try config.@"custom-shader".clone(alloc);
 
                 // Copy our background image
-                const bg_image =
-                    if (config.@"background-image") |bg|
-                        try bg.clone(alloc)
-                    else
-                        null;
+                const bg_image = blk: {
+                    if (config.@"background-image") |bg| {
+                        const expanded_path = try expandPath(alloc, bg.path);
+                        defer alloc.free(expanded_path);
+                        break :blk try bg.clone(alloc);
+                    } else {
+                        break :blk null;
+                    }
+                };
 
                 // Copy our font features
                 const font_features = try config.@"font-feature".clone(alloc);
