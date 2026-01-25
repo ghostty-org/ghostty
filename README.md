@@ -1,12 +1,14 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
-  <br>Ghostty
+  <img src="macos/Assets.xcassets/Ghostty.appiconset/icon_256x256.png" alt="Logo" width="128">
+  <br>Ghostree
 </h1>
   <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
-    <br />
+    A fork of a fast, native, feature-rich terminal emulator pushing modern features with <a href="https://worktrunk.dev/" target="_blank">worktrunk</a> built-in.
+    <br /><br />
+    macOS: <code>brew install sidequery/tap/ghostree</code>
+    <br /><br />
     <a href="#about">About</a>
     ·
     <a href="https://ghostty.org/download">Download</a>
@@ -17,6 +19,10 @@
     ·
     <a href="HACKING.md">Developing</a>
   </p>
+</p>
+
+<p align="center">
+  <img src="images/screenshot.png" alt="Ghostree Screenshot" width="800">
 </p>
 
 ## About
