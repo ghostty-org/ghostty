@@ -45,11 +45,11 @@ struct SessionCache: Codable {
 final class SessionCacheManager {
     private var cache = SessionCache()
     private let cacheURL: URL
-    private let queue = DispatchQueue(label: "com.ghostty.sessioncache")
+    private let queue = DispatchQueue(label: "dev.sidequery.Ghostree.sessioncache")
 
     init() {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("com.mitchellh.ghostty")
+            .appendingPathComponent("dev.sidequery.Ghostree")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         cacheURL = cacheDir.appendingPathComponent("sessions.json")
         loadFromDisk()
