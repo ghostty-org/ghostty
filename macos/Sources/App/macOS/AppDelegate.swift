@@ -98,6 +98,9 @@ class AppDelegate: NSObject,
     /// The ghostty global state. Only one per process.
     let ghostty: Ghostty.App
 
+    /// Worktrunk integration state shared across windows.
+    let worktrunkStore = WorktrunkStore()
+
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
@@ -1144,6 +1147,28 @@ class AppDelegate: NSObject,
             ghostty,
             from: TerminalController.preferredParent?.window
         )
+    }
+
+    @objc func addWorktrunkRepository(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add"
+        panel.title = "Add Repository"
+
+        let parent = NSApp.keyWindow ?? NSApp.mainWindow
+        if let parent {
+            panel.beginSheetModal(for: parent) { [weak self] response in
+                guard let self else { return }
+                guard response == .OK, let url = panel.url else { return }
+                Task { await self.worktrunkStore.addRepositoryValidated(path: url.path) }
+            }
+        } else {
+            let response = panel.runModal()
+            guard response == .OK, let url = panel.url else { return }
+            Task { await self.worktrunkStore.addRepositoryValidated(path: url.path) }
+        }
     }
 
     @IBAction func closeAllWindows(_ sender: Any?) {

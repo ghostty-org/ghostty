@@ -1,7 +1,13 @@
 import Cocoa
 
+/// Default width for the worktrunk sidebar.
+private let defaultSidebarWidth: CGFloat = 280
+
 /// Titlebar tabs for macOS 13 to 15.
 class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
+    fileprivate var worktrunkSidebarWidth: CGFloat = defaultSidebarWidth
+    private var windowButtonsBackdropWidthConstraint: NSLayoutConstraint? = nil
+
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
@@ -461,15 +467,28 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
         let view = WindowButtonsBackdropView(window: self)
         view.identifier = NSUserInterfaceItemIdentifier("_windowButtonsBackdrop")
-        titlebarView.addSubview(view)
+        titlebarView.addSubview(view, positioned: .below, relativeTo: toolbarView)
 
         view.translatesAutoresizingMaskIntoConstraints = false
         view.leftAnchor.constraint(equalTo: toolbarView.leftAnchor).isActive = true
-        view.rightAnchor.constraint(equalTo: toolbarView.leftAnchor, constant: hasWindowButtons ? 78 : 0).isActive = true
+        let buttonsWidth: CGFloat = hasWindowButtons ? 78 : 0
+        let widthConstraint = view.rightAnchor.constraint(
+            equalTo: toolbarView.leftAnchor,
+            constant: max(buttonsWidth, worktrunkSidebarWidth)
+        )
+        widthConstraint.isActive = true
+        windowButtonsBackdropWidthConstraint = widthConstraint
         view.topAnchor.constraint(equalTo: toolbarView.topAnchor).isActive = true
         view.heightAnchor.constraint(equalTo: toolbarView.heightAnchor).isActive = true
 
         windowButtonsBackdrop = view
+    }
+
+    func updateWorktrunkSidebarWidth(_ width: CGFloat) {
+        worktrunkSidebarWidth = max(0, width)
+
+        let buttonsWidth: CGFloat = hasWindowButtons ? 78 : 0
+        windowButtonsBackdropWidthConstraint?.constant = max(buttonsWidth, worktrunkSidebarWidth)
     }
 
     private func addWindowDragHandle(titlebarView: NSView, toolbarView: NSView) {

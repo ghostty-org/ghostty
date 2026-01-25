@@ -4,6 +4,14 @@ import SwiftUI
 import Combine
 import GhosttyKit
 
+final class WorktrunkSidebarState: ObservableObject {
+    @Published var columnVisibility: NavigationSplitViewVisibility
+
+    init(columnVisibility: NavigationSplitViewVisibility = .all) {
+        self.columnVisibility = columnVisibility
+    }
+}
+
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
     override var windowNibName: NSNib.Name? {
@@ -54,6 +62,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
     
+    private let worktrunkSidebarState: WorktrunkSidebarState
     
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
@@ -73,6 +82,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // restoration.
         self.restorable = (base?.command ?? "") == ""
         
+        if let parent,
+           let parentController = parent.windowController as? TerminalController {
+            self.worktrunkSidebarState = WorktrunkSidebarState(
+                columnVisibility: parentController.worktrunkSidebarState.columnVisibility
+            )
+        } else {
+            self.worktrunkSidebarState = WorktrunkSidebarState(columnVisibility: .all)
+        }
+
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
         
@@ -218,11 +236,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
         withParent explicitParent: NSWindow? = nil
     ) -> TerminalController {
-        let c = TerminalController.init(ghostty, withBaseConfig: baseConfig)
-
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
         let parent: NSWindow? = explicitParent ?? preferredParent?.window
+        let c = TerminalController.init(ghostty, withBaseConfig: baseConfig, parent: parent)
 
         if let parent {
             if parent.styleMask.contains(.fullScreen) {
@@ -387,7 +404,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Create a new window and add it to the parent
-        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig, parent: parent)
         guard let window = controller.window else { return controller }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
@@ -1029,11 +1046,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = TerminalViewContainer(
+        let worktrunkStore = (NSApp.delegate as? AppDelegate)?.worktrunkStore ?? WorktrunkStore()
+        window.contentView = TerminalWorkspaceViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self,
+            worktrunkStore: worktrunkStore,
+            worktrunkSidebarState: worktrunkSidebarState,
+            openWorktree: { [weak self] path in
+                self?.openWorktree(atPath: path)
+            },
+            onSidebarWidthChange: { [weak self] width in
+                self?.updateWorktrunkTitlebarWidth(width)
+            }
         )
+        installWorktrunkTitlebar()
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1086,6 +1113,109 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // apply this based on the root config but change it later based on surface
         // config (see focused surface change callback).
         syncAppearance(.init(config))
+    }
+
+    private func installWorktrunkTitlebar() {
+        guard let window else { return }
+        guard window.styleMask.contains(.titled) else { return }
+
+        // TitlebarTabs windows have their own toolbar - don't override
+        if window is TitlebarTabsTahoeTerminalWindow || window is TitlebarTabsVenturaTerminalWindow {
+            return
+        }
+
+        // Create a WorktrunkToolbar with sidebar toggle button
+        if window.toolbar == nil {
+            // Add fullSizeContentView for sidebarTrackingSeparator to work
+            window.styleMask.insert(.fullSizeContentView)
+            let toolbar = WorktrunkToolbar(target: self)
+            window.toolbar = toolbar
+        }
+
+        if let terminalWindow = window as? TerminalWindow {
+            terminalWindow.toolbarStyle = .unified
+        }
+    }
+
+    @objc func toggleWorktrunkSidebar(_ sender: Any?) {
+        switch worktrunkSidebarState.columnVisibility {
+        case .detailOnly:
+            worktrunkSidebarState.columnVisibility = .all
+        default:
+            worktrunkSidebarState.columnVisibility = .detailOnly
+        }
+    }
+
+    @objc func toggleSidebar(_ sender: Any?) {
+        toggleWorktrunkSidebar(sender)
+    }
+
+    private func updateWorktrunkTitlebarWidth(_ newValue: CGFloat) {
+        if let window = window as? TitlebarTabsTahoeTerminalWindow {
+            window.updateWorktrunkSidebarWidth(max(0, newValue))
+            return
+        }
+        if let window = window as? TitlebarTabsVenturaTerminalWindow {
+            window.updateWorktrunkSidebarWidth(max(0, newValue))
+            return
+        }
+    }
+
+    private func openWorktree(atPath path: String) {
+        if focusOpenWorktree(atPath: path) {
+            return
+        }
+
+        let behavior: WorktrunkOpenBehavior = {
+            let raw = UserDefaults.standard.string(forKey: WorktrunkPreferences.openBehaviorKey) ?? ""
+            return WorktrunkOpenBehavior(rawValue: raw) ?? .newTab
+        }()
+
+        var base = Ghostty.SurfaceConfiguration()
+        base.workingDirectory = path
+
+        switch behavior {
+        case .newTab:
+            _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+
+        case .splitRight:
+            if let focusedSurface {
+                if newSplit(at: focusedSurface, direction: .right, baseConfig: base) == nil {
+                    _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+                }
+            } else {
+                _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+            }
+
+        case .splitDown:
+            if let focusedSurface {
+                if newSplit(at: focusedSurface, direction: .down, baseConfig: base) == nil {
+                    _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+                }
+            } else {
+                _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+            }
+        }
+    }
+
+    private func focusOpenWorktree(atPath path: String) -> Bool {
+        let target = URL(fileURLWithPath: path).standardizedFileURL.path
+        let targetPrefix = target.hasSuffix("/") ? target : (target + "/")
+
+        for window in NSApp.windows {
+            guard let controller = window.windowController as? TerminalController else { continue }
+
+            for surfaceView in controller.surfaceTree {
+                guard let pwd = surfaceView.pwd else { continue }
+                let pwdPath = URL(fileURLWithPath: pwd).standardizedFileURL.path
+                if pwdPath == target || pwdPath.hasPrefix(targetPrefix) {
+                    controller.focusSurface(surfaceView)
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     // Shows the "+" button in the tab bar, responds to that click.

@@ -57,7 +57,13 @@ pub fn init(
         // we create a new empty environment.
         const env_map = try b.allocator.create(std.process.EnvMap);
         env_map.* = .init(b.allocator);
+        // However, xcodebuild assumes a few standard variables exist (notably
+        // HOME/TMPDIR). Keep the environment minimal but usable.
         if (env.get("PATH")) |v| try env_map.put("PATH", v);
+        if (env.get("HOME")) |v| try env_map.put("HOME", v);
+        if (env.get("TMPDIR")) |v| try env_map.put("TMPDIR", v);
+        if (env.get("USER")) |v| try env_map.put("USER", v);
+        if (env.get("LOGNAME")) |v| try env_map.put("LOGNAME", v);
 
         const step = RunStep.create(b, "xcodebuild");
         step.has_side_effects = true;
@@ -94,6 +100,10 @@ pub fn init(
         const env_map = try b.allocator.create(std.process.EnvMap);
         env_map.* = .init(b.allocator);
         if (env.get("PATH")) |v| try env_map.put("PATH", v);
+        if (env.get("HOME")) |v| try env_map.put("HOME", v);
+        if (env.get("TMPDIR")) |v| try env_map.put("TMPDIR", v);
+        if (env.get("USER")) |v| try env_map.put("USER", v);
+        if (env.get("LOGNAME")) |v| try env_map.put("LOGNAME", v);
 
         const step = RunStep.create(b, "xcodebuild test");
         step.has_side_effects = true;

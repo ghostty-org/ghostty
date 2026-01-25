@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+/// Default width for the worktrunk sidebar.
+private let defaultSidebarWidth: CGFloat = 280
+
+/// Padding to accommodate window control buttons (close/minimize/zoom).
+private let windowControlButtonsWidth: CGFloat = 70
+
 /// `macos-titlebar-style = tabs` for macOS 26 (Tahoe) and later.
 ///
 /// This inherits from transparent styling so that the titlebar matches the background color
@@ -8,7 +14,10 @@ import SwiftUI
 class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSToolbarDelegate {
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
-    
+
+    private var worktrunkSidebarWidth: CGFloat = defaultSidebarWidth
+    private var tabBarLeftConstraint: NSLayoutConstraint? = nil
+
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
@@ -104,10 +113,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
         // If this is the tab bar then we need to set it up for the titlebar
         guard isTabBar(childViewController) else {
-            // After dragging a tab into a new window, `hasTabBar` needs to be
-            // updated to properly review window title
-            viewModel.hasTabBar = false
-            
             super.addTitlebarAccessoryViewController(childViewController)
             return
         }
@@ -199,10 +204,11 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         // The padding for the tab bar. If we're showing window buttons then
         // we need to offset the window buttons.
-        let leftPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
+        let windowButtonsPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
         case .hidden: 0
-        case .visible: 70
+        case .visible: windowControlButtonsWidth
         }
+        let leftPadding = max(windowButtonsPadding, worktrunkSidebarWidth)
 
         // Constrain the accessory clip view (the parent of the accessory view
         // usually that clips the children) to the container view.
@@ -210,8 +216,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         accessoryView.translatesAutoresizingMaskIntoConstraints = false
 
         // Setup all our constraints
-        NSLayoutConstraint.activate([
-            clipView.leftAnchor.constraint(equalTo: container.leftAnchor, constant: leftPadding),
+        tabBarLeftConstraint = clipView.leftAnchor.constraint(equalTo: container.leftAnchor, constant: leftPadding)
+        if let tabBarLeftConstraint {
+            NSLayoutConstraint.activate([
+                tabBarLeftConstraint,
             clipView.rightAnchor.constraint(equalTo: container.rightAnchor),
             clipView.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
             clipView.heightAnchor.constraint(equalTo: container.heightAnchor),
@@ -219,7 +227,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             accessoryView.rightAnchor.constraint(equalTo: clipView.rightAnchor),
             accessoryView.topAnchor.constraint(equalTo: clipView.topAnchor),
             accessoryView.heightAnchor.constraint(equalTo: clipView.heightAnchor),
-        ])
+            ])
+        }
 
         clipView.needsLayout = true
         accessoryView.needsLayout = true
@@ -255,6 +264,16 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         // Clear our observations
         self.tabBarObserver = nil
+    }
+
+    func updateWorktrunkSidebarWidth(_ width: CGFloat) {
+        worktrunkSidebarWidth = max(0, width)
+
+        let windowButtonsPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
+        case .hidden: 0
+        case .visible: windowControlButtonsWidth
+        }
+        tabBarLeftConstraint?.constant = max(windowButtonsPadding, worktrunkSidebarWidth)
     }
 
     // MARK: NSToolbarDelegate
