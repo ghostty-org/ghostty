@@ -1,0 +1,50 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    # Run daily at 6am UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/ghostty-org/ghostty.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Check if rebase needed
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count main..upstream/main)
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "Already up to date with upstream"
+          else
+            echo "Main is $BEHIND commits behind upstream"
+          fi
+
+      - name: Rebase onto upstream
+        if: steps.check.outputs.behind != '0'
+        run: |
+          git checkout main
+          git rebase upstream/main
+
+      - name: Push changes
+        if: steps.check.outputs.behind != '0'
+        run: git push --force-with-lease origin main
