@@ -5,21 +5,21 @@ Fork of [ghostty-org/ghostty](https://github.com/ghostty-org/ghostty) with [work
 ## Branches
 
 - `main` - Our customized version with Ghostree branding and worktrunk sidebar
-- `upstream` - Tracks `ghostty-org/ghostty` main branch (no customizations)
+- `upstream-main` - Tracks `ghostty-org/ghostty` main branch (no customizations)
 
 ## Syncing with upstream
 
 ```bash
 git fetch upstream
-git checkout upstream
+git checkout upstream-main
 git merge upstream/main --ff-only
-git push origin upstream
+git push origin upstream-main
 ```
 
 To merge upstream changes into main:
 ```bash
 git checkout main
-git merge upstream
+git merge upstream-main
 # resolve conflicts, keeping our customizations
 ```
 
