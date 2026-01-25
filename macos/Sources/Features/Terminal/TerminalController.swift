@@ -6,9 +6,17 @@ import GhosttyKit
 
 final class WorktrunkSidebarState: ObservableObject {
     @Published var columnVisibility: NavigationSplitViewVisibility
+    @Published var expandedRepoIDs: Set<UUID> = []
+    @Published var expandedWorktreePaths: Set<String> = []
 
-    init(columnVisibility: NavigationSplitViewVisibility = .all) {
+    init(
+        columnVisibility: NavigationSplitViewVisibility = .all,
+        expandedRepoIDs: Set<UUID> = [],
+        expandedWorktreePaths: Set<String> = []
+    ) {
         self.columnVisibility = columnVisibility
+        self.expandedRepoIDs = expandedRepoIDs
+        self.expandedWorktreePaths = expandedWorktreePaths
     }
 }
 
@@ -85,7 +93,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let parent,
            let parentController = parent.windowController as? TerminalController {
             self.worktrunkSidebarState = WorktrunkSidebarState(
-                columnVisibility: parentController.worktrunkSidebarState.columnVisibility
+                columnVisibility: parentController.worktrunkSidebarState.columnVisibility,
+                expandedRepoIDs: parentController.worktrunkSidebarState.expandedRepoIDs,
+                expandedWorktreePaths: parentController.worktrunkSidebarState.expandedWorktreePaths
             )
         } else {
             self.worktrunkSidebarState = WorktrunkSidebarState(columnVisibility: .all)
@@ -1056,6 +1066,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             openWorktree: { [weak self] path in
                 self?.openWorktree(atPath: path)
             },
+            resumeSession: { [weak self] session in
+                self?.resumeAISession(session)
+            },
             onSidebarWidthChange: { [weak self] width in
                 self?.updateWorktrunkTitlebarWidth(width)
             }
@@ -1196,6 +1209,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
             }
         }
+    }
+
+    private func resumeAISession(_ session: AISession) {
+        var base = Ghostty.SurfaceConfiguration()
+        base.workingDirectory = session.cwd
+
+        switch session.source {
+        case .claude:
+            // Claude needs to run from the cwd (set via workingDirectory)
+            base.command = "claude --resume \(session.id)"
+        case .codex:
+            // Codex handles cwd internally
+            base.command = "codex resume \(session.id)"
+        }
+
+        _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
     }
 
     private func focusOpenWorktree(atPath path: String) -> Bool {

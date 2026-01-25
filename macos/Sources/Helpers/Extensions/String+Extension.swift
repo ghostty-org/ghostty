@@ -25,5 +25,10 @@ extension String {
         }
         return self
     }
+
+    /// Returns the string escaped for use in a shell command.
+    var shellEscaped: String {
+        "'" + self.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
 #endif
 }

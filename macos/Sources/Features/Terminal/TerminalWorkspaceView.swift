@@ -8,6 +8,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
     @ObservedObject var worktrunkStore: WorktrunkStore
     @ObservedObject var worktrunkSidebarState: WorktrunkSidebarState
     let openWorktree: (String) -> Void
+    let resumeSession: ((AISession) -> Void)?
     let onSidebarWidthChange: (CGFloat) -> Void
 
     var body: some View {
@@ -16,7 +17,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
             set: { worktrunkSidebarState.columnVisibility = $0 }
         )
         NavigationSplitView(columnVisibility: columnVisibility) {
-            WorktrunkSidebarView(store: worktrunkStore, openWorktree: openWorktree)
+            WorktrunkSidebarView(store: worktrunkStore, sidebarState: worktrunkSidebarState, openWorktree: openWorktree, resumeSession: resumeSession)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
                 .background(SidebarWidthReader())
                 .onPreferenceChange(SidebarWidthPreferenceKey.self) { newValue in

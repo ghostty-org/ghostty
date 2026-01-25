@@ -1,12 +1,19 @@
 import AppKit
 import SwiftUI
 
+enum SidebarSelection: Hashable {
+    case worktree(path: String)
+    case session(id: String)
+}
+
 struct WorktrunkSidebarView: View {
     @ObservedObject var store: WorktrunkStore
+    @ObservedObject var sidebarState: WorktrunkSidebarState
     let openWorktree: (String) -> Void
+    var resumeSession: ((AISession) -> Void)?
 
-    @State private var expandedRepoIDs: Set<UUID> = []
     @State private var createSheetRepo: WorktrunkStore.Repository?
+    @State private var selection: SidebarSelection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,22 +51,33 @@ struct WorktrunkSidebarView: View {
             )
         }
         .onAppear {
-            if expandedRepoIDs.isEmpty {
-                expandedRepoIDs = Set(store.repositories.map(\.id))
+            if sidebarState.expandedRepoIDs.isEmpty {
+                sidebarState.expandedRepoIDs = Set(store.repositories.map(\.id))
             }
             Task { await store.refreshAll() }
         }
     }
 
     private var list: some View {
-        List {
+        List(selection: $selection) {
+            // Small loading indicator at top - doesn't block anything
+            if store.isRefreshing {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Loading sessions...")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             ForEach(store.repositories) { repo in
                 DisclosureGroup(
                     isExpanded: Binding(
-                        get: { expandedRepoIDs.contains(repo.id) },
+                        get: { sidebarState.expandedRepoIDs.contains(repo.id) },
                         set: { newValue in
-                            if newValue { expandedRepoIDs.insert(repo.id) }
-                            else { expandedRepoIDs.remove(repo.id) }
+                            if newValue { sidebarState.expandedRepoIDs.insert(repo.id) }
+                            else { sidebarState.expandedRepoIDs.remove(repo.id) }
                         }
                     )
                 ) {
@@ -69,8 +87,30 @@ struct WorktrunkSidebarView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(worktrees) { wt in
-                            Button {
-                                openWorktree(wt.path)
+                            DisclosureGroup(
+                                isExpanded: Binding(
+                                    get: { sidebarState.expandedWorktreePaths.contains(wt.path) },
+                                    set: { newValue in
+                                        if newValue { sidebarState.expandedWorktreePaths.insert(wt.path) }
+                                        else { sidebarState.expandedWorktreePaths.remove(wt.path) }
+                                    }
+                                )
+                            ) {
+                                // Sessions under this worktree
+                                let sessions = store.sessions(for: wt.path)
+                                if sessions.isEmpty {
+                                    Text("No sessions")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.leading, 8)
+                                } else {
+                                    ForEach(sessions) { session in
+                                        SessionRow(session: session, onResume: {
+                                            resumeSession?(session)
+                                        })
+                                        .tag(SidebarSelection.session(id: session.id))
+                                    }
+                                }
                             } label: {
                                 HStack(spacing: 8) {
                                     if wt.isCurrent {
@@ -85,10 +125,19 @@ struct WorktrunkSidebarView: View {
                                     }
                                     Text(wt.branch)
                                     Spacer()
+                                    Button {
+                                        openWorktree(wt.path)
+                                    } label: {
+                                        Image(systemName: "plus")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Open terminal in \(wt.branch)")
                                 }
+                                .contentShape(Rectangle())
+                                .help(wt.path)
                             }
-                            .buttonStyle(.plain)
-                            .help(wt.path)
+                            .tag(SidebarSelection.worktree(path: wt.path))
                         }
                     }
 
@@ -106,9 +155,7 @@ struct WorktrunkSidebarView: View {
                     .buttonStyle(.plain)
                     .padding(.top, 2)
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chevron.right")
-                            .opacity(0)
+                    HStack(spacing: 4) {
                         Text(repo.name)
                             .lineLimit(1)
                         Spacer()
@@ -234,5 +281,42 @@ private struct CreateWorktreeSheet: View {
         }
         onOpen(created.path)
         dismiss()
+    }
+}
+
+private struct SessionRow: View {
+    let session: AISession
+    let onResume: () -> Void
+
+    var body: some View {
+        Button(action: onResume) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.snippet ?? "Session")
+                        .font(.caption)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(session.source.rawValue.capitalized)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if session.messageCount > 0 {
+                            Text("\(session.messageCount) msgs")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("•")
+                            .foregroundStyle(.secondary)
+                        Text(session.timestamp, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .padding(.leading, 8)
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
     }
 }

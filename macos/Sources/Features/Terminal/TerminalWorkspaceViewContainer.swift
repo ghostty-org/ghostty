@@ -15,6 +15,7 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
         worktrunkStore: WorktrunkStore,
         worktrunkSidebarState: WorktrunkSidebarState,
         openWorktree: @escaping (String) -> Void,
+        resumeSession: ((AISession) -> Void)? = nil,
         onSidebarWidthChange: @escaping (CGFloat) -> Void
     ) {
         self.derivedConfig = DerivedConfig(config: ghostty.config)
@@ -25,6 +26,7 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
             worktrunkStore: worktrunkStore,
             worktrunkSidebarState: worktrunkSidebarState,
             openWorktree: openWorktree,
+            resumeSession: resumeSession,
             onSidebarWidthChange: onSidebarWidthChange
         ))
         super.init(frame: .zero)
