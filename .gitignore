@@ -24,3 +24,6 @@ glad.zip
 /ghostty.qcow2
 
 vgcore.*
+
+# Release scripts credentials
+scripts/.env.release.local
