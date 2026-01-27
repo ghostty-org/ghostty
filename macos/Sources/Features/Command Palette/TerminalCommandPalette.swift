@@ -139,12 +139,11 @@ struct TerminalCommandPaletteView: View {
             let displayColor = color != TerminalTabColor.none ? color : nil
 
             return controller.surfaceTree.map { surface in
-                let terminalTitle = surface.title.isEmpty ? window.title : surface.title
                 let displayTitle: String
                 if let override = controller.titleOverride, !override.isEmpty {
                     displayTitle = override
                 } else if !terminalTitle.isEmpty {
-                    displayTitle = terminalTitle
+                    displayTitle = surface.title.isEmpty ? window.title : surface.title
                 } else {
                     displayTitle = "Untitled"
                 }
