@@ -162,6 +162,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             page-attached => $page_attached();
             page-detached => $page_detached();
             create-window => $tab_create_window();
+            setup-menu => $setup_tab_menu();
+            menu-model: tab_context_menu;
             shortcuts: none;
           }
         }
@@ -218,6 +220,11 @@ menu main_menu {
   }
 
   section {
+    item {
+      label: _("Change Tab Title…");
+      action: "win.prompt-tab-title";
+    }
+
     item {
       label: _("New Tab");
       action: "win.new-tab";
@@ -305,5 +312,12 @@ menu main_menu {
       label: _("Quit");
       action: "app.quit";
     }
+  }
+}
+
+menu tab_context_menu {
+  item {
+    label: _("Change Tab Title…");
+    action: "win.prompt-context-tab-title";
   }
 }
