@@ -610,8 +610,9 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         // send a FF (0x0C) to the shell so that it can repaint the screen.
         // Mark the current row as a not a prompt so we can properly
         // clear the full screen in the next eraseDisplay call.
-        self.terminal.markSemanticPrompt(.command);
-        assert(!self.terminal.cursorIsAtPrompt());
+        // TODO: fix this
+        // self.terminal.markSemanticPrompt(.command);
+        // assert(!self.terminal.cursorIsAtPrompt());
         self.terminal.eraseDisplay(.complete, false);
     }
 

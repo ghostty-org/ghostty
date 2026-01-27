@@ -47,6 +47,7 @@ pub const Option = enum {
     cl,
     prompt_kind,
     err,
+
     // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
     // Kitty supports a "redraw" option for prompt_start. I can't find
     // this documented anywhere but can see in the code that this is used
