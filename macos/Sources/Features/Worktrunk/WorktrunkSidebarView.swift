@@ -112,19 +112,21 @@ struct WorktrunkSidebarView: View {
                                     }
                                 }
                             } label: {
-                                HStack(spacing: 8) {
-                                    if wt.isCurrent {
+                                HStack(spacing: 6) {
+                                    let tracking = store.gitTracking(for: wt.path)
+                                    if wt.isMain {
                                         Image(systemName: "location.fill")
-                                            .foregroundStyle(.secondary)
-                                    } else if wt.isMain {
-                                        Image(systemName: "house.fill")
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Image(systemName: "folder")
                                             .foregroundStyle(.secondary)
                                     }
                                     Text(wt.branch)
-                                    Spacer()
+                                    if let tracking,
+                                       tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
+                                        WorktreeChangeBadge(
+                                            additions: tracking.lineAdditions,
+                                            deletions: tracking.lineDeletions
+                                        )
+                                    }
+                                    Spacer(minLength: 8)
                                     Button {
                                         openWorktree(wt.path)
                                     } label: {
@@ -318,5 +320,40 @@ private struct SessionRow: View {
             .padding(.vertical, 2)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct WorktreeTrackingBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+    }
+}
+
+private struct WorktreeChangeBadge: View {
+    let additions: Int
+    let deletions: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if additions > 0 {
+                Text("+\(additions)")
+                    .foregroundStyle(Color.green)
+            }
+            if deletions > 0 {
+                Text("-\(deletions)")
+                    .foregroundStyle(Color.red)
+            }
+        }
+        .font(.caption2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(Color.secondary.opacity(0.15)))
     }
 }

@@ -113,6 +113,18 @@ final class WorktrunkStore: ObservableObject {
         var id: String { "\(repositoryID.uuidString)::\(branch)::\(path)" }
     }
 
+    struct GitTracking: Hashable {
+        var hasUpstream: Bool
+        var ahead: Int
+        var behind: Int
+        var stagedCount: Int
+        var unstagedCount: Int
+        var untrackedCount: Int
+        var totalChangesCount: Int
+        var lineAdditions: Int
+        var lineDeletions: Int
+    }
+
     private struct WtListItem: Decodable {
         var branch: String?
         var path: String?
@@ -132,6 +144,7 @@ final class WorktrunkStore: ObservableObject {
     @Published private(set) var repositories: [Repository] = []
     @Published private var worktreesByRepositoryID: [UUID: [Worktree]] = [:]
     @Published private var sessionsByWorktreePath: [String: [AISession]] = [:]
+    @Published private var gitTrackingByWorktreePath: [String: GitTracking] = [:]
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
 
@@ -148,6 +161,10 @@ final class WorktrunkStore: ObservableObject {
 
     func sessions(for worktreePath: String) -> [AISession] {
         sessionsByWorktreePath[worktreePath] ?? []
+    }
+
+    func gitTracking(for worktreePath: String) -> GitTracking? {
+        gitTrackingByWorktreePath[worktreePath]
     }
 
     func addRepositoryValidated(path: String, displayName: String? = nil) async {
@@ -203,6 +220,9 @@ final class WorktrunkStore: ObservableObject {
 
     func refresh(repoID: UUID) async {
         guard let repo = repositories.first(where: { $0.id == repoID }) else { return }
+        let previousPaths = await MainActor.run {
+            Set(worktreesByRepositoryID[repoID]?.map(\.path) ?? [])
+        }
         do {
             let result = try await WorktrunkClient.run(["-C", repo.path, "list", "--format=json"])
             let data = Data(result.stdout.utf8)
@@ -228,6 +248,7 @@ final class WorktrunkStore: ObservableObject {
                 }
                 errorMessage = nil
             }
+            await refreshGitTracking(for: worktrees, removing: previousPaths)
         } catch {
             await MainActor.run {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
@@ -286,6 +307,338 @@ final class WorktrunkStore: ObservableObject {
 
     private func normalizePath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func refreshGitTracking(for worktrees: [Worktree], removing previousPaths: Set<String>) async {
+        let newPaths = Set(worktrees.map(\.path))
+        var results: [String: GitTracking] = [:]
+
+        await withTaskGroup(of: (String, GitTracking?).self) { group in
+            for worktree in worktrees {
+                group.addTask { [self] in
+                    let tracking = try? await getGitTracking(worktreePath: worktree.path)
+                    return (worktree.path, tracking)
+                }
+            }
+
+            for await (path, tracking) in group {
+                if let tracking {
+                    results[path] = tracking
+                }
+            }
+        }
+
+        await MainActor.run {
+            for path in previousPaths where !newPaths.contains(path) {
+                gitTrackingByWorktreePath[path] = nil
+            }
+            for path in newPaths where results[path] == nil {
+                gitTrackingByWorktreePath[path] = nil
+            }
+            for (path, tracking) in results {
+                gitTrackingByWorktreePath[path] = tracking
+            }
+        }
+    }
+
+    private func getGitTracking(worktreePath: String) async throws -> GitTracking? {
+        let output = try await runGitStatus(worktreePath: worktreePath)
+        if output.isEmpty { return nil }
+        var parsed = parseGitStatusOutput(output)
+
+        let (unstagedAdds, unstagedDeletes) = (try? await runGitNumstat(
+            worktreePath: worktreePath,
+            args: ["diff", "--numstat"]
+        )) ?? (0, 0)
+
+        let (stagedAdds, stagedDeletes) = (try? await runGitNumstat(
+            worktreePath: worktreePath,
+            args: ["diff", "--cached", "--numstat"]
+        )) ?? (0, 0)
+
+        let untrackedAdds = countUntrackedAdditions(
+            worktreePath: worktreePath,
+            paths: parsed.untrackedFiles
+        )
+
+        parsed.tracking.lineAdditions = unstagedAdds + stagedAdds + untrackedAdds
+        parsed.tracking.lineDeletions = unstagedDeletes + stagedDeletes
+
+        return parsed.tracking
+    }
+
+    private struct GitInvocation {
+        let executableURL: URL
+        let arguments: [String]
+        let environment: [String: String]
+    }
+
+    private func makeGitInvocation(args: [String]) throws -> GitInvocation {
+        var env = ProcessInfo.processInfo.environment
+        let prefix = ["/opt/homebrew/bin", "/usr/local/bin"]
+        let existingPath = env["PATH"] ?? ""
+        if existingPath.isEmpty {
+            env["PATH"] = prefix.joined(separator: ":")
+        } else {
+            let existingComponents = Set(existingPath.split(separator: ":").map(String.init))
+            let missingPaths = prefix.filter { !existingComponents.contains($0) }
+            if !missingPaths.isEmpty {
+                env["PATH"] = (missingPaths + [existingPath]).joined(separator: ":")
+            }
+        }
+
+        for path in ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"] {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return GitInvocation(
+                    executableURL: URL(fileURLWithPath: path),
+                    arguments: args,
+                    environment: env
+                )
+            }
+        }
+
+        let envURL = URL(fileURLWithPath: "/usr/bin/env")
+        guard FileManager.default.isExecutableFile(atPath: envURL.path) else {
+            throw WorktrunkClientError.executableNotFound
+        }
+
+        return GitInvocation(
+            executableURL: envURL,
+            arguments: ["git"] + args,
+            environment: env
+        )
+    }
+
+    private func runGitStatus(worktreePath: String) async throws -> String {
+        try await Task.detached(priority: .userInitiated) { [self] in
+            try runGitStatusSync(worktreePath: worktreePath)
+        }.value
+    }
+
+    private func runGitStatusSync(worktreePath: String) throws -> String {
+        let args = [
+            "--no-optional-locks",
+            "-C",
+            worktreePath,
+            "status",
+            "--porcelain=v1",
+            "-b",
+            "-z",
+            "-M",
+            "-uall",
+        ]
+
+        let invocation = try makeGitInvocation(args: args)
+        let process = Process()
+        process.executableURL = invocation.executableURL
+        process.arguments = invocation.arguments
+        process.environment = invocation.environment
+
+        let stdinPipe = Pipe()
+        stdinPipe.fileHandleForWriting.closeFile()
+        process.standardInput = stdinPipe
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard let stdout = String(data: stdoutData, encoding: .utf8),
+              let stderr = String(data: stderrData, encoding: .utf8) else {
+            throw WorktrunkClientError.invalidUTF8
+        }
+
+        if process.terminationStatus != 0 {
+            throw WorktrunkClientError.nonZeroExit(
+                code: process.terminationStatus,
+                stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+
+        return stdout
+    }
+
+    private struct ParsedGitStatus {
+        var tracking: GitTracking
+        var untrackedFiles: [String]
+    }
+
+    private func parseGitStatusOutput(_ output: String) -> ParsedGitStatus {
+        let entries = output.split(separator: "\0").map(String.init)
+        var hasUpstream = false
+        var ahead = 0
+        var behind = 0
+
+        var stagedFiles = Set<String>()
+        var unstagedFiles = Set<String>()
+        var untrackedFiles = Set<String>()
+        var anyFiles = Set<String>()
+
+        var i = 0
+        while i < entries.count {
+            let entry = entries[i]
+            if entry.hasPrefix("## ") {
+                let branchInfo = String(entry.dropFirst(3))
+                if let range = branchInfo.range(of: "...") {
+                    let after = branchInfo[range.upperBound...]
+                    let upstream = after.split(whereSeparator: { $0 == " " || $0 == "[" }).first
+                    hasUpstream = (upstream?.isEmpty == false)
+                }
+
+                if let start = branchInfo.firstIndex(of: "["),
+                   let end = branchInfo.firstIndex(of: "]"),
+                   start < end {
+                    let inside = branchInfo[branchInfo.index(after: start)..<end]
+                    let parts = inside.split(separator: ",")
+                    for part in parts {
+                        let trimmed = part.trimmingCharacters(in: .whitespaces)
+                        if trimmed.hasPrefix("ahead ") {
+                            let value = trimmed.replacingOccurrences(of: "ahead ", with: "")
+                            ahead = Int(value) ?? 0
+                        } else if trimmed.hasPrefix("behind ") {
+                            let value = trimmed.replacingOccurrences(of: "behind ", with: "")
+                            behind = Int(value) ?? 0
+                        }
+                    }
+                }
+
+                i += 1
+                continue
+            }
+
+            if entry.count < 3 {
+                i += 1
+                continue
+            }
+
+            let indexStatus = entry[entry.startIndex]
+            let workingStatus = entry[entry.index(after: entry.startIndex)]
+            let pathStart = entry.index(entry.startIndex, offsetBy: 3)
+            let path = String(entry[pathStart...])
+
+            if indexStatus == "?" && workingStatus == "?" {
+                untrackedFiles.insert(path)
+                anyFiles.insert(path)
+                i += 1
+                continue
+            }
+
+            if indexStatus != " " {
+                stagedFiles.insert(path)
+                anyFiles.insert(path)
+            }
+
+            if workingStatus != " " {
+                unstagedFiles.insert(path)
+                anyFiles.insert(path)
+            }
+
+            if indexStatus == "R" || indexStatus == "C" {
+                i += 1
+            }
+
+            i += 1
+        }
+
+        return ParsedGitStatus(
+            tracking: GitTracking(
+            hasUpstream: hasUpstream,
+            ahead: ahead,
+            behind: behind,
+            stagedCount: stagedFiles.count,
+            unstagedCount: unstagedFiles.count,
+            untrackedCount: untrackedFiles.count,
+            totalChangesCount: anyFiles.count,
+            lineAdditions: 0,
+            lineDeletions: 0
+        ),
+            untrackedFiles: Array(untrackedFiles)
+        )
+    }
+
+    private func runGitNumstat(worktreePath: String, args: [String]) async throws -> (Int, Int) {
+        try await Task.detached(priority: .userInitiated) { [self] in
+            try runGitNumstatSync(worktreePath: worktreePath, args: args)
+        }.value
+    }
+
+    private func runGitNumstatSync(worktreePath: String, args: [String]) throws -> (Int, Int) {
+        let fullArgs = ["-C", worktreePath] + args
+        let invocation = try makeGitInvocation(args: fullArgs)
+
+        let process = Process()
+        process.executableURL = invocation.executableURL
+        process.arguments = invocation.arguments
+        process.environment = invocation.environment
+
+        let stdinPipe = Pipe()
+        stdinPipe.fileHandleForWriting.closeFile()
+        process.standardInput = stdinPipe
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard let stdout = String(data: stdoutData, encoding: .utf8),
+              let stderr = String(data: stderrData, encoding: .utf8) else {
+            throw WorktrunkClientError.invalidUTF8
+        }
+
+        if process.terminationStatus != 0 {
+            throw WorktrunkClientError.nonZeroExit(
+                code: process.terminationStatus,
+                stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+
+        return parseNumstat(stdout)
+    }
+
+    private func parseNumstat(_ output: String) -> (Int, Int) {
+        var additions = 0
+        var deletions = 0
+
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: "\t")
+            if parts.count < 2 { continue }
+            let addStr = String(parts[0])
+            let delStr = String(parts[1])
+
+            if addStr != "-", let add = Int(addStr) {
+                additions += add
+            }
+            if delStr != "-", let del = Int(delStr) {
+                deletions += del
+            }
+        }
+
+        return (additions, deletions)
+    }
+
+    private func countUntrackedAdditions(worktreePath: String, paths: [String]) -> Int {
+        var total = 0
+        for path in paths {
+            let url = URL(fileURLWithPath: worktreePath).appendingPathComponent(path)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = attrs[.size] as? NSNumber else { continue }
+            if size.int64Value > 1_000_000 { continue }
+            if let data = try? Data(contentsOf: url),
+               let content = String(data: data, encoding: .utf8) {
+                total += content.split(separator: "\n", omittingEmptySubsequences: false).count
+            }
+        }
+        return total
     }
 
     // MARK: - Session Discovery
