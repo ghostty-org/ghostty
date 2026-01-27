@@ -107,11 +107,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub";
+      name = "N-V-__8AAIT5KwGz955VFk9c5rWaksEC9xVOvGDyR5JBAXnB";
       path = fetchZigArtifact {
         name = "freetype";
-        url = "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz";
-        hash = "sha256-QnIB9dUVFnDQXB9bRb713aHy592XHvVPD+qqf/0quQw=";
+        url = "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.gz";
+        hash = "sha256-F02eU0AuG/nscnfiLsGZuj5Vpr4sB0DLGMDumFD8jDQ=";
       };
     }
     {

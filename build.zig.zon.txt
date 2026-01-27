@@ -4,7 +4,6 @@ https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz
 https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz
 https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz
 https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz
-https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz
 https://deps.files.ghostty.org/gettext-0.24.tar.gz
 https://deps.files.ghostty.org/ghostty-themes-release-20260112-150707-28c8f5b.tgz
 https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz
@@ -31,6 +30,7 @@ https://deps.files.ghostty.org/zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.t
 https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz
 https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz
 https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
+https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.gz
 https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz
 https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz
 https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz
