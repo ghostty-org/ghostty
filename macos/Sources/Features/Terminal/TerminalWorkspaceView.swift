@@ -21,8 +21,14 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
                 .background(SidebarWidthReader())
                 .onPreferenceChange(SidebarWidthPreferenceKey.self) { newValue in
-                    guard newValue > 0 else { return }
-                    onSidebarWidthChange(newValue)
+                    if newValue > 0 {
+                        onSidebarWidthChange(newValue)
+                        return
+                    }
+
+                    if worktrunkSidebarState.columnVisibility == .detailOnly {
+                        onSidebarWidthChange(0)
+                    }
                 }
         } detail: {
             TerminalView(

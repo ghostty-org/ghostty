@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import Sparkle
-@testable import Ghostty
+@testable import Ghostree
 
 struct UpdateStateTests {
     // MARK: - Equatable Tests

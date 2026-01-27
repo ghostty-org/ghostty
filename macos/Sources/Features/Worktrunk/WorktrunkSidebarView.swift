@@ -1,11 +1,6 @@
 import AppKit
 import SwiftUI
 
-enum SidebarSelection: Hashable {
-    case worktree(path: String)
-    case session(id: String)
-}
-
 struct WorktrunkSidebarView: View {
     @ObservedObject var store: WorktrunkStore
     @ObservedObject var sidebarState: WorktrunkSidebarState
@@ -13,7 +8,6 @@ struct WorktrunkSidebarView: View {
     var resumeSession: ((AISession) -> Void)?
 
     @State private var createSheetRepo: WorktrunkStore.Repository?
-    @State private var selection: SidebarSelection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,7 +53,11 @@ struct WorktrunkSidebarView: View {
     }
 
     private var list: some View {
-        List(selection: $selection) {
+        let selection = Binding(
+            get: { sidebarState.selection },
+            set: { sidebarState.selection = $0 }
+        )
+        return List(selection: selection) {
             // Small loading indicator at top - doesn't block anything
             if store.isRefreshing {
                 HStack(spacing: 6) {
@@ -112,14 +110,19 @@ struct WorktrunkSidebarView: View {
                                     }
                                 }
                             } label: {
-                                HStack(spacing: 6) {
-                                    let tracking = store.gitTracking(for: wt.path)
-                                    if wt.isMain {
+                                HStack(spacing: 8) {
+                                    if wt.isCurrent {
                                         Image(systemName: "location.fill")
+                                            .foregroundStyle(.secondary)
+                                    } else if wt.isMain {
+                                        Image(systemName: "house.fill")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Image(systemName: "folder")
                                             .foregroundStyle(.secondary)
                                     }
                                     Text(wt.branch)
-                                    if let tracking,
+                                    if let tracking = store.gitTracking(for: wt.path),
                                        tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
                                         WorktreeChangeBadge(
                                             additions: tracking.lineAdditions,
@@ -331,8 +334,8 @@ private struct WorktreeTrackingBadge: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+        .padding(.vertical, 1)
+        .background(Capsule().fill(Color.secondary.opacity(0.15)))
     }
 }
 

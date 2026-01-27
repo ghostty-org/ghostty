@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Ghostty
+@testable import Ghostree
 
 struct TerminalSplitDropZoneTests {
     private let standardSize = CGSize(width: 100, height: 100)

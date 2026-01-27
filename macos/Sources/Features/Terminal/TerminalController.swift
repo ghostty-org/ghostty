@@ -8,18 +8,25 @@ final class WorktrunkSidebarState: ObservableObject {
     @Published var columnVisibility: NavigationSplitViewVisibility
     @Published var expandedRepoIDs: Set<UUID> = []
     @Published var expandedWorktreePaths: Set<String> = []
+    @Published var selection: SidebarSelection? = nil
 
     init(
         columnVisibility: NavigationSplitViewVisibility = .all,
         expandedRepoIDs: Set<UUID> = [],
-        expandedWorktreePaths: Set<String> = []
+        expandedWorktreePaths: Set<String> = [],
+        selection: SidebarSelection? = nil
     ) {
         self.columnVisibility = columnVisibility
         self.expandedRepoIDs = expandedRepoIDs
         self.expandedWorktreePaths = expandedWorktreePaths
+        self.selection = selection
     }
 }
 
+enum SidebarSelection: Hashable {
+    case worktree(path: String)
+    case session(id: String)
+}
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
     override var windowNibName: NSNib.Name? {
@@ -71,6 +78,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private(set) var derivedConfig: DerivedConfig
     
     private let worktrunkSidebarState: WorktrunkSidebarState
+
+    private var worktrunkSidebarSyncCancellables: Set<AnyCancellable> = []
+    private var worktrunkSidebarSyncApplyingRemoteUpdate: Bool = false
     
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
@@ -95,7 +105,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self.worktrunkSidebarState = WorktrunkSidebarState(
                 columnVisibility: parentController.worktrunkSidebarState.columnVisibility,
                 expandedRepoIDs: parentController.worktrunkSidebarState.expandedRepoIDs,
-                expandedWorktreePaths: parentController.worktrunkSidebarState.expandedWorktreePaths
+                expandedWorktreePaths: parentController.worktrunkSidebarState.expandedWorktreePaths,
+                selection: parentController.worktrunkSidebarState.selection
             )
         } else {
             self.worktrunkSidebarState = WorktrunkSidebarState(columnVisibility: .all)
@@ -1074,6 +1085,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         )
         installWorktrunkTitlebar()
+        installWorktrunkSidebarSync()
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1128,6 +1140,115 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncAppearance(.init(config))
     }
 
+    private func installWorktrunkSidebarSync() {
+        guard worktrunkSidebarSyncCancellables.isEmpty else { return }
+
+        worktrunkSidebarState.$columnVisibility
+            .sink { [weak self] visibility in
+                if visibility == .detailOnly {
+                    self?.updateWorktrunkTitlebarWidth(0)
+                }
+                self?.syncWorktrunkSidebarVisibilityToTabGroup(visibility)
+            }
+            .store(in: &worktrunkSidebarSyncCancellables)
+
+        worktrunkSidebarState.$expandedRepoIDs
+            .sink { [weak self] expandedRepoIDs in
+                self?.syncWorktrunkSidebarExpandedRepoIDsToTabGroup(expandedRepoIDs)
+            }
+            .store(in: &worktrunkSidebarSyncCancellables)
+
+        worktrunkSidebarState.$expandedWorktreePaths
+            .sink { [weak self] expandedWorktreePaths in
+                self?.syncWorktrunkSidebarExpandedWorktreePathsToTabGroup(expandedWorktreePaths)
+            }
+            .store(in: &worktrunkSidebarSyncCancellables)
+
+        worktrunkSidebarState.$selection
+            .sink { [weak self] selection in
+                self?.syncWorktrunkSidebarSelectionToTabGroup(selection)
+            }
+            .store(in: &worktrunkSidebarSyncCancellables)
+    }
+
+    private func syncWorktrunkSidebarVisibilityToTabGroup(_ visibility: NavigationSplitViewVisibility) {
+        guard !worktrunkSidebarSyncApplyingRemoteUpdate else { return }
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return }
+
+        for sibling in tabGroup.windows where sibling != window {
+            guard let controller = sibling.windowController as? TerminalController else { continue }
+            controller.applySyncedWorktrunkSidebarVisibility(visibility)
+        }
+    }
+
+    private func syncWorktrunkSidebarExpandedRepoIDsToTabGroup(_ expandedRepoIDs: Set<UUID>) {
+        guard !worktrunkSidebarSyncApplyingRemoteUpdate else { return }
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return }
+
+        for sibling in tabGroup.windows where sibling != window {
+            guard let controller = sibling.windowController as? TerminalController else { continue }
+            controller.applySyncedWorktrunkSidebarExpandedRepoIDs(expandedRepoIDs)
+        }
+    }
+
+    private func syncWorktrunkSidebarExpandedWorktreePathsToTabGroup(_ expandedWorktreePaths: Set<String>) {
+        guard !worktrunkSidebarSyncApplyingRemoteUpdate else { return }
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return }
+
+        for sibling in tabGroup.windows where sibling != window {
+            guard let controller = sibling.windowController as? TerminalController else { continue }
+            controller.applySyncedWorktrunkSidebarExpandedWorktreePaths(expandedWorktreePaths)
+        }
+    }
+
+    private func syncWorktrunkSidebarSelectionToTabGroup(_ selection: SidebarSelection?) {
+        guard !worktrunkSidebarSyncApplyingRemoteUpdate else { return }
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return }
+
+        for sibling in tabGroup.windows where sibling != window {
+            guard let controller = sibling.windowController as? TerminalController else { continue }
+            controller.applySyncedWorktrunkSidebarSelection(selection)
+        }
+    }
+
+    private func applySyncedWorktrunkSidebarVisibility(_ visibility: NavigationSplitViewVisibility) {
+        guard worktrunkSidebarState.columnVisibility != visibility else { return }
+        worktrunkSidebarSyncApplyingRemoteUpdate = true
+        worktrunkSidebarState.columnVisibility = visibility
+        worktrunkSidebarSyncApplyingRemoteUpdate = false
+    }
+
+    private func applySyncedWorktrunkSidebarExpandedRepoIDs(_ expandedRepoIDs: Set<UUID>) {
+        guard worktrunkSidebarState.expandedRepoIDs != expandedRepoIDs else { return }
+        worktrunkSidebarSyncApplyingRemoteUpdate = true
+        worktrunkSidebarState.expandedRepoIDs = expandedRepoIDs
+        worktrunkSidebarSyncApplyingRemoteUpdate = false
+    }
+
+    private func applySyncedWorktrunkSidebarExpandedWorktreePaths(_ expandedWorktreePaths: Set<String>) {
+        guard worktrunkSidebarState.expandedWorktreePaths != expandedWorktreePaths else { return }
+        worktrunkSidebarSyncApplyingRemoteUpdate = true
+        worktrunkSidebarState.expandedWorktreePaths = expandedWorktreePaths
+        worktrunkSidebarSyncApplyingRemoteUpdate = false
+    }
+
+    private func applySyncedWorktrunkSidebarSelection(_ selection: SidebarSelection?) {
+        guard worktrunkSidebarState.selection != selection else { return }
+        worktrunkSidebarSyncApplyingRemoteUpdate = true
+        worktrunkSidebarState.selection = selection
+        worktrunkSidebarSyncApplyingRemoteUpdate = false
+    }
+
+    private func syncWorktrunkSidebarStateToTabGroup() {
+        syncWorktrunkSidebarVisibilityToTabGroup(worktrunkSidebarState.columnVisibility)
+        syncWorktrunkSidebarExpandedRepoIDsToTabGroup(worktrunkSidebarState.expandedRepoIDs)
+        syncWorktrunkSidebarExpandedWorktreePathsToTabGroup(worktrunkSidebarState.expandedWorktreePaths)
+        syncWorktrunkSidebarSelectionToTabGroup(worktrunkSidebarState.selection)
+    }
     private func installWorktrunkTitlebar() {
         guard let window else { return }
         guard window.styleMask.contains(.titled) else { return }
@@ -1312,6 +1433,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+        syncWorktrunkSidebarStateToTabGroup()
     }
 
     override func windowDidMove(_ notification: Notification) {

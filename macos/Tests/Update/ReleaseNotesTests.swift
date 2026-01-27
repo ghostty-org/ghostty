@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Ghostty
+@testable import Ghostree
 
 struct ReleaseNotesTests {
     /// Test tagged release (semantic version)
