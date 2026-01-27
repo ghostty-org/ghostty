@@ -35,6 +35,7 @@ const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Config = @import("config.zig").Config;
 const Surface = @import("surface.zig").Surface;
 const SplitTree = @import("split_tree.zig").SplitTree;
+const Tab = @import("tab.zig").Tab;
 const Window = @import("window.zig").Window;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
@@ -2330,9 +2331,17 @@ const Action = struct {
                     return true;
                 },
             },
-            .tab => {
-                // GTK does not yet support tab title prompting
-                return false;
+            .tab => switch (target) {
+                .app => return false,
+                .surface => |v| {
+                    // Get the tab from the surface's split tree ancestor
+                    const tab = ext.getAncestor(
+                        Tab,
+                        v.rt_surface.surface.as(gtk.Widget),
+                    ) orelse return false;
+                    tab.promptTitle();
+                    return true;
+                },
             },
         }
     }
