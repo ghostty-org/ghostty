@@ -94,6 +94,27 @@ pub const compatibility = std.StaticStringMap(
     .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 });
 
+/// Set Ghostty's graphical user interface language to a language other than the
+/// system default language. The language must be fully specified, including the
+/// encoding. For example:
+///
+///     language = de_DE.UTF-8
+///
+/// will force the strings in Ghostty's graphical user interface to be in German
+/// rather than the system default.
+///
+/// This will not affect the language used by programs run _within_ Ghostty.
+/// Those will continue to use the default system language. There are also many
+/// non-GUI elements in Ghostty that are not translated - this setting will have
+/// no effect on those.
+///
+/// Warning: This setting cannot be reloaded at runtime. To change the language
+/// you must fully restart Ghostty.
+///
+/// GTK only.
+/// Available since 1.3.0.
+language: ?[:0]const u8 = null,
+
 /// The font families to use.
 ///
 /// You can generate the list of valid values using the CLI:
