@@ -2629,6 +2629,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const row_selection = row_data.items(.selection);
             const row_highlights = row_data.items(.highlights);
 
+            // Get preedit range only if its row is dirty or full rebuild.
+            const dirty_preedit_range = if (preedit_range) |range|
+                if (rebuild or row_dirty[range.y]) preedit_range else null
+            else
+                null;
+
             // If our cell contents buffer is shorter than the screen viewport,
             // we render the rows that fit, starting from the bottom. If instead
             // the viewport is shorter than the cell contents buffer, we align
@@ -2811,9 +2817,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
-            // Setup our preedit text.
-            if (preedit) |preedit_v| {
-                const range = preedit_range.?;
+            // Rebuild our preedit text only when its row is dirty.
+            if (dirty_preedit_range) |range| {
+                const preedit_v = preedit.?;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
                     self.addPreeditCell(
