@@ -3,7 +3,6 @@ https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz
 https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz
 https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz
 https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz
-https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz
 https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz
 https://deps.files.ghostty.org/gettext-0.24.tar.gz
 https://deps.files.ghostty.org/ghostty-themes-release-20260112-150707-28c8f5b.tgz
@@ -34,3 +33,4 @@ https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90
 https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz
 https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz
 https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz
+https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.17.1/fontconfig-2.17.1.tar.gz
