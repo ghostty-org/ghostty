@@ -152,12 +152,14 @@ final class WorktrunkStore: ObservableObject {
     private let repositoriesKey = "GhosttyWorktrunkRepositories.v1"
     private let sessionCache = SessionCacheManager()
     private var agentEventTailer: AgentEventTailer? = nil
+    private var pendingAgentEventsByCwd: [String: AgentLifecycleEvent] = [:]
 
     init() {
         load()
         AgentHookInstaller.ensureInstalled()
         pruneAgentEventLogIfNeeded()
         startAgentEventTailer()
+        seedAgentStatusesFromLog()
     }
 
     func worktrees(for repositoryID: UUID) -> [Worktree] {
@@ -276,6 +278,7 @@ final class WorktrunkStore: ObservableObject {
                     return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
                 }
                 errorMessage = nil
+                reconcilePendingAgentEvents()
             }
             await refreshGitTracking(for: worktrees, removing: previousPaths)
         } catch {
@@ -1013,17 +1016,64 @@ final class WorktrunkStore: ObservableObject {
     }
 
     private func handleAgentLifecycleEvent(_ event: AgentLifecycleEvent) {
-        guard let worktreePath = findMatchingWorktree(event.cwd) else { return }
-
-        let status: WorktreeAgentStatus = switch event.eventType {
-        case .start: .working
-        case .permissionRequest: .permission
-        case .stop: .review
-        }
-
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+
+            guard let worktreePath = self.findMatchingWorktree(event.cwd) else {
+                self.pendingAgentEventsByCwd[event.cwd] = event
+                return
+            }
+
+            let status: WorktreeAgentStatus = switch event.eventType {
+            case .start: .working
+            case .permissionRequest: .permission
+            case .stop: .review
+            }
+
             self.agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: Date())
+        }
+    }
+
+    private func reconcilePendingAgentEvents() {
+        if pendingAgentEventsByCwd.isEmpty { return }
+
+        for (cwd, event) in pendingAgentEventsByCwd {
+            guard let worktreePath = findMatchingWorktree(cwd) else { continue }
+
+            let status: WorktreeAgentStatus = switch event.eventType {
+            case .start: .working
+            case .permissionRequest: .permission
+            case .stop: .review
+            }
+
+            agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: Date())
+            pendingAgentEventsByCwd.removeValue(forKey: cwd)
+        }
+    }
+
+    private func seedAgentStatusesFromLog() {
+        let url = AgentStatusPaths.eventsLogURL
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? NSNumber else { return }
+        if size.int64Value <= 0 { return }
+
+        let readBytes: Int64 = 256_000
+        let start = UInt64(max(0, size.int64Value - readBytes))
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+
+        let data: Data
+        do {
+            try handle.seek(toOffset: start)
+            data = try handle.readToEnd() ?? Data()
+        } catch {
+            return
+        }
+
+        for line in data.split(separator: UInt8(ascii: "\n")) {
+            if let event = AgentEventTailer.parseLineData(Data(line)) {
+                handleAgentLifecycleEvent(event)
+            }
         }
     }
 

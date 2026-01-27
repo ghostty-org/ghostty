@@ -130,12 +130,17 @@ final class AgentEventTailer {
     }
 
     private func handleLine(_ lineData: Data) {
-        guard !lineData.isEmpty else { return }
+        guard let event = Self.parseLineData(lineData) else { return }
+        onEvent(event)
+    }
+
+    static func parseLineData(_ lineData: Data) -> AgentLifecycleEvent? {
+        guard !lineData.isEmpty else { return nil }
         guard let obj = try? JSONSerialization.jsonObject(with: lineData),
-              let dict = obj as? [String: Any] else { return }
+              let dict = obj as? [String: Any] else { return nil }
         guard let eventTypeRaw = dict["eventType"] as? String,
-              let eventType = AgentLifecycleEventType(rawValue: eventTypeRaw) else { return }
-        guard let cwd = dict["cwd"] as? String else { return }
+              let eventType = AgentLifecycleEventType(rawValue: eventTypeRaw) else { return nil }
+        guard let cwd = dict["cwd"] as? String else { return nil }
 
         var timestamp = Date()
         if let ts = dict["timestamp"] as? String {
@@ -146,6 +151,6 @@ final class AgentEventTailer {
             }
         }
 
-        onEvent(AgentLifecycleEvent(timestamp: timestamp, eventType: eventType, cwd: cwd))
+        return AgentLifecycleEvent(timestamp: timestamp, eventType: eventType, cwd: cwd)
     }
 }
