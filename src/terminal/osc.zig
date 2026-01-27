@@ -152,6 +152,9 @@ pub const Command = union(Key) {
     /// Kitty text sizing protocol (OSC 66)
     kitty_text_sizing: parsers.kitty_text_sizing.OSC,
 
+    /// Kitty desktop notifications (OSC 99)
+    kitty_desktop_notification: parsers.kitty_desktop_notification.OSC,
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const Key = LibEnum(
@@ -181,6 +184,7 @@ pub const Command = union(Key) {
             "conemu_xterm_emulation",
             "conemu_comment",
             "kitty_text_sizing",
+            "kitty_desktop_notification",
         },
     );
 
@@ -326,6 +330,7 @@ pub const Parser = struct {
         @"52",
         @"66",
         @"77",
+        @"99",
         @"104",
         @"110",
         @"111",
@@ -401,6 +406,7 @@ pub const Parser = struct {
             .semantic_prompt,
             .show_desktop_notification,
             .kitty_text_sizing,
+            .kitty_desktop_notification,
             => {},
         }
 
@@ -607,11 +613,24 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
+            .@"9",
+            => switch (c) {
+                ';' => self.writeToFixed(),
+                '9' => self.state = .@"99",
+                else => self.state = .invalid,
+            },
+
+            .@"99",
+            => switch (c) {
+                // OSC 99 can be up to 4096 bytes fully encoded.
+                ';' => self.writeToAllocating(),
+                else => self.state = .invalid,
+            },
+
             .@"0",
             .@"22",
             .@"777",
             .@"8",
-            .@"9",
             => switch (c) {
                 ';' => self.writeToFixed(),
                 else => self.state = .invalid,
@@ -680,6 +699,8 @@ pub const Parser = struct {
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
 
             .@"77" => null,
+
+            .@"99" => parsers.kitty_desktop_notification.parse(self, terminator_ch),
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
