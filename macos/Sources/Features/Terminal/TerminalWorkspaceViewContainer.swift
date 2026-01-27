@@ -14,9 +14,12 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
         delegate: (any TerminalViewDelegate)? = nil,
         worktrunkStore: WorktrunkStore,
         worktrunkSidebarState: WorktrunkSidebarState,
+        gitDiffSidebarState: GitDiffSidebarState,
         openWorktree: @escaping (String) -> Void,
         resumeSession: ((AISession) -> Void)? = nil,
-        onSidebarWidthChange: @escaping (CGFloat) -> Void
+        onSidebarWidthChange: @escaping (CGFloat) -> Void,
+        onGitDiffSelect: @escaping (GitDiffEntry) -> Void,
+        onGitDiffWorktreeSelect: @escaping (String?) -> Void
     ) {
         self.derivedConfig = DerivedConfig(config: ghostty.config)
         self.contentView = NSHostingView(rootView: TerminalWorkspaceView(
@@ -25,9 +28,12 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
             delegate: delegate,
             worktrunkStore: worktrunkStore,
             worktrunkSidebarState: worktrunkSidebarState,
+            gitDiffSidebarState: gitDiffSidebarState,
             openWorktree: openWorktree,
             resumeSession: resumeSession,
-            onSidebarWidthChange: onSidebarWidthChange
+            onSidebarWidthChange: onSidebarWidthChange,
+            onGitDiffSelect: onGitDiffSelect,
+            onGitDiffWorktreeSelect: onGitDiffWorktreeSelect
         ))
         super.init(frame: .zero)
         setup()

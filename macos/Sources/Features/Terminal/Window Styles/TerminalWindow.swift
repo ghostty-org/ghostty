@@ -17,12 +17,15 @@ class TerminalWindow: NSWindow {
 
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
+    private var enforcedTitlebarFont: NSFont = NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
 
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
+    private let diffSidebarAccessory = NSTitlebarAccessoryViewController()
+    private weak var diffSidebarButton: NSButton?
 
     /// Visual indicator that mirrors the selected tab color.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
@@ -36,6 +39,8 @@ class TerminalWindow: NSWindow {
     
     /// Sets up our tab context menu
     private var tabMenuObserver: NSObjectProtocol? = nil
+    private var titlebarFontTabGroupObservation: NSKeyValueObservation? = nil
+    private var titlebarFontTabBarObservation: NSKeyValueObservation? = nil
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -102,6 +107,8 @@ class TerminalWindow: NSWindow {
 
         // Setup our initial config
         derivedConfig = .init(config)
+        enforcedTitlebarFont = NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
+        setupTitlebarFontKVO()
 
         // If there is a hardcoded title in the configuration, we set that
         // immediately. Future `set_title` apprt actions will override this
@@ -148,6 +155,41 @@ class TerminalWindow: NSWindow {
                 addTitlebarAccessoryViewController(updateAccessory)
                 updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
             }
+
+            diffSidebarAccessory.layoutAttribute = .right
+            let container = NonDraggableAccessoryContainer()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.widthAnchor.constraint(equalToConstant: 40).isActive = true
+            container.heightAnchor.constraint(equalToConstant: 40).isActive = true
+
+            let button = NonDraggableToolbarButton(frame: .zero)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            if #available(macOS 26.0, *) {
+                button.bezelStyle = .glass
+            } else {
+                button.bezelStyle = .toolbar
+            }
+            let symbolConfig = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+            button.image = NSImage(systemSymbolName: "plusminus", accessibilityDescription: "Toggle Diff Sidebar")?
+                .withSymbolConfiguration(symbolConfig)
+            button.imagePosition = .imageOnly
+            button.controlSize = .large
+            button.target = terminalController
+            button.action = #selector(TerminalController.toggleGitDiffSidebar(_:))
+            button.setButtonType(.momentaryPushIn)
+
+            container.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                button.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: -6),
+                button.widthAnchor.constraint(equalToConstant: 36),
+                button.heightAnchor.constraint(equalToConstant: 36),
+            ])
+
+            diffSidebarAccessory.view = container
+            diffSidebarButton = button
+            addTitlebarAccessoryViewController(diffSidebarAccessory)
+            diffSidebarAccessory.view.translatesAutoresizingMaskIntoConstraints = false
         }
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
@@ -182,11 +224,13 @@ class TerminalWindow: NSWindow {
     override func becomeKey() {
         super.becomeKey()
         resetZoomTabButton.contentTintColor = .controlAccentColor
+        enforceTitlebarFont()
     }
 
     override func resignKey() {
         super.resignKey()
         resetZoomTabButton.contentTintColor = .secondaryLabelColor
+        updateWorktrunkToolbarTitle()
     }
 
     override func becomeMain() {
@@ -200,11 +244,21 @@ class TerminalWindow: NSWindow {
             tabBarDidDisappear()
         }
         viewModel.isMainWindow = true
+        if diffSidebarButton?.target == nil {
+            diffSidebarButton?.target = terminalController
+        }
+        enforceTitlebarFont()
+        setupTitlebarFontKVO()
     }
 
     override func resignMain() {
         super.resignMain()
         viewModel.isMainWindow = false
+    }
+
+    override func update() {
+        super.update()
+        enforceTitlebarFont()
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -227,6 +281,9 @@ class TerminalWindow: NSWindow {
             childViewController.identifier = Self.tabBarIdentifier
             tabBarDidAppear()
         }
+        DispatchQueue.main.async { [weak self] in
+            self?.enforceTitlebarFont()
+        }
     }
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
@@ -235,6 +292,9 @@ class TerminalWindow: NSWindow {
         }
 
         super.removeTitlebarAccessoryViewController(at: index)
+        DispatchQueue.main.async { [weak self] in
+            self?.enforceTitlebarFont()
+        }
     }
 
     // MARK: Tab Bar
@@ -283,6 +343,12 @@ class TerminalWindow: NSWindow {
 
         // We don't need to do this with the update accessory. I don't know why but
         // everything works fine.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(10)) { [weak self] in
+            self?.enforceTitlebarFont()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60)) { [weak self] in
+            self?.enforceTitlebarFont()
+        }
     }
 
     private func tabBarDidDisappear() {
@@ -290,6 +356,12 @@ class TerminalWindow: NSWindow {
             if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
                 addTitlebarAccessoryViewController(resetZoomAccessory)
             }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(10)) { [weak self] in
+            self?.enforceTitlebarFont()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60)) { [weak self] in
+            self?.enforceTitlebarFont()
         }
     }
 
@@ -367,7 +439,8 @@ class TerminalWindow: NSWindow {
             ///
             /// Check ``titlebarFont`` down below
             /// to see why we need to check `hasMoreThanOneTabs` here
-            titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
+            enforceTitlebarFont()
+            updateWorktrunkToolbarTitle()
         }
     }
 
@@ -375,15 +448,10 @@ class TerminalWindow: NSWindow {
     var titlebarFont: NSFont? {
         didSet {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
+            enforcedTitlebarFont = font
 
-            titlebarTextField?.font = font
-            /// We check `hasMoreThanOneTabs` here because the system
-            /// may copy this setting to the tab’s text field at some point(e.g. entering/exiting fullscreen),
-            /// which can cause the title to be vertically misaligned (shifted downward).
-            ///
-            /// This behaviour is the opposite of what happens in the title bar’s text field, which is quite odd...
-            titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
-            tab.attributedTitle = attributedTitle
+            enforceTitlebarFont()
+            updateWorktrunkToolbarTitle()
         }
     }
 
@@ -396,13 +464,47 @@ class TerminalWindow: NSWindow {
 
     // Return a styled representation of our title property.
     var attributedTitle: NSAttributedString? {
-        guard let titlebarFont = titlebarFont else { return nil }
-
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: titlebarFont,
+            .font: enforcedTitlebarFont,
             .foregroundColor: isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
         ]
         return NSAttributedString(string: title, attributes: attributes)
+    }
+
+    func enforceTitlebarFont() {
+        if let titlebarTextField {
+            titlebarTextField.font = enforcedTitlebarFont
+            titlebarTextField.usesSingleLineMode = true
+            titlebarTextField.attributedStringValue = attributedTitle ?? NSAttributedString(string: title)
+            tab.attributedTitle = attributedTitle
+        }
+        updateWorktrunkToolbarTitle()
+    }
+
+    private func updateWorktrunkToolbarTitle() {
+        guard let toolbar = toolbar as? WorktrunkToolbar else { return }
+        toolbar.titleText = title
+        toolbar.titleTextFont = enforcedTitlebarFont
+        toolbar.titleTextColor = isKeyWindow ? .labelColor : .secondaryLabelColor
+    }
+
+    private func setupTitlebarFontKVO() {
+        titlebarFontTabGroupObservation?.invalidate()
+        titlebarFontTabGroupObservation = nil
+        titlebarFontTabBarObservation?.invalidate()
+        titlebarFontTabBarObservation = nil
+
+        guard let tabGroup else { return }
+        titlebarFontTabGroupObservation = tabGroup.observe(\.windows, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                self?.enforceTitlebarFont()
+            }
+        }
+        titlebarFontTabBarObservation = tabGroup.observe(\.isTabBarVisible, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                self?.enforceTitlebarFont()
+            }
+        }
     }
 
     var titlebarContainer: NSView? {
@@ -643,6 +745,14 @@ extension TerminalWindow {
         }
     }
 
+}
+
+private final class NonDraggableToolbarButton: NSButton {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
+private final class NonDraggableAccessoryContainer: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
 }
 
 /// A small circle indicator displayed in the tab accessory view that shows

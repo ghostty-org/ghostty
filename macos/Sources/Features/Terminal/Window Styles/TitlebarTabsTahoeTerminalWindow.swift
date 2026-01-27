@@ -32,7 +32,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         didSet {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.viewModel.titleFont = self.titlebarFont
+                self.viewModel.titleFont = self.titlebarFont ?? .titleBarFont(ofSize: NSFont.systemFontSize)
             }
         }
     }
@@ -56,7 +56,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Create a toolbar
         let toolbar = NSToolbar(identifier: "TerminalToolbar")
         toolbar.delegate = self
-        toolbar.centeredItemIdentifiers.insert(.title)
         self.toolbar = toolbar
         toolbarStyle = .unifiedCompact
     }
@@ -283,11 +282,24 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     // MARK: NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.title, .flexibleSpace, .space]
+        var items: [NSToolbarItem.Identifier] = [
+            .toggleSidebar,
+            .sidebarTrackingSeparator,
+            .title,
+            .flexibleSpace,
+            .space,
+        ]
+        return items
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.flexibleSpace, .title, .flexibleSpace]
+        return [
+            .toggleSidebar,
+            .sidebarTrackingSeparator,
+            .flexibleSpace,
+            .title,
+            .flexibleSpace,
+        ]
     }
 
     func toolbar(_ toolbar: NSToolbar,
@@ -306,6 +318,18 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             // We don't want glass on our title.
             item.isBordered = false
             
+            return item
+        case .toggleSidebar:
+            let item = NSToolbarItem(itemIdentifier: .toggleSidebar)
+            let button = NSButton(frame: NSRect(x: 0, y: 0, width: 38, height: 22))
+            button.bezelStyle = .toolbar
+            button.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+            button.imagePosition = .imageOnly
+            button.target = windowController as? TerminalController
+            button.action = #selector(TerminalController.toggleSidebar(_:))
+            item.view = button
+            item.label = "Toggle Sidebar"
+            item.isNavigational = true
             return item
         default:
             return NSToolbarItem(itemIdentifier: itemIdentifier)

@@ -6,6 +6,7 @@ struct WorktrunkSidebarView: View {
     @ObservedObject var sidebarState: WorktrunkSidebarState
     let openWorktree: (String) -> Void
     var resumeSession: ((AISession) -> Void)?
+    var onSelectWorktree: ((String?) -> Void)?
 
     @State private var createSheetRepo: WorktrunkStore.Repository?
     @State private var removeRepoConfirm: WorktrunkStore.Repository?
@@ -45,6 +46,14 @@ struct WorktrunkSidebarView: View {
                 repoName: repo.name,
                 onOpen: { openWorktree($0) }
             )
+        }
+        .onChange(of: sidebarState.selection) { newValue in
+            switch newValue {
+            case .worktree(let path):
+                onSelectWorktree?(path)
+            default:
+                onSelectWorktree?(nil)
+            }
         }
         .onAppear {
             if sidebarState.expandedRepoIDs.isEmpty {
@@ -144,6 +153,7 @@ struct WorktrunkSidebarView: View {
                                 }
                             } label: {
                                 HStack(spacing: 8) {
+                                    let tracking = store.gitTracking(for: wt.path)
                                     if wt.isCurrent {
                                         Image(systemName: "location.fill")
                                             .foregroundStyle(.secondary)
@@ -158,13 +168,14 @@ struct WorktrunkSidebarView: View {
                                     if let status = store.agentStatus(for: wt.path) {
                                         WorktreeAgentStatusBadge(status: status)
                                     }
-                                    if let tracking = store.gitTracking(for: wt.path),
+                                    if let tracking,
                                        tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
                                         WorktreeChangeBadge(
                                             additions: tracking.lineAdditions,
                                             deletions: tracking.lineDeletions
                                         )
                                     }
+                                    Spacer(minLength: 8)
                                     Spacer(minLength: 8)
                                     Button {
                                         store.acknowledgeAgentStatus(for: wt.path)
@@ -413,7 +424,6 @@ private struct WorktreeTrackingBadge: View {
         .background(Capsule().fill(Color.secondary.opacity(0.15)))
     }
 }
-
 private struct WorktreeChangeBadge: View {
     let additions: Int
     let deletions: Int

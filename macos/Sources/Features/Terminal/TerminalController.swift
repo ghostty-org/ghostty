@@ -76,11 +76,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
+    private var lastTitlebarFont: NSFont?
     
     private let worktrunkSidebarState: WorktrunkSidebarState
-
     private var worktrunkSidebarSyncCancellables: Set<AnyCancellable> = []
     private var worktrunkSidebarSyncApplyingRemoteUpdate: Bool = false
+    private let gitDiffSidebarState = GitDiffSidebarState()
     
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
@@ -621,9 +622,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Set the font for the window and tab titles.
         if let titleFontName = surfaceConfig.windowTitleFontFamily {
-            window.titlebarFont = NSFont(name: titleFontName, size: NSFont.systemFontSize)
+            let font = NSFont(name: titleFontName, size: NSFont.systemFontSize)
+            window.titlebarFont = font
+            lastTitlebarFont = font
         } else {
             window.titlebarFont = nil
+            lastTitlebarFont = nil
         }
 
         // Call this last in case it uses any of the properties above.
@@ -1076,6 +1080,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             delegate: self,
             worktrunkStore: worktrunkStore,
             worktrunkSidebarState: worktrunkSidebarState,
+            gitDiffSidebarState: gitDiffSidebarState,
             openWorktree: { [weak self] path in
                 self?.openWorktree(atPath: path)
             },
@@ -1084,6 +1089,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             },
             onSidebarWidthChange: { [weak self] width in
                 self?.updateWorktrunkTitlebarWidth(width)
+            },
+            onGitDiffSelect: { [weak self] entry in
+                self?.showGitDiff(entry)
+            },
+            onGitDiffWorktreeSelect: { [weak self] path in
+                self?.onWorktrunkSelectionChange(path)
             }
         )
         installWorktrunkTitlebar()
@@ -1268,8 +1279,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window.toolbar = toolbar
         }
 
+        window.titleVisibility = .hidden
         if let terminalWindow = window as? TerminalWindow {
             terminalWindow.toolbarStyle = .unified
+            if let toolbar = window.toolbar as? WorktrunkToolbar {
+                toolbar.titleText = window.title
+                toolbar.titleTextFont = terminalWindow.titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
+                toolbar.titleTextColor = window.isKeyWindow ? .labelColor : .secondaryLabelColor
+            }
         }
     }
 
@@ -1332,6 +1349,39 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
             }
         }
+    }
+
+    private func showGitDiff(_ entry: GitDiffEntry) {
+        guard #available(macOS 26.0, *) else { return }
+
+        gitDiffSidebarState.selectedPath = entry.path
+        gitDiffSidebarState.isDiffActive = true
+        Task { await gitDiffSidebarState.loadDiff(entry) }
+    }
+
+    private func onWorktrunkSelectionChange(_ path: String?) {
+        guard #available(macOS 26.0, *) else { return }
+        Task { await gitDiffSidebarState.setSelectedWorktreePath(path) }
+        if path == nil, let pwd = focusedSurface?.pwd {
+            Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd)) }
+        }
+    }
+
+    @objc func toggleGitDiffSidebar(_ sender: Any?) {
+        guard #available(macOS 26.0, *) else { return }
+        let willShow = !gitDiffSidebarState.isVisible
+        Task {
+            await gitDiffSidebarState.setVisible(willShow, cwd: focusedSurface?.pwd)
+            if let window = window as? TerminalWindow {
+                window.titlebarFont = lastTitlebarFont
+            }
+        }
+    }
+
+    @objc func closeGitDiff(_ sender: Any?) {
+        guard #available(macOS 26.0, *) else { return }
+        gitDiffSidebarState.isDiffActive = false
+        gitDiffSidebarState.clearDiff()
     }
 
     private func resumeAISession(_ session: AISession) {
@@ -1629,6 +1679,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         focusedSurface.$backgroundColor
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
+    }
+
+    override func pwdDidChange(to: URL?) {
+        super.pwdDidChange(to: to)
+        if #available(macOS 26.0, *) {
+            if gitDiffSidebarState.selectedWorktreePath != nil { return }
+            Task { await gitDiffSidebarState.refresh(cwd: to) }
+        }
     }
 
     private func syncAppearanceOnPropertyChange(_ surface: Ghostty.SurfaceView?) {
