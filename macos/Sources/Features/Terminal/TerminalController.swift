@@ -115,7 +115,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
         
-        super.init(ghostty, baseConfig: base, surfaceTree: tree)
+        var baseWithHooks = base ?? Ghostty.SurfaceConfiguration()
+        TerminalAgentHooks.apply(to: &baseWithHooks)
+        super.init(ghostty, baseConfig: baseWithHooks, surfaceTree: tree)
         
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -1434,6 +1436,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.relabelTabs()
         self.fixTabBar()
         syncWorktrunkSidebarStateToTabGroup()
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           let pwd = focusedSurface?.pwd {
+            appDelegate.worktrunkStore.clearAgentReviewIfViewing(cwd: pwd)
+        }
     }
 
     override func windowDidMove(_ notification: Notification) {
@@ -1610,6 +1616,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // currently focused surface.
         guard let focusedSurface else { return }
         syncAppearance(focusedSurface.derivedConfig)
+
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           let pwd = focusedSurface.pwd {
+            appDelegate.worktrunkStore.clearAgentReviewIfViewing(cwd: pwd)
+        }
 
         // We also want to get notified of certain changes to update our appearance.
         focusedSurface.$derivedConfig

@@ -145,14 +145,19 @@ final class WorktrunkStore: ObservableObject {
     @Published private var worktreesByRepositoryID: [UUID: [Worktree]] = [:]
     @Published private var sessionsByWorktreePath: [String: [AISession]] = [:]
     @Published private var gitTrackingByWorktreePath: [String: GitTracking] = [:]
+    @Published private var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
 
     private let repositoriesKey = "GhosttyWorktrunkRepositories.v1"
     private let sessionCache = SessionCacheManager()
+    private var agentEventTailer: AgentEventTailer? = nil
 
     init() {
         load()
+        AgentHookInstaller.ensureInstalled()
+        pruneAgentEventLogIfNeeded()
+        startAgentEventTailer()
     }
 
     func worktrees(for repositoryID: UUID) -> [Worktree] {
@@ -165,6 +170,30 @@ final class WorktrunkStore: ObservableObject {
 
     func gitTracking(for worktreePath: String) -> GitTracking? {
         gitTrackingByWorktreePath[worktreePath]
+    }
+
+    func agentStatus(for worktreePath: String) -> WorktreeAgentStatus? {
+        agentStatusByWorktreePath[worktreePath]?.status
+    }
+
+    func acknowledgeAgentStatus(for worktreePath: String) {
+        guard let entry = agentStatusByWorktreePath[worktreePath] else { return }
+
+        switch entry.status {
+        case .review:
+            agentStatusByWorktreePath.removeValue(forKey: worktreePath)
+        case .permission:
+            agentStatusByWorktreePath[worktreePath] = .init(status: .working, updatedAt: Date())
+        case .working:
+            break
+        }
+    }
+
+    func clearAgentReviewIfViewing(cwd: String) {
+        guard let worktreePath = findMatchingWorktree(cwd) else { return }
+        guard let entry = agentStatusByWorktreePath[worktreePath] else { return }
+        guard entry.status == .review else { return }
+        agentStatusByWorktreePath.removeValue(forKey: worktreePath)
     }
 
     func addRepositoryValidated(path: String, displayName: String? = nil) async {
@@ -973,6 +1002,52 @@ final class WorktrunkStore: ObservableObject {
             }
         }
         return bestMatch
+    }
+
+    private func startAgentEventTailer() {
+        let tailer = AgentEventTailer(url: AgentStatusPaths.eventsLogURL) { [weak self] event in
+            self?.handleAgentLifecycleEvent(event)
+        }
+        agentEventTailer = tailer
+        tailer.start()
+    }
+
+    private func handleAgentLifecycleEvent(_ event: AgentLifecycleEvent) {
+        guard let worktreePath = findMatchingWorktree(event.cwd) else { return }
+
+        let status: WorktreeAgentStatus = switch event.eventType {
+        case .start: .working
+        case .permissionRequest: .permission
+        case .stop: .review
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: Date())
+        }
+    }
+
+    private func pruneAgentEventLogIfNeeded() {
+        let url = AgentStatusPaths.eventsLogURL
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? NSNumber else { return }
+
+        let maxBytes: Int64 = 5_000_000
+        let keepBytes: Int64 = 1_000_000
+        if size.int64Value <= maxBytes { return }
+
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+
+        let fileSize = size.int64Value
+        let start = UInt64(max(0, fileSize - keepBytes))
+        do {
+            try handle.seek(toOffset: start)
+            let data = try handle.readToEnd() ?? Data()
+            try data.write(to: url, options: .atomic)
+        } catch {
+            return
+        }
     }
 
     private func parseRFC3339(_ string: String) -> Date? {

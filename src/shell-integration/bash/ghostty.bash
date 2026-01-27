@@ -188,6 +188,26 @@ _ghostty_last_reported_cwd=""
 
 function __ghostty_precmd() {
     local ret="$?"
+
+    if [[ -n "$GHOSTREE_AGENT_BIN_DIR" ]]; then
+      case "$PATH" in
+        "$GHOSTREE_AGENT_BIN_DIR":*) ;;
+        *)
+          IFS=':' read -r -a __ghostty_path_parts <<< "$PATH"
+          PATH="$GHOSTREE_AGENT_BIN_DIR"
+          for __ghostty_p in "${__ghostty_path_parts[@]}"; do
+            [[ "$__ghostty_p" = "$GHOSTREE_AGENT_BIN_DIR" ]] && continue
+            PATH="$PATH:$__ghostty_p"
+          done
+          export PATH
+          unset __ghostty_path_parts __ghostty_p
+          ;;
+      esac
+
+      claude() { command "$GHOSTREE_AGENT_BIN_DIR/claude" "$@"; }
+      codex() { command "$GHOSTREE_AGENT_BIN_DIR/codex" "$@"; }
+    fi
+
     if test "$_ghostty_executing" != "0"; then
       _GHOSTTY_SAVE_PS1="$PS1"
       _GHOSTTY_SAVE_PS2="$PS2"

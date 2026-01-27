@@ -98,6 +98,20 @@ _ghostty_deferred_init() {
         builtin local -i cmd_status=$?
         builtin emulate -L zsh -o no_warn_create_global -o no_aliases
 
+        if [[ -n "$GHOSTREE_AGENT_BIN_DIR" ]]; then
+            if [[ "${path[1]}" != "$GHOSTREE_AGENT_BIN_DIR" ]]; then
+                path=(${path:#$GHOSTREE_AGENT_BIN_DIR})
+                path=($GHOSTREE_AGENT_BIN_DIR $path)
+            fi
+
+            if (( $+functions[claude] == 0 )); then
+                claude() { command "$GHOSTREE_AGENT_BIN_DIR/claude" "$@"; }
+            fi
+            if (( $+functions[codex] == 0 )); then
+                codex() { command "$GHOSTREE_AGENT_BIN_DIR/codex" "$@"; }
+            fi
+        fi
+
         # Don't write OSC 133 D when our precmd handler is invoked from zle.
         # Some plugins do that to update prompt on cd.
         if ! builtin zle; then

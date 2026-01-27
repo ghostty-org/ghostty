@@ -104,6 +104,7 @@ struct WorktrunkSidebarView: View {
                                 } else {
                                     ForEach(sessions) { session in
                                         SessionRow(session: session, onResume: {
+                                            store.acknowledgeAgentStatus(for: session.worktreePath)
                                             resumeSession?(session)
                                         })
                                         .tag(SidebarSelection.session(id: session.id))
@@ -122,6 +123,9 @@ struct WorktrunkSidebarView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Text(wt.branch)
+                                    if let status = store.agentStatus(for: wt.path) {
+                                        WorktreeAgentStatusBadge(status: status)
+                                    }
                                     if let tracking = store.gitTracking(for: wt.path),
                                        tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
                                         WorktreeChangeBadge(
@@ -131,6 +135,7 @@ struct WorktrunkSidebarView: View {
                                     }
                                     Spacer(minLength: 8)
                                     Button {
+                                        store.acknowledgeAgentStatus(for: wt.path)
                                         openWorktree(wt.path)
                                     } label: {
                                         Image(systemName: "plus")
@@ -323,6 +328,35 @@ private struct SessionRow: View {
             .padding(.vertical, 2)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct WorktreeAgentStatusBadge: View {
+    let status: WorktreeAgentStatus
+
+    private var label: String {
+        switch status {
+        case .working: return "Working"
+        case .permission: return "Input"
+        case .review: return "Done"
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case .working: return .orange
+        case .permission: return .red
+        case .review: return .green
+        }
+    }
+
+    var body: some View {
+        Text(label)
+            .font(.caption2)
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(color.opacity(0.12)))
     }
 }
 
