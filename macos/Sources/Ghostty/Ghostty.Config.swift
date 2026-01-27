@@ -227,14 +227,46 @@ extension Ghostty {
             return v
         }
 
-        var windowFullscreen: Bool {
-            guard let config = self.config else { return true }
-            var v = false
+        /// Returns the fullscreen mode if fullscreen is enabled, or nil if disabled.
+        /// This parses the `fullscreen` enum config which supports both
+        /// native and non-native fullscreen modes.
+        #if canImport(AppKit)
+        var windowFullscreen: FullscreenMode? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>? = nil
             let key = "fullscreen"
-            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return v
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard let ptr = v else { return nil }
+            let str = String(cString: ptr)
+            return switch str {
+            case "false":
+                nil
+            case "true":
+                .native
+            case "non-native":
+                .nonNative
+            case "non-native-visible-menu":
+                .nonNativeVisibleMenu
+            case "non-native-padded-notch":
+                .nonNativePaddedNotch
+            default:
+                nil
+            }
         }
+        #else
+        var windowFullscreen: Bool {
+            guard let config = self.config else { return false }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "fullscreen"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return false }
+            guard let ptr = v else { return false }
+            let str = String(cString: ptr)
+            return str != "false"
+        }
+        #endif
 
+        /// Returns the fullscreen mode for toggle actions (keybindings).
+        /// This is controlled by `macos-non-native-fullscreen` config.
         #if canImport(AppKit)
         var windowFullscreenMode: FullscreenMode {
             let defaultValue: FullscreenMode = .native
