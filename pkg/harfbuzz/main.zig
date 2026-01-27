@@ -13,6 +13,7 @@ pub const coretext = @import("coretext.zig");
 pub const MemoryMode = blob.MemoryMode;
 pub const Blob = blob.Blob;
 pub const Buffer = buffer.Buffer;
+pub const GlyphPosition = buffer.GlyphPosition;
 pub const Direction = common.Direction;
 pub const Script = common.Script;
 pub const Language = common.Language;

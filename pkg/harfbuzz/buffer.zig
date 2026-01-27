@@ -238,6 +238,12 @@ pub const Buffer = struct {
     pub fn guessSegmentProperties(self: Buffer) void {
         c.hb_buffer_guess_segment_properties(self.handle);
     }
+
+    /// Sets the cluster level of a buffer. The `ClusterLevel` dictates one
+    /// aspect of how HarfBuzz will treat non-base characters during shaping.
+    pub fn setClusterLevel(self: Buffer, level: ClusterLevel) void {
+        c.hb_buffer_set_cluster_level(self.handle, @intFromEnum(level));
+    }
 };
 
 /// The type of hb_buffer_t contents.
@@ -250,6 +256,40 @@ pub const ContentType = enum(u2) {
 
     /// The buffer contains output glyphs (after shaping).
     glyphs = c.HB_BUFFER_CONTENT_TYPE_GLYPHS,
+};
+
+/// Data type for holding HarfBuzz's clustering behavior options. The cluster
+/// level dictates one aspect of how HarfBuzz will treat non-base characters
+/// during shaping.
+pub const ClusterLevel = enum(u2) {
+    /// In `monotone_graphemes`, non-base characters are merged into the
+    /// cluster of the base character that precedes them. There is also cluster
+    /// merging every time the clusters will otherwise become non-monotone.
+    /// This is the default cluster level.
+    monotone_graphemes = c.HB_BUFFER_CLUSTER_LEVEL_MONOTONE_GRAPHEMES,
+
+    /// In `monotone_characters`, non-base characters are initially assigned
+    /// their own cluster values, which are not merged into preceding base
+    /// clusters. This allows HarfBuzz to perform additional operations like
+    /// reorder sequences of adjacent marks. The output is still monotone, but
+    /// the cluster values are more granular.
+    monotone_characters = c.HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS,
+
+    /// In `characters`, non-base characters are assigned their own cluster
+    /// values, which are not merged into preceding base clusters. Moreover,
+    /// the cluster values are not merged into monotone order. This is the most
+    /// granular cluster level, and it is useful for clients that need to know
+    /// the exact cluster values of each character, but is harder to use for
+    /// clients, since clusters might appear in any order.
+    characters = c.HB_BUFFER_CLUSTER_LEVEL_CHARACTERS,
+
+    /// In `graphemes`, non-base characters are merged into the cluster of the
+    /// base character that precedes them. This is similar to the Unicode
+    /// Grapheme Cluster algorithm, but it is not exactly the same. The output
+    /// is not forced to be monotone. This is useful for clients that want to
+    /// use HarfBuzz as a cheap implementation of the Unicode Grapheme Cluster
+    /// algorithm.
+    graphemes = c.HB_BUFFER_CLUSTER_LEVEL_GRAPHEMES,
 };
 
 /// The hb_glyph_info_t is the structure that holds information about the
