@@ -318,6 +318,31 @@ final class WorktrunkStore: ObservableObject {
         }
     }
 
+    func removeWorktree(repoID: UUID, branch: String) async -> Bool {
+        guard let repo = repositories.first(where: { $0.id == repoID }) else { return false }
+        let trimmedBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBranch.isEmpty else { return false }
+
+        do {
+            _ = try await WorktrunkClient.run([
+                "-C",
+                repo.path,
+                "remove",
+                "--yes",
+                "--foreground",
+                trimmedBranch,
+            ])
+            await refresh(repoID: repoID)
+            await MainActor.run { errorMessage = nil }
+            return true
+        } catch {
+            await MainActor.run {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+            return false
+        }
+    }
+
     private func load() {
         let ud = UserDefaults.standard
         guard let data = ud.data(forKey: repositoriesKey) else { return }
