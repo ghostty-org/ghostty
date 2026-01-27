@@ -45,5 +45,22 @@ enum AgentStatusPaths {
     static var codexWrapperPath: URL {
         binDir.appendingPathComponent("codex")
     }
-}
 
+    static var opencodePluginMarker: String { "// Ghostree opencode plugin v1" }
+
+    /** @see https://opencode.ai/docs/plugins */
+    static var opencodeGlobalPluginPath: URL {
+        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configHome: URL
+        if let xdgConfigHome, !xdgConfigHome.isEmpty {
+            configHome = URL(fileURLWithPath: xdgConfigHome, isDirectory: true)
+        } else {
+            configHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config", isDirectory: true)
+        }
+        return configHome
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugin", isDirectory: true)
+            .appendingPathComponent("ghostree-notify.js", isDirectory: false)
+    }
+}

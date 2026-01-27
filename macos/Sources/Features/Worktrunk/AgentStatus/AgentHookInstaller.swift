@@ -17,6 +17,15 @@ enum AgentHookInstaller {
             return
         }
 
+        do {
+            try FileManager.default.createDirectory(
+                at: AgentStatusPaths.opencodeGlobalPluginPath.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            // Best-effort only
+        }
+
         ensureFile(
             url: AgentStatusPaths.notifyHookPath,
             mode: 0o755,
@@ -40,6 +49,13 @@ enum AgentHookInstaller {
             mode: 0o755,
             marker: wrapperMarker,
             content: buildCodexWrapper()
+        )
+
+        ensureFile(
+            url: AgentStatusPaths.opencodeGlobalPluginPath,
+            mode: 0o644,
+            marker: AgentStatusPaths.opencodePluginMarker,
+            content: buildOpenCodePlugin()
         )
     }
 
@@ -192,6 +208,107 @@ enum AgentHookInstaller {
         fi
 
         exec "$REAL_BIN" -c 'notify=["bash","\(notifyPath)"]' "$@"
+        """
+    }
+
+    private static func buildOpenCodePlugin() -> String {
+        let marker = AgentStatusPaths.opencodePluginMarker
+        return """
+        \(marker)
+        /**
+         * Ghostree notification plugin for OpenCode.
+         *
+         * Only active when run inside Ghostree (checks GHOSTREE_AGENT_EVENTS_DIR).
+         * Emits Start/Stop/PermissionRequest events by appending to agent-events.jsonl.
+         */
+        import fs from "node:fs";
+        import path from "node:path";
+        
+        export const GhostreeNotifyPlugin = async ({ client }) => {
+          if (globalThis.__ghostreeOpencodeNotifyPluginV1) return {};
+          globalThis.__ghostreeOpencodeNotifyPluginV1 = true;
+        
+          const eventsDir = process?.env?.GHOSTREE_AGENT_EVENTS_DIR;
+          if (!eventsDir) return {};
+          const logPath = path.join(eventsDir, "agent-events.jsonl");
+        
+          const append = (eventType) => {
+            try {
+              fs.mkdirSync(eventsDir, { recursive: true });
+              const payload = {
+                timestamp: new Date().toISOString(),
+                eventType,
+                cwd: process.cwd(),
+              };
+              fs.appendFileSync(logPath, JSON.stringify(payload) + "\\n");
+            } catch {
+              // Best-effort only
+            }
+          };
+        
+          let currentState = "idle"; // 'idle' | 'busy'
+          let rootSessionID = null;
+          let stopSent = false;
+        
+          const childSessionCache = new Map();
+          const isChildSession = async (sessionID) => {
+            if (!sessionID) return true;
+            if (!client?.session?.list) return true;
+            if (childSessionCache.has(sessionID)) return childSessionCache.get(sessionID);
+            try {
+              const sessions = await client.session.list();
+              const session = sessions.data?.find((s) => s.id === sessionID);
+              const isChild = !!session?.parentID;
+              childSessionCache.set(sessionID, isChild);
+              return isChild;
+            } catch {
+              return true;
+            }
+          };
+        
+          const handleBusy = async (sessionID) => {
+            if (!rootSessionID) rootSessionID = sessionID;
+            if (sessionID !== rootSessionID) return;
+            if (currentState === "idle") {
+              currentState = "busy";
+              stopSent = false;
+              append("Start");
+            }
+          };
+        
+          const handleStop = async (sessionID) => {
+            if (rootSessionID && sessionID !== rootSessionID) return;
+            if (currentState === "busy" && !stopSent) {
+              currentState = "idle";
+              stopSent = true;
+              append("Stop");
+              rootSessionID = null;
+            }
+          };
+        
+          return {
+            event: async ({ event }) => {
+              const sessionID = event.properties?.sessionID;
+        
+              if (await isChildSession(sessionID)) return;
+        
+              if (event.type === "session.status") {
+                const status = event.properties?.status;
+                if (status?.type === "busy") await handleBusy(sessionID);
+                if (status?.type === "idle") await handleStop(sessionID);
+              }
+        
+              if (event.type === "session.busy") await handleBusy(sessionID);
+              if (event.type === "session.idle") await handleStop(sessionID);
+              if (event.type === "session.error") await handleStop(sessionID);
+            },
+            "permission.ask": async (_permission, output) => {
+              if (output.status === "ask") append("PermissionRequest");
+            },
+          };
+        };
+        
+        export default GhostreeNotifyPlugin;
         """
     }
 }
