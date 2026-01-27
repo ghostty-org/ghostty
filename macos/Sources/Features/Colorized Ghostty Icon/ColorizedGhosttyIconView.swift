@@ -8,6 +8,6 @@ struct ColorizedGhosttyIconView: View {
             screenColors: [.purple, .blue],
             ghostColor: .yellow,
             frame: .aluminum
-        ).makeImage()!)
+        ).makeImage(in: .main)!)
     }
 }
