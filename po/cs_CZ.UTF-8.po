@@ -48,7 +48,7 @@ msgid ""
 "and either reload your configuration or ignore these errors."
 msgstr ""
 "V konfiguraci byly nalezeny chyby. Prosím zkontrolujte chybový výpis níže "
-"a buď konfiguraci znovu načtěte, nebo chyby ignorujte."
+"a konfiguraci znovu načtěte, nebo chyby ignorujte."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
@@ -104,7 +104,7 @@ msgstr "Vložit"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
 msgid "Clear"
-msgstr "Vyčistit"
+msgstr "Vymazat"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
@@ -161,7 +161,7 @@ msgstr "Otevřít konfiguraci"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr "Paleta příkazů"
+msgstr "Příkazová paleta"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -209,7 +209,7 @@ msgstr "Povolit"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr "Zapamatovat volbu pro toto rozdělení"
+msgstr "Zapamatovat si volbu pro toto rozdělení"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
@@ -234,8 +234,8 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Vložení tohoto textu do terminálu může být nebezpečné, protože se zdá, "
-"že mohou být spuštěny nějaké příkazy."
+"Vložení tohoto textu do terminálu může být nebezpečné. Zdá se, že obsahuje "
+"příkazy, které budou spuštěny."
 
 #: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
