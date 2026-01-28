@@ -11,6 +11,8 @@ struct WorktrunkSidebarView: View {
     @State private var createSheetRepo: WorktrunkStore.Repository?
     @State private var removeRepoConfirm: WorktrunkStore.Repository?
     @State private var removeWorktreeConfirm: WorktrunkStore.Worktree?
+    @State private var removeWorktreeErrorMessage: String?
+    @State private var removeWorktreeForceConfirm: WorktrunkStore.Worktree?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,11 +91,46 @@ struct WorktrunkSidebarView: View {
             presenting: removeWorktreeConfirm
         ) { wt in
             Button("Remove", role: .destructive) {
-                Task { _ = await store.removeWorktree(repoID: wt.repositoryID, branch: wt.branch) }
+                Task {
+                    let ok = await store.removeWorktree(repoID: wt.repositoryID, branch: wt.branch)
+                    if !ok {
+                        removeWorktreeErrorMessage = store.errorMessage ?? "Failed to remove worktree."
+                        removeWorktreeForceConfirm = wt
+                    }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: { wt in
             Text("This runs `wt remove \(wt.branch)` and deletes the worktree directory. The branch may be deleted if it's merged.")
+        }
+        .alert(
+            "Couldn’t Remove Worktree",
+            isPresented: Binding(
+                get: { removeWorktreeErrorMessage != nil },
+                set: { if !$0 { removeWorktreeErrorMessage = nil } }
+            ),
+            presenting: removeWorktreeErrorMessage
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
+        .alert(
+            "Force Remove Worktree?",
+            isPresented: Binding(
+                get: { removeWorktreeForceConfirm != nil },
+                set: { if !$0 { removeWorktreeForceConfirm = nil } }
+            ),
+            presenting: removeWorktreeForceConfirm
+        ) { wt in
+            Button("Force Remove", role: .destructive) {
+                Task {
+                    _ = await store.removeWorktree(repoID: wt.repositoryID, branch: wt.branch, force: true)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { wt in
+            Text("This will run `wt remove \(wt.branch) --force` and discard uncommitted changes in that worktree.")
         }
     }
 
@@ -207,19 +244,19 @@ struct WorktrunkSidebarView: View {
                         }
                     }
 
-                    Button {
-                        createSheetRepo = repo
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "plus.circle")
-                                .foregroundStyle(.secondary)
-                            Text("New worktree…")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle")
+                            .foregroundStyle(.secondary)
+                        Text("New worktree…")
+                            .foregroundStyle(.secondary)
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
                     .padding(.top, 2)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        createSheetRepo = repo
+                    }
+                    .help("Create worktree")
                 } label: {
                     HStack(spacing: 4) {
                         Text(repo.name)
@@ -235,13 +272,13 @@ struct WorktrunkSidebarView: View {
                         .help("Create worktree")
                     }
                     .contentShape(Rectangle())
-                }
-                .contextMenu {
-                    Button("Remove Repository…") {
-                        removeRepoConfirm = repo
-                    }
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
+                    .contextMenu {
+                        Button("Remove Repository…") {
+                            removeRepoConfirm = repo
+                        }
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
+                        }
                     }
                 }
             }
