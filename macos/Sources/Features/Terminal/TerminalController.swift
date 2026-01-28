@@ -9,6 +9,7 @@ final class WorktrunkSidebarState: ObservableObject {
     @Published var expandedRepoIDs: Set<UUID> = []
     @Published var expandedWorktreePaths: Set<String> = []
     @Published var selection: SidebarSelection? = nil
+    @Published var isApplyingRemoteUpdate: Bool = false
 
     init(
         columnVisibility: NavigationSplitViewVisibility = .all,
@@ -1230,30 +1231,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private func applySyncedWorktrunkSidebarVisibility(_ visibility: NavigationSplitViewVisibility) {
         guard worktrunkSidebarState.columnVisibility != visibility else { return }
+        worktrunkSidebarState.isApplyingRemoteUpdate = true
         worktrunkSidebarSyncApplyingRemoteUpdate = true
+        defer {
+            worktrunkSidebarSyncApplyingRemoteUpdate = false
+            worktrunkSidebarState.isApplyingRemoteUpdate = false
+        }
         worktrunkSidebarState.columnVisibility = visibility
-        worktrunkSidebarSyncApplyingRemoteUpdate = false
     }
 
     private func applySyncedWorktrunkSidebarExpandedRepoIDs(_ expandedRepoIDs: Set<UUID>) {
         guard worktrunkSidebarState.expandedRepoIDs != expandedRepoIDs else { return }
+        worktrunkSidebarState.isApplyingRemoteUpdate = true
         worktrunkSidebarSyncApplyingRemoteUpdate = true
+        defer {
+            worktrunkSidebarSyncApplyingRemoteUpdate = false
+            worktrunkSidebarState.isApplyingRemoteUpdate = false
+        }
         worktrunkSidebarState.expandedRepoIDs = expandedRepoIDs
-        worktrunkSidebarSyncApplyingRemoteUpdate = false
     }
 
     private func applySyncedWorktrunkSidebarExpandedWorktreePaths(_ expandedWorktreePaths: Set<String>) {
         guard worktrunkSidebarState.expandedWorktreePaths != expandedWorktreePaths else { return }
+        worktrunkSidebarState.isApplyingRemoteUpdate = true
         worktrunkSidebarSyncApplyingRemoteUpdate = true
+        defer {
+            worktrunkSidebarSyncApplyingRemoteUpdate = false
+            worktrunkSidebarState.isApplyingRemoteUpdate = false
+        }
         worktrunkSidebarState.expandedWorktreePaths = expandedWorktreePaths
-        worktrunkSidebarSyncApplyingRemoteUpdate = false
     }
 
     private func applySyncedWorktrunkSidebarSelection(_ selection: SidebarSelection?) {
         guard worktrunkSidebarState.selection != selection else { return }
+        worktrunkSidebarState.isApplyingRemoteUpdate = true
         worktrunkSidebarSyncApplyingRemoteUpdate = true
+        defer {
+            worktrunkSidebarSyncApplyingRemoteUpdate = false
+            worktrunkSidebarState.isApplyingRemoteUpdate = false
+        }
         worktrunkSidebarState.selection = selection
-        worktrunkSidebarSyncApplyingRemoteUpdate = false
     }
 
     private func syncWorktrunkSidebarStateToTabGroup() {
@@ -1262,6 +1279,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncWorktrunkSidebarExpandedWorktreePathsToTabGroup(worktrunkSidebarState.expandedWorktreePaths)
         syncWorktrunkSidebarSelectionToTabGroup(worktrunkSidebarState.selection)
     }
+
     private func installWorktrunkTitlebar() {
         guard let window else { return }
         guard window.styleMask.contains(.titled) else { return }

@@ -48,8 +48,12 @@ struct WorktrunkSidebarView: View {
             )
         }
         .onChange(of: sidebarState.selection) { newValue in
+            if sidebarState.isApplyingRemoteUpdate {
+                return
+            }
             switch newValue {
             case .worktree(let path):
+                store.acknowledgeAgentStatus(for: path)
                 onSelectWorktree?(path)
             default:
                 onSelectWorktree?(nil)

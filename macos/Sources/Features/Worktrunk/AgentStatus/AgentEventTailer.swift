@@ -138,8 +138,19 @@ final class AgentEventTailer {
         guard !lineData.isEmpty else { return nil }
         guard let obj = try? JSONSerialization.jsonObject(with: lineData),
               let dict = obj as? [String: Any] else { return nil }
-        guard let eventTypeRaw = dict["eventType"] as? String,
-              let eventType = AgentLifecycleEventType(rawValue: eventTypeRaw) else { return nil }
+        guard let eventTypeRaw = dict["eventType"] as? String else { return nil }
+        let normalized = eventTypeRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventType: AgentLifecycleEventType? = switch normalized.lowercased() {
+        case "start":
+            .start
+        case "stop":
+            .stop
+        case "permissionrequest", "permission_request":
+            .permissionRequest
+        default:
+            AgentLifecycleEventType(rawValue: normalized)
+        }
+        guard let eventType else { return nil }
         guard let cwd = dict["cwd"] as? String else { return nil }
 
         var timestamp = Date()

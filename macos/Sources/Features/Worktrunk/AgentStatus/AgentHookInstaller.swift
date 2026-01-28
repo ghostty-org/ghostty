@@ -1,7 +1,7 @@
 import Foundation
 
 enum AgentHookInstaller {
-    private static let notifyScriptMarker = "# Ghostree agent notification hook v1"
+    private static let notifyScriptMarker = "# Ghostree agent notification hook v2"
     private static let wrapperMarker = "# Ghostree agent wrapper v1"
 
     static func ensureInstalled() {
@@ -95,13 +95,18 @@ enum AgentHookInstaller {
         EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
         if [ -z "$EVENT_TYPE" ]; then
           CODEX_TYPE=$(echo "$INPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-          if [ "$CODEX_TYPE" = "agent-turn-complete" ]; then
-            EVENT_TYPE="Stop"
-          elif [ "$CODEX_TYPE" = "agent-turn-start" ]; then
-            EVENT_TYPE="Start"
-          elif [ "$CODEX_TYPE" = "agent-turn-permission" ]; then
-            EVENT_TYPE="PermissionRequest"
-          fi
+          CODEX_TYPE_LC=$(printf "%s" "$CODEX_TYPE" | tr '[:upper:]' '[:lower:]')
+          case "$CODEX_TYPE_LC" in
+            *permission*)
+              EVENT_TYPE="PermissionRequest"
+              ;;
+            *start*|*begin*|*busy*)
+              EVENT_TYPE="Start"
+              ;;
+            *complete*|*stop*|*end*|*idle*|*error*|*fail*|*cancel*)
+              EVENT_TYPE="Stop"
+              ;;
+          esac
         fi
 
         [ "$EVENT_TYPE" = "UserPromptSubmit" ] && EVENT_TYPE="Start"

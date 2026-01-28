@@ -366,6 +366,10 @@ final class WorktrunkStore: ObservableObject {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
+    private func normalizePathForMatch(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     private func refreshGitTracking(for worktrees: [Worktree], removing previousPaths: Set<String>) async {
         let newPaths = Set(worktrees.map(\.path))
         var results: [String: GitTracking] = [:]
@@ -1018,14 +1022,17 @@ final class WorktrunkStore: ObservableObject {
     private func findMatchingWorktree(_ cwd: String) -> String? {
         var bestMatch: String? = nil
         var bestLength = 0
+        let normalizedCwd = normalizePathForMatch(cwd)
 
         for (_, worktrees) in worktreesByRepositoryID {
             for wt in worktrees {
+                let normalizedWorktreePath = normalizePathForMatch(wt.path)
                 // Must match at directory boundary: exact match OR cwd starts with worktree path + "/"
-                let isMatch = cwd == wt.path || cwd.hasPrefix(wt.path + "/")
-                if isMatch && wt.path.count > bestLength {
+                let isMatch = normalizedCwd == normalizedWorktreePath ||
+                    normalizedCwd.hasPrefix(normalizedWorktreePath + "/")
+                if isMatch && normalizedWorktreePath.count > bestLength {
                     bestMatch = wt.path
-                    bestLength = wt.path.count
+                    bestLength = normalizedWorktreePath.count
                 }
             }
         }
