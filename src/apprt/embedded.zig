@@ -1786,6 +1786,19 @@ pub const CAPI = struct {
         surface.preeditCallback(if (len == 0) null else ptr[0..len]);
     }
 
+    /// Write terminal output data directly to the surface. This is used when
+    /// the terminal output comes from an external source (e.g., SSH connection)
+    /// rather than a local PTY/command. The data is processed as if it came
+    /// from the terminal's output stream.
+    export fn ghostty_surface_write_output(
+        surface: *Surface,
+        ptr: [*]const u8,
+        len: usize,
+    ) void {
+        if (len == 0) return;
+        surface.core_surface.io.processOutput(ptr[0..len]);
+    }
+
     /// Returns true if the surface currently has mouse capturing
     /// enabled.
     export fn ghostty_surface_mouse_captured(surface: *Surface) bool {

@@ -8,9 +8,9 @@
         // Zig libs
 
         .libxev = .{
-            // mitchellh/libxev
-            .url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
-            .hash = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs",
+            // mitchellh/libxev - updated to include iOS mach_port fix (PR #204)
+            .url = "https://github.com/mitchellh/libxev/archive/46fa9b74bafb0b9c151a8035fdb6b01ec68581e4.tar.gz",
+            .hash = "libxev-0.0.0-86vtc0IbEwDsp-ljrhdEWhf2TYBvSrqqgNAPQwtfX8Eg",
             .lazy = true,
         },
         .vaxis = .{
