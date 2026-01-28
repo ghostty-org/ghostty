@@ -2042,9 +2042,11 @@ pub const Surface = extern struct {
 
         const cell = font_grid.cellSize();
 
-        // Calculate size (matching recomputeInitialSize logic)
-        const width = @max(config.@"window-width", 10) * cell.width;
-        const height = @max(config.@"window-height", 4) * cell.height;
+        // Calculate size: "best guess"; Padding unavailable pre-init.
+        // We do not need to @max here because the surface init will set
+        // size_limit which enforces minimums defined in src/Surface.zig
+        const width = config.@"window-width" * cell.width;
+        const height = config.@"window-height" * cell.height;
         const width_f32: f32 = @floatFromInt(width);
         const height_f32: f32 = @floatFromInt(height);
 
