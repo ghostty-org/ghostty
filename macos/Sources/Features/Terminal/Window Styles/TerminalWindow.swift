@@ -431,9 +431,11 @@ class TerminalWindow: NSWindow {
 
     override var title: String {
         didSet {
-            // Whenever we change the window title we must also update our
-            // tab title if we're using custom fonts.
-            tab.attributedTitle = attributedTitle
+            // Only manage tab titles for custom tab styles.
+            if derivedConfig.macosTitlebarStyle == "tabs" {
+                tab.title = title
+                tab.attributedTitle = attributedTitle
+            }
             /// We also needs to update this here, just in case
             /// the value is not what we want
             ///
@@ -472,11 +474,19 @@ class TerminalWindow: NSWindow {
     }
 
     func enforceTitlebarFont() {
+        if derivedConfig.macosTitlebarStyle != "tabs",
+           (tabGroup?.windows.count ?? 0) > 1 {
+            updateWorktrunkToolbarTitle()
+            return
+        }
         if let titlebarTextField {
             titlebarTextField.font = enforcedTitlebarFont
             titlebarTextField.usesSingleLineMode = true
             titlebarTextField.attributedStringValue = attributedTitle ?? NSAttributedString(string: title)
-            tab.attributedTitle = attributedTitle
+            if derivedConfig.macosTitlebarStyle == "tabs" {
+                tab.title = title
+                tab.attributedTitle = attributedTitle
+            }
         }
         updateWorktrunkToolbarTitle()
     }

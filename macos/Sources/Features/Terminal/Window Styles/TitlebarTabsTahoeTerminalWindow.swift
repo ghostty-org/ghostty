@@ -17,6 +17,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
     private var worktrunkSidebarWidth: CGFloat = defaultSidebarWidth
     private var tabBarLeftConstraint: NSLayoutConstraint? = nil
+    private var displayTitle: String = "👻 Ghostree"
 
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
@@ -41,7 +42,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         didSet {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.viewModel.title = self.title
+                self.displayTitle = self.title
+                self.viewModel.title = self.displayTitle
             }
         }
     }
@@ -344,6 +346,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         @Published var hasTabBar: Bool = false
         @Published var isMainWindow: Bool = true
     }
+
 }
 
 extension NSToolbarItem.Identifier {
