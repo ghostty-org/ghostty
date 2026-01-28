@@ -29,12 +29,15 @@ struct TerminalSplitTreeView: View {
     let tree: SplitTree<Ghostty.SurfaceView>
     let action: (TerminalSplitOperation) -> Void
 
+    @FocusedValue(\.ghosttySurfaceView) private var focusedSurface
+
     var body: some View {
         if let node = tree.zoomed ?? tree.root {
             TerminalSplitSubtreeView(
                 node: node,
                 isRoot: node == tree.root,
-                action: action)
+                action: action,
+                focusedSurface: focusedSurface)
             // This is necessary because we can't rely on SwiftUI's implicit
             // structural identity to detect changes to this view. Due to
             // the tree structure of splits it could result in bad behaviors.
@@ -50,6 +53,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
     let node: SplitTree<Ghostty.SurfaceView>.Node
     var isRoot: Bool = false
     let action: (TerminalSplitOperation) -> Void
+    let focusedSurface: Ghostty.SurfaceView?
 
     var body: some View {
         switch (node) {
@@ -72,14 +76,29 @@ fileprivate struct TerminalSplitSubtreeView: View {
                 dividerColor: ghostty.config.splitDividerColor,
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
-                    TerminalSplitSubtreeView(node: split.left, action: action)
+                    TerminalSplitSubtreeView(node: split.left, action: action, focusedSurface: focusedSurface)
                 },
                 right: {
-                    TerminalSplitSubtreeView(node: split.right, action: action)
+                    TerminalSplitSubtreeView(node: split.right, action: action, focusedSurface: focusedSurface)
                 },
-                onEqualize: {
-                    guard let surface = node.leftmostLeaf().surface else { return }
-                    ghostty.splitEqualize(surface: surface)
+                onZoomToggle: {
+                    // Edge case: If this is the root node and it's a leaf (single terminal),
+                    // there's no actual split to zoom, so this shouldn't be called.
+                    // However, we guard against it for robustness.
+                    guard case .split = node else { return }
+
+                    // Zoom the currently focused surface if it exists within this split,
+                    // otherwise fall back to the leftmost leaf.
+                    // This matches the GTK behavior which zooms the active surface.
+                    let surfaceToZoom: ghostty_surface_t?
+                    if let focused = focusedSurface, node.contains(.leaf(view: focused)) {
+                        surfaceToZoom = focused.surface
+                    } else {
+                        surfaceToZoom = node.leftmostLeaf().surface
+                    }
+
+                    guard let surface = surfaceToZoom else { return }
+                    ghostty.splitToggleZoom(surface: surface)
                 }
             )
         }

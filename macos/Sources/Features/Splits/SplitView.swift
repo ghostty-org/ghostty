@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A split view shows a left and right (or top and bottom) view with a divider in the middle to do resizing.
-/// The terminlogy "left" and "right" is always used but for vertical splits "left" is "top" and "right" is "bottom".
+/// The terminology "left" and "right" is always used but for vertical splits "left" is "top" and "right" is "bottom".
 ///
 /// This view is purpose built for our use case and I imagine we'll continue to make it more configurable
 /// as time goes on. For example, the splitter divider size and styling is all hardcoded.
@@ -21,8 +21,8 @@ struct SplitView<L: View, R: View>: View {
     let left: L
     let right: R
 
-    /// Called when the divider is double-tapped to equalize splits.
-    let onEqualize: () -> Void
+    /// Called when the divider is double-tapped to toggle split zoom.
+    let onZoomToggle: () -> Void
 
     /// The minimum size (in points) of a split
     let minSize: CGFloat = 10
@@ -60,8 +60,11 @@ struct SplitView<L: View, R: View>: View {
                     .position(splitterPoint)
                     .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
                     .onTapGesture(count: 2) {
-                        onEqualize()
+                        onZoomToggle()
                     }
+                    .accessibilityLabel("Split divider")
+                    .accessibilityHint(dividerAccessibilityHint)
+                    .accessibilityAddTraits(.isButton)
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(splitViewLabel)
@@ -76,7 +79,7 @@ struct SplitView<L: View, R: View>: View {
         resizeIncrements: NSSize = .init(width: 1, height: 1),
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
-        onEqualize: @escaping () -> Void
+        onZoomToggle: @escaping () -> Void
     ) {
         self.direction = direction
         self._split = split
@@ -84,7 +87,7 @@ struct SplitView<L: View, R: View>: View {
         self.resizeIncrements = resizeIncrements
         self.left = left()
         self.right = right()
-        self.onEqualize = onEqualize
+        self.onZoomToggle = onZoomToggle
     }
 
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
@@ -179,6 +182,15 @@ struct SplitView<L: View, R: View>: View {
             return "Right pane"
         case .vertical:
             return "Bottom pane"
+        }
+    }
+
+    private var dividerAccessibilityHint: String {
+        switch direction {
+        case .horizontal:
+            return "Drag to resize the left and right panes. Double-tap to toggle zoom"
+        case .vertical:
+            return "Drag to resize the top and bottom panes. Double-tap to toggle zoom"
         }
     }
 }

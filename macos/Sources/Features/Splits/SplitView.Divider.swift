@@ -110,9 +110,9 @@ extension SplitView {
         private var axHint: String {
             switch direction {
             case .horizontal:
-                return "Drag to resize the left and right panes"
+                return "Drag to resize the left and right panes. Double-tap to toggle zoom"
             case .vertical:
-                return "Drag to resize the top and bottom panes"
+                return "Drag to resize the top and bottom panes. Double-tap to toggle zoom"
             }
         }
     }

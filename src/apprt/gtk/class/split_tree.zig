@@ -659,11 +659,10 @@ pub const SplitTree = extern struct {
         self.setTree(&new_tree);
     }
 
-    pub fn actionZoom(
-        _: *gio.SimpleAction,
-        _: ?*glib.Variant,
-        self: *Self,
-    ) callconv(.c) void {
+    /// Performs the zoom toggle logic without requiring a SimpleAction.
+    /// This is the core zoom implementation that can be called directly
+    /// or from the action handler.
+    fn toggleZoom(self: *Self) void {
         const tree = self.getTree() orelse return;
         if (tree.zoomed != null) {
             tree.zoomed = null;
@@ -674,6 +673,14 @@ pub const SplitTree = extern struct {
         }
 
         self.as(gobject.Object).notifyByPspec(properties.tree.impl.param_spec);
+    }
+
+    pub fn actionZoom(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        self.toggleZoom();
     }
 
     fn surfaceCloseRequest(
@@ -1146,6 +1153,27 @@ const SplitTreeSplit = extern struct {
     //---------------------------------------------------------------
     // Signal handlers
 
+    fn handleDoubleClick(
+        gesture: *gtk.GestureClick,
+        n_press: c_int,
+        _: f64,
+        _: f64,
+        _: *Self,
+    ) callconv(.c) void {
+        // Only handle double-clicks
+        if (n_press != 2) return;
+
+        // Find the SplitTree ancestor to trigger zoom action
+        const widget = gesture.as(gtk.EventController).getWidget() orelse return;
+        const split_tree = ext.getAncestor(
+            SplitTree,
+            widget,
+        ) orelse return;
+
+        // Call the zoom toggle logic directly without creating a fake action
+        split_tree.toggleZoom();
+    }
+
     fn propPosition(
         _: *gtk.Paned,
         _: *gobject.ParamSpec,
@@ -1225,6 +1253,7 @@ const SplitTreeSplit = extern struct {
             class.bindTemplateChildPrivate("paned", .{});
 
             // Template Callbacks
+            class.bindTemplateCallback("handle_double_click", &handleDoubleClick);
             class.bindTemplateCallback("notify_max_position", &propMaxPosition);
             class.bindTemplateCallback("notify_min_position", &propMinPosition);
             class.bindTemplateCallback("notify_position", &propPosition);

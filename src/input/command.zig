@@ -522,7 +522,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
-            .description = "Toggle the zoom state of the current split.",
+            .description = "Toggle the zoom state of the currently focused split, making it fill the entire window or returning to the normal split view. Can also be activated by double-clicking the split divider.",
         }},
 
         .toggle_readonly => comptime &.{.{

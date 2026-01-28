@@ -440,6 +440,21 @@ extension SplitTree.Node {
         }
     }
 
+    /// Checks if this subtree contains the specified node.
+    func contains(_ target: Node) -> Bool {
+        if self == target {
+            return true
+        }
+
+        switch self {
+        case .leaf:
+            return false
+
+        case .split(let split):
+            return split.left.contains(target) || split.right.contains(target)
+        }
+    }
+
     /// Returns the path to a given node in the tree. If the returned value is nil then the
     /// node doesn't exist.
     func path(to node: Self) -> Path? {
