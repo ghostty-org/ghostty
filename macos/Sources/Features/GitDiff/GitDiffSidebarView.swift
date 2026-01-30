@@ -35,31 +35,42 @@ struct GitDiffSidebarView: View {
 
     @ViewBuilder
     private var content: some View {
-        if state.isLoading {
-            VStack {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Spacer()
-            }
-        } else if let errorMessage = state.errorMessage, !errorMessage.isEmpty {
+        if let errorMessage = state.errorMessage, !errorMessage.isEmpty {
             Text(errorMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if state.repoRoot == nil {
-            Text("Not a Git repository")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if state.isLoading {
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+            } else {
+                Text("Not a Git repository")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else if state.entries.isEmpty {
-            Text("Working tree clean")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if state.isLoading {
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+            } else {
+                Text("Working tree clean")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else {
             List(selection: $state.selectedPath) {
                 ForEach(state.entries) { entry in
@@ -88,6 +99,13 @@ struct GitDiffSidebarView: View {
                 guard let newValue else { return }
                 guard let entry = state.entries.first(where: { $0.path == newValue }) else { return }
                 onSelect(entry)
+            }
+            .overlay(alignment: .topTrailing) {
+                if state.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(8)
+                }
             }
         }
     }

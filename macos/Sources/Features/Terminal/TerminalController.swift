@@ -1379,16 +1379,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private func onWorktrunkSelectionChange(_ path: String?) {
         guard #available(macOS 26.0, *) else { return }
-        Task { await gitDiffSidebarState.setSelectedWorktreePath(path) }
-        if path == nil, let pwd = focusedSurface?.pwd {
-            Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd)) }
-        }
+        // Intentionally no-op: Git diff follows the focused terminal, not Worktrunk selection.
     }
 
     @objc func toggleGitDiffSidebar(_ sender: Any?) {
         guard #available(macOS 26.0, *) else { return }
         let willShow = !gitDiffSidebarState.isVisible
         Task {
+            gitDiffSidebarState.selectedWorktreePath = nil
             await gitDiffSidebarState.setVisible(willShow, cwd: focusedSurface?.pwd)
             if let window = window as? TerminalWindow {
                 window.titlebarFont = lastTitlebarFont
@@ -1507,6 +1505,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let appDelegate = NSApp.delegate as? AppDelegate,
            let pwd = focusedSurface?.pwd {
             appDelegate.worktrunkStore.clearAgentReviewIfViewing(cwd: pwd)
+        }
+
+        if #available(macOS 26.0, *) {
+            // Git diff should be ready for the active tab without requiring any Worktrunk interaction.
+            if gitDiffSidebarState.isVisible || gitDiffSidebarState.isDiffActive,
+               let pwd = focusedSurface?.pwd {
+                Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd), force: true) }
+            }
         }
     }
 
@@ -1697,12 +1703,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         focusedSurface.$backgroundColor
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
+
+        if #available(macOS 26.0, *) {
+            // Git diff should follow the currently focused terminal (surface).
+            if gitDiffSidebarState.isVisible || gitDiffSidebarState.isDiffActive,
+               let pwd = focusedSurface.pwd {
+                Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd), force: true) }
+            }
+        }
     }
 
     override func pwdDidChange(to: URL?) {
         super.pwdDidChange(to: to)
         if #available(macOS 26.0, *) {
-            if gitDiffSidebarState.selectedWorktreePath != nil { return }
+            guard let to else { return }
             Task { await gitDiffSidebarState.refresh(cwd: to) }
         }
     }

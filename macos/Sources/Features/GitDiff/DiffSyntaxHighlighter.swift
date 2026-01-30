@@ -5,6 +5,7 @@ enum DiffSyntaxHighlighter {
     private static let regexCache = RegexCache()
     struct Theme {
         let font: NSFont
+        let headerFont: NSFont
         let textColor: NSColor
         let secondaryTextColor: NSColor
         let hunkColor: NSColor
@@ -21,6 +22,7 @@ enum DiffSyntaxHighlighter {
         static var `default`: Theme {
             Theme(
                 font: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                headerFont: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .regular),
                 textColor: .labelColor,
                 secondaryTextColor: .secondaryLabelColor,
                 hunkColor: .systemPurple,
@@ -44,6 +46,7 @@ enum DiffSyntaxHighlighter {
     ) -> NSAttributedString {
         let output = NSMutableAttributedString()
         let language = Language.from(filePath: filePath)
+        let prefixIndent = (NSString(string: " ").size(withAttributes: [.font: theme.font]).width)
 
         var currentLocation = 0
         let lines = splitLines(text)
@@ -58,9 +61,17 @@ enum DiffSyntaxHighlighter {
             let isHunk = line.hasPrefix("@@")
             let isAdd = line.hasPrefix("+") && !line.hasPrefix("+++ ")
             let isDel = line.hasPrefix("-") && !line.hasPrefix("--- ")
+            let isContext = line.hasPrefix(" ")
+
+            if (isAdd || isDel || isContext) && lineAttr.length > 0 {
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = prefixIndent
+                lineAttr.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: lineAttr.length))
+            }
 
             if isHeader {
                 lineAttr.addAttribute(.foregroundColor, value: theme.secondaryTextColor, range: NSRange(location: 0, length: lineAttr.length))
+                lineAttr.addAttribute(.font, value: theme.headerFont, range: NSRange(location: 0, length: lineAttr.length))
             } else if isHunk {
                 lineAttr.addAttribute(.foregroundColor, value: theme.hunkColor, range: NSRange(location: 0, length: lineAttr.length))
             } else if isAdd {

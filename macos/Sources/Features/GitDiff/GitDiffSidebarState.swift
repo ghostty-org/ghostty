@@ -26,22 +26,19 @@ final class GitDiffSidebarState: ObservableObject {
     private var watchDebounce: DispatchWorkItem?
 
     func refresh(cwd: URL?, force: Bool = false) async {
-        lastCwd = cwd
         guard force || isVisible || isDiffActive else { return }
+        if let cwd {
+            lastCwd = cwd
+        }
 
         let effectiveCwd: URL?
         if let selectedWorktreePath {
             effectiveCwd = URL(fileURLWithPath: selectedWorktreePath)
         } else {
-            effectiveCwd = cwd
+            effectiveCwd = cwd ?? lastCwd
         }
 
-        guard let effectiveCwd else {
-            repoRoot = nil
-            entries = []
-            errorMessage = nil
-            return
-        }
+        guard let effectiveCwd else { return }
 
         isLoading = true
         defer { isLoading = false }
