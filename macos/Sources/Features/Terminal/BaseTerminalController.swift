@@ -81,6 +81,12 @@ class BaseTerminalController: NSWindowController,
     /// Track whether background is forced opaque (true) or using config transparency (false)
     var isBackgroundOpaque: Bool = false
 
+    /// A managed tab/window title that takes precedence over user-initiated overrides.
+    /// Used for features that pin the title to a specific concept (e.g. worktree tabs).
+    var managedTitleOverride: String? = nil {
+        didSet { applyTitleToWindow() }
+    }
+
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
@@ -350,6 +356,16 @@ class BaseTerminalController: NSWindowController,
     /// Prompt the user to change the tab/window title.
     func promptTabTitle() {
         guard let window else { return }
+
+        if managedTitleOverride != nil {
+            let alert = NSAlert()
+            alert.messageText = "Tab Title Is Managed"
+            alert.informativeText = "The tab title is managed by Worktree tabs."
+            alert.addButton(withTitle: "OK")
+            alert.alertStyle = .informational
+            alert.beginSheetModal(for: window)
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = "Change Tab Title"
@@ -834,7 +850,14 @@ class BaseTerminalController: NSWindowController,
 
     private func applyTitleToWindow() {
         guard let window else { return }
-        
+
+        if let managedTitleOverride {
+            window.title = computeTitle(
+                title: managedTitleOverride,
+                bell: focusedSurface?.bell ?? false)
+            return
+        }
+
         if let titleOverride {
             window.title = computeTitle(
                 title: titleOverride,

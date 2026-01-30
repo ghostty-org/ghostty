@@ -30,6 +30,11 @@ enum SidebarSelection: Hashable {
 }
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
+    private static let worktreeTabControllers = NSMapTable<NSString, TerminalController>(
+        keyOptions: .copyIn,
+        valueOptions: .weakMemory
+    )
+
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
         
@@ -83,6 +88,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var worktrunkSidebarSyncCancellables: Set<AnyCancellable> = []
     private var worktrunkSidebarSyncApplyingRemoteUpdate: Bool = false
     private let gitDiffSidebarState = GitDiffSidebarState()
+
+    private(set) var worktreeTabRootPath: String? = nil {
+        didSet { syncWorktreeTabTitle() }
+    }
     
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
@@ -183,9 +192,134 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
     
     deinit {
+        if let root = worktreeTabRootPath {
+            Self.worktreeTabControllers.removeObject(forKey: root as NSString)
+        }
+
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func setWorktreeTabRootPath(_ path: String?) {
+        let standardized = path.map(Self.standardizedPath)
+
+        if let old = worktreeTabRootPath {
+            Self.worktreeTabControllers.removeObject(forKey: old as NSString)
+        }
+
+        worktreeTabRootPath = standardized
+
+        if let standardized {
+            Self.worktreeTabControllers.setObject(self, forKey: standardized as NSString)
+        }
+    }
+
+    private func syncWorktreeTabTitle() {
+        guard WorktrunkPreferences.worktreeTabsEnabled, let root = worktreeTabRootPath else {
+            managedTitleOverride = nil
+            return
+        }
+
+        managedTitleOverride = (root as NSString).abbreviatingWithTildeInPath
+    }
+
+    func applyWorktreeTabPreferences() {
+        syncWorktreeTabTitle()
+    }
+
+    func restoreWorktreeTabRootPath(_ path: String?) {
+        setWorktreeTabRootPath(path)
+    }
+
+    private static func existingWorktreeTabController(forWorktreePath path: String) -> TerminalController? {
+        let root = standardizedPath(path)
+        if let existing = worktreeTabControllers.object(forKey: root as NSString) {
+            return existing
+        }
+
+        if let controller = TerminalController.all.first(where: { $0.worktreeTabRootPath == root }) {
+            worktreeTabControllers.setObject(controller, forKey: root as NSString)
+            return controller
+        }
+
+        for controller in TerminalController.all {
+            for surfaceView in controller.surfaceTree {
+                guard let pwd = surfaceView.pwd else { continue }
+                let pwdPath = standardizedPath(pwd)
+                let rootPrefix = root.hasSuffix("/") ? root : (root + "/")
+                if pwdPath == root || pwdPath.hasPrefix(rootPrefix) {
+                    controller.setWorktreeTabRootPath(root)
+                    worktreeTabControllers.setObject(controller, forKey: root as NSString)
+                    return controller
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func ensureWorktreeTabController(
+        ghostty: Ghostty.App,
+        parentWindow: NSWindow?,
+        worktreePath: String,
+        initialBaseConfig: Ghostty.SurfaceConfiguration
+    ) -> (controller: TerminalController, isNew: Bool) {
+        if let existing = existingWorktreeTabController(forWorktreePath: worktreePath) {
+            return (existing, false)
+        }
+
+        let parent = parentWindow ?? preferredParent?.window
+        let controller: TerminalController = {
+            if let created = TerminalController.newTab(ghostty, from: parent, withBaseConfig: initialBaseConfig) {
+                return created
+            }
+            return TerminalController.newWindow(ghostty, withBaseConfig: initialBaseConfig, withParent: parent)
+        }()
+
+        controller.setWorktreeTabRootPath(worktreePath)
+        controller.syncWorktreeTabTitle()
+        return (controller, true)
+    }
+
+    private func openWorktreeTabSession(worktreePath: String, baseConfig: Ghostty.SurfaceConfiguration) {
+        var initialConfig = baseConfig
+        initialConfig.workingDirectory = initialConfig.workingDirectory ?? worktreePath
+        TerminalAgentHooks.apply(to: &initialConfig)
+
+        let (controller, isNew) = Self.ensureWorktreeTabController(
+            ghostty: ghostty,
+            parentWindow: window,
+            worktreePath: worktreePath,
+            initialBaseConfig: initialConfig
+        )
+
+        controller.window?.makeKeyAndOrderFront(nil)
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        if controller.worktreeTabRootPath == nil {
+            controller.setWorktreeTabRootPath(worktreePath)
+        }
+
+        // If this is the first terminal in the tab, the tab creation already created the surface.
+        // Otherwise, open a new split in the worktree tab.
+        guard !isNew else { return }
+        guard let focused = controller.focusedSurface else { return }
+        let behaviorRaw = UserDefaults.standard.string(forKey: WorktrunkPreferences.openBehaviorKey) ?? ""
+        let behavior = WorktrunkOpenBehavior(rawValue: behaviorRaw) ?? .newTab
+        let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch behavior {
+        case .splitDown: .down
+        case .splitRight: .right
+        case .newTab: .right
+        }
+
+        _ = controller.newSplit(at: focused, direction: direction, baseConfig: initialConfig)
     }
     
     // MARK: Base Controller Overrides
@@ -1333,6 +1467,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func openWorktree(atPath path: String) {
+        if WorktrunkPreferences.worktreeTabsEnabled {
+            openWorktreeTabSession(worktreePath: path, baseConfig: Ghostty.SurfaceConfiguration())
+            return
+        }
+
         if focusOpenWorktree(atPath: path) {
             return
         }
@@ -1411,6 +1550,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case .codex:
             // Codex handles cwd internally
             base.command = "codex resume \(session.id)"
+        }
+
+        if WorktrunkPreferences.worktreeTabsEnabled {
+            openWorktreeTabSession(worktreePath: session.worktreePath, baseConfig: base)
+            return
         }
 
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
@@ -1553,6 +1697,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func newTab(_ sender: Any?) {
+        if WorktrunkPreferences.worktreeTabsEnabled, let root = worktreeTabRootPath {
+            openWorktreeTabSession(worktreePath: root, baseConfig: Ghostty.SurfaceConfiguration())
+            return
+        }
+
         guard let surface = focusedSurface?.surface else { return }
         ghostty.newTab(surface: surface)
     }

@@ -48,6 +48,7 @@ class TerminalRestorableState: TerminalRestorable {
     let effectiveFullscreenMode: FullscreenMode?
     let tabColor: TerminalTabColor
     let titleOverride: String?
+    let worktreeTabRootPath: String?
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
@@ -55,6 +56,7 @@ class TerminalRestorableState: TerminalRestorable {
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
         self.tabColor = (controller.window as? TerminalWindow)?.tabColor ?? .none
         self.titleOverride = controller.titleOverride
+        self.worktreeTabRootPath = controller.worktreeTabRootPath
     }
 
     required init(copy other: TerminalRestorableState) {
@@ -63,6 +65,7 @@ class TerminalRestorableState: TerminalRestorable {
         self.effectiveFullscreenMode = other.effectiveFullscreenMode
         self.tabColor = other.tabColor
         self.titleOverride = other.titleOverride
+        self.worktreeTabRootPath = other.worktreeTabRootPath
     }
 }
 
@@ -126,6 +129,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
 
         // Restore the tab title override
         c.titleOverride = state.titleOverride
+        c.restoreWorktreeTabRootPath(state.worktreeTabRootPath)
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
@@ -191,5 +195,3 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
     }
 }
-
-

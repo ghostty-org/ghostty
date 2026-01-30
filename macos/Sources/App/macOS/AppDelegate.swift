@@ -151,6 +151,8 @@ class AppDelegate: NSObject,
     /// The observer for the app appearance.
     private var appearanceObserver: NSKeyValueObservation? = nil
 
+    private var userDefaultsObserver: NSObjectProtocol? = nil
+
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
@@ -185,6 +187,9 @@ class AppDelegate: NSObject,
             // a desirable behavior to NOT have happen for a terminal, so this is a win.
             // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
             "NSAutoFillHeuristicControllerEnabled": false,
+
+            // Ghostree-specific Worktrunk behavior.
+            WorktrunkPreferences.worktreeTabsKey: true,
         ])
     }
 
@@ -228,6 +233,13 @@ class AppDelegate: NSObject,
             name: NSWindow.didBecomeKeyNotification,
             object: nil
         )
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            TerminalController.all.forEach { $0.applyWorktreeTabPreferences() }
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(quickTerminalDidChangeVisibility),
@@ -842,10 +854,29 @@ class AppDelegate: NSObject,
 
         // We only want to listen to new tabs if the focused parent is
         // a regular terminal controller.
-        guard window.windowController is TerminalController else { return }
+        guard let controller = window.windowController as? TerminalController else { return }
 
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let config = configAny as? Ghostty.SurfaceConfiguration
+
+        if WorktrunkPreferences.worktreeTabsEnabled, let root = controller.worktreeTabRootPath {
+            var base = config ?? Ghostty.SurfaceConfiguration()
+            base.workingDirectory = base.workingDirectory ?? root
+            TerminalAgentHooks.apply(to: &base)
+
+            let behaviorRaw = UserDefaults.standard.string(forKey: WorktrunkPreferences.openBehaviorKey) ?? ""
+            let behavior = WorktrunkOpenBehavior(rawValue: behaviorRaw) ?? .newTab
+            let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch behavior {
+            case .splitDown: .down
+            case .splitRight: .right
+            case .newTab: .right
+            }
+
+            if let focused = controller.focusedSurface {
+                _ = controller.newSplit(at: focused, direction: direction, baseConfig: base)
+            }
+            return
+        }
 
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }

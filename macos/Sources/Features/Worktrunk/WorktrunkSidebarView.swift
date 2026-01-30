@@ -13,6 +13,7 @@ struct WorktrunkSidebarView: View {
     @State private var removeWorktreeConfirm: WorktrunkStore.Worktree?
     @State private var removeWorktreeErrorMessage: String?
     @State private var removeWorktreeForceConfirm: WorktrunkStore.Worktree?
+    @State private var showSettings: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +29,15 @@ struct WorktrunkSidebarView: View {
                 .help("Add repository")
 
                 Spacer(minLength: 0)
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Worktrunk settings")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -48,6 +58,9 @@ struct WorktrunkSidebarView: View {
                 repoName: repo.name,
                 onOpen: { openWorktree($0) }
             )
+        }
+        .sheet(isPresented: $showSettings) {
+            WorktrunkSettingsView()
         }
         .onChange(of: sidebarState.selection) { newValue in
             if sidebarState.isApplyingRemoteUpdate {
