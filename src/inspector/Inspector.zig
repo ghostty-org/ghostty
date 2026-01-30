@@ -15,6 +15,7 @@ const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const inspector = @import("main.zig");
 const units = @import("units.zig");
+const apprt = @import("../apprt.zig");
 
 /// The window names. These are used with docking so we need to have access.
 const window_cell = "Cell";
@@ -1055,6 +1056,37 @@ fn renderTermioWindow(self: *Inspector) void {
 
                 // We also reset the sequence number.
                 self.vt_stream.handler.current_seq = 1;
+            }
+        }
+
+        if (!self.vt_events.empty()) {
+            cimgui.c.ImGui_SameLineEx(0, cimgui.c.ImGui_GetStyle().*.ItemInnerSpacing.x);
+            if (cimgui.c.ImGui_Button("Copy")) {
+                // Build a string from all events
+                var buf: std.ArrayListUnmanaged(u8) = .empty;
+                defer buf.deinit(self.surface.alloc);
+
+                var it = self.vt_events.iterator(.forward);
+                while (it.next()) |ev| {
+                    buf.writer(self.surface.alloc).print("{d}\t{s}\t{s}\n", .{
+                        ev.seq,
+                        @tagName(ev.kind),
+                        ev.str,
+                    }) catch break;
+                }
+
+                // Copy to clipboard - need to add sentinel
+                if (buf.items.len > 0) {
+                    buf.append(self.surface.alloc, 0) catch {};
+                    const str: [:0]const u8 = buf.items[0 .. buf.items.len - 1 :0];
+                    self.surface.rt_surface.setClipboard(
+                        .standard,
+                        &.{.{ .mime = "text/plain", .data = str }},
+                        false,
+                    ) catch |err| {
+                        std.log.warn("failed to copy to clipboard: {}", .{err});
+                    };
+                }
             }
         }
 
