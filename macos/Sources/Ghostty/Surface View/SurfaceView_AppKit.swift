@@ -1025,6 +1025,29 @@ extension Ghostty {
             quickLook(with: event)
         }
 
+        enum AccumulatedTextDecision: Equatable {
+            case fallback(String?)
+            case text([String])
+        }
+
+        static func nonControlText(from list: [String]) -> [String] {
+            list.filter { text in
+                text.unicodeScalars.allSatisfy { $0.value < 0x20 } == false
+            }
+        }
+
+        static func resolvedAccumulatedText(
+            from list: [String],
+            fallback: String?
+        ) -> AccumulatedTextDecision {
+            let nonControlText = nonControlText(from: list)
+            if nonControlText.isEmpty {
+                return .fallback(fallback)
+            }
+
+            return .text(nonControlText)
+        }
+
         override func keyDown(with event: NSEvent) {
             guard let surface = self.surface else {
                 self.interpretKeyEvents([event])
@@ -1116,17 +1139,33 @@ extension Ghostty {
             // we control the preedit state only through the preedit API.
             syncPreedit(clearIfNeeded: markedTextBefore)
 
+            let composing = markedText.length > 0 || markedTextBefore
             if let list = keyTextAccumulator, list.count > 0 {
-                // If we have text, then we've composed a character, send that down.
-                // These never have "composing" set to true because these are the
-                // result of a composition.
-                for text in list {
+                switch Self.resolvedAccumulatedText(
+                    from: list,
+                    fallback: translationEvent.ghosttyCharacters
+                ) {
+                case .fallback(let fallbackText):
+                    // Ignore control-only text from AppKit so Ctrl combos use layout-aware characters.
                     _ = keyAction(
                         action,
                         event: event,
                         translationEvent: translationEvent,
-                        text: text
+                        text: fallbackText,
+                        composing: composing
                     )
+                case .text(let textList):
+                    // If we have text, then we've composed a character, send that down.
+                    // These never have "composing" set to true because these are the
+                    // result of a composition.
+                    for text in textList {
+                        _ = keyAction(
+                            action,
+                            event: event,
+                            translationEvent: translationEvent,
+                            text: text
+                        )
+                    }
                 }
             } else {
                 // We have no accumulated text so this is a normal key event.
@@ -1142,7 +1181,7 @@ extension Ghostty {
                     // be encoded. Example: Japanese begin composing, the press backspace.
                     // This should only cancel the composing state but not actually delete
                     // the prior input characters (prior to the composing).
-                    composing: markedText.length > 0 || markedTextBefore
+                    composing: composing
                 )
             }
         }
