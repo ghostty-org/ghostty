@@ -286,6 +286,42 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return (controller, true)
     }
 
+    private func worktreeTabNextSplitPlacement() -> (anchor: Ghostty.SurfaceView, direction: SplitTree<Ghostty.SurfaceView>.NewDirection)? {
+        guard let root = surfaceTree.root else { return nil }
+        let allLeaves = root.leaves()
+        guard let first = allLeaves.first else { return nil }
+
+        // Start with two columns.
+        if allLeaves.count == 1 {
+            return (first, .right)
+        }
+
+        // After two columns exist, we fill rows in a 2-column grid:
+        // 3rd -> split left column down
+        // 4th -> split right column down
+        // 5th+ -> keep adding rows to the shorter column, bottom-first (ties -> left).
+        if case .split(let split) = root, split.direction == .horizontal {
+            let leftLeaves = split.left.leaves()
+            let rightLeaves = split.right.leaves()
+
+            if leftLeaves.count <= rightLeaves.count {
+                return (leftLeaves.last ?? first, .down)
+            } else {
+                return (rightLeaves.last ?? first, .down)
+            }
+        }
+
+        // If the tree doesn't match the expected layout (e.g. user-made splits),
+        // fall back to adding a row at the end.
+        return (allLeaves.last ?? first, .down)
+    }
+
+    func openWorktreeTabNewSession(baseConfig: Ghostty.SurfaceConfiguration) {
+        guard WorktrunkPreferences.worktreeTabsEnabled, worktreeTabRootPath != nil else { return }
+        guard let (anchor, direction) = worktreeTabNextSplitPlacement() else { return }
+        _ = newSplit(at: anchor, direction: direction, baseConfig: baseConfig)
+    }
+
     private func openWorktreeTabSession(worktreePath: String, baseConfig: Ghostty.SurfaceConfiguration) {
         var initialConfig = baseConfig
         initialConfig.workingDirectory = initialConfig.workingDirectory ?? worktreePath
@@ -310,16 +346,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // If this is the first terminal in the tab, the tab creation already created the surface.
         // Otherwise, open a new split in the worktree tab.
         guard !isNew else { return }
-        guard let focused = controller.focusedSurface else { return }
-        let behaviorRaw = UserDefaults.standard.string(forKey: WorktrunkPreferences.openBehaviorKey) ?? ""
-        let behavior = WorktrunkOpenBehavior(rawValue: behaviorRaw) ?? .newTab
-        let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch behavior {
-        case .splitDown: .down
-        case .splitRight: .right
-        case .newTab: .right
-        }
-
-        _ = controller.newSplit(at: focused, direction: direction, baseConfig: initialConfig)
+        controller.openWorktreeTabNewSession(baseConfig: initialConfig)
     }
     
     // MARK: Base Controller Overrides

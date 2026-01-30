@@ -864,17 +864,7 @@ class AppDelegate: NSObject,
             base.workingDirectory = base.workingDirectory ?? root
             TerminalAgentHooks.apply(to: &base)
 
-            let behaviorRaw = UserDefaults.standard.string(forKey: WorktrunkPreferences.openBehaviorKey) ?? ""
-            let behavior = WorktrunkOpenBehavior(rawValue: behaviorRaw) ?? .newTab
-            let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch behavior {
-            case .splitDown: .down
-            case .splitRight: .right
-            case .newTab: .right
-            }
-
-            if let focused = controller.focusedSurface {
-                _ = controller.newSplit(at: focused, direction: direction, baseConfig: base)
-            }
+            controller.openWorktreeTabNewSession(baseConfig: base)
             return
         }
 
