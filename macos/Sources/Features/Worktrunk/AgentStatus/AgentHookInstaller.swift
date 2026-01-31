@@ -2,7 +2,7 @@ import Foundation
 
 enum AgentHookInstaller {
     private static let notifyScriptMarker = "# Ghostree agent notification hook v2"
-    private static let wrapperMarker = "# Ghostree agent wrapper v1"
+    private static let wrapperMarker = "# Ghostree agent wrapper v2"
 
     static func ensureInstalled() {
         if ProcessInfo.processInfo.environment["GHOSTREE_DISABLE_AGENT_HOOKS"] == "1" {
@@ -146,6 +146,26 @@ enum AgentHookInstaller {
         return str
     }
 
+    /// Shell snippet that augments PATH with system paths and common binary locations.
+    /// macOS GUI apps inherit a minimal PATH from launchd; this ensures we find
+    /// user-installed binaries like claude and codex.
+    private static func pathAugmentSnippet() -> String {
+        return """
+        # Augment PATH: macOS GUI apps only get /usr/bin:/bin:/usr/sbin:/sbin
+        if [ -x /usr/libexec/path_helper ]; then
+          eval "$(/usr/libexec/path_helper -s)" 2>/dev/null
+        fi
+        for _d in "$HOME/.local/bin" "$HOME/.bun/bin" "/opt/homebrew/bin" "/opt/homebrew/sbin" "/usr/local/bin" "$HOME/.cargo/bin"; do
+          if [ -d "$_d" ]; then
+            case ":$PATH:" in
+              *":$_d:"*) ;;
+              *) PATH="$_d:$PATH" ;;
+            esac
+          fi
+        done
+        """
+    }
+
     private static func buildClaudeWrapper() -> String {
         let binDir = AgentStatusPaths.binDir.path
         let settings = AgentStatusPaths.claudeSettingsPath.path
@@ -153,6 +173,8 @@ enum AgentHookInstaller {
         #!/bin/bash
         \(wrapperMarker)
         # Wrapper for Claude Code: injects hook settings.
+
+        \(pathAugmentSnippet())
 
         find_real_binary() {
           local name="$1"
@@ -188,6 +210,8 @@ enum AgentHookInstaller {
         #!/bin/bash
         \(wrapperMarker)
         # Wrapper for Codex: injects notify hook configuration.
+
+        \(pathAugmentSnippet())
 
         find_real_binary() {
           local name="$1"
