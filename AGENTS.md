@@ -32,3 +32,9 @@ A file for [guiding coding agents](https://agents.md/).
 - Use `zig build` to build the macOS app and any shared Zig code
 - Use `zig build run` to build and run the macOS app
 - Run Xcode tests using `zig build test`
+
+## Git workflow
+
+- Don’t rebase a branch after it’s merged.
+- Sync upstream into `upstream-main` via `--ff-only`, then merge `upstream-main` into `main`.
+- Avoid force-pushing `main`; if needed, push a `legacy/...` backup ref first.
