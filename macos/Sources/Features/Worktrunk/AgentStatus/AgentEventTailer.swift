@@ -156,9 +156,14 @@ final class AgentEventTailer {
         var timestamp = Date()
         if let ts = dict["timestamp"] as? String {
             let fmt = ISO8601DateFormatter()
-            fmt.formatOptions = [.withInternetDateTime]
+            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let parsed = fmt.date(from: ts) {
                 timestamp = parsed
+            } else {
+                fmt.formatOptions = [.withInternetDateTime]
+                if let parsed = fmt.date(from: ts) {
+                    timestamp = parsed
+                }
             }
         }
 

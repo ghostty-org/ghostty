@@ -1,7 +1,7 @@
 import Foundation
 
 enum AgentHookInstaller {
-    private static let notifyScriptMarker = "# Ghostree agent notification hook v2"
+    private static let notifyScriptMarker = "# Ghostree agent notification hook v3"
     private static let wrapperMarker = "# Ghostree agent wrapper v2"
 
     static func ensureInstalled() {
@@ -95,15 +95,21 @@ enum AgentHookInstaller {
         EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
         if [ -z "$EVENT_TYPE" ]; then
           CODEX_TYPE=$(echo "$INPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+          if [ -z "$CODEX_TYPE" ]; then
+            CODEX_TYPE=$(echo "$INPUT" | grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+          fi
+          if [ -z "$CODEX_TYPE" ]; then
+            CODEX_TYPE=$(echo "$INPUT" | grep -oE '"event"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+          fi
           CODEX_TYPE_LC=$(printf "%s" "$CODEX_TYPE" | tr '[:upper:]' '[:lower:]')
           case "$CODEX_TYPE_LC" in
-            *permission*)
+            *permission*|*input*|*prompt*|*confirm*)
               EVENT_TYPE="PermissionRequest"
               ;;
-            *start*|*begin*|*busy*)
+            *start*|*begin*|*busy*|*running*|*work*)
               EVENT_TYPE="Start"
               ;;
-            *complete*|*stop*|*end*|*idle*|*error*|*fail*|*cancel*)
+            *complete*|*stop*|*end*|*idle*|*error*|*fail*|*cancel*|*done*|*finish*|*finished*|*success*|*exit*|*exited*)
               EVENT_TYPE="Stop"
               ;;
           esac

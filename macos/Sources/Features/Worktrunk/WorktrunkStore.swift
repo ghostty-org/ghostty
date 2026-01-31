@@ -150,12 +150,15 @@ final class WorktrunkStore: ObservableObject {
     @Published var errorMessage: String? = nil
 
     private let repositoriesKey = "GhosttyWorktrunkRepositories.v1"
+    private let agentStatusAcksKey = "GhostreeWorktrunkAgentStatusAcks.v1"
     private let sessionCache = SessionCacheManager()
     private var agentEventTailer: AgentEventTailer? = nil
     private var pendingAgentEventsByCwd: [String: AgentLifecycleEvent] = [:]
+    private var agentStatusAckedAtByWorktreePath: [String: Date] = [:]
 
     init() {
         load()
+        loadAgentStatusAcks()
         AgentHookInstaller.ensureInstalled()
         pruneAgentEventLogIfNeeded()
         startAgentEventTailer()
@@ -184,8 +187,10 @@ final class WorktrunkStore: ObservableObject {
         switch entry.status {
         case .review:
             agentStatusByWorktreePath.removeValue(forKey: worktreePath)
+            acknowledgeAgentStatusPersistently(for: worktreePath)
         case .permission:
             agentStatusByWorktreePath[worktreePath] = .init(status: .working, updatedAt: Date())
+            acknowledgeAgentStatusPersistently(for: worktreePath)
         case .working:
             break
         }
@@ -196,6 +201,7 @@ final class WorktrunkStore: ObservableObject {
         guard let entry = agentStatusByWorktreePath[worktreePath] else { return }
         guard entry.status == .review else { return }
         agentStatusByWorktreePath.removeValue(forKey: worktreePath)
+        acknowledgeAgentStatusPersistently(for: worktreePath)
     }
 
     func addRepositoryValidated(path: String, displayName: String? = nil) async {
@@ -1056,7 +1062,16 @@ final class WorktrunkStore: ObservableObject {
             guard let self else { return }
 
             guard let worktreePath = self.findMatchingWorktree(event.cwd) else {
+                if let existing = self.pendingAgentEventsByCwd[event.cwd],
+                   existing.timestamp >= event.timestamp {
+                    return
+                }
                 self.pendingAgentEventsByCwd[event.cwd] = event
+                return
+            }
+
+            if let ackedAt = self.agentStatusAckedAtByWorktreePath[worktreePath],
+               ackedAt >= event.timestamp {
                 return
             }
 
@@ -1066,7 +1081,12 @@ final class WorktrunkStore: ObservableObject {
             case .stop: .review
             }
 
-            self.agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: Date())
+            if let existing = self.agentStatusByWorktreePath[worktreePath],
+               existing.updatedAt >= event.timestamp {
+                return
+            }
+
+            self.agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: event.timestamp)
         }
     }
 
@@ -1076,13 +1096,25 @@ final class WorktrunkStore: ObservableObject {
         for (cwd, event) in pendingAgentEventsByCwd {
             guard let worktreePath = findMatchingWorktree(cwd) else { continue }
 
+            if let ackedAt = agentStatusAckedAtByWorktreePath[worktreePath],
+               ackedAt >= event.timestamp {
+                pendingAgentEventsByCwd.removeValue(forKey: cwd)
+                continue
+            }
+
             let status: WorktreeAgentStatus = switch event.eventType {
             case .start: .working
             case .permissionRequest: .permission
             case .stop: .review
             }
 
-            agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: Date())
+            if let existing = agentStatusByWorktreePath[worktreePath],
+               existing.updatedAt >= event.timestamp {
+                pendingAgentEventsByCwd.removeValue(forKey: cwd)
+                continue
+            }
+
+            agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: event.timestamp)
             pendingAgentEventsByCwd.removeValue(forKey: cwd)
         }
     }
@@ -1106,10 +1138,18 @@ final class WorktrunkStore: ObservableObject {
             return
         }
 
+        var latestByCwd: [String: AgentLifecycleEvent] = [:]
         for line in data.split(separator: UInt8(ascii: "\n")) {
-            if let event = AgentEventTailer.parseLineData(Data(line)) {
-                handleAgentLifecycleEvent(event)
+            guard let event = AgentEventTailer.parseLineData(Data(line)) else { continue }
+            if let existing = latestByCwd[event.cwd],
+               existing.timestamp >= event.timestamp {
+                continue
             }
+            latestByCwd[event.cwd] = event
+        }
+
+        for (_, event) in latestByCwd {
+            handleAgentLifecycleEvent(event)
         }
     }
 
@@ -1142,6 +1182,32 @@ final class WorktrunkStore: ObservableObject {
         if let date = formatter.date(from: string) { return date }
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: string)
+    }
+
+    private struct AgentStatusAcksPayload: Codable {
+        var version: Int
+        var ackedAtEpochByWorktreePath: [String: TimeInterval]
+    }
+
+    private func loadAgentStatusAcks() {
+        guard let data = UserDefaults.standard.data(forKey: agentStatusAcksKey) else { return }
+        guard let payload = try? JSONDecoder().decode(AgentStatusAcksPayload.self, from: data) else { return }
+        guard payload.version == 1 else { return }
+        agentStatusAckedAtByWorktreePath = payload.ackedAtEpochByWorktreePath.compactMapValues { Date(timeIntervalSince1970: $0) }
+    }
+
+    private func saveAgentStatusAcks() {
+        let payload = AgentStatusAcksPayload(
+            version: 1,
+            ackedAtEpochByWorktreePath: agentStatusAckedAtByWorktreePath.mapValues { $0.timeIntervalSince1970 }
+        )
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        UserDefaults.standard.set(data, forKey: agentStatusAcksKey)
+    }
+
+    private func acknowledgeAgentStatusPersistently(for worktreePath: String) {
+        agentStatusAckedAtByWorktreePath[worktreePath] = Date()
+        saveAgentStatusAcks()
     }
 
     /// Count occurrences of a pattern in a file using grep (faster for large files)
