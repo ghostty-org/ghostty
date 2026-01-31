@@ -61,4 +61,31 @@ extension NSPasteboard {
             return nil
         }
     }
+
+    /// Check if the pasteboard contains image data.
+    /// Returns true if PNG or TIFF image data is available.
+    func hasImageData() -> Bool {
+        guard let types = self.types else { return false }
+        return types.contains(.png) || types.contains(.tiff)
+    }
+
+    /// Gets the image data from the pasteboard as PNG bytes.
+    /// Returns nil if no image data is available.
+    func getImageDataAsPNG() -> Data? {
+        // Try PNG first
+        if let pngData = self.data(forType: .png) {
+            return pngData
+        }
+
+        // Try TIFF and convert to PNG
+        if let tiffData = self.data(forType: .tiff),
+           let image = NSImage(data: tiffData),
+           let tiffRep = image.tiffRepresentation,
+           let bitmapRep = NSBitmapImageRep(data: tiffRep),
+           let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+            return pngData
+        }
+
+        return nil
+    }
 }

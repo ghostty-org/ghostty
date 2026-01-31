@@ -333,6 +333,27 @@ extension Ghostty {
                 return completeClipboardRequest(surface, data: "", state: state)
             }
 
+            // Check if clipboard contains image data and SSH image paste is enabled
+            if pasteboard.hasImageData() {
+                if let imageData = pasteboard.getImageDataAsPNG() {
+                    // Attempt to upload via SSH
+                    let result = SSHImagePaste.attemptUpload(imageData: imageData)
+                    switch result {
+                    case .success(let remotePath):
+                        // Return the remote path instead of image data
+                        return completeClipboardRequest(surface, data: remotePath, state: state)
+                    case .notInSSH:
+                        // Not in SSH session, fall through to normal paste behavior
+                        // (which will likely be empty since raw image data isn't useful)
+                        break
+                    case .failed(let error):
+                        // Log error but fall through to normal behavior
+                        AppDelegate.logger.warning("SSH image paste failed: \(error.localizedDescription)")
+                        break
+                    }
+                }
+            }
+
             // Get our string
             let str = pasteboard.getOpinionatedStringContents() ?? ""
             completeClipboardRequest(surface, data: str, state: state)

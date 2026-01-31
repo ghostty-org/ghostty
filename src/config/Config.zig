@@ -2284,6 +2284,23 @@ keybind: Keybinds = .{},
 /// program, not the terminal emulator).
 @"clipboard-paste-bracketed-safe": bool = true,
 
+/// When enabled, pasting an image from the clipboard while in an SSH session
+/// will automatically upload the image to the remote host and insert the
+/// remote file path. This uses SSH ControlMaster sockets for authentication
+/// (no password prompts). Requires ControlMaster to be configured in your
+/// SSH config. The image is uploaded to the path specified by
+/// `ssh-image-paste-path`.
+///
+/// Available since: 1.3.0
+@"ssh-image-paste": bool = true,
+
+/// The remote directory path where images will be uploaded when using the
+/// SSH image paste feature. The directory must exist and be writable on
+/// the remote host.
+///
+/// Available since: 1.3.0
+@"ssh-image-paste-path": []const u8 = "/tmp",
+
 /// Enables or disabled title reporting (CSI 21 t). This escape sequence
 /// allows the running program to query the terminal title. This is a common
 /// security issue and is disabled by default.
