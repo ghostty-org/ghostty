@@ -140,7 +140,8 @@ class QuickTerminalController: BaseTerminalController {
         window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
-            delegate: self
+            delegate: self,
+            windowController: self
         )
         
         // Clear out our frame at this point, the fixup from above is complete.

@@ -11,12 +11,13 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
     private var glassTopConstraint: NSLayoutConstraint?
     private var derivedConfig: DerivedConfig
 
-    init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
+    init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil, windowController: BaseTerminalController? = nil) {
         self.derivedConfig = DerivedConfig(config: ghostty.config)
         self.terminalView = NSHostingView(rootView: TerminalView(
             ghostty: ghostty,
             viewModel: viewModel,
-            delegate: delegate
+            delegate: delegate,
+            windowController: windowController
         ))
         super.init(frame: .zero)
         setup()

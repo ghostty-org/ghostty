@@ -3126,6 +3126,30 @@ keybind: Keybinds = .{},
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
+/// The location of the tab bar on macOS. This controls where tabs are
+/// displayed in the window.
+///
+/// Valid values are:
+///
+///   * `native` - Use the native macOS tab bar (horizontal, in the titlebar
+///     area). This is the default.
+///   * `left` - Display tabs in a vertical sidebar on the left side of the
+///     window.
+///   * `right` - Display tabs in a vertical sidebar on the right side of the
+///     window.
+///   * `hidden` - Hide the tab bar completely. Use keybinds to switch between
+///     tabs.
+///
+/// When using `left` or `right`, the native macOS tab bar will be hidden and
+/// replaced with a custom vertical tab sidebar.
+///
+/// The default value is `native`.
+///
+/// Changing this option at runtime only applies to new windows.
+///
+/// Available since: 1.3.0
+@"macos-tabs-location": MacTabsLocation = .native,
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app
@@ -8499,6 +8523,14 @@ pub const MacTitlebarStyle = enum {
     native,
     transparent,
     tabs,
+    hidden,
+};
+
+/// See macos-tabs-location
+pub const MacTabsLocation = enum {
+    native,
+    left,
+    right,
     hidden,
 };
 

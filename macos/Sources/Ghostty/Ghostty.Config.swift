@@ -289,6 +289,17 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        var macosTabsLocation: Ghostty.MacOSTabsLocation {
+            let defaultValue = Ghostty.MacOSTabsLocation.native
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-tabs-location"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return Ghostty.MacOSTabsLocation(rawValue: str) ?? defaultValue
+        }
+
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
             let defaultValue = MacOSTitlebarProxyIcon.visible
             guard let config = self.config else { return defaultValue }

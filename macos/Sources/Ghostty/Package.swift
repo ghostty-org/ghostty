@@ -373,6 +373,15 @@ extension Ghostty {
         case tip
         case stable
     }
+    
+    /// Enum for macos-tabs-location config option
+    enum MacOSTabsLocation: String {
+        case native   // Use native macOS tab bar (default)
+        case left     // Vertical tabs on the left
+        case right    // Vertical tabs on the right
+        case hidden   // No tab UI (use keybinds only)
+    }
+
 }
 
 // MARK: Surface Notification

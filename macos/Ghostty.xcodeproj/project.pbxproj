@@ -139,6 +139,7 @@
 				"Features/Terminal/Window Styles/TitlebarTabsTahoeTerminalWindow.swift",
 				"Features/Terminal/Window Styles/TitlebarTabsVenturaTerminalWindow.swift",
 				"Features/Terminal/Window Styles/TransparentTitlebarTerminalWindow.swift",
+				"Features/Terminal/Window Styles/VerticalTabSidebar.swift",
 				Features/Update/UpdateBadge.swift,
 				Features/Update/UpdateController.swift,
 				Features/Update/UpdateDelegate.swift,
