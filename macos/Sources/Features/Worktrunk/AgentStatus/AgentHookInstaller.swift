@@ -260,8 +260,8 @@ enum AgentHookInstaller {
         import path from "node:path";
         
         export const GhostreeNotifyPlugin = async ({ client }) => {
-          if (globalThis.__ghostreeOpencodeNotifyPluginV1) return {};
-          globalThis.__ghostreeOpencodeNotifyPluginV1 = true;
+          if (globalThis.__ghostreeOpencodeNotifyPluginV2) return {};
+          globalThis.__ghostreeOpencodeNotifyPluginV2 = true;
         
           const eventsDir = process?.env?.GHOSTREE_AGENT_EVENTS_DIR;
           if (!eventsDir) return {};
@@ -287,23 +287,31 @@ enum AgentHookInstaller {
         
           const childSessionCache = new Map();
           const isChildSession = async (sessionID) => {
-            if (!sessionID) return true;
-            if (!client?.session?.list) return true;
+            if (!sessionID) return false;
+            if (!client?.session?.list) return false;
             if (childSessionCache.has(sessionID)) return childSessionCache.get(sessionID);
             try {
               const sessions = await client.session.list();
               const session = sessions.data?.find((s) => s.id === sessionID);
-              const isChild = !!session?.parentID;
+              const isChild = !!(session?.parentID ?? session?.parentId ?? session?.parent_id);
               childSessionCache.set(sessionID, isChild);
               return isChild;
             } catch {
-              return true;
+              return false;
             }
           };
         
+          const normalizeSessionID = (sessionID) => sessionID ?? "unknown";
+        
+          const getSessionID = (event) => {
+            const props = event?.properties ?? {};
+            return props.sessionID ?? props.sessionId ?? props.session_id ?? props.session ?? props.id ?? null;
+          };
+        
           const handleBusy = async (sessionID) => {
-            if (!rootSessionID) rootSessionID = sessionID;
-            if (sessionID !== rootSessionID) return;
+            const sid = normalizeSessionID(sessionID);
+            if (!rootSessionID) rootSessionID = sid;
+            if (sid !== rootSessionID) return;
             if (currentState === "idle") {
               currentState = "busy";
               stopSent = false;
@@ -312,7 +320,8 @@ enum AgentHookInstaller {
           };
         
           const handleStop = async (sessionID) => {
-            if (rootSessionID && sessionID !== rootSessionID) return;
+            const sid = normalizeSessionID(sessionID);
+            if (rootSessionID && sid !== rootSessionID) return;
             if (currentState === "busy" && !stopSent) {
               currentState = "idle";
               stopSent = true;
@@ -323,7 +332,7 @@ enum AgentHookInstaller {
         
           return {
             event: async ({ event }) => {
-              const sessionID = event.properties?.sessionID;
+              const sessionID = getSessionID(event);
         
               if (await isChildSession(sessionID)) return;
         
