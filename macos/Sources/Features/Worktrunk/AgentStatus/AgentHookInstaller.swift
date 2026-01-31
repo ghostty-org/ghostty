@@ -1,7 +1,7 @@
 import Foundation
 
 enum AgentHookInstaller {
-    private static let notifyScriptMarker = "# Ghostree agent notification hook v3"
+    private static let notifyScriptMarker = "# Ghostree agent notification hook v4"
     private static let wrapperMarker = "# Ghostree agent wrapper v2"
 
     static func ensureInstalled() {
@@ -94,6 +94,12 @@ enum AgentHookInstaller {
 
         EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
         if [ -z "$EVENT_TYPE" ]; then
+          EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        fi
+        if [ -z "$EVENT_TYPE" ]; then
+          EVENT_TYPE=$(echo "$INPUT" | grep -oE '"event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        fi
+        if [ -z "$EVENT_TYPE" ]; then
           CODEX_TYPE=$(echo "$INPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
           if [ -z "$CODEX_TYPE" ]; then
             CODEX_TYPE=$(echo "$INPUT" | grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
@@ -106,6 +112,9 @@ enum AgentHookInstaller {
             *permission*|*input*|*prompt*|*confirm*)
               EVENT_TYPE="PermissionRequest"
               ;;
+            *permissionresponse*|*permission_respons*|*permissiondecision*|*permission_decision*|*approved*|*denied*|*allow*|*disallow*)
+              EVENT_TYPE="Start"
+              ;;
             *start*|*begin*|*busy*|*running*|*work*)
               EVENT_TYPE="Start"
               ;;
@@ -116,10 +125,11 @@ enum AgentHookInstaller {
         fi
 
         [ "$EVENT_TYPE" = "UserPromptSubmit" ] && EVENT_TYPE="Start"
+        [ "$EVENT_TYPE" = "PermissionResponse" ] && EVENT_TYPE="Start"
         [ -z "$EVENT_TYPE" ] && exit 0
 
         CWD="$(pwd -P 2>/dev/null || pwd)"
-        TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        TS="$(perl -MTime::HiRes=time -MPOSIX=strftime -e '$t=time; $s=int($t); $ms=int(($t-$s)*1000); print strftime(\"%Y-%m-%dT%H:%M:%S\", gmtime($s)).sprintf(\".%03dZ\", $ms);')"
         ESC_CWD="${CWD//\\\\/\\\\\\\\}"
         ESC_CWD="${ESC_CWD//\\\"/\\\\\\\"}"
 
