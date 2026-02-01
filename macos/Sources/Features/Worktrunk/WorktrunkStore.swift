@@ -85,6 +85,18 @@ final class SessionCacheManager {
     }
 }
 
+enum WorktreeSortOrder: String, CaseIterable {
+    case alphabetical = "alphabetical"
+    case recentActivity = "recentActivity"
+
+    var label: String {
+        switch self {
+        case .alphabetical: return "Alphabetical"
+        case .recentActivity: return "Recent Activity"
+        }
+    }
+}
+
 final class WorktrunkStore: ObservableObject {
     struct Repository: Identifiable, Codable, Hashable {
         var id: UUID
@@ -148,8 +160,17 @@ final class WorktrunkStore: ObservableObject {
     @Published private var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
+    @Published var worktreeSortOrder: WorktreeSortOrder = .alphabetical {
+        didSet {
+            if oldValue != worktreeSortOrder {
+                saveSortOrder()
+                resortAllWorktrees()
+            }
+        }
+    }
 
     private let repositoriesKey = "GhosttyWorktrunkRepositories.v1"
+    private let sortOrderKey = "GhostreeWorktreeSortOrder.v1"
     private let agentStatusAcksKey = "GhostreeWorktrunkAgentStatusAcks.v1"
     private let sessionCache = SessionCacheManager()
     private var agentEventTailer: AgentEventTailer? = nil
@@ -159,6 +180,7 @@ final class WorktrunkStore: ObservableObject {
 
     init() {
         load()
+        loadSortOrder()
         loadAgentStatusAcks()
         AgentHookInstaller.ensureInstalled()
         pruneAgentEventLogIfNeeded()
@@ -279,11 +301,7 @@ final class WorktrunkStore: ObservableObject {
                 )
             }
             await MainActor.run {
-                worktreesByRepositoryID[repoID] = worktrees.sorted { a, b in
-                    if a.isCurrent != b.isCurrent { return a.isCurrent }
-                    if a.isMain != b.isMain { return a.isMain }
-                    return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
-                }
+                worktreesByRepositoryID[repoID] = sortWorktrees(worktrees)
                 errorMessage = nil
                 reconcilePendingAgentEvents()
             }
@@ -370,6 +388,63 @@ final class WorktrunkStore: ObservableObject {
             UserDefaults.standard.set(data, forKey: repositoriesKey)
         } catch {
             // Ignore persistence failure.
+        }
+    }
+
+    private func loadSortOrder() {
+        if let raw = UserDefaults.standard.string(forKey: sortOrderKey),
+           let order = WorktreeSortOrder(rawValue: raw) {
+            worktreeSortOrder = order
+        }
+    }
+
+    private func saveSortOrder() {
+        UserDefaults.standard.set(worktreeSortOrder.rawValue, forKey: sortOrderKey)
+    }
+
+    func latestActivityDate(for worktreePath: String) -> Date? {
+        let sessionDate = sessionsByWorktreePath[worktreePath]?.first?.timestamp
+        let agentDate = agentStatusByWorktreePath[worktreePath]?.updatedAt
+
+        switch (sessionDate, agentDate) {
+        case (.some(let s), .some(let a)): return max(s, a)
+        case (.some(let s), .none): return s
+        case (.none, .some(let a)): return a
+        case (.none, .none): return nil
+        }
+    }
+
+    private func resortAllWorktrees() {
+        for repoID in worktreesByRepositoryID.keys {
+            if var worktrees = worktreesByRepositoryID[repoID] {
+                worktrees = sortWorktrees(worktrees)
+                worktreesByRepositoryID[repoID] = worktrees
+            }
+        }
+    }
+
+    private func sortWorktrees(_ worktrees: [Worktree]) -> [Worktree] {
+        worktrees.sorted { a, b in
+            // Current and main always pinned to top
+            if a.isCurrent != b.isCurrent { return a.isCurrent }
+            if a.isMain != b.isMain { return a.isMain }
+
+            switch worktreeSortOrder {
+            case .alphabetical:
+                return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
+            case .recentActivity:
+                let dateA = latestActivityDate(for: a.path)
+                let dateB = latestActivityDate(for: b.path)
+                switch (dateA, dateB) {
+                case (.some(let da), .some(let db)):
+                    if da != db { return da > db }
+                    return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none):
+                    return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
+                }
+            }
         }
     }
 
@@ -793,6 +868,9 @@ final class WorktrunkStore: ObservableObject {
 
         await MainActor.run {
             sessionsByWorktreePath = allSessions
+            if worktreeSortOrder == .recentActivity {
+                resortAllWorktrees()
+            }
         }
     }
 

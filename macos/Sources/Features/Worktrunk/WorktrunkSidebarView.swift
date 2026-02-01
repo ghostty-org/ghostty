@@ -30,6 +30,20 @@ struct WorktrunkSidebarView: View {
 
                 Spacer(minLength: 0)
 
+                Menu {
+                    Picker("Sort", selection: $store.worktreeSortOrder) {
+                        ForEach(WorktreeSortOrder.allCases, id: \.self) { order in
+                            Text(order.label).tag(order)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Sort worktrees")
+
                 Button {
                     showSettings = true
                 } label: {
