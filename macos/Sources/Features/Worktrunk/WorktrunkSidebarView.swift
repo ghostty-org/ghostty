@@ -23,7 +23,7 @@ struct WorktrunkSidebarView: View {
                 Button {
                     Task { await promptAddRepository() }
                 } label: {
-                    Label("Add Repository…", systemImage: "plus")
+                    Label("Add Repo…", systemImage: "plus")
                 }
                 .buttonStyle(.plain)
                 .help("Add repository")
@@ -31,9 +31,15 @@ struct WorktrunkSidebarView: View {
                 Spacer(minLength: 0)
 
                 Menu {
-                    Picker("Sort", selection: $store.worktreeSortOrder) {
-                        ForEach(WorktreeSortOrder.allCases, id: \.self) { order in
-                            Text(order.label).tag(order)
+                    ForEach(WorktreeSortOrder.allCases, id: \.self) { order in
+                        Button {
+                            store.worktreeSortOrder = order
+                        } label: {
+                            if store.worktreeSortOrder == order {
+                                Label(order.label, systemImage: "checkmark")
+                            } else {
+                                Text(order.label)
+                            }
                         }
                     }
                 } label: {
