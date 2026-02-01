@@ -225,7 +225,7 @@ final class WorktrunkStore: ObservableObject {
 
     func allWorktreesSorted() -> [Worktree] {
         let all = repositories.flatMap { worktrees(for: $0.id) }
-        return sortWorktrees(all)
+        return sortWorktrees(all, pinMain: sidebarListMode != .flatWorktrees)
     }
 
     func sessions(for worktreePath: String) -> [AISession] {
@@ -488,18 +488,32 @@ final class WorktrunkStore: ObservableObject {
         }
     }
 
-    private func sortWorktrees(_ worktrees: [Worktree]) -> [Worktree] {
-        worktrees.sorted { a, b in
-            // Current and main always pinned to top
-            if a.isCurrent != b.isCurrent { return a.isCurrent }
-            if a.isMain != b.isMain { return a.isMain }
+    private func sortWorktrees(_ worktrees: [Worktree], pinMain: Bool = true) -> [Worktree] {
+        Self.sortedWorktrees(
+            worktrees,
+            sortOrder: worktreeSortOrder,
+            pinMain: pinMain,
+            latestActivityDate: { [self] path in latestActivityDate(for: path) }
+        )
+    }
 
-            switch worktreeSortOrder {
+    static func sortedWorktrees(
+        _ worktrees: [Worktree],
+        sortOrder: WorktreeSortOrder,
+        pinMain: Bool,
+        latestActivityDate: (String) -> Date?
+    ) -> [Worktree] {
+        worktrees.sorted { a, b in
+            // Current always pinned to top.
+            if a.isCurrent != b.isCurrent { return a.isCurrent }
+            if pinMain, a.isMain != b.isMain { return a.isMain }
+
+            switch sortOrder {
             case .alphabetical:
                 return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
             case .recentActivity:
-                let dateA = latestActivityDate(for: a.path)
-                let dateB = latestActivityDate(for: b.path)
+                let dateA = latestActivityDate(a.path)
+                let dateB = latestActivityDate(b.path)
                 switch (dateA, dateB) {
                 case (.some(let da), .some(let db)):
                     if da != db { return da > db }
