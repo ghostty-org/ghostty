@@ -147,6 +147,8 @@ final class AgentEventTailer {
             .stop
         case "permissionrequest", "permission_request":
             .permissionRequest
+        case "sessionend", "session_end":
+            .sessionEnd
         default:
             AgentLifecycleEventType(rawValue: normalized)
         }

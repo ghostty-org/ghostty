@@ -1,7 +1,7 @@
 import Foundation
 
 enum AgentHookInstaller {
-    private static let notifyScriptMarker = "# Ghostree agent notification hook v4"
+    private static let notifyScriptMarker = "# Ghostree agent notification hook v5"
     private static let wrapperMarker = "# Ghostree agent wrapper v2"
 
     static func ensureInstalled() {
@@ -126,6 +126,7 @@ enum AgentHookInstaller {
 
         [ "$EVENT_TYPE" = "UserPromptSubmit" ] && EVENT_TYPE="Start"
         [ "$EVENT_TYPE" = "PermissionResponse" ] && EVENT_TYPE="Start"
+        [ "$EVENT_TYPE" = "SessionEnd" ] && EVENT_TYPE="SessionEnd"
         [ -z "$EVENT_TYPE" ] && exit 0
 
         CWD="$(pwd -P 2>/dev/null || pwd)"
@@ -150,6 +151,9 @@ enum AgentHookInstaller {
                 ],
                 "PermissionRequest": [
                     ["matcher": "*", "hooks": [["type": "command", "command": command]]],
+                ],
+                "SessionEnd": [
+                    ["hooks": [["type": "command", "command": command]]],
                 ],
             ],
         ]
@@ -270,8 +274,8 @@ enum AgentHookInstaller {
         import path from "node:path";
         
         export const GhostreeNotifyPlugin = async ({ client }) => {
-          if (globalThis.__ghostreeOpencodeNotifyPluginV2) return {};
-          globalThis.__ghostreeOpencodeNotifyPluginV2 = true;
+          if (globalThis.__ghostreeOpencodeNotifyPluginV3) return {};
+          globalThis.__ghostreeOpencodeNotifyPluginV3 = true;
         
           const eventsDir = process?.env?.GHOSTREE_AGENT_EVENTS_DIR;
           if (!eventsDir) return {};
@@ -352,7 +356,6 @@ enum AgentHookInstaller {
                 if (status?.type === "idle") await handleStop(sessionID);
               }
         
-              if (event.type === "session.busy") await handleBusy(sessionID);
               if (event.type === "session.idle") await handleStop(sessionID);
               if (event.type === "session.error") await handleStop(sessionID);
             },

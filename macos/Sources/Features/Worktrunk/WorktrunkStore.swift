@@ -155,6 +155,7 @@ final class WorktrunkStore: ObservableObject {
     private var agentEventTailer: AgentEventTailer? = nil
     private var pendingAgentEventsByCwd: [String: AgentLifecycleEvent] = [:]
     private var agentStatusAckedAtByWorktreePath: [String: Date] = [:]
+    private var lastAppQuitTimestamp: Date?
 
     init() {
         load()
@@ -1079,6 +1080,7 @@ final class WorktrunkStore: ObservableObject {
             case .start: .working
             case .permissionRequest: .permission
             case .stop: .review
+            case .sessionEnd: .review
             }
 
             if let existing = self.agentStatusByWorktreePath[worktreePath],
@@ -1106,6 +1108,7 @@ final class WorktrunkStore: ObservableObject {
             case .start: .working
             case .permissionRequest: .permission
             case .stop: .review
+            case .sessionEnd: .review
             }
 
             if let existing = agentStatusByWorktreePath[worktreePath],
@@ -1149,6 +1152,13 @@ final class WorktrunkStore: ObservableObject {
         }
 
         for (_, event) in latestByCwd {
+            // Skip Stop/SessionEnd events from before the last app quit:
+            // they were already visible (or dismissed) in the previous session.
+            if (event.eventType == .stop || event.eventType == .sessionEnd),
+               let lastQuit = lastAppQuitTimestamp,
+               event.timestamp <= lastQuit {
+                continue
+            }
             handleAgentLifecycleEvent(event)
         }
     }
@@ -1187,22 +1197,48 @@ final class WorktrunkStore: ObservableObject {
     private struct AgentStatusAcksPayload: Codable {
         var version: Int
         var ackedAtEpochByWorktreePath: [String: TimeInterval]
+        var lastAppQuitEpoch: TimeInterval?
+    }
+
+    private static var agentStatusAcksFileURL: URL {
+        AgentStatusPaths.eventsCacheDir.appendingPathComponent("agent-status-acks.json")
     }
 
     private func loadAgentStatusAcks() {
-        guard let data = UserDefaults.standard.data(forKey: agentStatusAcksKey) else { return }
-        guard let payload = try? JSONDecoder().decode(AgentStatusAcksPayload.self, from: data) else { return }
-        guard payload.version == 1 else { return }
-        agentStatusAckedAtByWorktreePath = payload.ackedAtEpochByWorktreePath.compactMapValues { Date(timeIntervalSince1970: $0) }
+        // Try file-based storage first (shared across debug/release builds)
+        if let data = try? Data(contentsOf: Self.agentStatusAcksFileURL),
+           let payload = try? JSONDecoder().decode(AgentStatusAcksPayload.self, from: data),
+           payload.version == 1 {
+            agentStatusAckedAtByWorktreePath = payload.ackedAtEpochByWorktreePath.compactMapValues { Date(timeIntervalSince1970: $0) }
+            if let epoch = payload.lastAppQuitEpoch {
+                lastAppQuitTimestamp = Date(timeIntervalSince1970: epoch)
+            }
+            return
+        }
+
+        // One-time migration from UserDefaults (which has debug/release domain split)
+        if let data = UserDefaults.standard.data(forKey: agentStatusAcksKey),
+           let payload = try? JSONDecoder().decode(AgentStatusAcksPayload.self, from: data),
+           payload.version == 1 {
+            agentStatusAckedAtByWorktreePath = payload.ackedAtEpochByWorktreePath.compactMapValues { Date(timeIntervalSince1970: $0) }
+            saveAgentStatusAcks()
+            UserDefaults.standard.removeObject(forKey: agentStatusAcksKey)
+        }
     }
 
     private func saveAgentStatusAcks() {
         let payload = AgentStatusAcksPayload(
             version: 1,
-            ackedAtEpochByWorktreePath: agentStatusAckedAtByWorktreePath.mapValues { $0.timeIntervalSince1970 }
+            ackedAtEpochByWorktreePath: agentStatusAckedAtByWorktreePath.mapValues { $0.timeIntervalSince1970 },
+            lastAppQuitEpoch: lastAppQuitTimestamp?.timeIntervalSince1970
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        UserDefaults.standard.set(data, forKey: agentStatusAcksKey)
+        try? data.write(to: Self.agentStatusAcksFileURL, options: .atomic)
+    }
+
+    func recordAppQuit() {
+        lastAppQuitTimestamp = Date()
+        saveAgentStatusAcks()
     }
 
     private func acknowledgeAgentStatusPersistently(for worktreePath: String) {

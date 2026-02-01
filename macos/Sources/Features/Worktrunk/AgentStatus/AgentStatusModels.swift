@@ -4,6 +4,7 @@ enum AgentLifecycleEventType: String, Codable {
     case start = "Start"
     case stop = "Stop"
     case permissionRequest = "PermissionRequest"
+    case sessionEnd = "SessionEnd"
 }
 
 struct AgentLifecycleEvent: Codable, Hashable {
