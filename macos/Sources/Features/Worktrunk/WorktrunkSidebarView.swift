@@ -199,6 +199,7 @@ struct WorktrunkSidebarView: View {
                 nestedRepoList
             }
         }
+        .id(store.sidebarModelRevision)
         .listStyle(.sidebar)
         .overlay(alignment: .top) {
             SidebarTopProgressBar(isVisible: store.isRefreshing)
