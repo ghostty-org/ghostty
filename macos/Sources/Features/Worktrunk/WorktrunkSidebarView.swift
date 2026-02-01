@@ -413,6 +413,7 @@ struct WorktrunkSidebarView: View {
     ) -> some View {
         HStack(spacing: 8) {
             let tracking = store.gitTracking(for: wt.path)
+            let recencyDate = store.recencyDate(for: wt.path)
             if wt.isCurrent {
                 Image(systemName: "location.fill")
                     .foregroundStyle(.secondary)
@@ -427,13 +428,24 @@ struct WorktrunkSidebarView: View {
             if showsRepoName, let repoName {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(wt.branch)
-                    Text(repoName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if let recencyDate {
+                        (Text(repoName) + Text(" • ") + Text(recencyDate, style: .relative))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(repoName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
+                .layoutPriority(1)
             } else {
                 Text(wt.branch)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
 
             if let status = store.agentStatus(for: wt.path) {
@@ -446,8 +458,7 @@ struct WorktrunkSidebarView: View {
                     deletions: tracking.lineDeletions
                 )
             }
-            Spacer(minLength: 8)
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
             Button {
                 store.acknowledgeAgentStatus(for: wt.path)
                 openWorktree(wt.path)

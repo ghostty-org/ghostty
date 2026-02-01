@@ -186,10 +186,12 @@ final class WorktrunkStore: ObservableObject {
     private let sortOrderKey = "GhostreeWorktreeSortOrder.v1"
     private let sidebarListModeKey = "GhostreeWorktrunkSidebarListMode.v1"
     private let agentStatusAcksKey = "GhostreeWorktrunkAgentStatusAcks.v1"
+    private let firstSeenAtKey = "GhostreeWorktrunkWorktreeFirstSeenAtByPath.v1"
     private let sessionCache = SessionCacheManager()
     private var agentEventTailer: AgentEventTailer? = nil
     private var pendingAgentEventsByCwd: [String: AgentLifecycleEvent] = [:]
     private var agentStatusAckedAtByWorktreePath: [String: Date] = [:]
+    private var firstSeenAtByWorktreePath: [String: Date] = [:]
     private var lastAppQuitTimestamp: Date?
     private var sidebarModelRevisionCounter: Int = 0
 
@@ -197,6 +199,7 @@ final class WorktrunkStore: ObservableObject {
         load()
         loadSortOrder()
         loadSidebarListMode()
+        loadFirstSeenAt()
         loadAgentStatusAcks()
         AgentHookInstaller.ensureInstalled()
         pruneAgentEventLogIfNeeded()
@@ -211,11 +214,18 @@ final class WorktrunkStore: ObservableObject {
 
     private func pruneWorktreeScopedState(removedPaths: Set<String>) {
         guard !removedPaths.isEmpty else { return }
+        var didChangeFirstSeen = false
         for path in removedPaths {
             sessionsByWorktreePath[path] = nil
             gitTrackingByWorktreePath[path] = nil
             agentStatusByWorktreePath[path] = nil
             agentStatusAckedAtByWorktreePath[path] = nil
+            if firstSeenAtByWorktreePath.removeValue(forKey: path) != nil {
+                didChangeFirstSeen = true
+            }
+        }
+        if didChangeFirstSeen {
+            saveFirstSeenAt()
         }
     }
 
@@ -320,8 +330,9 @@ final class WorktrunkStore: ObservableObject {
 
     func refresh(repoID: UUID) async {
         guard let repo = repositories.first(where: { $0.id == repoID }) else { return }
-        let previousPaths = await MainActor.run {
-            Set(worktreesByRepositoryID[repoID]?.map(\.path) ?? [])
+        let (hadExistingList, previousPaths) = await MainActor.run {
+            let existing = worktreesByRepositoryID[repoID]
+            return (existing != nil, Set(existing?.map(\.path) ?? []))
         }
         do {
             let result = try await WorktrunkClient.run(["-C", repo.path, "list", "--format=json"])
@@ -342,7 +353,21 @@ final class WorktrunkStore: ObservableObject {
             }
             let newPaths = Set(worktrees.map(\.path))
             let removedPaths = previousPaths.subtracting(newPaths)
+            let addedPaths = newPaths.subtracting(previousPaths)
             await MainActor.run {
+                if hadExistingList, !addedPaths.isEmpty {
+                    let now = Date()
+                    var didChange = false
+                    for path in addedPaths {
+                        if firstSeenAtByWorktreePath[path] == nil {
+                            firstSeenAtByWorktreePath[path] = now
+                            didChange = true
+                        }
+                    }
+                    if didChange {
+                        saveFirstSeenAt()
+                    }
+                }
                 worktreesByRepositoryID[repoID] = sortWorktrees(worktrees)
                 errorMessage = nil
                 reconcilePendingAgentEvents()
@@ -460,6 +485,27 @@ final class WorktrunkStore: ObservableObject {
         UserDefaults.standard.set(sidebarListMode.rawValue, forKey: sidebarListModeKey)
     }
 
+    private func loadFirstSeenAt() {
+        let ud = UserDefaults.standard
+        guard let raw = ud.dictionary(forKey: firstSeenAtKey) else { return }
+        var loaded: [String: Date] = [:]
+        loaded.reserveCapacity(raw.count)
+        for (path, value) in raw {
+            if let epoch = value as? TimeInterval {
+                loaded[path] = Date(timeIntervalSince1970: epoch)
+            } else if let number = value as? NSNumber {
+                loaded[path] = Date(timeIntervalSince1970: number.doubleValue)
+            }
+        }
+        firstSeenAtByWorktreePath = loaded
+    }
+
+    private func saveFirstSeenAt() {
+        let ud = UserDefaults.standard
+        let payload = firstSeenAtByWorktreePath.mapValues { $0.timeIntervalSince1970 }
+        ud.set(payload, forKey: firstSeenAtKey)
+    }
+
     func latestActivityDate(for worktreePath: String) -> Date? {
         let sessionDate = sessionsByWorktreePath[worktreePath]?.first?.timestamp
         let agentDate = agentStatusByWorktreePath[worktreePath]?.updatedAt
@@ -470,6 +516,10 @@ final class WorktrunkStore: ObservableObject {
         case (.none, .some(let a)): return a
         case (.none, .none): return nil
         }
+    }
+
+    func recencyDate(for worktreePath: String) -> Date? {
+        latestActivityDate(for: worktreePath) ?? firstSeenAtByWorktreePath[worktreePath]
     }
 
     private func resortAllWorktrees() {
@@ -493,7 +543,7 @@ final class WorktrunkStore: ObservableObject {
             worktrees,
             sortOrder: worktreeSortOrder,
             pinMain: pinMain,
-            latestActivityDate: { [self] path in latestActivityDate(for: path) }
+            recencyDate: { [self] path in recencyDate(for: path) }
         )
     }
 
@@ -501,7 +551,7 @@ final class WorktrunkStore: ObservableObject {
         _ worktrees: [Worktree],
         sortOrder: WorktreeSortOrder,
         pinMain: Bool,
-        latestActivityDate: (String) -> Date?
+        recencyDate: (String) -> Date?
     ) -> [Worktree] {
         worktrees.sorted { a, b in
             // Current always pinned to top.
@@ -512,8 +562,8 @@ final class WorktrunkStore: ObservableObject {
             case .alphabetical:
                 return a.branch.localizedStandardCompare(b.branch) == .orderedAscending
             case .recentActivity:
-                let dateA = latestActivityDate(a.path)
-                let dateB = latestActivityDate(b.path)
+                let dateA = recencyDate(a.path)
+                let dateB = recencyDate(b.path)
                 switch (dateA, dateB) {
                 case (.some(let da), .some(let db)):
                     if da != db { return da > db }
