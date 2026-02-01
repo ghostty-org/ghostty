@@ -22,11 +22,92 @@ final class WorktrunkSidebarState: ObservableObject {
         self.expandedWorktreePaths = expandedWorktreePaths
         self.selection = selection
     }
+
+    func didCollapseRepo(id: UUID) {
+        guard let selection else { return }
+        switch selection {
+        case .repo(let repoID):
+            if repoID == id { return }
+        case .worktree(let repoID, _):
+            if repoID == id { self.selection = .repo(id: id) }
+        case .session(_, let repoID, _):
+            if repoID == id { self.selection = .repo(id: id) }
+        }
+    }
+
+    func didCollapseWorktree(repoID: UUID, path: String) {
+        guard let selection else { return }
+        switch selection {
+        case .session(_, let selectedRepoID, let worktreePath):
+            if selectedRepoID == repoID, worktreePath == path {
+                self.selection = .worktree(repoID: repoID, path: path)
+            }
+        default:
+            return
+        }
+    }
+
+    func reconcile(with store: any WorktrunkSidebarReconcilingStore) {
+        let validRepoIDs = Set(store.repositories.map(\.id))
+        var validWorktreePaths = Set<String>()
+        for repo in store.repositories {
+            for wt in store.worktrees(for: repo.id) {
+                validWorktreePaths.insert(wt.path)
+            }
+        }
+
+        let nextExpandedRepoIDs = expandedRepoIDs.intersection(validRepoIDs)
+        if nextExpandedRepoIDs != expandedRepoIDs {
+            expandedRepoIDs = nextExpandedRepoIDs
+        }
+
+        let nextExpandedWorktreePaths = expandedWorktreePaths.intersection(validWorktreePaths)
+        if nextExpandedWorktreePaths != expandedWorktreePaths {
+            expandedWorktreePaths = nextExpandedWorktreePaths
+        }
+
+        guard let selection else { return }
+
+        let nextSelection: SidebarSelection?
+        switch selection {
+        case .repo(let id):
+            nextSelection = validRepoIDs.contains(id) ? selection : nil
+        case .worktree(let repoID, let path):
+            if !validRepoIDs.contains(repoID) {
+                nextSelection = nil
+            } else if validWorktreePaths.contains(path) {
+                nextSelection = selection
+            } else {
+                nextSelection = .repo(id: repoID)
+            }
+        case .session(let id, let repoID, let worktreePath):
+            if !validRepoIDs.contains(repoID) {
+                nextSelection = nil
+            } else if !validWorktreePaths.contains(worktreePath) {
+                nextSelection = .repo(id: repoID)
+            } else if store.sessions(for: worktreePath).contains(where: { $0.id == id }) {
+                nextSelection = selection
+            } else {
+                nextSelection = .worktree(repoID: repoID, path: worktreePath)
+            }
+        }
+
+        if nextSelection != selection {
+            self.selection = nextSelection
+        }
+    }
+}
+
+protocol WorktrunkSidebarReconcilingStore {
+    var repositories: [WorktrunkStore.Repository] { get }
+    func worktrees(for repositoryID: UUID) -> [WorktrunkStore.Worktree]
+    func sessions(for worktreePath: String) -> [AISession]
 }
 
 enum SidebarSelection: Hashable {
-    case worktree(path: String)
-    case session(id: String)
+    case repo(id: UUID)
+    case worktree(repoID: UUID, path: String)
+    case session(id: String, repoID: UUID, worktreePath: String)
 }
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
@@ -1319,6 +1400,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard worktrunkSidebarSyncCancellables.isEmpty else { return }
 
         worktrunkSidebarState.$columnVisibility
+            .removeDuplicates()
             .sink { [weak self] visibility in
                 if visibility == .detailOnly {
                     self?.updateWorktrunkTitlebarWidth(0)
@@ -1328,18 +1410,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .store(in: &worktrunkSidebarSyncCancellables)
 
         worktrunkSidebarState.$expandedRepoIDs
+            .removeDuplicates()
+            .debounce(for: .milliseconds(75), scheduler: RunLoop.main)
             .sink { [weak self] expandedRepoIDs in
                 self?.syncWorktrunkSidebarExpandedRepoIDsToTabGroup(expandedRepoIDs)
             }
             .store(in: &worktrunkSidebarSyncCancellables)
 
         worktrunkSidebarState.$expandedWorktreePaths
+            .removeDuplicates()
+            .debounce(for: .milliseconds(75), scheduler: RunLoop.main)
             .sink { [weak self] expandedWorktreePaths in
                 self?.syncWorktrunkSidebarExpandedWorktreePathsToTabGroup(expandedWorktreePaths)
             }
             .store(in: &worktrunkSidebarSyncCancellables)
 
         worktrunkSidebarState.$selection
+            .removeDuplicates()
             .sink { [weak self] selection in
                 self?.syncWorktrunkSidebarSelectionToTabGroup(selection)
             }

@@ -87,12 +87,23 @@ struct WorktrunkSidebarView: View {
                 return
             }
             switch newValue {
-            case .worktree(let path):
+            case .worktree(_, let path):
                 store.acknowledgeAgentStatus(for: path)
                 onSelectWorktree?(path)
+            case .session(_, _, let worktreePath):
+                store.acknowledgeAgentStatus(for: worktreePath)
+                onSelectWorktree?(worktreePath)
             default:
                 onSelectWorktree?(nil)
             }
+        }
+        .onChange(of: store.sidebarModelRevision) { _ in
+            if store.isRefreshing { return }
+            sidebarState.reconcile(with: store)
+        }
+        .onChange(of: store.isRefreshing) { isRefreshing in
+            if isRefreshing { return }
+            sidebarState.reconcile(with: store)
         }
         .onAppear {
             if sidebarState.expandedRepoIDs.isEmpty {
@@ -173,24 +184,17 @@ struct WorktrunkSidebarView: View {
             set: { sidebarState.selection = $0 }
         )
         return List(selection: selection) {
-            // Small loading indicator at top - doesn't block anything
-            if store.isRefreshing {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("Loading sessions...")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
             ForEach(store.repositories) { repo in
                 DisclosureGroup(
                     isExpanded: Binding(
                         get: { sidebarState.expandedRepoIDs.contains(repo.id) },
                         set: { newValue in
-                            if newValue { sidebarState.expandedRepoIDs.insert(repo.id) }
-                            else { sidebarState.expandedRepoIDs.remove(repo.id) }
+                            if newValue {
+                                sidebarState.expandedRepoIDs.insert(repo.id)
+                            } else {
+                                sidebarState.expandedRepoIDs.remove(repo.id)
+                                sidebarState.didCollapseRepo(id: repo.id)
+                            }
                         }
                     )
                 ) {
@@ -204,8 +208,12 @@ struct WorktrunkSidebarView: View {
                                 isExpanded: Binding(
                                     get: { sidebarState.expandedWorktreePaths.contains(wt.path) },
                                     set: { newValue in
-                                        if newValue { sidebarState.expandedWorktreePaths.insert(wt.path) }
-                                        else { sidebarState.expandedWorktreePaths.remove(wt.path) }
+                                        if newValue {
+                                            sidebarState.expandedWorktreePaths.insert(wt.path)
+                                        } else {
+                                            sidebarState.expandedWorktreePaths.remove(wt.path)
+                                            sidebarState.didCollapseWorktree(repoID: wt.repositoryID, path: wt.path)
+                                        }
                                     }
                                 )
                             ) {
@@ -222,7 +230,11 @@ struct WorktrunkSidebarView: View {
                                             store.acknowledgeAgentStatus(for: session.worktreePath)
                                             resumeSession?(session)
                                         })
-                                        .tag(SidebarSelection.session(id: session.id))
+                                        .tag(SidebarSelection.session(
+                                            id: session.id,
+                                            repoID: wt.repositoryID,
+                                            worktreePath: wt.path
+                                        ))
                                     }
                                 }
                             } label: {
@@ -273,7 +285,7 @@ struct WorktrunkSidebarView: View {
                                     }
                                 }
                             }
-                            .tag(SidebarSelection.worktree(path: wt.path))
+                            .tag(SidebarSelection.worktree(repoID: wt.repositoryID, path: wt.path))
                         }
                     }
 
@@ -314,9 +326,13 @@ struct WorktrunkSidebarView: View {
                         }
                     }
                 }
+                .tag(SidebarSelection.repo(id: repo.id))
             }
         }
         .listStyle(.sidebar)
+        .overlay(alignment: .top) {
+            SidebarTopProgressBar(isVisible: store.isRefreshing)
+        }
     }
 
     private func promptAddRepository() async {
@@ -517,5 +533,24 @@ private struct WorktreeChangeBadge: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 1)
         .background(Capsule().fill(Color.secondary.opacity(0.15)))
+    }
+}
+
+private struct SidebarTopProgressBar: View {
+    let isVisible: Bool
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.12))
+            ProgressView()
+                .progressViewStyle(.linear)
+                .opacity(isVisible ? 1 : 0)
+                .padding(.horizontal, 10)
+        }
+        .frame(height: 3)
+        .opacity(isVisible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.15), value: isVisible)
+        .allowsHitTesting(false)
     }
 }

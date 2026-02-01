@@ -160,6 +160,7 @@ final class WorktrunkStore: ObservableObject {
     @Published private var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
+    @Published private(set) var sidebarModelRevision: Int = 0
     @Published var worktreeSortOrder: WorktreeSortOrder = .alphabetical {
         didSet {
             if oldValue != worktreeSortOrder {
@@ -177,6 +178,7 @@ final class WorktrunkStore: ObservableObject {
     private var pendingAgentEventsByCwd: [String: AgentLifecycleEvent] = [:]
     private var agentStatusAckedAtByWorktreePath: [String: Date] = [:]
     private var lastAppQuitTimestamp: Date?
+    private var sidebarModelRevisionCounter: Int = 0
 
     init() {
         load()
@@ -186,6 +188,21 @@ final class WorktrunkStore: ObservableObject {
         pruneAgentEventLogIfNeeded()
         startAgentEventTailer()
         seedAgentStatusesFromLog()
+    }
+
+    private func bumpSidebarModelRevision() {
+        sidebarModelRevisionCounter += 1
+        sidebarModelRevision = sidebarModelRevisionCounter
+    }
+
+    private func pruneWorktreeScopedState(removedPaths: Set<String>) {
+        guard !removedPaths.isEmpty else { return }
+        for path in removedPaths {
+            sessionsByWorktreePath[path] = nil
+            gitTrackingByWorktreePath[path] = nil
+            agentStatusByWorktreePath[path] = nil
+            agentStatusAckedAtByWorktreePath[path] = nil
+        }
     }
 
     func worktrees(for repositoryID: UUID) -> [Worktree] {
@@ -253,13 +270,17 @@ final class WorktrunkStore: ObservableObject {
         guard !repositories.contains(where: { normalizePath($0.path) == normalized }) else { return }
         repositories.append(.init(path: normalized, displayName: displayName))
         save()
+        bumpSidebarModelRevision()
         Task { await refreshAll() }
     }
 
     func removeRepository(id: UUID) {
+        let removedPaths = Set(worktreesByRepositoryID[id]?.map(\.path) ?? [])
         repositories.removeAll(where: { $0.id == id })
         worktreesByRepositoryID[id] = nil
+        pruneWorktreeScopedState(removedPaths: removedPaths)
         save()
+        bumpSidebarModelRevision()
     }
 
     func refreshAll() async {
@@ -300,10 +321,14 @@ final class WorktrunkStore: ObservableObject {
                     isCurrent: item.isCurrent
                 )
             }
+            let newPaths = Set(worktrees.map(\.path))
+            let removedPaths = previousPaths.subtracting(newPaths)
             await MainActor.run {
                 worktreesByRepositoryID[repoID] = sortWorktrees(worktrees)
                 errorMessage = nil
                 reconcilePendingAgentEvents()
+                pruneWorktreeScopedState(removedPaths: removedPaths)
+                bumpSidebarModelRevision()
             }
             await refreshGitTracking(for: worktrees, removing: previousPaths)
         } catch {
@@ -415,11 +440,18 @@ final class WorktrunkStore: ObservableObject {
     }
 
     private func resortAllWorktrees() {
+        var didChange = false
         for repoID in worktreesByRepositoryID.keys {
-            if var worktrees = worktreesByRepositoryID[repoID] {
-                worktrees = sortWorktrees(worktrees)
-                worktreesByRepositoryID[repoID] = worktrees
+            if let existing = worktreesByRepositoryID[repoID] {
+                let sorted = sortWorktrees(existing)
+                if sorted != existing {
+                    worktreesByRepositoryID[repoID] = sorted
+                    didChange = true
+                }
             }
+        }
+        if didChange {
+            bumpSidebarModelRevision()
         }
     }
 
@@ -793,7 +825,32 @@ final class WorktrunkStore: ObservableObject {
     func refreshSessions() async {
         var allSessions: [String: [AISession]] = [:]
         var updateCount = 0
-        let batchSize = 50
+        var dirtyWorktreePaths = Set<String>()
+        let publishCheckBatch = 25
+        let publishIntervalSeconds: TimeInterval = 0.2
+        var lastPublish = Date.distantPast
+
+        func prepareForPublish() {
+            guard !dirtyWorktreePaths.isEmpty else { return }
+            for path in dirtyWorktreePaths {
+                allSessions[path]?.sort { $0.timestamp > $1.timestamp }
+            }
+            dirtyWorktreePaths.removeAll(keepingCapacity: true)
+        }
+
+        func publishSnapshotIfNeeded(force: Bool = false) async {
+            let now = Date()
+            if !force, now.timeIntervalSince(lastPublish) < publishIntervalSeconds {
+                return
+            }
+            lastPublish = now
+            prepareForPublish()
+            let snapshot = allSessions
+            await MainActor.run {
+                sessionsByWorktreePath = snapshot
+                bumpSidebarModelRevision()
+            }
+        }
 
         // Scan Claude sessions with periodic UI updates
         let claudeProjectsDir = FileManager.default.homeDirectoryForCurrentUser
@@ -815,14 +872,11 @@ final class WorktrunkStore: ObservableObject {
                         if let worktreePath = findMatchingWorktree(session.cwd) {
                             session.worktreePath = worktreePath
                             allSessions[worktreePath, default: []].append(session)
+                            dirtyWorktreePaths.insert(worktreePath)
                             updateCount += 1
 
-                            // Update UI every batchSize sessions
-                            if updateCount % batchSize == 0 {
-                                let snapshot = allSessions
-                                await MainActor.run {
-                                    sessionsByWorktreePath = snapshot
-                                }
+                            if updateCount % publishCheckBatch == 0 {
+                                await publishSnapshotIfNeeded()
                             }
                         }
                     }
@@ -846,13 +900,11 @@ final class WorktrunkStore: ObservableObject {
                     if let worktreePath = findMatchingWorktree(session.cwd) {
                         session.worktreePath = worktreePath
                         allSessions[worktreePath, default: []].append(session)
+                        dirtyWorktreePaths.insert(worktreePath)
                         updateCount += 1
 
-                        if updateCount % batchSize == 0 {
-                            let snapshot = allSessions
-                            await MainActor.run {
-                                sessionsByWorktreePath = snapshot
-                            }
+                        if updateCount % publishCheckBatch == 0 {
+                            await publishSnapshotIfNeeded()
                         }
                     }
                 }
@@ -860,14 +912,13 @@ final class WorktrunkStore: ObservableObject {
         }
 
         // Final sort and update
-        for key in allSessions.keys {
-            allSessions[key]?.sort { $0.timestamp > $1.timestamp }
-        }
+        prepareForPublish()
 
         sessionCache.saveToDisk()
 
         await MainActor.run {
             sessionsByWorktreePath = allSessions
+            bumpSidebarModelRevision()
             if worktreeSortOrder == .recentActivity {
                 resortAllWorktrees()
             }
@@ -1361,3 +1412,5 @@ final class WorktrunkStore: ObservableObject {
         return 0
     }
 }
+
+extension WorktrunkStore: WorktrunkSidebarReconcilingStore {}
