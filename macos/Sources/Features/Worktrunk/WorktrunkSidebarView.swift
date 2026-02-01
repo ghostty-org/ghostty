@@ -30,6 +30,15 @@ struct WorktrunkSidebarView: View {
 
                 Spacer(minLength: 0)
 
+                Button {
+                    toggleSidebarListMode()
+                } label: {
+                    Image(systemName: store.sidebarListMode == .flatWorktrees ? "list.bullet.indent" : "list.bullet")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(store.sidebarListMode == .flatWorktrees ? "Switch to nested list" : "Switch to flat list")
+
                 Menu {
                     ForEach(WorktreeSortOrder.allCases, id: \.self) { order in
                         Button {
@@ -106,7 +115,7 @@ struct WorktrunkSidebarView: View {
             sidebarState.reconcile(with: store)
         }
         .onAppear {
-            if sidebarState.expandedRepoIDs.isEmpty {
+            if store.sidebarListMode == .nestedByRepo, sidebarState.expandedRepoIDs.isEmpty {
                 sidebarState.expandedRepoIDs = Set(store.repositories.map(\.id))
             }
             Task { await store.refreshAll() }
@@ -184,154 +193,269 @@ struct WorktrunkSidebarView: View {
             set: { sidebarState.selection = $0 }
         )
         return List(selection: selection) {
-            ForEach(store.repositories) { repo in
-                DisclosureGroup(
-                    isExpanded: Binding(
-                        get: { sidebarState.expandedRepoIDs.contains(repo.id) },
-                        set: { newValue in
-                            if newValue {
-                                sidebarState.expandedRepoIDs.insert(repo.id)
-                            } else {
-                                sidebarState.expandedRepoIDs.remove(repo.id)
-                                sidebarState.didCollapseRepo(id: repo.id)
-                            }
-                        }
-                    )
-                ) {
-                    let worktrees = store.worktrees(for: repo.id)
-                    if worktrees.isEmpty {
-                        Text("No worktrees")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(worktrees) { wt in
-                            DisclosureGroup(
-                                isExpanded: Binding(
-                                    get: { sidebarState.expandedWorktreePaths.contains(wt.path) },
-                                    set: { newValue in
-                                        if newValue {
-                                            sidebarState.expandedWorktreePaths.insert(wt.path)
-                                        } else {
-                                            sidebarState.expandedWorktreePaths.remove(wt.path)
-                                            sidebarState.didCollapseWorktree(repoID: wt.repositoryID, path: wt.path)
-                                        }
-                                    }
-                                )
-                            ) {
-                                // Sessions under this worktree
-                                let sessions = store.sessions(for: wt.path)
-                                if sessions.isEmpty {
-                                    Text("No sessions")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.leading, 8)
-                                } else {
-                                    ForEach(sessions) { session in
-                                        SessionRow(session: session, onResume: {
-                                            store.acknowledgeAgentStatus(for: session.worktreePath)
-                                            resumeSession?(session)
-                                        })
-                                        .tag(SidebarSelection.session(
-                                            id: session.id,
-                                            repoID: wt.repositoryID,
-                                            worktreePath: wt.path
-                                        ))
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    let tracking = store.gitTracking(for: wt.path)
-                                    if wt.isCurrent {
-                                        Image(systemName: "location.fill")
-                                            .foregroundStyle(.secondary)
-                                    } else if wt.isMain {
-                                        Image(systemName: "house.fill")
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Image(systemName: "folder")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(wt.branch)
-                                    if let status = store.agentStatus(for: wt.path) {
-                                        WorktreeAgentStatusBadge(status: status)
-                                    }
-                                    if let tracking,
-                                       tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
-                                        WorktreeChangeBadge(
-                                            additions: tracking.lineAdditions,
-                                            deletions: tracking.lineDeletions
-                                        )
-                                    }
-                                    Spacer(minLength: 8)
-                                    Spacer(minLength: 8)
-                                    Button {
-                                        store.acknowledgeAgentStatus(for: wt.path)
-                                        openWorktree(wt.path)
-                                    } label: {
-                                        Image(systemName: "plus")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Open terminal in \(wt.branch)")
-                                }
-                                .contentShape(Rectangle())
-                                .help(wt.path)
-                                .contextMenu {
-                                    Button("Remove Worktree…") {
-                                        removeWorktreeConfirm = wt
-                                    }
-                                    .disabled(wt.isMain)
-                                    Button("Reveal in Finder") {
-                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: wt.path)])
-                                    }
-                                }
-                            }
-                            .tag(SidebarSelection.worktree(repoID: wt.repositoryID, path: wt.path))
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus.circle")
-                            .foregroundStyle(.secondary)
-                        Text("New worktree…")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .padding(.top, 2)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        createSheetRepo = repo
-                    }
-                    .help("Create worktree")
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(repo.name)
-                            .lineLimit(1)
-                        Spacer()
-                        Button {
-                            createSheetRepo = repo
-                        } label: {
-                            Image(systemName: "plus")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Create worktree")
-                    }
-                    .contentShape(Rectangle())
-                    .contextMenu {
-                        Button("Remove Repository…") {
-                            removeRepoConfirm = repo
-                        }
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
-                        }
-                    }
-                }
-                .tag(SidebarSelection.repo(id: repo.id))
+            if store.sidebarListMode == .flatWorktrees {
+                flatWorktreeList
+            } else {
+                nestedRepoList
             }
         }
         .listStyle(.sidebar)
         .overlay(alignment: .top) {
             SidebarTopProgressBar(isVisible: store.isRefreshing)
+        }
+    }
+
+    @ViewBuilder
+    private var nestedRepoList: some View {
+        ForEach(store.repositories) { repo in
+            DisclosureGroup(
+                isExpanded: Binding(
+                    get: { sidebarState.expandedRepoIDs.contains(repo.id) },
+                    set: { newValue in
+                        if newValue {
+                            sidebarState.expandedRepoIDs.insert(repo.id)
+                        } else {
+                            sidebarState.expandedRepoIDs.remove(repo.id)
+                            sidebarState.didCollapseRepo(id: repo.id)
+                        }
+                    }
+                )
+            ) {
+                let worktrees = store.worktrees(for: repo.id)
+                if worktrees.isEmpty {
+                    Text("No worktrees")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(worktrees) { wt in
+                        worktreeDisclosureGroup(
+                            wt: wt,
+                            repoName: nil,
+                            showsFolderIcon: true,
+                            showsRepoName: false
+                        )
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle")
+                        .foregroundStyle(.secondary)
+                    Text("New worktree…")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.top, 2)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    createSheetRepo = repo
+                }
+                .help("Create worktree")
+            } label: {
+                HStack(spacing: 4) {
+                    Text(repo.name)
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        createSheetRepo = repo
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Create worktree")
+                }
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button("Remove Repository…") {
+                        removeRepoConfirm = repo
+                    }
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
+                    }
+                }
+            }
+            .tag(SidebarSelection.repo(id: repo.id))
+        }
+    }
+
+    @ViewBuilder
+    private var flatWorktreeList: some View {
+        let repoNameByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0.name) })
+        let worktrees = store.allWorktreesSorted()
+
+        if worktrees.isEmpty {
+            Text("No worktrees")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(worktrees) { wt in
+                worktreeDisclosureGroup(
+                    wt: wt,
+                    repoName: repoNameByID[wt.repositoryID],
+                    showsFolderIcon: false,
+                    showsRepoName: true
+                )
+            }
+        }
+
+        if store.repositories.count == 1, let repo = store.repositories.first {
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle")
+                    .foregroundStyle(.secondary)
+                Text("New worktree…")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.top, 2)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                createSheetRepo = repo
+            }
+            .help("Create worktree")
+        } else if store.repositories.count > 1 {
+            Menu {
+                ForEach(store.repositories) { repo in
+                    Button(repo.name) {
+                        createSheetRepo = repo
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle")
+                        .foregroundStyle(.secondary)
+                    Text("New worktree…")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.top, 2)
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .help("Create worktree")
+        }
+    }
+
+    private func toggleSidebarListMode() {
+        if store.sidebarListMode == .flatWorktrees {
+            store.sidebarListMode = .nestedByRepo
+        } else {
+            store.sidebarListMode = .flatWorktrees
+            store.worktreeSortOrder = .recentActivity
+        }
+    }
+
+    @ViewBuilder
+    private func worktreeDisclosureGroup(
+        wt: WorktrunkStore.Worktree,
+        repoName: String?,
+        showsFolderIcon: Bool,
+        showsRepoName: Bool
+    ) -> some View {
+        DisclosureGroup(
+            isExpanded: Binding(
+                get: { sidebarState.expandedWorktreePaths.contains(wt.path) },
+                set: { newValue in
+                    if newValue {
+                        sidebarState.expandedWorktreePaths.insert(wt.path)
+                    } else {
+                        sidebarState.expandedWorktreePaths.remove(wt.path)
+                        sidebarState.didCollapseWorktree(repoID: wt.repositoryID, path: wt.path)
+                    }
+                }
+            )
+        ) {
+            let sessions = store.sessions(for: wt.path)
+            if sessions.isEmpty {
+                Text("No sessions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 8)
+            } else {
+                ForEach(sessions) { session in
+                    SessionRow(session: session, onResume: {
+                        store.acknowledgeAgentStatus(for: session.worktreePath)
+                        resumeSession?(session)
+                    })
+                    .tag(SidebarSelection.session(
+                        id: session.id,
+                        repoID: wt.repositoryID,
+                        worktreePath: wt.path
+                    ))
+                }
+            }
+        } label: {
+            worktreeRowLabel(
+                wt: wt,
+                repoName: repoName,
+                showsFolderIcon: showsFolderIcon,
+                showsRepoName: showsRepoName
+            )
+            .contentShape(Rectangle())
+            .help(wt.path)
+            .contextMenu {
+                Button("Remove Worktree…") {
+                    removeWorktreeConfirm = wt
+                }
+                .disabled(wt.isMain)
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: wt.path)])
+                }
+            }
+        }
+        .tag(SidebarSelection.worktree(repoID: wt.repositoryID, path: wt.path))
+    }
+
+    @ViewBuilder
+    private func worktreeRowLabel(
+        wt: WorktrunkStore.Worktree,
+        repoName: String?,
+        showsFolderIcon: Bool,
+        showsRepoName: Bool
+    ) -> some View {
+        HStack(spacing: 8) {
+            let tracking = store.gitTracking(for: wt.path)
+            if wt.isCurrent {
+                Image(systemName: "location.fill")
+                    .foregroundStyle(.secondary)
+            } else if wt.isMain {
+                Image(systemName: "house.fill")
+                    .foregroundStyle(.secondary)
+            } else if showsFolderIcon {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+            }
+
+            if showsRepoName, let repoName {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(wt.branch)
+                    Text(repoName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } else {
+                Text(wt.branch)
+            }
+
+            if let status = store.agentStatus(for: wt.path) {
+                WorktreeAgentStatusBadge(status: status)
+            }
+            if let tracking,
+               tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
+                WorktreeChangeBadge(
+                    additions: tracking.lineAdditions,
+                    deletions: tracking.lineDeletions
+                )
+            }
+            Spacer(minLength: 8)
+            Spacer(minLength: 8)
+            Button {
+                store.acknowledgeAgentStatus(for: wt.path)
+                openWorktree(wt.path)
+            } label: {
+                Image(systemName: "plus")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open terminal in \(wt.branch)")
         }
     }
 

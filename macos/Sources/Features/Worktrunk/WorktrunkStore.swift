@@ -97,6 +97,11 @@ enum WorktreeSortOrder: String, CaseIterable {
     }
 }
 
+enum WorktrunkSidebarListMode: String {
+    case nestedByRepo = "nestedByRepo"
+    case flatWorktrees = "flatWorktrees"
+}
+
 final class WorktrunkStore: ObservableObject {
     struct Repository: Identifiable, Codable, Hashable {
         var id: UUID
@@ -169,9 +174,17 @@ final class WorktrunkStore: ObservableObject {
             }
         }
     }
+    @Published var sidebarListMode: WorktrunkSidebarListMode = .nestedByRepo {
+        didSet {
+            if oldValue != sidebarListMode {
+                saveSidebarListMode()
+            }
+        }
+    }
 
     private let repositoriesKey = "GhosttyWorktrunkRepositories.v1"
     private let sortOrderKey = "GhostreeWorktreeSortOrder.v1"
+    private let sidebarListModeKey = "GhostreeWorktrunkSidebarListMode.v1"
     private let agentStatusAcksKey = "GhostreeWorktrunkAgentStatusAcks.v1"
     private let sessionCache = SessionCacheManager()
     private var agentEventTailer: AgentEventTailer? = nil
@@ -183,6 +196,7 @@ final class WorktrunkStore: ObservableObject {
     init() {
         load()
         loadSortOrder()
+        loadSidebarListMode()
         loadAgentStatusAcks()
         AgentHookInstaller.ensureInstalled()
         pruneAgentEventLogIfNeeded()
@@ -207,6 +221,11 @@ final class WorktrunkStore: ObservableObject {
 
     func worktrees(for repositoryID: UUID) -> [Worktree] {
         worktreesByRepositoryID[repositoryID] ?? []
+    }
+
+    func allWorktreesSorted() -> [Worktree] {
+        let all = repositories.flatMap { worktrees(for: $0.id) }
+        return sortWorktrees(all)
     }
 
     func sessions(for worktreePath: String) -> [AISession] {
@@ -425,6 +444,20 @@ final class WorktrunkStore: ObservableObject {
 
     private func saveSortOrder() {
         UserDefaults.standard.set(worktreeSortOrder.rawValue, forKey: sortOrderKey)
+    }
+
+    private func loadSidebarListMode() {
+        if let raw = UserDefaults.standard.string(forKey: sidebarListModeKey),
+           let mode = WorktrunkSidebarListMode(rawValue: raw) {
+            sidebarListMode = mode
+            if mode == .flatWorktrees {
+                worktreeSortOrder = .recentActivity
+            }
+        }
+    }
+
+    private func saveSidebarListMode() {
+        UserDefaults.standard.set(sidebarListMode.rawValue, forKey: sidebarListModeKey)
     }
 
     func latestActivityDate(for worktreePath: String) -> Date? {
