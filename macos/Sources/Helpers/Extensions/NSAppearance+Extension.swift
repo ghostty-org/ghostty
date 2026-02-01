@@ -16,6 +16,9 @@ extension NSAppearance {
         case "light":
             self.init(named: .aqua)
 
+        case "system":
+            return nil
+
         case "auto":
             let color = OSColor(config.backgroundColor)
             if color.isLightColor {

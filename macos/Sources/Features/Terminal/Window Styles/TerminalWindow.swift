@@ -579,8 +579,14 @@ class TerminalWindow: NSWindow {
         } else {
             isOpaque = true
 
-            let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
-            self.backgroundColor = backgroundColor.withAlphaComponent(1)
+            let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+            let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
+            if usesTerminalBackgroundForWindow {
+                let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
+                self.backgroundColor = backgroundColor.withAlphaComponent(1)
+            } else {
+                self.backgroundColor = NSColor.windowBackgroundColor
+            }
         }
     }
 

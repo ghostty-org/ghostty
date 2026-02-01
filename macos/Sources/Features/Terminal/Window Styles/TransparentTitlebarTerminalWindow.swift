@@ -59,9 +59,12 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
     override func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         super.syncAppearance(surfaceConfig)
-        // override appearance based on the terminal's background color
-        if let preferredBackgroundColor {
-            appearance = (preferredBackgroundColor.isLightColor ? NSAppearance(named: .aqua) : NSAppearance(named: .darkAqua))
+        let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
+        if usesTerminalBackgroundForWindow, let preferredBackgroundColor {
+            appearance = (preferredBackgroundColor.isLightColor
+                ? NSAppearance(named: .aqua)
+                : NSAppearance(named: .darkAqua))
         }
 
         // Save our config in case we need to reapply
@@ -95,9 +98,15 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == "transparent" ||
                                        derivedConfig.macosTitlebarStyle == "tabs"
 
+            let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+            let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
+            let alpha = surfaceConfig.backgroundOpacity.clamped(to: 0.001...1)
+            let baseColor = usesTerminalBackgroundForWindow
+                ? (preferredBackgroundColor ?? derivedConfig.backgroundColor.withAlphaComponent(alpha))
+                : NSColor.windowBackgroundColor.withAlphaComponent(alpha)
             titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
                 ? NSColor.clear.cgColor
-                : preferredBackgroundColor?.cgColor
+                : baseColor.cgColor
         }
 
         // In all cases, we have to hide the background view since this has multiple subviews
@@ -111,7 +120,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
         // Setup the titlebar background color to match ours
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+        let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
+        let alpha = surfaceConfig.backgroundOpacity.clamped(to: 0.001...1)
+        let baseColor = usesTerminalBackgroundForWindow
+            ? (preferredBackgroundColor ?? derivedConfig.backgroundColor.withAlphaComponent(alpha))
+            : NSColor.windowBackgroundColor.withAlphaComponent(alpha)
+        titlebarContainer.layer?.backgroundColor = baseColor.cgColor
 
         // See the docs for the function that sets this to true on why
         effectViewIsHidden = false

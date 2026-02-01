@@ -60,7 +60,7 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
         let app = try ghosttyApplication()
         app.launch()
         try await Task.sleep(for: .seconds(0.5))
-        try assertTitlebarAppearance(.dark, for: app)
+        try assertTitlebarAppearance(.light, for: app)
     }
 
     @MainActor

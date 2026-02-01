@@ -42,11 +42,17 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
         titlebarTabs = true
 
+        let windowTheme = (NSApp.delegate as? AppDelegate)?.ghostty.config.windowTheme?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "auto"
+        let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
+
         // Set the background color of the window
-        backgroundColor = derivedConfig.backgroundColor
+        backgroundColor = usesTerminalBackgroundForWindow ? derivedConfig.backgroundColor : NSColor.windowBackgroundColor
 
         // This makes sure our titlebar renders correctly when there is a transparent background
-        titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
+        let alpha = derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
+        let baseTitlebarColor = usesTerminalBackgroundForWindow ? derivedConfig.backgroundColor : NSColor.windowBackgroundColor
+        titlebarColor = baseTitlebarColor.withAlphaComponent(alpha)
     }
 
     // We only need to set this once, but need to do it after the window has been created in order
@@ -149,20 +155,30 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     override func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         super.syncAppearance(surfaceConfig)
-        // override appearance based on the terminal's background color
-        if let preferredBackgroundColor {
-            appearance = (preferredBackgroundColor.isLightColor ? NSAppearance(named: .aqua) : NSAppearance(named: .darkAqua))
+
+        let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
+        if usesTerminalBackgroundForWindow, let preferredBackgroundColor {
+            appearance = (preferredBackgroundColor.isLightColor
+                ? NSAppearance(named: .aqua)
+                : NSAppearance(named: .darkAqua))
         }
 
-        // Update our window light/darkness based on our updated background color
-        let themeChanged = isLightTheme != OSColor(surfaceConfig.backgroundColor).isLightColor
-        isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
+        // Update our window light/darkness based on our updated appearance.
+        let newIsLightTheme = !effectiveAppearance.isDark
+        let themeChanged = isLightTheme != newIsLightTheme
+        isLightTheme = newIsLightTheme
 
         // Update our titlebar color
-        if let preferredBackgroundColor {
-            titlebarColor = preferredBackgroundColor
+        let alpha = surfaceConfig.backgroundOpacity.clamped(to: 0.001...1)
+        if usesTerminalBackgroundForWindow {
+            if let preferredBackgroundColor {
+                titlebarColor = preferredBackgroundColor
+            } else {
+                titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
+            }
         } else {
-            titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
+            titlebarColor = NSColor.windowBackgroundColor.withAlphaComponent(alpha)
         }
 
         if (isOpaque || themeChanged) {

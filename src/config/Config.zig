@@ -2027,8 +2027,9 @@ keybind: Keybinds = .{},
 ///   * `ghostty` - Use the background and foreground colors specified in the
 ///     Ghostty configuration. This is only supported on Linux builds.
 ///
-/// On macOS, if `macos-titlebar-style` is `tabs` or `transparent`, the window theme will be
-/// automatically set based on the luminosity of the terminal background color.
+/// On macOS, if `macos-titlebar-style` is `tabs` or `transparent` and `window-theme` is `auto`,
+/// the effective window theme for terminal windows may be set based on the luminosity of the
+/// focused terminal background color.
 /// This only applies to terminal windows. This setting will still apply to
 /// non-terminal windows within Ghostty.
 ///
