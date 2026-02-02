@@ -11,13 +11,23 @@ struct SettingsView: View {
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 180, max: 180)
-            .toolbar(removing: .sidebarToggle)
+            .modifier(RemoveSidebarToggleModifier())
         } detail: {
             selectedSection.view
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 680, minHeight: 450)
+    }
+}
+
+private struct RemoveSidebarToggleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content.toolbar(removing: .sidebarToggle)
+        } else {
+            content
+        }
     }
 }
 

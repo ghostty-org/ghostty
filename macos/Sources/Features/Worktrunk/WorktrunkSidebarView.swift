@@ -14,6 +14,7 @@ struct WorktrunkSidebarView: View {
     @State private var removeWorktreeForceConfirm: WorktrunkStore.Worktree?
     @State private var removeWorktreeForceError: String?
     @State private var showRepoPicker: Bool = false
+    @State private var repoSearchText: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -307,16 +308,17 @@ struct WorktrunkSidebarView: View {
                 }
             }
             .help("Create worktree")
-            .confirmationDialog(
-                "Choose Repository",
-                isPresented: $showRepoPicker,
-                titleVisibility: .visible
-            ) {
-                ForEach(store.repositories) { repo in
-                    Button(repo.name) {
-                        createSheetRepo = repo
-                    }
+            .popover(isPresented: $showRepoPicker) {
+                RepoPickerPopover(
+                    repositories: store.repositories,
+                    searchText: $repoSearchText
+                ) { repo in
+                    showRepoPicker = false
+                    createSheetRepo = repo
                 }
+            }
+            .onChange(of: showRepoPicker) { isShowing in
+                if isShowing { repoSearchText = "" }
             }
         }
     }
@@ -694,6 +696,54 @@ private struct WorktreeChangeBadge: View {
         .padding(.vertical, 1)
         .background(Capsule().fill(Color.secondary.opacity(0.15)))
         .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+private struct RepoPickerPopover: View {
+    let repositories: [WorktrunkStore.Repository]
+    @Binding var searchText: String
+    let onSelect: (WorktrunkStore.Repository) -> Void
+
+    private var filtered: [WorktrunkStore.Repository] {
+        if searchText.isEmpty { return repositories }
+        return repositories.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TextField("Filter…", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .padding(8)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(filtered) { repo in
+                        Button {
+                            onSelect(repo)
+                        } label: {
+                            Text(repo.name)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 12)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if filtered.isEmpty {
+                        Text("No matches")
+                            .foregroundStyle(.secondary)
+                            .padding(12)
+                    }
+                }
+            }
+            .frame(maxHeight: 300)
+        }
+        .frame(width: 240)
     }
 }
 
