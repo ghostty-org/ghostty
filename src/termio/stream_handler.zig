@@ -56,6 +56,9 @@ pub const StreamHandler = struct {
     /// The clipboard write access configuration.
     clipboard_write: configpkg.ClipboardAccess,
 
+    /// Whether applications are allowed to clear the scrollback buffer.
+    scrollback_clear_allowed: bool,
+
     //---------------------------------------------------------------
     // Internal state
 
@@ -112,6 +115,7 @@ pub const StreamHandler = struct {
         self.enquiry_response = config.enquiry_response;
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
+        self.scrollback_clear_allowed = config.scrollback_clear_allowed;
 
         // If our cursor is the default, then we update it immediately.
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
@@ -235,7 +239,9 @@ pub const StreamHandler = struct {
                 try self.terminal.scrollViewport(.{ .bottom = {} });
                 self.terminal.eraseDisplay(.complete, value);
             },
-            .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
+            .erase_display_scrollback => if (self.scrollback_clear_allowed) {
+                self.terminal.eraseDisplay(.scrollback, value);
+            },
             .erase_display_scroll_complete => self.terminal.eraseDisplay(.scroll_complete, value),
             .erase_line_right => self.terminal.eraseLine(.right, value),
             .erase_line_left => self.terminal.eraseLine(.left, value),

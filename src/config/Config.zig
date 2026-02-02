@@ -2806,6 +2806,19 @@ keybind: Keybinds = .{},
 /// need KAM, you don't need it.
 @"vt-kam-allowed": bool = false,
 
+/// If false, prevents applications from clearing the scrollback buffer
+/// using the CSI 3 J escape sequence (ED with parameter 3). This is useful
+/// if you want to preserve your scrollback history even when applications
+/// (such as shells on logout, or programs like `clear`) attempt to clear it.
+///
+/// When set to false, CSI 3 J will be silently ignored and the scrollback
+/// buffer will remain intact. The visible screen can still be cleared
+/// normally.
+///
+/// This is similar to iTerm2's "Prevent CSI 3 J from clearing scrollback
+/// history" option.
+@"scrollback-clear-allowed": bool = true,
+
 /// Custom shaders to run after the default shaders. This is a file path
 /// to a GLSL-syntax shader for all platforms.
 ///
