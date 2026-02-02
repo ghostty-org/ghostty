@@ -17,7 +17,7 @@ struct AISession: Identifiable, Hashable {
     var source: SessionSource
     var worktreePath: String
     var cwd: String
-    var timestamp: Date  // from JSON timestamp field, NOT file mtime
+    var timestamp: Date  // last activity timestamp from JSONL, NOT file mtime
     var snippet: String?
     var sourcePath: String
     var messageCount: Int = 0  // number of user messages
@@ -1067,9 +1067,9 @@ final class WorktrunkStore: ObservableObject {
                 cwd = c
             }
 
-            // Extract timestamp (RFC3339 string)
-            if timestamp == nil, let ts = json["timestamp"] as? String {
-                timestamp = parseRFC3339(ts)
+            // Extract timestamp (RFC3339 string) - keep updating to get the LAST one
+            if let ts = json["timestamp"] as? String, let parsed = parseRFC3339(ts) {
+                timestamp = parsed
             }
 
             // Count user messages and extract snippet
@@ -1093,9 +1093,12 @@ final class WorktrunkStore: ObservableObject {
             }
         }
 
-        // For large files, use grep to count remaining messages
+        // For large files, use grep to count remaining messages and read tail for last timestamp
         if size > 50_000 {
             messageCount += grepCountUserMessages(url: url, pattern: "\"type\":\"user\"", skipBytes: 50_000)
+            if let tailTs = lastTimestampFromTail(url: url, fileSize: size) {
+                timestamp = tailTs
+            }
         }
 
         guard let cwd else { return nil }
@@ -1193,9 +1196,9 @@ final class WorktrunkStore: ObservableObject {
                 }
             }
 
-            // Extract timestamp (RFC3339 string)
-            if timestamp == nil, let ts = json["timestamp"] as? String {
-                timestamp = parseRFC3339(ts)
+            // Extract timestamp (RFC3339 string) - keep updating to get the LAST one
+            if let ts = json["timestamp"] as? String, let parsed = parseRFC3339(ts) {
+                timestamp = parsed
             }
 
             // Count user messages and extract snippet (response_item with payload.role == "user")
@@ -1219,9 +1222,12 @@ final class WorktrunkStore: ObservableObject {
             }
         }
 
-        // For large files, use grep to count remaining user messages
+        // For large files, use grep to count remaining user messages and read tail for last timestamp
         if size > 50_000 {
             messageCount += grepCountUserMessages(url: url, pattern: "\"role\":\"user\"", skipBytes: 50_000)
+            if let tailTs = lastTimestampFromTail(url: url, fileSize: size) {
+                timestamp = tailTs
+            }
         }
 
         guard let sessionId, let cwd else { return nil }
@@ -1418,6 +1424,27 @@ final class WorktrunkStore: ObservableObject {
         if let date = formatter.date(from: string) { return date }
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: string)
+    }
+
+    /// Read the last N bytes of a JSONL file and extract the most recent RFC3339 timestamp.
+    private func lastTimestampFromTail(url: URL, fileSize: Int64, tailBytes: Int = 8192) -> Date? {
+        guard fileSize > 0,
+              let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let offset = max(0, fileSize - Int64(tailBytes))
+        handle.seek(toFileOffset: UInt64(offset))
+        let data = handle.readData(ofLength: tailBytes)
+        guard let content = String(data: data, encoding: .utf8) else { return nil }
+        // Walk lines in reverse to find the last valid timestamp
+        for line in content.components(separatedBy: "\n").reversed() {
+            guard !line.isEmpty,
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let ts = json["timestamp"] as? String,
+                  let date = parseRFC3339(ts) else { continue }
+            return date
+        }
+        return nil
     }
 
     private struct AgentStatusAcksPayload: Codable {
