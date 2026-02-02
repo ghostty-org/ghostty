@@ -153,7 +153,7 @@ pub const Handler = struct {
             .full_reset => self.terminal.fullReset(),
             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
-            .semantic_prompt => self.semanticPrompt(value),
+            .semantic_prompt => try self.terminal.semanticPrompt(value),
             .mouse_shape => self.terminal.mouse_shape = value,
             .color_operation => try self.colorOperation(value.op, &value.requests),
             .kitty_color_report => try self.kittyColorOperation(value),
@@ -206,42 +206,6 @@ pub const Handler = struct {
             const x = self.terminal.screens.active.cursor.x;
             self.terminal.horizontalTabBack();
             if (x == self.terminal.screens.active.cursor.x) break;
-        }
-    }
-
-    fn semanticPrompt(
-        self: *Handler,
-        cmd: Action.SemanticPrompt,
-    ) void {
-        switch (cmd.action) {
-            .fresh_line_new_prompt => {
-                const kind = cmd.readOption(.prompt_kind) orelse .initial;
-                switch (kind) {
-                    .initial, .right => {
-                        self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
-                        if (cmd.readOption(.redraw)) |redraw| {
-                            self.terminal.flags.shell_redraws_prompt = redraw;
-                        }
-                    },
-                    .continuation, .secondary => {
-                        self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation;
-                    },
-                }
-            },
-
-            .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
-            .end_input_start_output => self.terminal.markSemanticPrompt(.command),
-            .end_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
-
-            // All of these commands weren't previously handled by our
-            // semantic prompt code. I am PR-ing the parser separate from the
-            // handling so we just ignore these like we did before, even
-            // though we should handle them eventually.
-            .end_prompt_start_input_terminate_eol,
-            .fresh_line,
-            .new_command,
-            .prompt_start,
-            => {},
         }
     }
 
@@ -904,4 +868,123 @@ test "palette dirty flag set on color change" {
     t.flags.dirty.palette = false;
     try s.nextSlice("\x1b]21;1=rgb:00/ff/00\x1b\\");
     try testing.expect(t.flags.dirty.palette);
+}
+
+test "semantic prompt fresh line" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    try s.nextSlice("Hello");
+    try s.nextSlice("\x1b]133;L\x07");
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+}
+
+test "semantic prompt fresh line new prompt" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Write some text and then send OSC 133;A (fresh_line_new_prompt)
+    try s.nextSlice("Hello");
+    try s.nextSlice("\x1b]133;A\x07");
+
+    // Should do a fresh line (carriage return + index)
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+
+    // Should set cursor semantic_content to prompt
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+
+    // Test with redraw option
+    try s.nextSlice("prompt$ ");
+    try s.nextSlice("\x1b]133;A;redraw=1\x07");
+    try testing.expect(t.flags.shell_redraws_prompt == .true);
+}
+
+test "semantic prompt end of input, then start output" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Write some text and then send OSC 133;A (fresh_line_new_prompt)
+    try s.nextSlice("Hello");
+    try s.nextSlice("\x1b]133;A\x07");
+    try s.nextSlice("prompt$ ");
+    try s.nextSlice("\x1b]133;B\x07");
+    try testing.expectEqual(.input, t.screens.active.cursor.semantic_content);
+    try s.nextSlice("\x1b]133;C\x07");
+    try testing.expectEqual(.output, t.screens.active.cursor.semantic_content);
+}
+
+test "semantic prompt prompt_start" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Write some text
+    try s.nextSlice("Hello");
+
+    // OSC 133;P marks the start of a prompt (without fresh line behavior)
+    try s.nextSlice("\x1b]133;P\x07");
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+    try testing.expectEqual(@as(usize, 5), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+}
+
+test "semantic prompt new_command" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Write some text
+    try s.nextSlice("Hello");
+    try s.nextSlice("\x1b]133;N\x07");
+
+    // Should behave like fresh_line_new_prompt - cursor moves to column 0
+    // on next line since we had content
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+}
+
+test "semantic prompt new_command at column zero" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // OSC 133;N when already at column 0 should stay on same line
+    try s.nextSlice("\x1b]133;N\x07");
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+}
+
+test "semantic prompt end_prompt_start_input_terminate_eol clears on linefeed" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set input terminated by EOL
+    try s.nextSlice("\x1b]133;I\x07");
+    try testing.expectEqual(.input, t.screens.active.cursor.semantic_content);
+
+    // Linefeed should reset semantic content to output
+    try s.nextSlice("\n");
+    try testing.expectEqual(.output, t.screens.active.cursor.semantic_content);
 }

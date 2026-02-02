@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) !void {
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
     try flags.appendSlice(b.allocator, &.{
+        "-DIMGUI_HAS_DOCK=1",
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
     });

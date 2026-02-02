@@ -1335,7 +1335,7 @@ extension Ghostty {
             mode: ghostty_action_inspector_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle split zoom does nothing with an app target")
+                Ghostty.logger.warning("toggle inspector does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:

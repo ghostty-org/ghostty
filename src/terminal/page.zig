@@ -1898,9 +1898,16 @@ pub const Row = packed struct(u64) {
     /// false negatives. This is used to optimize hyperlink operations.
     hyperlink: bool = false,
 
-    /// The semantic prompt type for this row as specified by the
-    /// running program, or "unknown" if it was never set.
-    semantic_prompt: SemanticPrompt = .unknown,
+    /// The semantic prompt state for this row.
+    ///
+    /// This is ONLY meant to note if there are ANY cells in this
+    /// row that are part of a prompt. This is an optimization for more
+    /// efficiently implementing jump-to-prompt operations.
+    ///
+    /// This may contain false positives but never false negatives. If
+    /// this is set, you should still check individual cells to see if they
+    /// have prompt semantics.
+    semantic_prompt: SemanticPrompt = .none,
 
     /// True if this row contains a virtual placeholder for the Kitty
     /// graphics protocol. (U+10EEEE)
@@ -1922,29 +1929,22 @@ pub const Row = packed struct(u64) {
     /// screen.
     dirty: bool = false,
 
-    _padding: u22 = 0,
+    _padding: u23 = 0,
 
-    /// Semantic prompt type.
-    pub const SemanticPrompt = enum(u3) {
-        /// Unknown, the running application didn't tell us for this line.
-        unknown = 0,
-
-        /// This is a prompt line, meaning it only contains the shell prompt.
-        /// For poorly behaving shells, this may also be the input.
+    /// The semantic prompt state of the row. See `semantic_prompt`.
+    pub const SemanticPrompt = enum(u2) {
+        /// No prompt cells in this row.
+        none = 0,
+        /// Prompt cells exist in this row and this is a primary prompt
+        /// line. A primary prompt line is one that is not a continuation
+        /// and is the beginning of a prompt.
         prompt = 1,
+        /// Prompt cells exist in this row that had k=c set (continuation)
+        /// line. This is used as a way to detect when a line should
+        /// be considered part of some prior prompt. If no prior prompt
+        /// is found, the last (most historical) prompt continuation line is
+        /// considered the prompt.
         prompt_continuation = 2,
-
-        /// This line contains the input area. We don't currently track
-        /// where this actually is in the line, so we just assume it is somewhere.
-        input = 3,
-
-        /// This line is the start of command output.
-        command = 4,
-
-        /// True if this is a prompt or input line.
-        pub fn promptOrInput(self: SemanticPrompt) bool {
-            return self == .prompt or self == .prompt_continuation or self == .input;
-        }
     };
 
     /// Returns true if this row has any managed memory outside of the
@@ -1994,7 +1994,12 @@ pub const Cell = packed struct(u64) {
     /// the hyperlink_set to get the actual hyperlink data.
     hyperlink: bool = false,
 
-    _padding: u18 = 0,
+    /// The semantic type of the content of this cell. This is used
+    /// by the semantic prompt (OSC 133) set of sequences to understand
+    /// boundary points for content.
+    semantic_content: SemanticContent = .output,
+
+    _padding: u16 = 0,
 
     pub const ContentTag = enum(u2) {
         /// A single codepoint, could be zero to be empty cell.
@@ -2031,6 +2036,19 @@ pub const Cell = packed struct(u64) {
         /// Spacer at the end of a soft-wrapped line to indicate that a wide
         /// character is continued on the next line.
         spacer_head = 3,
+    };
+
+    pub const SemanticContent = enum(u2) {
+        /// Regular output content, such as command output.
+        output = 0,
+
+        /// Content that is part of user input, such as the command
+        /// to execute at a prompt.
+        input = 1,
+
+        /// Content that is part of prompt emitted by the interactive
+        /// application, such as "user@host >"
+        prompt = 2,
     };
 
     /// Helper to make a cell that just has a codepoint.
@@ -2166,6 +2184,10 @@ test "Cell is zero by default" {
     const cell = Cell.init(0);
     const cell_int: u64 = @bitCast(cell);
     try std.testing.expectEqual(@as(u64, 0), cell_int);
+
+    // The zero value should be output type for semantic content.
+    // This is very important for our assumptions elsewhere.
+    try std.testing.expectEqual(Cell.SemanticContent.output, cell.semantic_content);
 }
 
 test "Page capacity adjust cols down" {

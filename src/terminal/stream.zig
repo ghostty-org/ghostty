@@ -707,19 +707,21 @@ pub fn Stream(comptime Handler: type) type {
                 const action = action_opt orelse continue;
                 if (comptime debug) log.info("action: {f}", .{action});
 
-                // If this handler handles everything manually then we do nothing
-                // if it can be processed.
-                if (@hasDecl(T, "handleManually")) {
-                    const processed = self.handler.handleManually(action) catch |err| err: {
+                // A handler can expose this to get the raw action before
+                // it is further parsed. If this returns `true` then we skip
+                // processing ourselves.
+                if (@hasDecl(T, "vtRaw")) {
+                    const skip = self.handler.vtRaw(action) catch |err| err: {
                         log.warn("error handling action manually err={} action={f}", .{
                             err,
                             action,
                         });
-
-                        break :err false;
+                        // Always skip erroneous actions because we can't
+                        // be sure...
+                        break :err true;
                     };
 
-                    if (processed) continue;
+                    if (skip) continue;
                 }
 
                 switch (action) {

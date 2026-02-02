@@ -89,7 +89,7 @@ pub const InspectorWidget = extern struct {
         const surface = priv.surface orelse return;
         const core_surface = surface.core() orelse return;
         const inspector = core_surface.inspector orelse return;
-        inspector.render();
+        inspector.render(core_surface);
     }
 
     //---------------------------------------------------------------

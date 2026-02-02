@@ -120,14 +120,16 @@ struct TerminalCommandPaletteView: View {
     /// Custom commands from the command-palette-entry configuration.
     private var terminalOptions: [CommandOption] {
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
-        return appDelegate.ghostty.config.commandPaletteEntries.map { c in
-            CommandOption(
-                title: c.title,
-                description: c.description
-            ) {
-                onAction(c.action)
+        return appDelegate.ghostty.config.commandPaletteEntries
+            .filter(\.isSupported)
+            .map { c in
+                CommandOption(
+                    title: c.title,
+                    description: c.description
+                ) {
+                    onAction(c.action)
+                }
             }
-        }
     }
 
     /// Commands for jumping to other terminal surfaces.

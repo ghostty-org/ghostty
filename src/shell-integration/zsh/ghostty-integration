@@ -146,6 +146,7 @@ _ghostty_deferred_init() {
                 # asynchronously from a `zle -F` handler might still remove our
                 # marks. Oh well.
                 builtin local mark2=$'%{\e]133;A;k=s\a%}'
+                builtin local markB=$'%{\e]133;B\a%}'
                 # Add marks conditionally to avoid a situation where we have
                 # several marks in place. These conditions can have false
                 # positives and false negatives though.
@@ -153,8 +154,17 @@ _ghostty_deferred_init() {
                 # - False positive (with prompt_percent): PS1="%(?.$mark1.)"
                 # - False negative (with prompt_subst):   PS1='$mark1'
                 [[ $PS1 == *$mark1* ]] || PS1=${mark1}${PS1}
+                [[ $PS1 == *$markB* ]] || PS1=${PS1}${markB}
+                # Handle multiline prompts by marking continuation lines as 
+                # secondary by replacing newlines with being prefixed
+                # with k=s
+                if [[ $PS1 == *$'\n'* ]]; then
+                    PS1=${PS1//$'\n'/$'\n'${mark2}}
+                fi
+
                 # PS2 mark is needed when clearing the prompt on resize
                 [[ $PS2 == *$mark2* ]] || PS2=${mark2}${PS2}
+                [[ $PS2 == *$markB* ]] || PS2=${PS2}${markB}
                 (( _ghostty_state = 2 ))
             else
                 # If our precmd hook is not the last, we cannot rely on prompt
@@ -193,7 +203,10 @@ _ghostty_deferred_init() {
         # top. We cannot force prompt_subst on the user though, so we would
         # still need this code for the no_prompt_subst case.
         PS1=${PS1//$'%{\e]133;A\a%}'}
+        PS1=${PS1//$'%{\e]133;A;k=s\a%}'}
+        PS1=${PS1//$'%{\e]133;B\a%}'}
         PS2=${PS2//$'%{\e]133;A;k=s\a%}'}
+        PS2=${PS2//$'%{\e]133;B\a%}'}
 
         # This will work incorrectly in the presence of a preexec hook that
         # prints. For example, if MichaelAquilina/zsh-you-should-use installs

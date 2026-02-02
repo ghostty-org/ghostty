@@ -17,10 +17,9 @@ const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
 const rowNeverExtendBg = @import("row.zig").neverExtendBg;
+const Overlay = @import("Overlay.zig");
 const imagepkg = @import("image.zig");
-const Image = imagepkg.Image;
-const ImageMap = imagepkg.ImageMap;
-const ImagePlacementList = std.ArrayListUnmanaged(imagepkg.Placement);
+const ImageState = imagepkg.State;
 const shadertoy = @import("shadertoy.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -169,11 +168,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_shaper_cache: font.ShaperCache,
 
         /// The images that we may render.
-        images: ImageMap = .{},
-        image_placements: ImagePlacementList = .{},
-        image_bg_end: u32 = 0,
-        image_text_end: u32 = 0,
-        image_virtual: bool = false,
+        images: ImageState = .empty,
 
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
@@ -226,6 +221,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// 15 minutes at 120Hz) to prevent wasted memory buildup from
         /// a large screen.
         terminal_state_frame_count: usize = 0,
+
+        /// Our overlay state, if any.
+        overlay: ?Overlay = null,
 
         const HighlightTag = enum(u8) {
             search_match,
@@ -787,6 +785,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            if (self.overlay) |*overlay| overlay.deinit(self.alloc);
             self.terminal_state.deinit(self.alloc);
             if (self.search_selected_match) |*m| m.arena.deinit();
             if (self.search_matches) |*m| m.arena.deinit();
@@ -806,12 +805,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.config.deinit();
 
-            {
-                var it = self.images.iterator();
-                while (it.next()) |kv| kv.value_ptr.image.deinit(self.alloc);
-                self.images.deinit(self.alloc);
-            }
-            self.image_placements.deinit(self.alloc);
+            self.images.deinit(self.alloc);
 
             if (self.bg_image) |img| img.deinit(self.alloc);
 
@@ -1118,6 +1112,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) Allocator.Error!void {
+            // const start = std.time.Instant.now() catch unreachable;
+            // const start_micro = std.time.microTimestamp();
+            // defer {
+            //     const end = std.time.Instant.now() catch unreachable;
+            //     log.warn(
+            //         "[updateFrame time] start_micro={} duration={}ns",
+            //         .{ start_micro, end.since(start) / std.time.ns_per_us },
+            //     );
+            // }
+
             // We fully deinit and reset the terminal state every so often
             // so that a particularly large terminal state doesn't cause
             // the renderer to hold on to retained memory.
@@ -1141,6 +1145,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
+                overlay_features: []const Overlay.Feature,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1190,10 +1195,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we have any virtual references, we must also rebuild our
                 // kitty state on every frame because any cell change can move
                 // an image.
-                if (state.terminal.screens.active.kitty_images.dirty or
-                    self.image_virtual)
-                {
-                    self.prepKittyGraphics(state.terminal);
+                if (self.images.kittyRequiresUpdate(state.terminal)) {
+                    self.images.kittyUpdate(
+                        self.alloc,
+                        state.terminal,
+                        .{
+                            .width = self.grid_metrics.cell_width,
+                            .height = self.grid_metrics.cell_height,
+                        },
+                    );
                 }
 
                 // Get our OSC8 links we're hovering if we have a mouse.
@@ -1215,11 +1225,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
                 };
 
+                const overlay_features: []const Overlay.Feature = overlay: {
+                    const insp = state.inspector orelse break :overlay &.{};
+                    const renderer_info = insp.rendererInfo();
+                    break :overlay renderer_info.overlayFeatures(
+                        arena_alloc,
+                    ) catch &.{};
+                };
+
                 break :critical .{
                     .links = links,
                     .mouse = state.mouse,
                     .preedit = preedit,
                     .scrollbar = scrollbar,
+                    .overlay_features = overlay_features,
                 };
             };
 
@@ -1288,6 +1307,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Reset our dirty state after updating.
             defer self.terminal_state.dirty = .false;
 
+            // Rebuild the overlay image if we have one. We can do this
+            // outside of any critical areas.
+            self.rebuildOverlay(
+                critical.overlay_features,
+            ) catch |err| {
+                log.warn(
+                    "error rebuilding overlay surface err={}",
+                    .{err},
+                );
+            };
+
             // Acquire the draw mutex for all remaining state updates.
             {
                 self.draw_mutex.lock();
@@ -1337,6 +1367,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     else => {},
                 };
 
+                // Prepare our overlay image for upload (or unload). This
+                // has to use our general allocator since it modifies
+                // state that survives frames.
+                self.images.overlayUpdate(
+                    self.alloc,
+                    self.overlay,
+                ) catch |err| {
+                    log.warn("error updating overlay images err={}", .{err});
+                };
+
                 // Update custom shader uniforms that depend on terminal state.
                 self.updateCustomShaderUniformsFromState();
             }
@@ -1354,6 +1394,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             sync: bool,
         ) !void {
+            // const start = std.time.Instant.now() catch unreachable;
+            // const start_micro = std.time.microTimestamp();
+            // defer {
+            //     const end = std.time.Instant.now() catch unreachable;
+            //     log.warn(
+            //         "[drawFrame time] start_micro={} duration={}ns",
+            //         .{ start_micro, end.since(start) / std.time.ns_per_us },
+            //     );
+            // }
+
             // We hold a the draw mutex to prevent changes to any
             // data we access while we're in the middle of drawing.
             self.draw_mutex.lock();
@@ -1460,7 +1510,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Upload images to the GPU as necessary.
-            try self.uploadKittyImages();
+            _ = self.images.upload(self.alloc, &self.api);
 
             // Upload the background image to the GPU as necessary.
             try self.uploadBackgroundImage();
@@ -1542,9 +1592,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Then we draw any kitty images that need
                 // to be behind text AND cell backgrounds.
-                try self.drawImagePlacements(
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
                     &pass,
-                    self.image_placements.items[0..self.image_bg_end],
+                    .kitty_below_bg,
                 );
 
                 // Then we draw any opaque cell backgrounds.
@@ -1556,9 +1608,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 });
 
                 // Kitty images between cell backgrounds and text.
-                try self.drawImagePlacements(
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
                     &pass,
-                    self.image_placements.items[self.image_bg_end..self.image_text_end],
+                    .kitty_below_text,
                 );
 
                 // Text.
@@ -1581,9 +1635,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 });
 
                 // Kitty images in front of text.
-                try self.drawImagePlacements(
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
                     &pass,
-                    self.image_placements.items[self.image_text_end..],
+                    .kitty_above_text,
+                );
+
+                // Debug overlay. We do this before any custom shader state
+                // because our debug overlay is aligned with the grid.
+                if (self.overlay != null) self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
+                    &pass,
+                    .overlay,
                 );
             }
 
@@ -1637,426 +1702,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Always release our semaphore
             self.swap_chain.releaseFrame();
-        }
-
-        fn drawImagePlacements(
-            self: *Self,
-            pass: *RenderPass,
-            placements: []const imagepkg.Placement,
-        ) !void {
-            if (placements.len == 0) return;
-
-            for (placements) |p| {
-
-                // Look up the image
-                const image = self.images.get(p.image_id) orelse {
-                    log.warn("image not found for placement image_id={}", .{p.image_id});
-                    continue;
-                };
-
-                // Get the texture
-                const texture = switch (image.image) {
-                    .ready,
-                    .unload_ready,
-                    => |t| t,
-                    else => {
-                        log.warn("image not ready for placement image_id={}", .{p.image_id});
-                        continue;
-                    },
-                };
-
-                // Create our vertex buffer, which is always exactly one item.
-                // future(mitchellh): we can group rendering multiple instances of a single image
-                var buf = try Buffer(shaderpkg.Image).initFill(
-                    self.api.imageBufferOptions(),
-                    &.{.{
-                        .grid_pos = .{
-                            @as(f32, @floatFromInt(p.x)),
-                            @as(f32, @floatFromInt(p.y)),
-                        },
-
-                        .cell_offset = .{
-                            @as(f32, @floatFromInt(p.cell_offset_x)),
-                            @as(f32, @floatFromInt(p.cell_offset_y)),
-                        },
-
-                        .source_rect = .{
-                            @as(f32, @floatFromInt(p.source_x)),
-                            @as(f32, @floatFromInt(p.source_y)),
-                            @as(f32, @floatFromInt(p.source_width)),
-                            @as(f32, @floatFromInt(p.source_height)),
-                        },
-
-                        .dest_size = .{
-                            @as(f32, @floatFromInt(p.width)),
-                            @as(f32, @floatFromInt(p.height)),
-                        },
-                    }},
-                );
-                defer buf.deinit();
-
-                pass.step(.{
-                    .pipeline = self.shaders.pipelines.image,
-                    .buffers = &.{buf.buffer},
-                    .textures = &.{texture},
-                    .draw = .{
-                        .type = .triangle_strip,
-                        .vertex_count = 4,
-                    },
-                });
-            }
-        }
-
-        /// This goes through the Kitty graphic placements and accumulates the
-        /// placements we need to render on our viewport.
-        fn prepKittyGraphics(
-            self: *Self,
-            t: *terminal.Terminal,
-        ) void {
-            self.draw_mutex.lock();
-            defer self.draw_mutex.unlock();
-
-            const storage = &t.screens.active.kitty_images;
-            defer storage.dirty = false;
-
-            // We always clear our previous placements no matter what because
-            // we rebuild them from scratch.
-            self.image_placements.clearRetainingCapacity();
-            self.image_virtual = false;
-
-            // Go through our known images and if there are any that are no longer
-            // in use then mark them to be freed.
-            //
-            // This never conflicts with the below because a placement can't
-            // reference an image that doesn't exist.
-            {
-                var it = self.images.iterator();
-                while (it.next()) |kv| {
-                    if (storage.imageById(kv.key_ptr.*) == null) {
-                        kv.value_ptr.image.markForUnload();
-                    }
-                }
-            }
-
-            // The top-left and bottom-right corners of our viewport in screen
-            // points. This lets us determine offsets and containment of placements.
-            const top = t.screens.active.pages.getTopLeft(.viewport);
-            const bot = t.screens.active.pages.getBottomRight(.viewport).?;
-            const top_y = t.screens.active.pages.pointFromPin(.screen, top).?.screen.y;
-            const bot_y = t.screens.active.pages.pointFromPin(.screen, bot).?.screen.y;
-
-            // Go through the placements and ensure the image is
-            // on the GPU or else is ready to be sent to the GPU.
-            var it = storage.placements.iterator();
-            while (it.next()) |kv| {
-                const p = kv.value_ptr;
-
-                // Special logic based on location
-                switch (p.location) {
-                    .pin => {},
-                    .virtual => {
-                        // We need to mark virtual placements on our renderer so that
-                        // we know to rebuild in more scenarios since cell changes can
-                        // now trigger placement changes.
-                        self.image_virtual = true;
-
-                        // We also continue out because virtual placements are
-                        // only triggered by the unicode placeholder, not by the
-                        // placement itself.
-                        continue;
-                    },
-                }
-
-                // Get the image for the placement
-                const image = storage.imageById(kv.key_ptr.image_id) orelse {
-                    log.warn(
-                        "missing image for placement, ignoring image_id={}",
-                        .{kv.key_ptr.image_id},
-                    );
-                    continue;
-                };
-
-                self.prepKittyPlacement(
-                    t,
-                    top_y,
-                    bot_y,
-                    &image,
-                    p,
-                ) catch |err| {
-                    // For errors we log and continue. We try to place
-                    // other placements even if one fails.
-                    log.warn("error preparing kitty placement err={}", .{err});
-                };
-            }
-
-            // If we have virtual placements then we need to scan for placeholders.
-            if (self.image_virtual) {
-                var v_it = terminal.kitty.graphics.unicode.placementIterator(top, bot);
-                while (v_it.next()) |virtual_p| {
-                    self.prepKittyVirtualPlacement(
-                        t,
-                        &virtual_p,
-                    ) catch |err| {
-                        // For errors we log and continue. We try to place
-                        // other placements even if one fails.
-                        log.warn("error preparing kitty placement err={}", .{err});
-                    };
-                }
-            }
-
-            // Sort the placements by their Z value.
-            std.mem.sortUnstable(
-                imagepkg.Placement,
-                self.image_placements.items,
-                {},
-                struct {
-                    fn lessThan(
-                        ctx: void,
-                        lhs: imagepkg.Placement,
-                        rhs: imagepkg.Placement,
-                    ) bool {
-                        _ = ctx;
-                        return lhs.z < rhs.z or (lhs.z == rhs.z and lhs.image_id < rhs.image_id);
-                    }
-                }.lessThan,
-            );
-
-            // Find our indices. The values are sorted by z so we can
-            // find the first placement out of bounds to find the limits.
-            var bg_end: ?u32 = null;
-            var text_end: ?u32 = null;
-            const bg_limit = std.math.minInt(i32) / 2;
-            for (self.image_placements.items, 0..) |p, i| {
-                if (bg_end == null and p.z >= bg_limit) {
-                    bg_end = @intCast(i);
-                }
-                if (text_end == null and p.z >= 0) {
-                    text_end = @intCast(i);
-                }
-            }
-
-            // If we didn't see any images with a z > the bg limit,
-            // then our bg end is the end of our placement list.
-            self.image_bg_end =
-                bg_end orelse @intCast(self.image_placements.items.len);
-
-            // Same idea for the image_text_end.
-            self.image_text_end =
-                text_end orelse @intCast(self.image_placements.items.len);
-        }
-
-        fn prepKittyVirtualPlacement(
-            self: *Self,
-            t: *terminal.Terminal,
-            p: *const terminal.kitty.graphics.unicode.Placement,
-        ) PrepKittyImageError!void {
-            const storage = &t.screens.active.kitty_images;
-            const image = storage.imageById(p.image_id) orelse {
-                log.warn(
-                    "missing image for virtual placement, ignoring image_id={}",
-                    .{p.image_id},
-                );
-                return;
-            };
-
-            const rp = p.renderPlacement(
-                storage,
-                &image,
-                self.grid_metrics.cell_width,
-                self.grid_metrics.cell_height,
-            ) catch |err| {
-                log.warn("error rendering virtual placement err={}", .{err});
-                return;
-            };
-
-            // If our placement is zero sized then we don't do anything.
-            if (rp.dest_width == 0 or rp.dest_height == 0) return;
-
-            const viewport: terminal.point.Point = t.screens.active.pages.pointFromPin(
-                .viewport,
-                rp.top_left,
-            ) orelse {
-                // This is unreachable with virtual placements because we should
-                // only ever be looking at virtual placements that are in our
-                // viewport in the renderer and virtual placements only ever take
-                // up one row.
-                unreachable;
-            };
-
-            // Prepare the image for the GPU and store the placement.
-            try self.prepKittyImage(&image);
-            try self.image_placements.append(self.alloc, .{
-                .image_id = image.id,
-                .x = @intCast(rp.top_left.x),
-                .y = @intCast(viewport.viewport.y),
-                .z = -1,
-                .width = rp.dest_width,
-                .height = rp.dest_height,
-                .cell_offset_x = rp.offset_x,
-                .cell_offset_y = rp.offset_y,
-                .source_x = rp.source_x,
-                .source_y = rp.source_y,
-                .source_width = rp.source_width,
-                .source_height = rp.source_height,
-            });
-        }
-
-        /// Get the viewport-relative position for this
-        /// placement and add it to the placements list.
-        fn prepKittyPlacement(
-            self: *Self,
-            t: *terminal.Terminal,
-            top_y: u32,
-            bot_y: u32,
-            image: *const terminal.kitty.graphics.Image,
-            p: *const terminal.kitty.graphics.ImageStorage.Placement,
-        ) PrepKittyImageError!void {
-            // Get the rect for the placement. If this placement doesn't have
-            // a rect then its virtual or something so skip it.
-            const rect = p.rect(image.*, t) orelse return;
-
-            // This is expensive but necessary.
-            const img_top_y = t.screens.active.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-            const img_bot_y = t.screens.active.pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
-
-            // If the selection isn't within our viewport then skip it.
-            if (img_top_y > bot_y) return;
-            if (img_bot_y < top_y) return;
-
-            // We need to prep this image for upload if it isn't in the
-            // cache OR it is in the cache but the transmit time doesn't
-            // match meaning this image is different.
-            try self.prepKittyImage(image);
-
-            // Calculate the dimensions of our image, taking in to
-            // account the rows / columns specified by the placement.
-            const dest_size = p.calculatedSize(image.*, t);
-
-            // Calculate the source rectangle
-            const source_x = @min(image.width, p.source_x);
-            const source_y = @min(image.height, p.source_y);
-            const source_width = if (p.source_width > 0)
-                @min(image.width - source_x, p.source_width)
-            else
-                image.width;
-            const source_height = if (p.source_height > 0)
-                @min(image.height - source_y, p.source_height)
-            else
-                image.height;
-
-            // Get the viewport-relative Y position of the placement.
-            const y_pos: i32 = @as(i32, @intCast(img_top_y)) - @as(i32, @intCast(top_y));
-
-            // Accumulate the placement
-            if (dest_size.width > 0 and dest_size.height > 0) {
-                try self.image_placements.append(self.alloc, .{
-                    .image_id = image.id,
-                    .x = @intCast(rect.top_left.x),
-                    .y = y_pos,
-                    .z = p.z,
-                    .width = dest_size.width,
-                    .height = dest_size.height,
-                    .cell_offset_x = p.x_offset,
-                    .cell_offset_y = p.y_offset,
-                    .source_x = source_x,
-                    .source_y = source_y,
-                    .source_width = source_width,
-                    .source_height = source_height,
-                });
-            }
-        }
-
-        const PrepKittyImageError = error{
-            OutOfMemory,
-            ImageConversionError,
-        };
-
-        /// Prepare the provided image for upload to the GPU by copying its
-        /// data with our allocator and setting it to the pending state.
-        fn prepKittyImage(
-            self: *Self,
-            image: *const terminal.kitty.graphics.Image,
-        ) PrepKittyImageError!void {
-            // If this image exists and its transmit time is the same we assume
-            // it is the identical image so we don't need to send it to the GPU.
-            const gop = try self.images.getOrPut(self.alloc, image.id);
-            if (gop.found_existing and
-                gop.value_ptr.transmit_time.order(image.transmit_time) == .eq)
-            {
-                return;
-            }
-
-            // Copy the data into the pending state.
-            const data = if (self.alloc.dupe(
-                u8,
-                image.data,
-            )) |v| v else |_| {
-                if (!gop.found_existing) {
-                    // If this is a new entry we can just remove it since it
-                    // was never sent to the GPU.
-                    _ = self.images.remove(image.id);
-                } else {
-                    // If this was an existing entry, it is invalid and
-                    // we must unload it.
-                    gop.value_ptr.image.markForUnload();
-                }
-
-                return error.OutOfMemory;
-            };
-            // Note: we don't need to errdefer free the data because it is
-            // put into the map immediately below and our errdefer to
-            // handle our map state will fix this up.
-
-            // Store it in the map
-            const new_image: Image = .{
-                .pending = .{
-                    .width = image.width,
-                    .height = image.height,
-                    .pixel_format = switch (image.format) {
-                        .gray => .gray,
-                        .gray_alpha => .gray_alpha,
-                        .rgb => .rgb,
-                        .rgba => .rgba,
-                        .png => unreachable, // should be decoded by now
-                    },
-                    .data = data.ptr,
-                },
-            };
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .image = new_image,
-                    .transmit_time = undefined,
-                };
-            } else {
-                gop.value_ptr.image.markForReplace(
-                    self.alloc,
-                    new_image,
-                );
-            }
-
-            // If any error happens, we unload the image and it is invalid.
-            errdefer gop.value_ptr.image.markForUnload();
-
-            gop.value_ptr.image.prepForUpload(self.alloc) catch |err| {
-                log.warn("error preparing kitty image for upload err={}", .{err});
-                return error.ImageConversionError;
-            };
-            gop.value_ptr.transmit_time = image.transmit_time;
-        }
-
-        /// Upload any images to the GPU that need to be uploaded,
-        /// and remove any images that are no longer needed on the GPU.
-        fn uploadKittyImages(self: *Self) !void {
-            var image_it = self.images.iterator();
-            while (image_it.next()) |kv| {
-                const img = &kv.value_ptr.image;
-                if (img.isUnloading()) {
-                    img.deinit(self.alloc);
-                    self.images.removeByPtr(kv.key_ptr);
-                    continue;
-                }
-                if (img.isPending()) try img.upload(self.alloc, &self.api);
-            }
         }
 
         /// Call this any time the background image path changes.
@@ -2529,6 +2174,51 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 uniforms.time_focus = uniforms.time;
                 self.custom_shader_focused_changed = false;
             }
+        }
+
+        /// Build the overlay as configured. Returns null if there is no
+        /// overlay currently configured.
+        fn rebuildOverlay(
+            self: *Self,
+            features: []const Overlay.Feature,
+        ) Overlay.InitError!void {
+            // const start = std.time.Instant.now() catch unreachable;
+            // const start_micro = std.time.microTimestamp();
+            // defer {
+            //     const end = std.time.Instant.now() catch unreachable;
+            //     log.warn(
+            //         "[rebuildOverlay time] start_micro={} duration={}ns",
+            //         .{ start_micro, end.since(start) / std.time.ns_per_us },
+            //     );
+            // }
+
+            const alloc = self.alloc;
+
+            // If we have no features enabled, don't build an overlay.
+            // If we had a previous overlay, deallocate it.
+            if (features.len == 0) {
+                if (self.overlay) |*old| {
+                    old.deinit(alloc);
+                    self.overlay = null;
+                }
+
+                return;
+            }
+
+            // If we had a previous overlay, clear it. Otherwise, init.
+            const overlay: *Overlay = if (self.overlay) |*v| overlay: {
+                v.reset();
+                break :overlay v;
+            } else overlay: {
+                const new: Overlay = try .init(alloc, self.size);
+                self.overlay = new;
+                break :overlay &self.overlay.?;
+            };
+            overlay.applyFeatures(
+                alloc,
+                &self.terminal_state,
+                features,
+            );
         }
 
         const PreeditRange = struct {

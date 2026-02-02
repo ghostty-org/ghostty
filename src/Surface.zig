@@ -803,7 +803,7 @@ pub fn deinit(self: *Surface) void {
     self.io.deinit();
 
     if (self.inspector) |v| {
-        v.deinit();
+        v.deinit(self.alloc);
         self.alloc.destroy(v);
     }
 
@@ -879,8 +879,10 @@ pub fn activateInspector(self: *Surface) !void {
     // Setup the inspector
     const ptr = try self.alloc.create(inspectorpkg.Inspector);
     errdefer self.alloc.destroy(ptr);
-    ptr.* = try inspectorpkg.Inspector.init(self);
+    ptr.* = try inspectorpkg.Inspector.init(self.alloc);
+    errdefer ptr.deinit(self.alloc);
     self.inspector = ptr;
+    errdefer self.inspector = null;
 
     // Put the inspector onto the render state
     {
@@ -912,7 +914,7 @@ pub fn deactivateInspector(self: *Surface) void {
     self.queueIo(.{ .inspector = false }, .unlocked);
 
     // Deinit the inspector
-    insp.deinit();
+    insp.deinit(self.alloc);
     self.alloc.destroy(insp);
     self.inspector = null;
 }
@@ -2618,7 +2620,7 @@ pub fn keyCallback(
     defer crash.sentry.thread_state = null;
 
     // Setup our inspector event if we have an inspector.
-    var insp_ev: ?inspectorpkg.key.Event = if (self.inspector != null) ev: {
+    var insp_ev: ?inspectorpkg.KeyEvent = if (self.inspector != null) ev: {
         var copy = event;
         copy.utf8 = "";
         if (event.utf8.len > 0) copy.utf8 = try self.alloc.dupe(u8, event.utf8);
@@ -2635,7 +2637,7 @@ pub fn keyCallback(
             break :ev;
         };
 
-        if (insp.recordKeyEvent(ev)) {
+        if (insp.recordKeyEvent(self.alloc, ev)) {
             self.queueRender() catch {};
         } else |err| {
             log.warn("error adding key event to inspector err={}", .{err});
@@ -2798,7 +2800,7 @@ pub fn keyCallback(
 fn maybeHandleBinding(
     self: *Surface,
     event: input.KeyEvent,
-    insp_ev: ?*inspectorpkg.key.Event,
+    insp_ev: ?*inspectorpkg.KeyEvent,
 ) !?InputEffect {
     switch (event.action) {
         // Release events never trigger a binding but we need to check if
@@ -3131,7 +3133,7 @@ fn endKeySequence(
 fn encodeKey(
     self: *Surface,
     event: input.KeyEvent,
-    insp_ev: ?*inspectorpkg.key.Event,
+    insp_ev: ?*inspectorpkg.KeyEvent,
 ) !?termio.Message.WriteReq {
     const write_req: termio.Message.WriteReq = req: {
         // Build our encoding options, which requires the lock.
@@ -3872,36 +3874,8 @@ pub fn mouseButtonCallback(
     // log.debug("mouse action={} button={} mods={}", .{ action, button, mods });
 
     // If we have an inspector, we always queue a render
-    if (self.inspector) |insp| {
+    if (self.inspector != null) {
         defer self.queueRender() catch {};
-
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-
-        // If the inspector is requesting a cell, then we intercept
-        // left mouse clicks and send them to the inspector.
-        if (insp.cell == .requested and
-            button == .left and
-            action == .press)
-        {
-            const pos = try self.rt_surface.getCursorPos();
-            const point = self.posToViewport(pos.x, pos.y);
-            const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
-            const p = screen.pages.pin(.{ .viewport = point }) orelse {
-                log.warn("failed to get pin for clicked point", .{});
-                return false;
-            };
-
-            insp.cell.select(
-                self.alloc,
-                p,
-                point.x,
-                point.y,
-            ) catch |err| {
-                log.warn("error selecting cell for inspector err={}", .{err});
-            };
-            return false;
-        }
     }
 
     // Always record our latest mouse state
@@ -4321,7 +4295,7 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     // This flag is only set if we've seen at least one semantic prompt
     // OSC sequence. If we've never seen that sequence, we can't possibly
     // move the cursor so we can fast path out of here.
-    if (!t.flags.shell_redraws_prompt) return;
+    if (!t.screens.active.flags.semantic_content) return;
 
     // Get our path
     const from = t.screens.active.cursor.page_pin.*;

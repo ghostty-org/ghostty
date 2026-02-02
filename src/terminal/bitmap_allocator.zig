@@ -147,6 +147,20 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             }
         }
 
+        /// Returns the total capacity in bytes.
+        pub fn capacityBytes(self: Self) usize {
+            return self.bitmap_count * bitmap_bit_size * chunk_size;
+        }
+
+        /// Returns the number of bytes currently in use.
+        pub fn usedBytes(self: Self, base: anytype) usize {
+            const bitmaps = self.bitmap.ptr(base);
+            var free_chunks: usize = 0;
+            for (bitmaps[0..self.bitmap_count]) |bitmap| free_chunks += @popCount(bitmap);
+            const total_chunks = self.bitmap_count * bitmap_bit_size;
+            return (total_chunks - free_chunks) * chunk_size;
+        }
+
         /// For testing only.
         fn isAllocated(self: *Self, base: anytype, slice: anytype) bool {
             comptime assert(@import("builtin").is_test);

@@ -47,11 +47,10 @@ pub const Option = enum {
     cl,
     prompt_kind,
     err,
+
     // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-    // Kitty supports a "redraw" option for prompt_start. I can't find
-    // this documented anywhere but can see in the code that this is used
-    // by shell environments to tell the terminal that the shell will NOT
-    // redraw the prompt so we should attempt to resize it.
+    // Kitty supports a "redraw" option for prompt_start. This is extended
+    // by Ghostty with the "last" option. See Redraw the type for more details.
     redraw,
 
     // Use a special key instead of arrow keys to move the cursor on
@@ -81,7 +80,7 @@ pub const Option = enum {
             .cl => Click,
             .prompt_kind => PromptKind,
             .err => []const u8,
-            .redraw => bool,
+            .redraw => Redraw,
             .special_key => bool,
             .click_events => bool,
             .exit_code => i32,
@@ -169,7 +168,15 @@ pub const Option = enum {
                 .cl => std.meta.stringToEnum(Click, value),
                 .prompt_kind => if (value.len == 1) PromptKind.init(value[0]) else null,
                 .err => value,
-                .redraw, .special_key, .click_events => if (value.len == 1) switch (value[0]) {
+                .redraw => if (std.mem.eql(u8, value, "0"))
+                    .false
+                else if (std.mem.eql(u8, value, "1"))
+                    .true
+                else if (std.mem.eql(u8, value, "last"))
+                    .last
+                else
+                    null,
+                .special_key, .click_events => if (value.len == 1) switch (value[0]) {
                     '0' => false,
                     '1' => true,
                     else => null,
@@ -206,6 +213,29 @@ pub const PromptKind = enum {
             else => null,
         };
     }
+};
+
+/// The values for the `redraw` extension to OSC133. This was
+/// started by Kitty[1] and extended by Ghostty (the "last" option).
+///
+/// [1]: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+pub const Redraw = enum(u2) {
+    /// The shell supports redrawing the full prompt and all continuations.
+    /// This is the default value, it does not need to be explicitly set
+    /// unless it is to reset a prior other value.
+    true,
+
+    /// The shell does NOT support redrawing. In this case, Ghostty will NOT
+    /// clear any prompt lines on resize.
+    false,
+
+    /// The shell supports redrawing only the LAST line of the prompt.
+    /// Ghostty will only clear the last line of the prompt on resize.
+    ///
+    /// This is specifically introduced because Bash only redraws the last
+    /// line. It is literally the only shell that does this and it does this
+    /// because its bad and they should feel bad. Don't be like Bash.
+    last,
 };
 
 /// Parse OSC 133, semantic prompts
@@ -513,7 +543,7 @@ test "OSC 133: fresh_line_new_prompt with redraw=0" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.readOption(.redraw).? == false);
+    try testing.expect(cmd.semantic_prompt.readOption(.redraw).? == .false);
 }
 
 test "OSC 133: fresh_line_new_prompt with redraw=1" {
@@ -527,7 +557,7 @@ test "OSC 133: fresh_line_new_prompt with redraw=1" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.readOption(.redraw).? == true);
+    try testing.expect(cmd.semantic_prompt.readOption(.redraw).? == .true);
 }
 
 test "OSC 133: fresh_line_new_prompt with invalid redraw" {
@@ -870,8 +900,9 @@ test "Option.read err" {
 
 test "Option.read redraw" {
     const testing = std.testing;
-    try testing.expect(Option.redraw.read("redraw=1").? == true);
-    try testing.expect(Option.redraw.read("redraw=0").? == false);
+    try testing.expect(Option.redraw.read("redraw=1").? == .true);
+    try testing.expect(Option.redraw.read("redraw=0").? == .false);
+    try testing.expect(Option.redraw.read("redraw=last").? == .last);
     try testing.expect(Option.redraw.read("redraw=2") == null);
     try testing.expect(Option.redraw.read("redraw=10") == null);
     try testing.expect(Option.redraw.read("redraw=") == null);

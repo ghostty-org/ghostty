@@ -237,14 +237,19 @@ pub fn needsConfirmQuit(self: *const App) bool {
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
     while (self.mailbox.pop()) |message| {
-        log.debug("mailbox message={s}", .{@tagName(message)});
+        if (comptime std.log.logEnabled(.debug, .app)) {
+            switch (message) {
+                // these tend to be way too verbose for normal debugging
+                .redraw_surface => {},
+                else => log.debug("mailbox message={t}", .{message}),
+            }
+        }
         switch (message) {
             .open_config => try self.performAction(rt_app, .open_config),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
             .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
-            .redraw_inspector => |surface| self.redrawInspector(rt_app, surface),
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -281,11 +286,6 @@ fn redrawSurface(
         .render,
         {},
     );
-}
-
-fn redrawInspector(self: *App, rt_app: *apprt.App, surface: *apprt.Surface) void {
-    if (!self.hasRtSurface(surface)) return;
-    rt_app.redrawInspector(surface);
 }
 
 /// Create a new window
@@ -558,10 +558,6 @@ pub const Message = union(enum) {
     /// wake up the renderer thread. The renderer thread will send this
     /// message if it needs to.
     redraw_surface: *apprt.Surface,
-
-    /// Redraw the inspector. This is called whenever some non-OS event
-    /// causes the inspector to need to be redrawn.
-    redraw_inspector: *apprt.Surface,
 
     const NewWindow = struct {
         /// The parent surface
