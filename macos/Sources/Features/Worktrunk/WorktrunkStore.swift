@@ -166,7 +166,7 @@ final class WorktrunkStore: ObservableObject {
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
     @Published private(set) var sidebarModelRevision: Int = 0
-    @Published var worktreeSortOrder: WorktreeSortOrder = .alphabetical {
+    @Published var worktreeSortOrder: WorktreeSortOrder = .recentActivity {
         didSet {
             if oldValue != worktreeSortOrder {
                 saveSortOrder()
@@ -174,7 +174,7 @@ final class WorktrunkStore: ObservableObject {
             }
         }
     }
-    @Published var sidebarListMode: WorktrunkSidebarListMode = .nestedByRepo {
+    @Published var sidebarListMode: WorktrunkSidebarListMode = .flatWorktrees {
         didSet {
             if oldValue != sidebarListMode {
                 saveSidebarListMode()
