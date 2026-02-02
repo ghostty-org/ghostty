@@ -2,41 +2,50 @@
 
 Fork of [ghostty-org/ghostty](https://github.com/ghostty-org/ghostty) with [worktrunk](https://worktrunk.dev/) integration.
 
-## Branches
+## Git setup
 
-- `main` - Our customized version with Ghostree branding and worktrunk sidebar
-- `upstream-main` - Tracks `ghostty-org/ghostty` main branch (no customizations)
+Two remotes:
+- `origin` = `sidequery/ghostree` (SSH: `git@github.com:sidequery/ghostree.git`)
+- `upstream` = `ghostty-org/ghostty` (HTTPS)
+
+Two key branches:
+- `main`: Ghostree, our customizations on top of upstream Ghostty
+- `upstream-main`: pure mirror of `upstream/main`, fast-forward only
+
+## Versioning and tags
+
+Ghostree uses `v0.x.y` tags (v0.1.0, v0.2.4, v0.3.0, etc.). Upstream Ghostty `v1.x.y` tags also exist in the repo history from merges. These are separate version lines, don't confuse them. Ghostree version is defined in:
+- `build.zig.zon` (.version): canonical source
+- `macos/Ghostty.xcodeproj/project.pbxproj` (MARKETING_VERSION): 6 occurrences for the main app targets. Other targets (tests, iOS, UITests) use upstream's `MARKETING_VERSION` values, leave those alone.
 
 ## Syncing with upstream
+
+Always sync upstream-main first, then merge into main. Never merge upstream/main directly into main.
 
 ```bash
 git fetch upstream
 git checkout upstream-main
 git merge upstream/main --ff-only
 git push origin upstream-main
-```
-
-To merge upstream changes into main:
-```bash
 git checkout main
 git merge upstream-main
-# resolve conflicts, keeping our customizations
+# resolve conflicts keeping our customizations (bundle ID, version, agent integration, etc.)
 ```
 
-## Git workflow (avoid duplicate commits)
+When resolving conflicts: upstream may change indentation or restructure files. Keep our Ghostree-specific code but adopt upstream's style changes.
 
-This repo is a fork and upstream moves fast. To avoid “same patch twice” history:
+## Git rules
 
-- Never rebase a branch after it has been merged, and never merge both the pre-rebase and post-rebase versions.
-- Keep upstream syncing in `upstream-main` only (fast-forward only), then merge `upstream-main` into `main`.
-- Prefer squash merges for feature work into `main` (one commit per PR).
-- Avoid force-pushing `main`. If history surgery is required, create and push a `legacy/...` backup ref first.
+- Never rebase after merge. Never merge both pre-rebase and post-rebase versions.
+- upstream-main is fast-forward only.
+- Prefer squash merges for feature work into main.
+- Don't force-push main. If history surgery is needed, create `legacy/...` backup ref first.
+- `gh release create` requires commits to be pushed to origin first. The misleading "workflow scope" error usually means the target commit doesn't exist on remote.
+- Use `gh api` to create releases if `gh release create` fails, then `gh release upload` for assets.
 
 ## History cleanup (2026-01-30)
 
-`main` was rewritten to remove duplicated rebased commits while keeping identical content (tree hash match). Backup ref:
-
-- `legacy/main-pre-cleanup-2026-01-30`
+`main` was rewritten to remove duplicated rebased commits. Backup ref: `legacy/main-pre-cleanup-2026-01-30`
 
 ## Bundle Identifier
 
