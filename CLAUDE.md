@@ -45,7 +45,7 @@ When resolving conflicts: upstream may change indentation or restructure files. 
 
 ## Releases
 
-Release title format: `Ghostree v0.X.Y` (always include "Ghostree" prefix and "v" before the version number). Update the homebrew cask in `sidequery/homebrew-tap` with the new version, sha256, and asset ID after uploading the DMG.
+Release title format: `Ghostree v0.X.Y` (always include "Ghostree" prefix and "v" before the version number). Update the homebrew cask in `sidequery/homebrew-tap` (local checkout: `../homebrew-tap-sidequery`) with the new version, sha256, and asset ID after uploading the DMG.
 
 ## History cleanup (2026-01-30)
 
