@@ -1528,6 +1528,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncWorktrunkSidebarSelectionToTabGroup(worktrunkSidebarState.selection)
     }
 
+    private func syncSidebarSelectionToActiveTab() {
+        guard WorktrunkPreferences.worktreeTabsEnabled,
+              let rootPath = worktreeTabRootPath,
+              let appDelegate = NSApp.delegate as? AppDelegate else { return }
+
+        let store = appDelegate.worktrunkStore
+        for repo in store.repositories {
+            if store.worktrees(for: repo.id).contains(where: { $0.path == rootPath }) {
+                let newSelection = SidebarSelection.worktree(repoID: repo.id, path: rootPath)
+                guard worktrunkSidebarState.selection != newSelection else { return }
+                applySyncedWorktrunkSidebarSelection(newSelection)
+                syncWorktrunkSidebarSelectionToTabGroup(newSelection)
+                return
+            }
+        }
+    }
+
     private func installWorktrunkTitlebar() {
         guard let window else { return }
         guard window.styleMask.contains(.titled) else { return }
@@ -1769,6 +1786,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+        syncSidebarSelectionToActiveTab()
         syncWorktrunkSidebarStateToTabGroup()
         if let appDelegate = NSApp.delegate as? AppDelegate,
            let pwd = focusedSurface?.pwd {
