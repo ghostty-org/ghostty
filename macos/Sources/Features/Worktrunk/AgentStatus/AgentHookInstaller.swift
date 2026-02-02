@@ -1,8 +1,9 @@
 import Foundation
 
 enum AgentHookInstaller {
-    private static let notifyScriptMarker = "# Ghostree agent notification hook v5"
-    private static let wrapperMarker = "# Ghostree agent wrapper v2"
+    private static let notifyScriptMarker = "# Ghostree agent notification hook v6"
+    private static let claudeSettingsMarker = "\"_v\":2"
+    private static let wrapperMarker = "# Ghostree agent wrapper v3"
 
     static func ensureInstalled() {
         if ProcessInfo.processInfo.environment["GHOSTREE_DISABLE_AGENT_HOOKS"] == "1" {
@@ -35,7 +36,7 @@ enum AgentHookInstaller {
         ensureFile(
             url: AgentStatusPaths.claudeSettingsPath,
             mode: 0o644,
-            marker: "bash '",
+            marker: claudeSettingsMarker,
             content: buildClaudeSettings(notifyPath: AgentStatusPaths.notifyHookPath.path)
         )
         ensureFile(
@@ -129,7 +130,12 @@ enum AgentHookInstaller {
         [ "$EVENT_TYPE" = "SessionEnd" ] && EVENT_TYPE="SessionEnd"
         [ -z "$EVENT_TYPE" ] && exit 0
 
-        CWD="$(pwd -P 2>/dev/null || pwd)"
+        JSON_CWD=$(echo "$INPUT" | grep -oE '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        if [ -n "$JSON_CWD" ]; then
+          CWD="$JSON_CWD"
+        else
+          CWD="$(pwd -P 2>/dev/null || pwd)"
+        fi
         TS="$(perl -MTime::HiRes=time -MPOSIX=strftime -e '$t=time; $s=int($t); $ms=int(($t-$s)*1000); print strftime(\"%Y-%m-%dT%H:%M:%S\", gmtime($s)).sprintf(\".%03dZ\", $ms);')"
         ESC_CWD="${CWD//\\\\/\\\\\\\\}"
         ESC_CWD="${ESC_CWD//\\\"/\\\\\\\"}"
@@ -142,6 +148,7 @@ enum AgentHookInstaller {
         let escapedNotifyPath = notifyPath.replacingOccurrences(of: "'", with: "'\\''")
         let command = "bash '\(escapedNotifyPath)'"
         let settings: [String: Any] = [
+            "_v": 2,
             "hooks": [
                 "UserPromptSubmit": [
                     ["hooks": [["type": "command", "command": command]]],
@@ -151,6 +158,9 @@ enum AgentHookInstaller {
                 ],
                 "PermissionRequest": [
                     ["matcher": "*", "hooks": [["type": "command", "command": command]]],
+                ],
+                "PermissionResponse": [
+                    ["hooks": [["type": "command", "command": command]]],
                 ],
                 "SessionEnd": [
                     ["hooks": [["type": "command", "command": command]]],
@@ -226,6 +236,7 @@ enum AgentHookInstaller {
     private static func buildCodexWrapper() -> String {
         let binDir = AgentStatusPaths.binDir.path
         let notifyPath = AgentStatusPaths.notifyHookPath.path
+        let eventsDir = AgentStatusPaths.eventsCacheDir.path
         return """
         #!/bin/bash
         \(wrapperMarker)
@@ -256,6 +267,12 @@ enum AgentHookInstaller {
           exit 127
         fi
 
+        # Emit synthetic Start event for Codex
+        printf '{"timestamp":"%s","eventType":"Start","cwd":"%s"}\\n' \
+          "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+          "$(pwd -P 2>/dev/null || pwd)" \
+          >> "${GHOSTREE_AGENT_EVENTS_DIR:-\(eventsDir)}/agent-events.jsonl" 2>/dev/null
+
         exec "$REAL_BIN" -c 'notify=["bash","\(notifyPath)"]' "$@"
         """
     }
@@ -273,21 +290,22 @@ enum AgentHookInstaller {
         import fs from "node:fs";
         import path from "node:path";
         
-        export const GhostreeNotifyPlugin = async ({ client }) => {
-          if (globalThis.__ghostreeOpencodeNotifyPluginV3) return {};
-          globalThis.__ghostreeOpencodeNotifyPluginV3 = true;
-        
+        export const GhostreeNotifyPlugin = async ({ client, directory, worktree }) => {
+          if (globalThis.__ghostreeOpencodeNotifyPluginV4) return {};
+          globalThis.__ghostreeOpencodeNotifyPluginV4 = true;
+
           const eventsDir = process?.env?.GHOSTREE_AGENT_EVENTS_DIR;
           if (!eventsDir) return {};
           const logPath = path.join(eventsDir, "agent-events.jsonl");
-        
+          const cwd = worktree || directory || process.cwd();
+
           const append = (eventType) => {
             try {
               fs.mkdirSync(eventsDir, { recursive: true });
               const payload = {
                 timestamp: new Date().toISOString(),
                 eventType,
-                cwd: process.cwd(),
+                cwd,
               };
               fs.appendFileSync(logPath, JSON.stringify(payload) + "\\n");
             } catch {
@@ -334,6 +352,13 @@ enum AgentHookInstaller {
           };
         
           const handleStop = async (sessionID) => {
+            if (!sessionID && currentState === "busy" && !stopSent) {
+              currentState = "idle";
+              stopSent = true;
+              append("Stop");
+              rootSessionID = null;
+              return;
+            }
             const sid = normalizeSessionID(sessionID);
             if (rootSessionID && sid !== rootSessionID) return;
             if (currentState === "busy" && !stopSent) {
