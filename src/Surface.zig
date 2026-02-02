@@ -2768,6 +2768,31 @@ pub fn keyCallback(
             .stable => |v| .{ .write_stable = v },
             .alloc => |v| .{ .write_alloc = v },
         }, .unlocked);
+
+        // Broadcast to all other surfaces if broadcast mode is enabled
+        if (self.app.broadcast_enabled) {
+            for (self.app.surfaces.items) |rt_surface| {
+                const other = rt_surface.core();
+                if (other == self) continue;
+                if (other.readonly) continue;
+                if (other.child_exited) continue;
+
+                switch (write_req) {
+                    .small => |v| other.queueIo(.{ .write_small = v }, .unlocked),
+                    .stable => |v| other.queueIo(.{ .write_stable = v }, .unlocked),
+                    .alloc => |v| {
+                        const duped = self.alloc.dupe(u8, v.data) catch |err| {
+                            log.warn("broadcast allocation failed, skipping surface: {}", .{err});
+                            continue;
+                        };
+                        other.queueIo(.{ .write_alloc = .{
+                            .alloc = self.alloc,
+                            .data = duped,
+                        } }, .unlocked);
+                    },
+                }
+            }
+        }
     } else {
         // No valid request means that we didn't encode anything.
         return .ignored;
@@ -5700,6 +5725,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_mouse_reporting => {
             self.config.mouse_reporting = !self.config.mouse_reporting;
             log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
+
+        .toggle_broadcast => {
+            self.app.broadcast_enabled = !self.app.broadcast_enabled;
+            log.debug("broadcast mode toggled: {}", .{self.app.broadcast_enabled});
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .broadcast_mode,
+                if (self.app.broadcast_enabled) .on else .off,
+            );
+            return true;
         },
 
         .toggle_command_palette => return try self.rt_app.performAction(

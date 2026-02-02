@@ -41,6 +41,10 @@ surfaces: SurfaceList,
 /// focusEvent to set this to the correct value right away.
 focused: bool = true,
 
+/// True if broadcast mode is enabled. When enabled, keyboard input
+/// to the focused surface is broadcast to all surfaces.
+broadcast_enabled: bool = false,
+
 /// The last focused surface. This surface may not be valid;
 /// you must always call hasSurface to validate it.
 focused_surface: ?*Surface = null,

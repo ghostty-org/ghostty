@@ -740,6 +740,18 @@ pub const Action = union(enum) {
     /// option.
     toggle_mouse_reporting,
 
+    /// Toggle broadcast mode.
+    ///
+    /// When broadcast mode is enabled, all keyboard input sent to the focused
+    /// terminal is also sent to all other terminals. This is useful for running
+    /// the same command across multiple splits simultaneously, similar to tmux's
+    /// `synchronize-panes` feature.
+    ///
+    /// This is a global setting that affects the entire application, not just
+    /// the current window or split. Read-only surfaces and surfaces with exited
+    /// child processes are excluded from receiving broadcast input.
+    toggle_broadcast,
+
     /// Toggle the command palette.
     ///
     /// The command palette is a popup that lets you see what actions
@@ -1379,6 +1391,7 @@ pub const Action = union(enum) {
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
+            .toggle_broadcast,
             .resize_split,
             .equalize_splits,
             .inspector,
@@ -4813,4 +4826,32 @@ test "set: formatEntries leaf_chained with text action" {
         \\
     ;
     try testing.expectEqualStrings(expected, output.written());
+}
+
+test "parse: toggle_broadcast" {
+    const testing = std.testing;
+
+    // toggle_broadcast with no parameters
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .unicode = 'b' } },
+            .action = .{ .toggle_broadcast = {} },
+        },
+        try parseSingle("b=toggle_broadcast"),
+    );
+
+    // toggle_broadcast with modifier
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{
+                .mods = .{ .shift = true, .super = true },
+                .key = .{ .unicode = 'i' },
+            },
+            .action = .{ .toggle_broadcast = {} },
+        },
+        try parseSingle("super+shift+i=toggle_broadcast"),
+    );
+
+    // toggle_broadcast should not accept parameters
+    try testing.expectError(Error.InvalidFormat, parseSingle("b=toggle_broadcast:foo"));
 }

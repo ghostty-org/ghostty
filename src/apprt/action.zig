@@ -330,6 +330,9 @@ pub const Action = union(Key) {
     /// The readonly state of the surface has changed.
     readonly: Readonly,
 
+    /// The broadcast mode has changed.
+    broadcast_mode: BroadcastMode,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -395,6 +398,7 @@ pub const Action = union(Key) {
         search_total,
         search_selected,
         readonly,
+        broadcast_mode,
     };
 
     /// Sync with: ghostty_action_u
@@ -560,6 +564,11 @@ pub const QuitTimer = enum(c_int) {
 };
 
 pub const Readonly = enum(c_int) {
+    off,
+    on,
+};
+
+pub const BroadcastMode = enum(c_int) {
     off,
     on,
 };
@@ -916,3 +925,19 @@ pub const SearchSelected = struct {
         };
     }
 };
+
+test "BroadcastMode enum values" {
+    const testing = std.testing;
+
+    // Verify BroadcastMode enum has expected values for C ABI compatibility
+    try testing.expectEqual(@as(c_int, 0), @intFromEnum(BroadcastMode.off));
+    try testing.expectEqual(@as(c_int, 1), @intFromEnum(BroadcastMode.on));
+}
+
+test "Action.Key includes broadcast_mode" {
+    const testing = std.testing;
+
+    // Verify broadcast_mode is a valid key
+    const key: Action.Key = .broadcast_mode;
+    try testing.expect(@intFromEnum(key) >= 0);
+}

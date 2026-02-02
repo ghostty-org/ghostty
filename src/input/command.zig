@@ -531,6 +531,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle read-only mode for the current surface.",
         }},
 
+        .toggle_broadcast => comptime &.{.{
+            .action = .toggle_broadcast,
+            .title = "Toggle Broadcast Mode",
+            .description = "Broadcast keyboard input to all terminal splits.",
+        }},
+
         .equalize_splits => comptime &.{.{
             .action = .equalize_splits,
             .title = "Equalize Splits",
@@ -734,4 +740,20 @@ test "command defaults" {
     const testing = std.testing;
     try testing.expect(defaults.len > 0);
     try testing.expectEqual(defaults.len, defaultsC.len);
+}
+
+test "command: toggle_broadcast exists" {
+    const testing = std.testing;
+
+    // Verify toggle_broadcast command is included in defaults
+    var found = false;
+    for (defaults) |cmd| {
+        if (cmd.action == .toggle_broadcast) {
+            found = true;
+            try testing.expectEqualStrings("Toggle Broadcast Mode", cmd.title);
+            try testing.expectEqualStrings("Broadcast keyboard input to all terminal splits.", cmd.description);
+            break;
+        }
+    }
+    try testing.expect(found);
 }
