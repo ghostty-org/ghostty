@@ -11,8 +11,8 @@ struct WorktrunkSidebarView: View {
     @State private var createSheetRepo: WorktrunkStore.Repository?
     @State private var removeRepoConfirm: WorktrunkStore.Repository?
     @State private var removeWorktreeConfirm: WorktrunkStore.Worktree?
-    @State private var removeWorktreeErrorMessage: String?
     @State private var removeWorktreeForceConfirm: WorktrunkStore.Worktree?
+    @State private var removeWorktreeForceError: String?
     @State private var showSettings: Bool = false
     @State private var showRepoPicker: Bool = false
 
@@ -158,7 +158,8 @@ struct WorktrunkSidebarView: View {
                 Task {
                     let ok = await store.removeWorktree(repoID: wt.repositoryID, branch: wt.branch)
                     if !ok {
-                        removeWorktreeErrorMessage = store.errorMessage ?? "Failed to remove worktree."
+                        removeWorktreeForceError = store.errorMessage ?? "Failed to remove worktree."
+                        store.errorMessage = nil
                         removeWorktreeForceConfirm = wt
                     }
                 }
@@ -168,22 +169,13 @@ struct WorktrunkSidebarView: View {
             Text("This runs `wt remove \(wt.branch)` and deletes the worktree directory. The branch may be deleted if it's merged.")
         }
         .alert(
-            "Couldn’t Remove Worktree",
-            isPresented: Binding(
-                get: { removeWorktreeErrorMessage != nil },
-                set: { if !$0 { removeWorktreeErrorMessage = nil } }
-            ),
-            presenting: removeWorktreeErrorMessage
-        ) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { message in
-            Text(message)
-        }
-        .alert(
             "Force Remove Worktree?",
             isPresented: Binding(
                 get: { removeWorktreeForceConfirm != nil },
-                set: { if !$0 { removeWorktreeForceConfirm = nil } }
+                set: { if !$0 {
+                    removeWorktreeForceConfirm = nil
+                    removeWorktreeForceError = nil
+                } }
             ),
             presenting: removeWorktreeForceConfirm
         ) { wt in
@@ -194,7 +186,11 @@ struct WorktrunkSidebarView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { wt in
-            Text("This will run `wt remove \(wt.branch) --force` and discard uncommitted changes in that worktree.")
+            if let error = removeWorktreeForceError {
+                Text("\(error)\n\nForce remove will run `wt remove \(wt.branch) --force` and discard uncommitted changes.")
+            } else {
+                Text("This will run `wt remove \(wt.branch) --force` and discard uncommitted changes in that worktree.")
+            }
         }
     }
 
