@@ -1154,7 +1154,7 @@ class AppDelegate: NSObject,
 
     @IBAction func showSettings(_ sender: Any?) {
         if settingsWindowController == nil {
-            let window = NSWindow(
+            let window = SettingsWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 720, height: 500),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
@@ -1164,7 +1164,12 @@ class AppDelegate: NSObject,
             window.center()
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace]
+
+            let toolbar = NSToolbar(identifier: "SettingsToolbar")
+            toolbar.showsBaselineSeparator = false
+            window.toolbar = toolbar
             window.toolbarStyle = .unified
+
             window.minSize = NSSize(width: 680, height: 450)
             window.contentViewController = NSHostingController(rootView: SettingsView())
             settingsWindowController = NSWindowController(window: window)
