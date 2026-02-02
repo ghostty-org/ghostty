@@ -1811,11 +1811,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        if WorktrunkPreferences.worktreeTabsEnabled, let root = worktreeTabRootPath {
-            openWorktreeTabSession(worktreePath: root, baseConfig: Ghostty.SurfaceConfiguration())
-            return
-        }
-
         guard let surface = focusedSurface?.surface else { return }
         ghostty.newTab(surface: surface)
     }

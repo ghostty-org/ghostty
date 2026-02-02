@@ -874,14 +874,8 @@ class AppDelegate: NSObject,
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let config = configAny as? Ghostty.SurfaceConfiguration
 
-        if WorktrunkPreferences.worktreeTabsEnabled, let root = controller.worktreeTabRootPath {
-            var base = config ?? Ghostty.SurfaceConfiguration()
-            base.workingDirectory = base.workingDirectory ?? root
-            TerminalAgentHooks.apply(to: &base)
-
-            controller.openWorktreeTabNewSession(baseConfig: base)
-            return
-        }
+        // Always create a normal tab, even when worktree tabs are enabled.
+        // Worktree split behavior is handled separately.
 
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
