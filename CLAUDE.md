@@ -43,6 +43,10 @@ When resolving conflicts: upstream may change indentation or restructure files. 
 - `gh release create` requires commits to be pushed to origin first. The misleading "workflow scope" error usually means the target commit doesn't exist on remote.
 - Use `gh api` to create releases if `gh release create` fails, then `gh release upload` for assets.
 
+## Releases
+
+Release title format: `Ghostree v0.X.Y` (always include "Ghostree" prefix and "v" before the version number). Update the homebrew cask in `sidequery/homebrew-tap` with the new version, sha256, and asset ID after uploading the DMG.
+
 ## History cleanup (2026-01-30)
 
 `main` was rewritten to remove duplicated rebased commits. Backup ref: `legacy/main-pre-cleanup-2026-01-30`
