@@ -20,6 +20,10 @@ struct WorktrunkSidebarView: View {
         VStack(spacing: 0) {
             list
             Divider()
+            if store.isRefreshing {
+                SidebarRefreshProgressBar()
+                    .transition(.opacity)
+            }
             HStack(spacing: 8) {
                 Button {
                     Task { await promptAddRepository() }
@@ -81,6 +85,7 @@ struct WorktrunkSidebarView: View {
             }
         }
         .frame(minWidth: 240, idealWidth: 280)
+        .animation(.easeInOut(duration: 0.15), value: store.isRefreshing)
         .sheet(item: $createSheetRepo) { repo in
             CreateWorktreeSheet(
                 store: store,
@@ -113,12 +118,17 @@ struct WorktrunkSidebarView: View {
         }
         .onChange(of: store.isRefreshing) { isRefreshing in
             if isRefreshing { return }
+            clearSelectionIfMainInFlatMode()
             sidebarState.reconcile(with: store)
+        }
+        .onChange(of: store.sidebarListMode) { _ in
+            clearSelectionIfMainInFlatMode()
         }
         .onAppear {
             if store.sidebarListMode == .nestedByRepo, sidebarState.expandedRepoIDs.isEmpty {
                 sidebarState.expandedRepoIDs = Set(store.repositories.map(\.id))
             }
+            clearSelectionIfMainInFlatMode()
             Task { await store.refreshAll() }
         }
         .alert(
@@ -202,9 +212,6 @@ struct WorktrunkSidebarView: View {
         }
         .id("\(store.sidebarListMode.rawValue)-\(store.sidebarModelRevision)")
         .listStyle(.sidebar)
-        .overlay(alignment: .top) {
-            SidebarTopProgressBar(isVisible: store.isRefreshing)
-        }
     }
 
     @ViewBuilder
@@ -282,7 +289,7 @@ struct WorktrunkSidebarView: View {
     @ViewBuilder
     private var flatWorktreeList: some View {
         let repoNameByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0.name) })
-        let worktrees = store.allWorktreesSorted()
+        let worktrees = store.allWorktreesSorted().filter { !$0.isMain }
 
         if worktrees.isEmpty {
             Text("No worktrees")
@@ -336,6 +343,33 @@ struct WorktrunkSidebarView: View {
         } else {
             store.sidebarListMode = .flatWorktrees
             store.worktreeSortOrder = .recentActivity
+            clearSelectionIfMainInFlatMode()
+        }
+    }
+
+    private func clearSelectionIfMainInFlatMode() {
+        guard store.sidebarListMode == .flatWorktrees else { return }
+        guard let selection = sidebarState.selection else { return }
+
+        let selectedPath: String?
+        switch selection {
+        case .worktree(_, let path):
+            selectedPath = path
+        case .session(_, _, let worktreePath):
+            selectedPath = worktreePath
+        case .repo:
+            selectedPath = nil
+        }
+
+        guard let selectedPath else { return }
+
+        let isMain = store.repositories
+            .flatMap { store.worktrees(for: $0.id) }
+            .first(where: { $0.path == selectedPath })?
+            .isMain ?? false
+
+        if isMain {
+            sidebarState.selection = nil
         }
     }
 
@@ -410,6 +444,8 @@ struct WorktrunkSidebarView: View {
         HStack(spacing: 8) {
             let tracking = store.gitTracking(for: wt.path)
             let recencyDate = store.recencyDate(for: wt.path)
+            let status = store.agentStatus(for: wt.path)
+            let showsChanges = tracking.map { $0.lineAdditions > 0 || $0.lineDeletions > 0 } ?? false
             if wt.isCurrent {
                 Image(systemName: "location.fill")
                     .foregroundStyle(.secondary)
@@ -444,17 +480,22 @@ struct WorktrunkSidebarView: View {
                     .layoutPriority(1)
             }
 
-            if let status = store.agentStatus(for: wt.path) {
-                WorktreeAgentStatusBadge(status: status)
-            }
-            if let tracking,
-               tracking.lineAdditions > 0 || tracking.lineDeletions > 0 {
-                WorktreeChangeBadge(
-                    additions: tracking.lineAdditions,
-                    deletions: tracking.lineDeletions
-                )
-            }
             Spacer(minLength: 0)
+            if status != nil || showsChanges {
+                HStack(spacing: 6) {
+                    if let status {
+                        WorktreeAgentStatusBadge(status: status)
+                    }
+                    if let tracking, showsChanges {
+                        WorktreeChangeBadge(
+                            additions: tracking.lineAdditions,
+                            deletions: tracking.lineDeletions
+                        )
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(2)
+            }
             Button {
                 store.acknowledgeAgentStatus(for: wt.path)
                 openWorktree(wt.path)
@@ -631,6 +672,7 @@ private struct WorktreeAgentStatusBadge: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .background(Capsule().fill(color.opacity(0.12)))
+            .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -655,34 +697,28 @@ private struct WorktreeChangeBadge: View {
             if additions > 0 {
                 Text("+\(additions)")
                     .foregroundStyle(Color.green)
+                    .monospacedDigit()
             }
             if deletions > 0 {
                 Text("-\(deletions)")
                     .foregroundStyle(Color.red)
+                    .monospacedDigit()
             }
         }
         .font(.caption2)
         .padding(.horizontal, 6)
         .padding(.vertical, 1)
         .background(Capsule().fill(Color.secondary.opacity(0.15)))
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
-private struct SidebarTopProgressBar: View {
-    let isVisible: Bool
-
+private struct SidebarRefreshProgressBar: View {
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.12))
-            ProgressView()
-                .progressViewStyle(.linear)
-                .opacity(isVisible ? 1 : 0)
-                .padding(.horizontal, 10)
-        }
-        .frame(height: 3)
-        .opacity(isVisible ? 1 : 0)
-        .animation(.easeInOut(duration: 0.15), value: isVisible)
-        .allowsHitTesting(false)
+        ProgressView()
+            .progressViewStyle(.linear)
+            .frame(maxWidth: .infinity)
+            .frame(height: 3)
+            .allowsHitTesting(false)
     }
 }
