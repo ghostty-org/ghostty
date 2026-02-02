@@ -33,8 +33,7 @@ struct WorktrunkSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding(16)
-        .frame(width: 460)
+        .navigationTitle("Worktrunk")
     }
 }
 

@@ -134,6 +134,9 @@ class AppDelegate: NSObject,
         }
     }
 
+    /// The settings window controller, lazily created on first Cmd+, press.
+    private var settingsWindowController: NSWindowController?
+
     /// Manages updates
     let updateController = UpdateController()
     var updateViewModel: UpdateViewModel {
@@ -576,7 +579,7 @@ class AppDelegate: NSObject,
         // modify this stuff as code.
         self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
         self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
-        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
+        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "doc.text")
         self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
         self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
         self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
@@ -1148,6 +1151,28 @@ class AppDelegate: NSObject,
     }
 
     //MARK: - IB Actions
+
+    @IBAction func showSettings(_ sender: Any?) {
+        if settingsWindowController == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 500),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Settings"
+            window.center()
+            window.isReleasedWhenClosed = false
+            window.collectionBehavior = [.moveToActiveSpace]
+            window.toolbarStyle = .unified
+            window.minSize = NSSize(width: 680, height: 450)
+            window.contentViewController = NSHostingController(rootView: SettingsView())
+            settingsWindowController = NSWindowController(window: window)
+        }
+        settingsWindowController?.showWindow(nil)
+        settingsWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     @IBAction func openConfig(_ sender: Any?) {
         Ghostty.App.openConfig()

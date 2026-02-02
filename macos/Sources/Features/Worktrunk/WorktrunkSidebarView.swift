@@ -13,7 +13,6 @@ struct WorktrunkSidebarView: View {
     @State private var removeWorktreeConfirm: WorktrunkStore.Worktree?
     @State private var removeWorktreeForceConfirm: WorktrunkStore.Worktree?
     @State private var removeWorktreeForceError: String?
-    @State private var showSettings: Bool = false
     @State private var showRepoPicker: Bool = false
 
     var body: some View {
@@ -64,14 +63,6 @@ struct WorktrunkSidebarView: View {
                 .fixedSize()
                 .help("Sort worktrees")
 
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Worktrunk settings")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -93,9 +84,6 @@ struct WorktrunkSidebarView: View {
                 repoName: repo.name,
                 onOpen: { openWorktree($0) }
             )
-        }
-        .sheet(isPresented: $showSettings) {
-            WorktrunkSettingsView()
         }
         .onChange(of: sidebarState.selection) { newValue in
             if sidebarState.isApplyingRemoteUpdate {
