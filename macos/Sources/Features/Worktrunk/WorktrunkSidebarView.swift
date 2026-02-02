@@ -14,6 +14,7 @@ struct WorktrunkSidebarView: View {
     @State private var removeWorktreeErrorMessage: String?
     @State private var removeWorktreeForceConfirm: WorktrunkStore.Worktree?
     @State private var showSettings: Bool = false
+    @State private var showRepoPicker: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -199,7 +200,7 @@ struct WorktrunkSidebarView: View {
                 nestedRepoList
             }
         }
-        .id(store.sidebarModelRevision)
+        .id("\(store.sidebarListMode.rawValue)-\(store.sidebarModelRevision)")
         .listStyle(.sidebar)
         .overlay(alignment: .top) {
             SidebarTopProgressBar(isVisible: store.isRefreshing)
@@ -297,7 +298,7 @@ struct WorktrunkSidebarView: View {
             }
         }
 
-        if store.repositories.count == 1, let repo = store.repositories.first {
+        if !store.repositories.isEmpty {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle")
                     .foregroundStyle(.secondary)
@@ -308,29 +309,24 @@ struct WorktrunkSidebarView: View {
             .padding(.top, 2)
             .contentShape(Rectangle())
             .onTapGesture {
-                createSheetRepo = repo
+                if store.repositories.count == 1, let repo = store.repositories.first {
+                    createSheetRepo = repo
+                } else {
+                    showRepoPicker = true
+                }
             }
             .help("Create worktree")
-        } else if store.repositories.count > 1 {
-            Menu {
+            .confirmationDialog(
+                "Choose Repository",
+                isPresented: $showRepoPicker,
+                titleVisibility: .visible
+            ) {
                 ForEach(store.repositories) { repo in
                     Button(repo.name) {
                         createSheetRepo = repo
                     }
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle")
-                        .foregroundStyle(.secondary)
-                    Text("New worktree…")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.top, 2)
-                .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .help("Create worktree")
         }
     }
 
