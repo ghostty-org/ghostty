@@ -1631,8 +1631,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func onWorktrunkSelectionChange(_ path: String?) {
-        guard #available(macOS 26.0, *) else { return }
-        // Intentionally no-op: Git diff follows the focused terminal, not Worktrunk selection.
+        guard let path else { return }
+
+        if WorktrunkPreferences.worktreeTabsEnabled {
+            // Worktree-tabs mode: use the controller registry for direct lookup
+            if let controller = Self.existingWorktreeTabController(forWorktreePath: path) {
+                controller.window?.makeKeyAndOrderFront(nil)
+                return
+            }
+        }
+
+        // Fallback / non-worktree-tabs mode: scan surfaces by pwd
+        focusOpenWorktree(atPath: path)
     }
 
     @objc func toggleGitDiffSidebar(_ sender: Any?) {
