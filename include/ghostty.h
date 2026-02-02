@@ -1028,6 +1028,8 @@ void ghostty_config_load_file(ghostty_config_t, const char*);
 void ghostty_config_load_default_files(ghostty_config_t);
 void ghostty_config_load_recursive_files(ghostty_config_t);
 void ghostty_config_finalize(ghostty_config_t);
+void ghostty_config_set(ghostty_config_t, const char*, uintptr_t, const char*, uintptr_t);
+bool ghostty_config_key_equal(ghostty_config_t, ghostty_config_t, const char*, uintptr_t);
 bool ghostty_config_get(ghostty_config_t, void*, const char*, uintptr_t);
 ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
                                                const char*,

@@ -98,6 +98,9 @@ class AppDelegate: NSObject,
     /// The ghostty global state. Only one per process.
     let ghostty: Ghostty.App
 
+    /// The platform settings store for reading/writing config values via NSUserDefaults.
+    let settingsStore: UserDefaultsSettingsStore
+
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
@@ -155,10 +158,11 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil
 
     override init() {
+        settingsStore = UserDefaultsSettingsStore()
 #if DEBUG
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"], settingsStore: settingsStore)
 #else
-        ghostty = Ghostty.App()
+        ghostty = Ghostty.App(settingsStore: settingsStore)
 #endif
         super.init()
 

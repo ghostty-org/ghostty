@@ -31,6 +31,11 @@ extension Ghostty {
 
         /// Preferred config file than the default ones
         private var configPath: String?
+        /// Platform settings store for injecting values from NSUserDefaults (or similar)
+        private var settingsStore: UserDefaultsSettingsStore?
+        /// A defaults-only config used as a baseline for source tracking
+        /// (detecting whether a value was explicitly set in a file vs being the default).
+        private lazy var defaultBaseline: ghostty_config_t? = Config.makeDefaultBaseline()
         /// The ghostty app instance. We only have one of these for the entire app, although I guess
         /// in theory you can have multiple... I don't know why you would...
         @Published var app: ghostty_app_t? = nil {
@@ -46,10 +51,11 @@ extension Ghostty {
             return ghostty_app_needs_confirm_quit(app)
         }
 
-        init(configPath: String? = nil) {
+        init(configPath: String? = nil, settingsStore: UserDefaultsSettingsStore? = nil) {
             self.configPath = configPath
+            self.settingsStore = settingsStore
             // Initialize the global configuration.
-            self.config = Config(at: configPath)
+            self.config = Config(at: configPath, settingsStore: settingsStore)
             if self.config.config == nil {
                 readiness = .error
                 return
@@ -106,6 +112,11 @@ extension Ghostty {
             // This will force the didSet callbacks to run which free.
             self.app = nil
 
+            // Free the defaults baseline config if it was created.
+            if let baseline = defaultBaseline {
+                ghostty_config_free(baseline)
+            }
+
 #if os(macOS)
             NotificationCenter.default.removeObserver(self)
 #endif
@@ -135,6 +146,15 @@ extension Ghostty {
             #endif
         }
 
+        /// Determine the source of a configuration value for the given key.
+        func configSource(forKey key: String) -> ConfigValueSource {
+            return config.resolvedSource(
+                forKey: key,
+                settingsStore: settingsStore,
+                defaultConfig: defaultBaseline
+            )
+        }
+
         /// Reload the configuration.
         func reloadConfig(soft: Bool = false) {
             guard let app = self.app else { return }
@@ -146,7 +166,7 @@ extension Ghostty {
             }
 
             // Hard or full updates have to reload the full configuration
-            let newConfig = Config(at: configPath)
+            let newConfig = Config(at: configPath, settingsStore: settingsStore)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -166,7 +186,7 @@ extension Ghostty {
             // Hard or full updates have to reload the full configuration.
             // NOTE: We never set this on self.config because this is a surface-only
             // config. We free it after the call.
-            let newConfig = Config(at: configPath)
+            let newConfig = Config(at: configPath, settingsStore: settingsStore)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return

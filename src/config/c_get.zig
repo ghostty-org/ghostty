@@ -103,7 +103,7 @@ fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
 }
 
 /// Get a value from the config by key.
-fn fieldByKey(self: *const Config, comptime k: Key) Value(k) {
+pub fn fieldByKey(self: *const Config, comptime k: Key) Value(k) {
     const field = comptime field: {
         const fields = std.meta.fields(Config);
         for (fields) |field| {

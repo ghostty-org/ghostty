@@ -140,6 +140,97 @@ export fn ghostty_config_open_path() c.String {
     return .fromSlice(path);
 }
 
+/// Set a single configuration key to a value. The key and value are
+/// provided as separate parameters. This is used by platform-specific
+/// settings stores (e.g. NSUserDefaults) to inject values into the
+/// configuration before finalization.
+///
+/// The key should be a Ghostty config key name (e.g. "font-size").
+/// The value should be the string representation (e.g. "14").
+export fn ghostty_config_set(
+    self: *Config,
+    key_str: [*]const u8,
+    key_len: usize,
+    value_str: [*]const u8,
+    value_len: usize,
+) void {
+    config_set_(self, key_str[0..key_len], value_str[0..value_len]) catch |err| {
+        log.err("error setting config key err={}", .{err});
+    };
+}
+
+fn config_set_(self: *Config, key: []const u8, value: []const u8) !void {
+    const arena_alloc = if (self._arena) |*a| a.allocator() else return error.OutOfMemory;
+
+    // Build the "--key=value" string that the parser expects.
+    const arg = try std.fmt.allocPrint(arena_alloc, "--{s}={s}", .{ key, value });
+
+    // Feed through loadIter with a single-element iterator.
+    // This calls cli.args.parse which invokes parseManuallyHook,
+    // recording the arg as a replay step automatically.
+    var iter = SingleArgIterator{ .arg = arg };
+    try self.loadIter(state.alloc, &iter);
+}
+
+/// Compare a single configuration key between two configs.
+/// Returns true if both configs have the same value for the given key.
+/// Used by platform code to detect whether a value differs from defaults.
+export fn ghostty_config_key_equal(
+    a: *Config,
+    b: *Config,
+    key_str: [*]const u8,
+    len: usize,
+) bool {
+    @setEvalBranchQuota(10_000);
+    const key = std.meta.stringToEnum(Key, key_str[0..len]) orelse return true;
+    return keyEqual(a, b, key);
+}
+
+fn keyEqual(a: *const Config, b: *const Config, k: Key) bool {
+    @setEvalBranchQuota(10_000);
+    switch (k) {
+        inline else => |tag| {
+            const val_a = c_get.fieldByKey(a, tag);
+            const val_b = c_get.fieldByKey(b, tag);
+            return valuesEqual(val_a, val_b);
+        },
+    }
+}
+
+fn valuesEqual(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    return switch (@typeInfo(T)) {
+        .optional => {
+            const a_val = a orelse return b == null;
+            const b_val = b orelse return false;
+            return valuesEqual(a_val, b_val);
+        },
+        .pointer => |info| {
+            if (info.size == .slice) {
+                return std.mem.eql(info.child, a, b);
+            }
+            // Non-slice pointers: compare addresses.
+            return a == b;
+        },
+        .bool, .int, .float, .@"enum" => std.meta.eql(a, b),
+        // For complex types (structs with allocations, etc.)
+        // conservatively report not-equal so source tracking
+        // falls back to .file rather than .default.
+        else => false,
+    };
+}
+
+/// A single-element iterator that yields one arg then stops.
+const SingleArgIterator = struct {
+    arg: ?[]const u8,
+
+    pub fn next(self: *SingleArgIterator) ?[]const u8 {
+        const result = self.arg orelse return null;
+        self.arg = null;
+        return result;
+    }
+};
+
 /// Sync with ghostty_diagnostic_s
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",

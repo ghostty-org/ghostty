@@ -37,8 +37,8 @@ extension Ghostty {
             self.config = config
         }
 
-        convenience init(at path: String? = nil, finalize: Bool = true) {
-            self.init(config: Self.loadConfig(at: path, finalize: finalize))
+        convenience init(at path: String? = nil, finalize: Bool = true, settingsStore: UserDefaultsSettingsStore? = nil) {
+            self.init(config: Self.loadConfig(at: path, finalize: finalize, settingsStore: settingsStore))
         }
 
         convenience init(clone config: ghostty_config_t) {
@@ -53,7 +53,7 @@ extension Ghostty {
         /// - Parameters:
         ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
         ///   - finalize: Whether to finalize the configuration to populate default values.
-        static private func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
+        static private func loadConfig(at path: String?, finalize: Bool, settingsStore: UserDefaultsSettingsStore? = nil) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
                 logger.critical("ghostty_config_new failed")
@@ -79,9 +79,26 @@ extension Ghostty {
             ghostty_config_load_recursive_files(cfg);
 #endif
 
-            // TODO: we'd probably do some config loading here... for now we'd
-            // have to do this synchronously. When we support config updating we can do
-            // this async and update later.
+            // Inject settings store values (e.g. NSUserDefaults) after file/CLI
+            // config so they take precedence. Values are fed through the Zig parser
+            // which records them as replay steps for theme/conditional rebuilds.
+            // Repeatable keys (e.g. font-family) may have multiple values, each
+            // injected as a separate call to ghostty_config_set.
+            if let store = settingsStore {
+                for key in store.allKeys {
+                    if let values = store.strings(forKey: key) {
+                        for value in values {
+                            ghostty_config_set(
+                                cfg,
+                                key,
+                                UInt(key.utf8.count),
+                                value,
+                                UInt(value.utf8.count)
+                            )
+                        }
+                    }
+                }
+            }
 
             if finalize {
                 // Finalize will make our defaults available.
@@ -642,6 +659,50 @@ extension Ghostty {
             let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
             return buffer.map { Ghostty.Command(cValue: $0) }
         }
+    }
+}
+
+// MARK: - Source Tracking
+
+extension Ghostty.Config {
+    /// Determine the source of a configuration value for the given key.
+    ///
+    /// Resolution:
+    /// 1. If the settings store has a value for the key -> `.settingsStore`
+    /// 2. If the value differs from a defaults-only config -> `.file`
+    /// 3. Otherwise -> `.default`
+    func resolvedSource(
+        forKey key: String,
+        settingsStore: UserDefaultsSettingsStore?,
+        defaultConfig: ghostty_config_t?
+    ) -> ConfigValueSource {
+        // If the settings store has this key, the value came from the store.
+        if let store = settingsStore, store.strings(forKey: key) != nil {
+            return .settingsStore
+        }
+
+        // Compare against a defaults-only config to distinguish file from default.
+        if let currentCfg = self.config, let defaultCfg = defaultConfig {
+            let equal = ghostty_config_key_equal(
+                currentCfg,
+                defaultCfg,
+                key,
+                UInt(key.utf8.count)
+            )
+            if !equal {
+                return .file
+            }
+        }
+
+        return .default
+    }
+
+    /// Create a defaults-only configuration for use as a comparison baseline.
+    /// This config has no files loaded, just default values after finalization.
+    static func makeDefaultBaseline() -> ghostty_config_t? {
+        guard let cfg = ghostty_config_new() else { return nil }
+        ghostty_config_finalize(cfg)
+        return cfg
     }
 }
 
