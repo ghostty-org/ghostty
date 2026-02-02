@@ -162,7 +162,7 @@ final class WorktrunkStore: ObservableObject {
     @Published private var worktreesByRepositoryID: [UUID: [Worktree]] = [:]
     @Published private var sessionsByWorktreePath: [String: [AISession]] = [:]
     @Published private var gitTrackingByWorktreePath: [String: GitTracking] = [:]
-    @Published private var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
+    @Published private(set) var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
     @Published private(set) var sidebarModelRevision: Int = 0
@@ -248,6 +248,13 @@ final class WorktrunkStore: ObservableObject {
 
     func agentStatus(for worktreePath: String) -> WorktreeAgentStatus? {
         agentStatusByWorktreePath[worktreePath]?.status
+    }
+
+    /// Number of worktrees with statuses that need user attention (.permission or .review).
+    var attentionCount: Int {
+        agentStatusByWorktreePath.values.filter {
+            $0.status == .permission || $0.status == .review
+        }.count
     }
 
     func acknowledgeAgentStatus(for worktreePath: String) {

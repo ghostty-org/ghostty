@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 import OSLog
@@ -155,6 +156,7 @@ class AppDelegate: NSObject,
     private var appearanceObserver: NSKeyValueObservation? = nil
 
     private var userDefaultsObserver: NSObjectProtocol? = nil
+    private var agentStatusBadgeCancellable: AnyCancellable?
 
     /// Signals
     private var signals: [DispatchSourceSignal] = []
@@ -312,16 +314,23 @@ class AppDelegate: NSObject,
         // Setup signal handlers
         setupSignals()
 
+        // Observe agent status changes to update the dock badge count
+        agentStatusBadgeCancellable = worktrunkStore.$agentStatusByWorktreePath
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateDockBadgeForAgentStatus()
+            }
+
         switch Ghostty.launchSource {
         case .app:
             // Don't have to do anything.
             break
-            
+
         case .zig_run, .cli:
             // Part of launch services (clicking an app, using `open`, etc.) activates
             // the application and brings it to the front. When using the CLI we don't
             // get this behavior, so we have to do it manually.
-            
+
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
@@ -345,8 +354,8 @@ class AppDelegate: NSObject,
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
 
-        // Clear the dock badge when the app becomes active
-        self.setDockBadge(nil)
+        // Recalculate dock badge: keep agent status count, clear transient bell badge
+        self.updateDockBadgeForAgentStatus()
 
         // First launch stuff
         if (!applicationHasBecomeActive) {
@@ -875,6 +884,11 @@ class AppDelegate: NSObject,
         }
 
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
+    }
+
+    private func updateDockBadgeForAgentStatus() {
+        let count = worktrunkStore.attentionCount
+        setDockBadge(count > 0 ? "\(count)" : nil)
     }
 
     private func setDockBadge(_ label: String? = "•") {
