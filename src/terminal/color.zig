@@ -47,9 +47,10 @@ pub const default: Palette = default: {
 /// Palette is the 256 color palette.
 pub const Palette = [256]RGB;
 
+/// Fill `skip` with user-defined color indexes to avoid replacing them.
 pub fn generate_256_palette(
     base: Palette,
-    mask: std.StaticBitSet(@typeInfo(Palette).array.len),
+    skip: std.StaticBitSet(@typeInfo(Palette).array.len),
     bg: RGB,
     fg: RGB
 ) Palette {
@@ -71,7 +72,7 @@ pub fn generate_256_palette(
             const c4 = LAB.lerp(tg, c0, c1);
             const c5 = LAB.lerp(tg, c2, c3);
             for (0..6) |bi| {
-                if (!mask.isSet(idx)) {
+                if (!skip.isSet(idx)) {
                     const c6 = LAB.lerp(
                         @as(f32, @floatFromInt(bi)) / 5.0, c4, c5);
                     palette[idx] = c6.toRgb();
@@ -83,7 +84,7 @@ pub fn generate_256_palette(
 
     for (0..24) |i| {
         const t = @as(f32, @floatFromInt(i + 1)) / 25.0;
-        if (!mask.isSet(idx)) {
+        if (!skip.isSet(idx)) {
             palette[idx] = LAB.lerp(t, bg_lab, fg_lab).toRgb();
         }
         idx += 1;
