@@ -765,6 +765,13 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// [see this cheat sheet](https://www.ditig.com/256-colors-cheat-sheet).
 palette: Palette = .{},
 
+/// Whether to generate the extended 256 palette from your base16 colors.
+/// This option is true by default but will not replace manually defined colors.
+///
+/// For more information
+/// [see here](https://gist.github.com/jake-stewart/0a8ea46159a7da2c808e5be2177e1783).
+@"generate-256-palette": bool = true,
+
 /// The color of the cursor. If this is not set, a default will be chosen.
 ///
 /// Direct colors can be specified as either hex (`#RRGGBB` or `RRGGBB`)
@@ -5517,6 +5524,10 @@ pub const Palette = struct {
     /// The actual value that is updated as we parse.
     value: terminal.color.Palette = terminal.color.default,
 
+    mask: Mask = .initEmpty(),
+
+    const Mask = std.StaticBitSet(@typeInfo(terminal.color.Palette).array.len);
+
     /// ghostty_config_palette_s
     pub const C = extern struct {
         colors: [265]Color.C,
@@ -5553,6 +5564,7 @@ pub const Palette = struct {
         // Parse the color part (Color.parseCLI will handle whitespace)
         const rgb = try Color.parseCLI(value[eqlIdx + 1 ..]);
         self.value[key] = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
+        self.mask.set(key);
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -5578,6 +5590,49 @@ pub const Palette = struct {
                 ) catch return error.OutOfMemory,
             );
         }
+    }
+
+    pub fn generate(
+        self: Self,
+        bg: terminal.color.RGB,
+        fg: terminal.color.RGB
+    ) terminal.color.Palette {
+        var result = self.value;
+        var base8_lab: [8]Lab = undefined;
+        for (0..8) |i| base8_lab[i] = rgbToLab(result[i]);
+        const bg_lab = rgbToLab(bg);
+        const fg_lab = rgbToLab(fg);
+
+        var idx: usize = 16;
+        for (0..6) |ri| {
+            const tr = @as(f32, @floatFromInt(ri)) / 5.0;
+            const c0 = lerpLab(tr, bg_lab, base8_lab[1]);
+            const c1 = lerpLab(tr, base8_lab[2], base8_lab[3]);
+            const c2 = lerpLab(tr, base8_lab[4], base8_lab[5]);
+            const c3 = lerpLab(tr, base8_lab[6], fg_lab);
+            for (0..6) |gi| {
+                const tg = @as(f32, @floatFromInt(gi)) / 5.0;
+                const c4 = lerpLab(tg, c0, c1);
+                const c5 = lerpLab(tg, c2, c3);
+                for (0..6) |bi| {
+                    if (!self.mask.isSet(idx)) {
+                        const c6 = lerpLab(@as(f32, @floatFromInt(bi)) / 5.0, c4, c5);
+                        result[idx] = labToRgb(c6);
+                    }
+                    idx += 1;
+                }
+            }
+        }
+
+        for (0..24) |i| {
+            const t = @as(f32, @floatFromInt(i + 1)) / 25.0;
+            if (!self.mask.isSet(idx)) {
+                result[idx] = labToRgb(lerpLab(t, bg_lab, fg_lab));
+            }
+            idx += 1;
+        }
+
+        return result;
     }
 
     test "parseCLI" {
@@ -10408,4 +10463,61 @@ test "compatibility: window new-window" {
             cfg.@"macos-dock-drop-behavior",
         );
     }
+}
+
+const Lab = struct { l: f32, a: f32, b: f32 };
+
+fn rgbToLab(rgb: terminal.color.RGB) Lab {
+    var r: f32 = @as(f32, @floatFromInt(rgb.r)) / 255.0;
+    var g: f32 = @as(f32, @floatFromInt(rgb.g)) / 255.0;
+    var b: f32 = @as(f32, @floatFromInt(rgb.b)) / 255.0;
+
+    r = if (r > 0.04045) std.math.pow(f32, (r + 0.055) / 1.055, 2.4) else r / 12.92;
+    g = if (g > 0.04045) std.math.pow(f32, (g + 0.055) / 1.055, 2.4) else g / 12.92;
+    b = if (b > 0.04045) std.math.pow(f32, (b + 0.055) / 1.055, 2.4) else b / 12.92;
+
+    var x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;
+    var y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;
+    var z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883;
+
+    x = if (x > 0.008856) std.math.cbrt(x) else 7.787 * x + 16.0 / 116.0;
+    y = if (y > 0.008856) std.math.cbrt(y) else 7.787 * y + 16.0 / 116.0;
+    z = if (z > 0.008856) std.math.cbrt(z) else 7.787 * z + 16.0 / 116.0;
+
+    return .{ .l = 116.0 * y - 16.0, .a = 500.0 * (x - y), .b = 200.0 * (y - z) };
+}
+
+fn labToRgb(lab: Lab) terminal.color.RGB {
+    const y = (lab.l + 16.0) / 116.0;
+    const x = lab.a / 500.0 + y;
+    const z = y - lab.b / 200.0;
+
+    const x3 = x * x * x;
+    const y3 = y * y * y;
+    const z3 = z * z * z;
+    const xf = (if (x3 > 0.008856) x3 else (x - 16.0 / 116.0) / 7.787) * 0.95047;
+    const yf = if (y3 > 0.008856) y3 else (y - 16.0 / 116.0) / 7.787;
+    const zf = (if (z3 > 0.008856) z3 else (z - 16.0 / 116.0) / 7.787) * 1.08883;
+
+    var r = xf * 3.2404542 - yf * 1.5371385 - zf * 0.4985314;
+    var g = -xf * 0.9692660 + yf * 1.8760108 + zf * 0.0415560;
+    var b = xf * 0.0556434 - yf * 0.2040259 + zf * 1.0572252;
+
+    r = if (r > 0.0031308) 1.055 * std.math.pow(f32, r, 1.0 / 2.4) - 0.055 else 12.92 * r;
+    g = if (g > 0.0031308) 1.055 * std.math.pow(f32, g, 1.0 / 2.4) - 0.055 else 12.92 * g;
+    b = if (b > 0.0031308) 1.055 * std.math.pow(f32, b, 1.0 / 2.4) - 0.055 else 12.92 * b;
+
+    return .{
+        .r = @intFromFloat(@min(@max(r, 0.0), 1.0) * 255.0 + 0.5),
+        .g = @intFromFloat(@min(@max(g, 0.0), 1.0) * 255.0 + 0.5),
+        .b = @intFromFloat(@min(@max(b, 0.0), 1.0) * 255.0 + 0.5),
+    };
+}
+
+fn lerpLab(t: f32, a: Lab, b: Lab) Lab {
+    return .{
+        .l = a.l + t * (b.l - a.l),
+        .a = a.a + t * (b.a - a.a),
+        .b = a.b + t * (b.b - a.b)
+    };
 }
