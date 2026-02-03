@@ -47,6 +47,19 @@ class TerminalWindow: NSWindow {
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
 
+    /// Tracks accumulated scroll delta for swipe detection
+    private var scrollAccumulatedDeltaX: CGFloat = 0
+    private var scrollAccumulatedDeltaY: CGFloat = 0
+
+    /// Flag to track if we're in a potential swipe gesture
+    private var isTrackingSwipe: Bool = false
+
+    /// Threshold for triggering a tab switch
+    private let swipeThreshold: CGFloat = 50
+
+    /// Event monitor for scroll events
+    private var scrollEventMonitor: Any?
+
     /// Gets the terminal controller from the window controller.
     var terminalController: TerminalController? {
         windowController as? TerminalController
@@ -167,6 +180,107 @@ class TerminalWindow: NSWindow {
 
         // Get our saved level
         level = UserDefaults.standard.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
+
+        // Store config for later gesture setup (contentView not available yet)
+        shouldSetupTabSwipeGesture = config.macosTabSwipeNavigation
+
+        // Set up scroll event monitor for two-finger swipe detection
+        if shouldSetupTabSwipeGesture {
+            setupScrollEventMonitor()
+        }
+    }
+
+    /// Sets up a local event monitor to detect horizontal scroll gestures for tab switching
+    private func setupScrollEventMonitor() {
+        scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self = self else { return event }
+
+            // Only handle events for this window
+            guard event.window == self else { return event }
+
+            // Only handle trackpad scroll events (not mouse wheel)
+            guard event.phase != [] || event.momentumPhase != [] else { return event }
+
+            self.handleScrollEvent(event)
+            return event
+        }
+    }
+
+    /// Handles scroll events for swipe detection
+    private func handleScrollEvent(_ event: NSEvent) {
+        if event.phase == .began {
+            isTrackingSwipe = true
+            scrollAccumulatedDeltaX = 0
+            scrollAccumulatedDeltaY = 0
+        }
+
+        if isTrackingSwipe && (event.phase == .changed || event.phase == .began) {
+            scrollAccumulatedDeltaX += event.scrollingDeltaX
+            scrollAccumulatedDeltaY += event.scrollingDeltaY
+        }
+
+        if event.phase == .ended || event.phase == .cancelled {
+            // Check if this was primarily a horizontal scroll
+            let isHorizontal = abs(scrollAccumulatedDeltaX) > abs(scrollAccumulatedDeltaY) * 1.5
+
+            if isHorizontal && abs(scrollAccumulatedDeltaX) > swipeThreshold {
+                if scrollAccumulatedDeltaX > 0 {
+                    switchToPreviousTab()
+                } else {
+                    switchToNextTab()
+                }
+            }
+
+            isTrackingSwipe = false
+            scrollAccumulatedDeltaX = 0
+            scrollAccumulatedDeltaY = 0
+        }
+    }
+
+    /// Flag to track if we should set up the swipe gesture
+    private var shouldSetupTabSwipeGesture: Bool = false
+
+    // MARK: Tab Swipe Gesture
+
+    /// Override swipe(with:) to detect three-finger swipe gestures for tab switching.
+    /// This is the native macOS swipe gesture (requires "Swipe between pages" enabled in trackpad settings).
+    override func swipe(with event: NSEvent) {
+        guard shouldSetupTabSwipeGesture else {
+            super.swipe(with: event)
+            return
+        }
+
+        if event.deltaX > 0 {
+            switchToPreviousTab()
+        } else if event.deltaX < 0 {
+            switchToNextTab()
+        } else {
+            super.swipe(with: event)
+        }
+    }
+
+    /// Switches to the previous tab
+    private func switchToPreviousTab() {
+        guard let terminalController = terminalController,
+              let focusedSurface = terminalController.focusedSurface else { return }
+
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttyGotoTab,
+            object: focusedSurface,
+            userInfo: [Ghostty.Notification.GotoTabKey: GHOSTTY_GOTO_TAB_PREVIOUS]
+        )
+    }
+
+    /// Switches to the next tab
+    private func switchToNextTab() {
+        guard let terminalController = terminalController,
+              let focusedSurface = terminalController.focusedSurface else { return }
+
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttyGotoTab,
+            object: focusedSurface,
+            userInfo: [Ghostty.Notification.GotoTabKey: GHOSTTY_GOTO_TAB_NEXT]
+        )
     }
 
     // Both of these must be true for windows without decorations to be able to
@@ -542,6 +656,9 @@ class TerminalWindow: NSWindow {
     deinit {
         if let observer = tabMenuObserver {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let monitor = scrollEventMonitor {
+            NSEvent.removeMonitor(monitor)
         }
     }
     

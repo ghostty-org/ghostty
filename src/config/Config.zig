@@ -3201,6 +3201,13 @@ keybind: Keybinds = .{},
 /// find false more visually appealing.
 @"macos-window-shadow": bool = true,
 
+/// Whether to enable two-finger swipe gestures for navigating between tabs.
+/// When enabled, swiping left or right with two fingers on a trackpad will
+/// switch to the next or previous tab, similar to iTerm2.
+///
+/// The default value is true.
+@"macos-tab-swipe-navigation": bool = true,
+
 /// If true, the macOS icon in the dock and app switcher will be hidden. This is
 /// mainly intended for those primarily using the quick-terminal mode.
 ///
