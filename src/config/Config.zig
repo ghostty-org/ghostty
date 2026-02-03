@@ -22,7 +22,6 @@ const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
-const Lab = @import("../lab.zig").Lab;
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
@@ -5591,50 +5590,6 @@ pub const Palette = struct {
                 ) catch return error.OutOfMemory,
             );
         }
-    }
-
-    pub fn generate(
-        self: Self,
-        bg: terminal.color.RGB,
-        fg: terminal.color.RGB
-    ) terminal.color.Palette {
-        var result = self.value;
-        var base8_lab: [8]Lab = undefined;
-        for (0..8) |i| base8_lab[i] = Lab.fromTerminalRgb(result[i]);
-        const bg_lab = Lab.fromTerminalRgb(bg);
-        const fg_lab = Lab.fromTerminalRgb(fg);
-
-        var idx: usize = 16;
-        for (0..6) |ri| {
-            const tr = @as(f32, @floatFromInt(ri)) / 5.0;
-            const c0 = Lab.lerp(tr, bg_lab, base8_lab[1]);
-            const c1 = Lab.lerp(tr, base8_lab[2], base8_lab[3]);
-            const c2 = Lab.lerp(tr, base8_lab[4], base8_lab[5]);
-            const c3 = Lab.lerp(tr, base8_lab[6], fg_lab);
-            for (0..6) |gi| {
-                const tg = @as(f32, @floatFromInt(gi)) / 5.0;
-                const c4 = Lab.lerp(tg, c0, c1);
-                const c5 = Lab.lerp(tg, c2, c3);
-                for (0..6) |bi| {
-                    if (!self.mask.isSet(idx)) {
-                        const c6 = Lab.lerp(
-                            @as(f32, @floatFromInt(bi)) / 5.0, c4, c5);
-                        result[idx] = c6.toTerminalRgb();
-                    }
-                    idx += 1;
-                }
-            }
-        }
-
-        for (0..24) |i| {
-            const t = @as(f32, @floatFromInt(i + 1)) / 25.0;
-            if (!self.mask.isSet(idx)) {
-                result[idx] = Lab.lerp(t, bg_lab, fg_lab).toTerminalRgb();
-            }
-            idx += 1;
-        }
-
-        return result;
     }
 
     test "parseCLI" {
