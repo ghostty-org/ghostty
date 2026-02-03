@@ -5524,6 +5524,7 @@ pub const Palette = struct {
     /// The actual value that is updated as we parse.
     value: terminal.color.Palette = terminal.color.default,
 
+    /// Keep track of which indexes were manually set by the user.
     mask: Mask = .initEmpty(),
 
     const Mask = std.StaticBitSet(@typeInfo(terminal.color.Palette).array.len);
