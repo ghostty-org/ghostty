@@ -47,6 +47,15 @@ class TerminalWindow: NSWindow {
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
 
+    /// Pan gesture recognizer for two-finger swipe tab switching
+    private var tabSwipeGestureRecognizer: NSPanGestureRecognizer?
+
+    /// Tracks the cumulative horizontal translation for the swipe gesture
+    private var swipeAccumulatedTranslation: CGFloat = 0
+
+    /// Threshold for triggering a tab switch (in points)
+    private let swipeThreshold: CGFloat = 50
+
     /// Gets the terminal controller from the window controller.
     var terminalController: TerminalController? {
         windowController as? TerminalController
@@ -167,6 +176,76 @@ class TerminalWindow: NSWindow {
 
         // Get our saved level
         level = UserDefaults.standard.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
+
+        // Setup two-finger swipe gesture for tab switching if enabled
+        if config.macosTabSwipeNavigation {
+            setupTabSwipeGesture()
+        }
+    }
+
+    // MARK: Tab Swipe Gesture
+
+    /// Sets up the two-finger swipe gesture recognizer for tab switching
+    private func setupTabSwipeGesture() {
+        guard let contentView = contentView else { return }
+
+        let panGesture = NSPanGestureRecognizer(target: self, action: #selector(handleTabSwipeGesture(_:)))
+        panGesture.numberOfTouchesRequired = 2
+        panGesture.delaysPrimaryMouseButtonEvents = false
+        contentView.addGestureRecognizer(panGesture)
+        tabSwipeGestureRecognizer = panGesture
+    }
+
+    /// Handles the two-finger swipe gesture for switching tabs
+    @objc private func handleTabSwipeGesture(_ recognizer: NSPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            swipeAccumulatedTranslation = 0
+
+        case .changed:
+            let translation = recognizer.translation(in: recognizer.view)
+            swipeAccumulatedTranslation = translation.x
+
+        case .ended, .cancelled:
+            // Check if we've exceeded the threshold
+            if abs(swipeAccumulatedTranslation) >= swipeThreshold {
+                // Determine direction: positive = swipe right = previous tab
+                // negative = swipe left = next tab
+                if swipeAccumulatedTranslation > 0 {
+                    switchToPreviousTab()
+                } else {
+                    switchToNextTab()
+                }
+            }
+            swipeAccumulatedTranslation = 0
+
+        default:
+            break
+        }
+    }
+
+    /// Switches to the previous tab
+    private func switchToPreviousTab() {
+        guard let terminalController = terminalController,
+              let focusedSurface = terminalController.focusedSurface else { return }
+
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttyGotoTab,
+            object: focusedSurface,
+            userInfo: [Ghostty.Notification.GotoTabKey: GHOSTTY_GOTO_TAB_PREVIOUS]
+        )
+    }
+
+    /// Switches to the next tab
+    private func switchToNextTab() {
+        guard let terminalController = terminalController,
+              let focusedSurface = terminalController.focusedSurface else { return }
+
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttyGotoTab,
+            object: focusedSurface,
+            userInfo: [Ghostty.Notification.GotoTabKey: GHOSTTY_GOTO_TAB_NEXT]
+        )
     }
 
     // Both of these must be true for windows without decorations to be able to
