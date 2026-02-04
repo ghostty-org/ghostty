@@ -1377,6 +1377,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             openWorktree: { [weak self] path in
                 self?.openWorktree(atPath: path)
             },
+            openWorktreeAgent: { [weak self] path, agent in
+                self?.openWorktreeAgentSession(atPath: path, agent: agent)
+            },
             resumeSession: { [weak self] session in
                 self?.resumeAISession(session)
             },
@@ -1671,6 +1674,48 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         var base = Ghostty.SurfaceConfiguration()
         base.workingDirectory = path
+
+        switch behavior {
+        case .newTab:
+            _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+
+        case .splitRight:
+            if let focusedSurface {
+                if newSplit(at: focusedSurface, direction: .right, baseConfig: base) == nil {
+                    _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+                }
+            } else {
+                _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+            }
+
+        case .splitDown:
+            if let focusedSurface {
+                if newSplit(at: focusedSurface, direction: .down, baseConfig: base) == nil {
+                    _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+                }
+            } else {
+                _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: base)
+            }
+        }
+    }
+
+    private func openWorktreeAgentSession(atPath path: String, agent: WorktrunkAgent) {
+        guard agent.isAvailable else { return }
+
+        var base = Ghostty.SurfaceConfiguration()
+        base.workingDirectory = path
+        base.command = agent.command
+        TerminalAgentHooks.apply(to: &base)
+
+        if WorktrunkPreferences.worktreeTabsEnabled {
+            openWorktreeTabSession(worktreePath: path, baseConfig: base)
+            return
+        }
+
+        let behavior: WorktrunkOpenBehavior = {
+            let raw = UserDefaults.standard.string(forKey: WorktrunkPreferences.openBehaviorKey) ?? ""
+            return WorktrunkOpenBehavior(rawValue: raw) ?? .newTab
+        }()
 
         switch behavior {
         case .newTab:

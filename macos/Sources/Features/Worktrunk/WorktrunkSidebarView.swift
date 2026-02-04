@@ -5,9 +5,11 @@ struct WorktrunkSidebarView: View {
     @ObservedObject var store: WorktrunkStore
     @ObservedObject var sidebarState: WorktrunkSidebarState
     let openWorktree: (String) -> Void
+    let openWorktreeAgent: (String, WorktrunkAgent) -> Void
     var resumeSession: ((AISession) -> Void)?
     var onSelectWorktree: ((String?) -> Void)?
 
+    @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultAgentRaw: String = WorktrunkAgent.claude.rawValue
     @State private var createSheetRepo: WorktrunkStore.Repository?
     @State private var removeRepoConfirm: WorktrunkStore.Repository?
     @State private var removeWorktreeConfirm: WorktrunkStore.Worktree?
@@ -15,6 +17,14 @@ struct WorktrunkSidebarView: View {
     @State private var removeWorktreeForceError: String?
     @State private var showRepoPicker: Bool = false
     @State private var repoSearchText: String = ""
+
+    private var availableAgents: [WorktrunkAgent] {
+        WorktrunkAgent.availableAgents()
+    }
+
+    private var preferredAgent: WorktrunkAgent? {
+        WorktrunkAgent.preferredAgent(from: defaultAgentRaw, availableAgents: availableAgents)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -506,15 +516,39 @@ struct WorktrunkSidebarView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .layoutPriority(2)
             }
-            Button {
-                store.acknowledgeAgentStatus(for: wt.path)
-                openWorktree(wt.path)
-            } label: {
-                Image(systemName: "plus")
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Button {
+                    guard let preferredAgent else { return }
+                    store.acknowledgeAgentStatus(for: wt.path)
+                    openWorktreeAgent(wt.path, preferredAgent)
+                } label: {
+                    Image(systemName: "plus")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(preferredAgent == nil)
+                .help(preferredAgent == nil
+                    ? "Install Claude Code, Codex, or OpenCode to start sessions."
+                    : "Start \(preferredAgent.title) session in \(wt.branch)"
+                )
+
+                Menu {
+                    ForEach(availableAgents) { agent in
+                        Button {
+                            store.acknowledgeAgentStatus(for: wt.path)
+                            openWorktreeAgent(wt.path, agent)
+                        } label: {
+                            Text("New \(agent.title) Session")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(availableAgents.isEmpty)
+                .help("Choose agent")
             }
-            .buttonStyle(.plain)
-            .help("Open terminal in \(wt.branch)")
         }
     }
 

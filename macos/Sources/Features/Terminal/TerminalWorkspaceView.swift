@@ -10,6 +10,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
     @ObservedObject var worktrunkSidebarState: WorktrunkSidebarState
     @ObservedObject var gitDiffSidebarState: GitDiffSidebarState
     let openWorktree: (String) -> Void
+    let openWorktreeAgent: (String, WorktrunkAgent) -> Void
     let resumeSession: ((AISession) -> Void)?
     let onSidebarWidthChange: (CGFloat) -> Void
     let onGitDiffSelect: (GitDiffEntry) -> Void
@@ -25,6 +26,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
                 store: worktrunkStore,
                 sidebarState: worktrunkSidebarState,
                 openWorktree: openWorktree,
+                openWorktreeAgent: openWorktreeAgent,
                 resumeSession: resumeSession,
                 onSelectWorktree: { path in
                     onGitDiffWorktreeSelect(path)
