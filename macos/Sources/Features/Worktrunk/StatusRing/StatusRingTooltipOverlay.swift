@@ -6,6 +6,7 @@ struct StatusRingTooltipOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let globalFrame = geometry.frame(in: .global)
             if state.isVisible, let content = state.content {
                 StatusRingPopover(
                     agentStatus: content.agentStatus,
@@ -22,7 +23,8 @@ struct StatusRingTooltipOverlay: View {
                 .position(
                     tooltipPosition(
                         anchor: state.anchorRect,
-                        windowBounds: geometry.frame(in: .global)
+                        overlayOrigin: globalFrame.origin,
+                        overlaySize: geometry.size
                     )
                 )
                 .allowsHitTesting(false)
@@ -32,21 +34,26 @@ struct StatusRingTooltipOverlay: View {
         .animation(.easeOut(duration: 0.15), value: state.isVisible)
     }
 
-    private func tooltipPosition(anchor: CGRect, windowBounds: CGRect) -> CGPoint {
+    private func tooltipPosition(anchor: CGRect, overlayOrigin: CGPoint, overlaySize: CGSize) -> CGPoint {
         let spacing: CGFloat = 8
-        let estimatedWidth: CGFloat = 240  // Reasonable estimate for tooltip width
+        let estimatedWidth: CGFloat = 240
 
-        // Default: right of anchor, vertically centered
-        var x = anchor.maxX + spacing + estimatedWidth / 2
-        let y = anchor.midY
+        // Convert anchor from global screen coordinates to overlay's local coordinates
+        // Subtract additional offset to correct for window chrome/titlebar
+        let localX = anchor.minX - overlayOrigin.x - 50
+        let localY = anchor.minY - overlayOrigin.y - 50
+
+        // Position tooltip to the right of anchor, vertically centered
+        var x = localX + anchor.width + spacing + estimatedWidth / 2
+        let y = localY + anchor.height / 2
 
         // If tooltip would overflow right edge, flip to left
-        if anchor.maxX + spacing + estimatedWidth > windowBounds.maxX - 10 {
-            x = anchor.minX - spacing - estimatedWidth / 2
+        if localX + anchor.width + spacing + estimatedWidth > overlaySize.width - 10 {
+            x = localX - spacing - estimatedWidth / 2
         }
 
-        // Clamp vertical position to stay within window
-        let clampedY = max(80, min(y, windowBounds.maxY - 80))
+        // Clamp vertical position
+        let clampedY = max(80, min(y, overlaySize.height - 80))
 
         return CGPoint(x: x, y: clampedY)
     }
