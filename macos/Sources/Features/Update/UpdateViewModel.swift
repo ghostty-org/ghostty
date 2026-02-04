@@ -22,6 +22,12 @@ class UpdateViewModel: ObservableObject {
                 return "Update Available: \(version)"
             }
             return "Update Available"
+        case .homebrewAvailable(let update):
+            let version = update.appcastItem.displayVersionString
+            if !version.isEmpty {
+                return "Update via Homebrew: \(version)"
+            }
+            return "Update via Homebrew"
         case .downloading(let download):
             if let expectedLength = download.expectedLength, expectedLength > 0 {
                 let progress = Double(download.progress) / Double(expectedLength)
@@ -63,6 +69,8 @@ class UpdateViewModel: ObservableObject {
             return "arrow.triangle.2.circlepath"
         case .updateAvailable:
             return "shippingbox.fill"
+        case .homebrewAvailable:
+            return "shippingbox.fill"
         case .downloading:
             return "arrow.down.circle"
         case .extracting:
@@ -88,6 +96,8 @@ class UpdateViewModel: ObservableObject {
             return "Please wait while we check for available updates"
         case .updateAvailable(let update):
             return update.releaseNotes?.label ?? "Download and install the latest version"
+        case .homebrewAvailable:
+            return "Update Ghostree using Homebrew"
         case .downloading:
             return "Downloading the update package"
         case .extracting:
@@ -106,6 +116,9 @@ class UpdateViewModel: ObservableObject {
     var badge: String? {
         switch state {
         case .updateAvailable(let update):
+            let version = update.appcastItem.displayVersionString
+            return version.isEmpty ? nil : version
+        case .homebrewAvailable(let update):
             let version = update.appcastItem.displayVersionString
             return version.isEmpty ? nil : version
         case .downloading(let download):
@@ -132,6 +145,8 @@ class UpdateViewModel: ObservableObject {
             return .secondary
         case .updateAvailable:
             return .accentColor
+        case .homebrewAvailable:
+            return .accentColor
         case .downloading, .extracting, .installing:
             return .secondary
         case .notFound:
@@ -147,6 +162,8 @@ class UpdateViewModel: ObservableObject {
         case .permissionRequest:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
         case .updateAvailable:
+            return .accentColor
+        case .homebrewAvailable:
             return .accentColor
         case .notFound:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
@@ -164,6 +181,8 @@ class UpdateViewModel: ObservableObject {
             return .white
         case .updateAvailable:
             return .white
+        case .homebrewAvailable:
+            return .white
         case .notFound:
             return .white
         case .error:
@@ -179,6 +198,7 @@ enum UpdateState: Equatable {
     case permissionRequest(PermissionRequest)
     case checking(Checking)
     case updateAvailable(UpdateAvailable)
+    case homebrewAvailable(HomebrewUpdate)
     case notFound(NotFound)
     case error(Error)
     case downloading(Downloading)
@@ -211,6 +231,8 @@ enum UpdateState: Equatable {
             checking.cancel()
         case .updateAvailable(let available):
             available.reply(.dismiss)
+        case .homebrewAvailable(let update):
+            update.dismiss()
         case .downloading(let downloading):
             downloading.cancel()
         case .notFound(let notFound):
@@ -244,6 +266,8 @@ enum UpdateState: Equatable {
             return true
         case (.updateAvailable(let lUpdate), .updateAvailable(let rUpdate)):
             return lUpdate.appcastItem.displayVersionString == rUpdate.appcastItem.displayVersionString
+        case (.homebrewAvailable(let lUpdate), .homebrewAvailable(let rUpdate)):
+            return lUpdate.appcastItem.displayVersionString == rUpdate.appcastItem.displayVersionString
         case (.notFound, .notFound):
             return true
         case (.error(let lErr), .error(let rErr)):
@@ -276,6 +300,19 @@ enum UpdateState: Equatable {
         let appcastItem: SUAppcastItem
         let reply: @Sendable (SPUUserUpdateChoice) -> Void
         
+        var releaseNotes: ReleaseNotes? {
+            let currentCommit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String
+            return ReleaseNotes(displayVersionString: appcastItem.displayVersionString, currentCommit: currentCommit)
+        }
+    }
+
+    struct HomebrewUpdate {
+        let appcastItem: SUAppcastItem
+        let command: String
+        let copyCommand: () -> Void
+        let openInGhostree: () -> Void
+        let dismiss: () -> Void
+
         var releaseNotes: ReleaseNotes? {
             let currentCommit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String
             return ReleaseNotes(displayVersionString: appcastItem.displayVersionString, currentCommit: currentCommit)

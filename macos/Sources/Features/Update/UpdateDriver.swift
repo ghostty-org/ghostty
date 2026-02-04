@@ -5,10 +5,20 @@ import Sparkle
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
     let standard: SPUStandardUserDriver
+    private let installChannel: InstallChannel
+    private var checkSource: UpdateCheckSource = .background
+
+    private enum UpdateCheckSource {
+        case user
+        case background
+    }
+
+    private static let homebrewCommand = "brew update && brew upgrade --cask ghostree"
     
-    init(viewModel: UpdateViewModel, hostBundle: Bundle) {
+    init(viewModel: UpdateViewModel, hostBundle: Bundle, installChannel: InstallChannel) {
         self.viewModel = viewModel
         self.standard = SPUStandardUserDriver(hostBundle: hostBundle, delegate: nil)
+        self.installChannel = installChannel
         super.init()
         
         NotificationCenter.default.addObserver(
@@ -49,9 +59,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        checkSource = .user
         viewModel.state = .checking(.init(cancel: cancellation))
 
-        if !hasUnobtrusiveTarget {
+        if installChannel != .homebrew && !hasUnobtrusiveTarget {
             standard.showUserInitiatedUpdateCheck(cancellation: cancellation)
         }
     }
@@ -59,6 +70,39 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        if installChannel == .homebrew {
+            let source = consumeCheckSource()
+            let shouldPresent = source == .user || hasFocusedUnobtrusiveTarget
+
+            if shouldPresent {
+                if hasUnobtrusiveTarget {
+                    viewModel.state = .homebrewAvailable(.init(
+                        appcastItem: appcastItem,
+                        command: Self.homebrewCommand,
+                        copyCommand: { [weak self] in
+                            self?.copyHomebrewCommand()
+                        },
+                        openInGhostree: { [weak self] in
+                            self?.copyHomebrewCommand()
+                            self?.openHomebrewTerminal()
+                        },
+                        dismiss: { [weak self] in
+                            reply(.dismiss)
+                            self?.viewModel.state = .idle
+                        }
+                    ))
+                } else if source == .user {
+                    showHomebrewUpdateAlert(appcastItem: appcastItem, reply: reply)
+                    viewModel.state = .idle
+                } else {
+                    reply(.dismiss)
+                }
+            } else {
+                reply(.dismiss)
+            }
+            return
+        }
+
         viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: reply))
         if !hasUnobtrusiveTarget {
             standard.showUpdateFound(with: appcastItem, state: state, reply: reply)
@@ -76,15 +120,30 @@ class UpdateDriver: NSObject, SPUUserDriver {
     
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
+        if installChannel == .homebrew {
+            let source = consumeCheckSource()
+            if source == .background {
+                acknowledgement()
+                return
+            }
+            if !hasUnobtrusiveTarget {
+                showHomebrewUpToDateAlert()
+                viewModel.state = .idle
+                acknowledgement()
+                return
+            }
+        }
+
         viewModel.state = .notFound(.init(acknowledgement: acknowledgement))
         
-        if !hasUnobtrusiveTarget {
+        if installChannel != .homebrew && !hasUnobtrusiveTarget {
             standard.showUpdateNotFoundWithError(error, acknowledgement: acknowledgement)
         }
     }
     
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
+        _ = consumeCheckSource()
         viewModel.state = .error(.init(
             error: error,
             retry: { [weak self, weak viewModel] in
@@ -107,6 +166,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
+        _ = consumeCheckSource()
         viewModel.state = .downloading(.init(
             cancel: cancellation,
             expectedLength: nil,
@@ -118,6 +178,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
+        _ = consumeCheckSource()
         guard case let .downloading(downloading) = viewModel.state else {
             return
         }
@@ -133,6 +194,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showDownloadDidReceiveData(ofLength length: UInt64) {
+        _ = consumeCheckSource()
         guard case let .downloading(downloading) = viewModel.state else {
             return
         }
@@ -148,6 +210,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showDownloadDidStartExtractingUpdate() {
+        _ = consumeCheckSource()
         viewModel.state = .extracting(.init(progress: 0))
         
         if !hasUnobtrusiveTarget {
@@ -156,6 +219,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showExtractionReceivedProgress(_ progress: Double) {
+        _ = consumeCheckSource()
         viewModel.state = .extracting(.init(progress: progress))
         
         if !hasUnobtrusiveTarget {
@@ -164,6 +228,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        _ = consumeCheckSource()
         if !hasUnobtrusiveTarget {
             standard.showReady(toInstallAndRelaunch: reply)
         } else {
@@ -172,6 +237,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
+        _ = consumeCheckSource()
         viewModel.state = .installing(.init(
             retryTerminatingApplication: retryTerminatingApplication,
             dismiss: { [weak viewModel] in
@@ -185,17 +251,20 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        _ = consumeCheckSource()
         standard.showUpdateInstalledAndRelaunched(relaunched, acknowledgement: acknowledgement)
         viewModel.state = .idle
     }
     
     func showUpdateInFocus() {
+        _ = consumeCheckSource()
         if !hasUnobtrusiveTarget {
             standard.showUpdateInFocus()
         }
     }
     
     func dismissUpdateInstallation() {
+        _ = consumeCheckSource()
         viewModel.state = .idle
         standard.dismissUpdateInstallation()
     }
@@ -208,5 +277,67 @@ class UpdateDriver: NSObject, SPUUserDriver {
             (window is TerminalWindow || window is QuickTerminalWindow) &&
             window.isVisible
         }
+    }
+
+    private var hasFocusedUnobtrusiveTarget: Bool {
+        hasUnobtrusiveTarget && NSApp.isActive
+    }
+
+    private func consumeCheckSource() -> UpdateCheckSource {
+        let source = checkSource
+        checkSource = .background
+        return source
+    }
+
+    private func copyHomebrewCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.homebrewCommand, forType: .string)
+    }
+
+    private func openHomebrewTerminal() {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
+        let parentWindow = TerminalController.preferredParent?.window ?? NSApp.keyWindow
+        if let parentWindow {
+            _ = TerminalController.newTab(appDelegate.ghostty, from: parentWindow)
+        } else {
+            _ = TerminalController.newWindow(appDelegate.ghostty)
+        }
+    }
+
+    private func showHomebrewUpdateAlert(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        let alert = NSAlert()
+        let version = appcastItem.displayVersionString
+        if version.isEmpty {
+            alert.messageText = "Update via Homebrew"
+        } else {
+            alert.messageText = "Ghostree \(version) is available"
+        }
+        alert.informativeText = "This copy of Ghostree was installed via Homebrew.\n\nTo update, run:\n\(Self.homebrewCommand)"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Open Ghostree Window")
+        alert.addButton(withTitle: "Copy Command")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            copyHomebrewCommand()
+            openHomebrewTerminal()
+        case .alertSecondButtonReturn:
+            copyHomebrewCommand()
+        default:
+            break
+        }
+
+        reply(.dismiss)
+    }
+
+    private func showHomebrewUpToDateAlert() {
+        let alert = NSAlert()
+        alert.messageText = "You're up to date!"
+        alert.informativeText = "Ghostree is currently the newest version available."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

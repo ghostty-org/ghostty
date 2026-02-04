@@ -1,6 +1,7 @@
 import Sparkle
 import Cocoa
 import Combine
+import Darwin
 
 /// Standard controller for managing Sparkle updates in Ghostty.
 ///
@@ -11,6 +12,7 @@ class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
     private var installCancellable: AnyCancellable?
+    let installChannel: InstallChannel
     
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -24,9 +26,12 @@ class UpdateController {
     /// Initialize a new update controller.
     init() {
         let hostBundle = Bundle.main
+        let installChannel = InstallChannel.detect()
+        self.installChannel = installChannel
         self.userDriver = UpdateDriver(
             viewModel: .init(),
-            hostBundle: hostBundle)
+            hostBundle: hostBundle,
+            installChannel: installChannel)
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
             applicationBundle: hostBundle,
@@ -119,5 +124,46 @@ class UpdateController {
             return updater.canCheckForUpdates
         }
         return true
+    }
+}
+
+extension URL {
+    func extendedAttribute(_ name: String) -> String? {
+        return self.withUnsafeFileSystemRepresentation { pathPtr -> String? in
+            guard let pathPtr else { return nil }
+
+            let size = getxattr(pathPtr, name, nil, 0, 0, XATTR_NOFOLLOW)
+            guard size > 0 else { return nil }
+
+            var buffer = [UInt8](repeating: 0, count: size)
+            let result = getxattr(pathPtr, name, &buffer, size, 0, XATTR_NOFOLLOW)
+            guard result > 0 else { return nil }
+
+            return String(bytes: buffer, encoding: .utf8)
+        }
+    }
+}
+
+enum InstallChannel {
+    case homebrew
+    case manual
+
+    static func detect() -> InstallChannel {
+        if let quarantine = Bundle.main.bundleURL.extendedAttribute("com.apple.quarantine"),
+           quarantine.contains("Homebrew") {
+            return .homebrew
+        }
+
+        let caskroomPaths = [
+            "/opt/homebrew/Caskroom/ghostree",
+            "/usr/local/Caskroom/ghostree",
+        ]
+        for path in caskroomPaths {
+            if FileManager.default.fileExists(atPath: path) {
+                return .homebrew
+            }
+        }
+
+        return .manual
     }
 }

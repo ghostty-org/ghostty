@@ -1,5 +1,6 @@
 import SwiftUI
 import Sparkle
+import AppKit
 
 /// A popover view that displays detailed update information and action buttons.
 ///
@@ -28,6 +29,9 @@ struct UpdatePopoverView: View {
                 
             case .updateAvailable(let update):
                 UpdateAvailableView(update: update, dismiss: dismiss)
+                
+            case .homebrewAvailable(let update):
+                HomebrewUpdateView(update: update, dismiss: dismiss)
                 
             case .downloading(let download):
                 DownloadingView(download: download, dismiss: dismiss)
@@ -214,6 +218,128 @@ fileprivate struct UpdateAvailableView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+}
+
+fileprivate struct HomebrewUpdateView: View {
+    let update: UpdateState.HomebrewUpdate
+    let dismiss: DismissAction
+    
+    private let labelWidth: CGFloat = 60
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Update via Homebrew")
+                        .font(.system(size: 13, weight: .semibold))
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        let version = update.appcastItem.displayVersionString
+                        if !version.isEmpty {
+                            HStack(spacing: 6) {
+                                Text("Version:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: labelWidth, alignment: .trailing)
+                                Text(version)
+                            }
+                            .font(.system(size: 11))
+                        }
+                        
+                        if update.appcastItem.contentLength > 0 {
+                            HStack(spacing: 6) {
+                                Text("Size:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: labelWidth, alignment: .trailing)
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(update.appcastItem.contentLength), countStyle: .file))
+                            }
+                            .font(.system(size: 11))
+                        }
+                        
+                        if let date = update.appcastItem.date {
+                            HStack(spacing: 6) {
+                                Text("Released:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: labelWidth, alignment: .trailing)
+                                Text(date.formatted(date: .abbreviated, time: .omitted))
+                            }
+                            .font(.system(size: 11))
+                        }
+                    }
+                    .textSelection(.enabled)
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Run:")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(update.command)
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .cornerRadius(6)
+                    }
+                }
+                
+                HStack(spacing: 8) {
+                    Button(openButtonTitle) {
+                        update.openInGhostree()
+                        update.dismiss()
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+                    
+                    Button("Copy Command") {
+                        update.copyCommand()
+                        update.dismiss()
+                        dismiss()
+                    }
+                    .controlSize(.small)
+                    
+                    Spacer()
+                    
+                    Button("Later") {
+                        update.dismiss()
+                        dismiss()
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
+                }
+            }
+            .padding(16)
+            
+            if let notes = update.releaseNotes {
+                Divider()
+                
+                Link(destination: notes.url) {
+                    HStack {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 11))
+                        Text(notes.label)
+                            .font(.system(size: 11, weight: .medium))
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    private var openButtonTitle: String {
+        if let window = NSApp.keyWindow, window.windowController is TerminalController {
+            return "Open New Tab"
+        }
+        return "Open New Window"
     }
 }
 

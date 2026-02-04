@@ -63,6 +63,18 @@ struct UpdateViewModelTests {
         viewModel.state = .notFound(.init(acknowledgement: {}))
         #expect(viewModel.text == "No Updates Available")
     }
+
+    @Test func testHomebrewText() {
+        let viewModel = UpdateViewModel()
+        viewModel.state = .homebrewAvailable(.init(
+            appcastItem: SUAppcastItem.empty(),
+            command: "brew update && brew upgrade --cask ghostree",
+            copyCommand: {},
+            openInGhostree: {},
+            dismiss: {}
+        ))
+        #expect(viewModel.text == "Update via Homebrew")
+    }
     
     @Test func testErrorText() {
         let viewModel = UpdateViewModel()

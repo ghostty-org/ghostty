@@ -39,6 +39,24 @@ struct UpdateStateTests {
         let state2: UpdateState = .permissionRequest(.init(request: request2, reply: { _ in }))
         #expect(state1 == state2)
     }
+
+    @Test func testHomebrewEquality() {
+        let state1: UpdateState = .homebrewAvailable(.init(
+            appcastItem: SUAppcastItem.empty(),
+            command: "brew update && brew upgrade --cask ghostree",
+            copyCommand: {},
+            openInGhostree: {},
+            dismiss: {}
+        ))
+        let state2: UpdateState = .homebrewAvailable(.init(
+            appcastItem: SUAppcastItem.empty(),
+            command: "brew update && brew upgrade --cask ghostree",
+            copyCommand: {},
+            openInGhostree: {},
+            dismiss: {}
+        ))
+        #expect(state1 == state2)
+    }
     
     @Test func testDownloadingEqualityWithSameProgress() {
         let state1: UpdateState = .downloading(.init(cancel: {}, expectedLength: 1000, progress: 500))
