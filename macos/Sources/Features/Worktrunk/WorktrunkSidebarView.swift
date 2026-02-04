@@ -103,19 +103,22 @@ struct WorktrunkSidebarView: View {
         }
         .onChange(of: store.sidebarModelRevision) { _ in
             if store.isRefreshing { return }
-            sidebarState.reconcile(with: store)
+            sidebarState.reconcile(with: store, listMode: store.sidebarListMode)
         }
         .onChange(of: store.isRefreshing) { isRefreshing in
             if isRefreshing { return }
             clearSelectionIfMainInFlatMode()
-            sidebarState.reconcile(with: store)
+            sidebarState.reconcile(with: store, listMode: store.sidebarListMode)
         }
         .onChange(of: store.sidebarListMode) { _ in
             clearSelectionIfMainInFlatMode()
         }
         .onAppear {
             if store.sidebarListMode == .nestedByRepo, sidebarState.expandedRepoIDs.isEmpty {
-                sidebarState.expandedRepoIDs = Set(store.repositories.map(\.id))
+                sidebarState.applyExpandedRepoIDs(
+                    Set(store.sidebarSnapshot.repositories.map(\.id)),
+                    listMode: store.sidebarListMode
+                )
             }
             clearSelectionIfMainInFlatMode()
             Task { await store.refreshAll() }
@@ -188,34 +191,36 @@ struct WorktrunkSidebarView: View {
             get: { sidebarState.selection },
             set: { sidebarState.selection = $0 }
         )
+        let snapshot = store.sidebarSnapshot
         return List(selection: selection) {
             if store.sidebarListMode == .flatWorktrees {
-                flatWorktreeList
+                flatWorktreeList(snapshot: snapshot)
             } else {
-                nestedRepoList
+                nestedRepoList(snapshot: snapshot)
             }
         }
-        .id("\(store.sidebarListMode.rawValue)-\(store.sidebarModelRevision)")
+        .id(store.sidebarListMode.rawValue)
         .listStyle(.sidebar)
     }
 
     @ViewBuilder
-    private var nestedRepoList: some View {
-        ForEach(store.repositories) { repo in
+    private func nestedRepoList(snapshot: WorktrunkStore.SidebarSnapshot) -> some View {
+        ForEach(snapshot.repositories) { repo in
             DisclosureGroup(
                 isExpanded: Binding(
                     get: { sidebarState.expandedRepoIDs.contains(repo.id) },
                     set: { newValue in
+                        var next = sidebarState.expandedRepoIDs
                         if newValue {
-                            sidebarState.expandedRepoIDs.insert(repo.id)
+                            next.insert(repo.id)
                         } else {
-                            sidebarState.expandedRepoIDs.remove(repo.id)
-                            sidebarState.didCollapseRepo(id: repo.id)
+                            next.remove(repo.id)
                         }
+                        sidebarState.applyExpandedRepoIDs(next, listMode: store.sidebarListMode)
                     }
                 )
             ) {
-                let worktrees = store.worktrees(for: repo.id)
+                let worktrees = snapshot.worktreesByRepositoryID[repo.id] ?? []
                 if worktrees.isEmpty {
                     Text("No worktrees")
                         .foregroundStyle(.secondary)
@@ -272,9 +277,9 @@ struct WorktrunkSidebarView: View {
     }
 
     @ViewBuilder
-    private var flatWorktreeList: some View {
-        let repoNameByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0.name) })
-        let worktrees = store.allWorktreesSorted().filter { !$0.isMain }
+    private func flatWorktreeList(snapshot: WorktrunkStore.SidebarSnapshot) -> some View {
+        let repoNameByID = snapshot.repoNameByID
+        let worktrees = snapshot.flatWorktrees
 
         if worktrees.isEmpty {
             Text("No worktrees")
@@ -290,7 +295,7 @@ struct WorktrunkSidebarView: View {
             }
         }
 
-        if !store.repositories.isEmpty {
+        if !snapshot.repositories.isEmpty {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle")
                     .foregroundStyle(.secondary)
@@ -301,7 +306,7 @@ struct WorktrunkSidebarView: View {
             .padding(.top, 2)
             .contentShape(Rectangle())
             .onTapGesture {
-                if store.repositories.count == 1, let repo = store.repositories.first {
+                if snapshot.repositories.count == 1, let repo = snapshot.repositories.first {
                     createSheetRepo = repo
                 } else {
                     showRepoPicker = true
@@ -310,7 +315,7 @@ struct WorktrunkSidebarView: View {
             .help("Create worktree")
             .popover(isPresented: $showRepoPicker) {
                 RepoPickerPopover(
-                    repositories: store.repositories,
+                    repositories: snapshot.repositories,
                     searchText: $repoSearchText
                 ) { repo in
                     showRepoPicker = false
@@ -370,12 +375,13 @@ struct WorktrunkSidebarView: View {
             isExpanded: Binding(
                 get: { sidebarState.expandedWorktreePaths.contains(wt.path) },
                 set: { newValue in
+                    var next = sidebarState.expandedWorktreePaths
                     if newValue {
-                        sidebarState.expandedWorktreePaths.insert(wt.path)
+                        next.insert(wt.path)
                     } else {
-                        sidebarState.expandedWorktreePaths.remove(wt.path)
-                        sidebarState.didCollapseWorktree(repoID: wt.repositoryID, path: wt.path)
+                        next.remove(wt.path)
                     }
+                    sidebarState.applyExpandedWorktreePaths(next, listMode: store.sidebarListMode)
                 }
             )
         ) {

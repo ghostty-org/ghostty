@@ -23,6 +23,26 @@ final class WorktrunkSidebarState: ObservableObject {
         self.selection = selection
     }
 
+    func applyExpandedRepoIDs(_ next: Set<UUID>, listMode: WorktrunkSidebarListMode) {
+        guard next != expandedRepoIDs else { return }
+        expandedRepoIDs = next
+        pruneSelectionForVisibility(
+            listMode: listMode,
+            expandedRepoIDs: next,
+            expandedWorktreePaths: expandedWorktreePaths
+        )
+    }
+
+    func applyExpandedWorktreePaths(_ next: Set<String>, listMode: WorktrunkSidebarListMode) {
+        guard next != expandedWorktreePaths else { return }
+        expandedWorktreePaths = next
+        pruneSelectionForVisibility(
+            listMode: listMode,
+            expandedRepoIDs: expandedRepoIDs,
+            expandedWorktreePaths: next
+        )
+    }
+
     func didCollapseRepo(id: UUID) {
         guard let selection else { return }
         switch selection {
@@ -47,7 +67,7 @@ final class WorktrunkSidebarState: ObservableObject {
         }
     }
 
-    func reconcile(with store: any WorktrunkSidebarReconcilingStore) {
+    func reconcile(with store: any WorktrunkSidebarReconcilingStore, listMode: WorktrunkSidebarListMode) {
         let validRepoIDs = Set(store.repositories.map(\.id))
         var validWorktreePaths = Set<String>()
         for repo in store.repositories {
@@ -94,6 +114,36 @@ final class WorktrunkSidebarState: ObservableObject {
 
         if nextSelection != selection {
             self.selection = nextSelection
+        }
+
+        pruneSelectionForVisibility(
+            listMode: listMode,
+            expandedRepoIDs: expandedRepoIDs,
+            expandedWorktreePaths: expandedWorktreePaths
+        )
+    }
+
+    private func pruneSelectionForVisibility(
+        listMode: WorktrunkSidebarListMode,
+        expandedRepoIDs: Set<UUID>,
+        expandedWorktreePaths: Set<String>
+    ) {
+        guard let selection else { return }
+        switch selection {
+        case .repo:
+            return
+        case .worktree(let repoID, _):
+            if listMode == .nestedByRepo, !expandedRepoIDs.contains(repoID) {
+                self.selection = .repo(id: repoID)
+            }
+        case .session(_, let repoID, let worktreePath):
+            if listMode == .nestedByRepo, !expandedRepoIDs.contains(repoID) {
+                self.selection = .repo(id: repoID)
+                return
+            }
+            if !expandedWorktreePaths.contains(worktreePath) {
+                self.selection = .worktree(repoID: repoID, path: worktreePath)
+            }
         }
     }
 }
@@ -1477,6 +1527,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    private func currentWorktrunkSidebarListMode() -> WorktrunkSidebarListMode {
+        (NSApp.delegate as? AppDelegate)?.worktrunkStore.sidebarListMode ?? .flatWorktrees
+    }
+
     private func applySyncedWorktrunkSidebarVisibility(_ visibility: NavigationSplitViewVisibility) {
         guard worktrunkSidebarState.columnVisibility != visibility else { return }
         worktrunkSidebarState.isApplyingRemoteUpdate = true
@@ -1496,7 +1550,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             worktrunkSidebarSyncApplyingRemoteUpdate = false
             worktrunkSidebarState.isApplyingRemoteUpdate = false
         }
-        worktrunkSidebarState.expandedRepoIDs = expandedRepoIDs
+        worktrunkSidebarState.applyExpandedRepoIDs(expandedRepoIDs, listMode: currentWorktrunkSidebarListMode())
     }
 
     private func applySyncedWorktrunkSidebarExpandedWorktreePaths(_ expandedWorktreePaths: Set<String>) {
@@ -1507,7 +1561,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             worktrunkSidebarSyncApplyingRemoteUpdate = false
             worktrunkSidebarState.isApplyingRemoteUpdate = false
         }
-        worktrunkSidebarState.expandedWorktreePaths = expandedWorktreePaths
+        worktrunkSidebarState.applyExpandedWorktreePaths(
+            expandedWorktreePaths,
+            listMode: currentWorktrunkSidebarListMode()
+        )
     }
 
     private func applySyncedWorktrunkSidebarSelection(_ selection: SidebarSelection?) {
