@@ -34,7 +34,7 @@ struct WorktrunkSidebarStateTests {
         state.expandedRepoIDs = [repoID, UUID()]
         state.expandedWorktreePaths = ["/tmp/repo/main", "/tmp/repo/missing"]
 
-        state.reconcile(with: store)
+        state.reconcile(with: store, listMode: .nestedByRepo)
 
         #expect(state.expandedRepoIDs == [repoID])
         #expect(state.expandedWorktreePaths == ["/tmp/repo/main"])
@@ -52,7 +52,7 @@ struct WorktrunkSidebarStateTests {
         let state = WorktrunkSidebarState()
         state.selection = .worktree(repoID: repoID, path: "/tmp/repo/missing")
 
-        state.reconcile(with: store)
+        state.reconcile(with: store, listMode: .nestedByRepo)
 
         #expect(state.selection == .repo(id: repoID))
     }
@@ -87,7 +87,7 @@ struct WorktrunkSidebarStateTests {
         let state = WorktrunkSidebarState()
         state.selection = .session(id: "missing", repoID: repoID, worktreePath: worktreePath)
 
-        state.reconcile(with: store)
+        state.reconcile(with: store, listMode: .nestedByRepo)
 
         #expect(state.selection == .worktree(repoID: repoID, path: worktreePath))
     }
@@ -104,7 +104,7 @@ struct WorktrunkSidebarStateTests {
         let state = WorktrunkSidebarState()
         state.selection = .session(id: "s1", repoID: repoID, worktreePath: "/tmp/repo/missing")
 
-        state.reconcile(with: store)
+        state.reconcile(with: store, listMode: .nestedByRepo)
 
         #expect(state.selection == .repo(id: repoID))
     }
@@ -129,5 +129,27 @@ struct WorktrunkSidebarStateTests {
 
         #expect(state.selection == .repo(id: repoID))
     }
-}
 
+    @Test func applyExpandedRepoIDsDowngradesSelectionInNestedMode() async throws {
+        let repoID = UUID()
+        let state = WorktrunkSidebarState()
+        state.expandedRepoIDs = [repoID]
+        state.selection = .worktree(repoID: repoID, path: "/tmp/repo/main")
+
+        state.applyExpandedRepoIDs([], listMode: .nestedByRepo)
+
+        #expect(state.selection == .repo(id: repoID))
+    }
+
+    @Test func applyExpandedWorktreePathsDowngradesSessionSelection() async throws {
+        let repoID = UUID()
+        let worktreePath = "/tmp/repo/main"
+        let state = WorktrunkSidebarState()
+        state.expandedWorktreePaths = [worktreePath]
+        state.selection = .session(id: "s1", repoID: repoID, worktreePath: worktreePath)
+
+        state.applyExpandedWorktreePaths([], listMode: .flatWorktrees)
+
+        #expect(state.selection == .worktree(repoID: repoID, path: worktreePath))
+    }
+}

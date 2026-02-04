@@ -142,6 +142,20 @@ final class WorktrunkStore: ObservableObject {
         var lineDeletions: Int
     }
 
+    struct SidebarSnapshot: Equatable {
+        var repositories: [Repository]
+        var worktreesByRepositoryID: [UUID: [Worktree]]
+        var flatWorktrees: [Worktree]
+        var repoNameByID: [UUID: String]
+
+        static let empty = SidebarSnapshot(
+            repositories: [],
+            worktreesByRepositoryID: [:],
+            flatWorktrees: [],
+            repoNameByID: [:]
+        )
+    }
+
     private struct WtListItem: Decodable {
         var branch: String?
         var path: String?
@@ -163,6 +177,7 @@ final class WorktrunkStore: ObservableObject {
     @Published private var sessionsByWorktreePath: [String: [AISession]] = [:]
     @Published private var gitTrackingByWorktreePath: [String: GitTracking] = [:]
     @Published private(set) var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
+    @Published private(set) var sidebarSnapshot: SidebarSnapshot = .empty
     @Published var isRefreshing: Bool = false
     @Published var errorMessage: String? = nil
     @Published private(set) var sidebarModelRevision: Int = 0
@@ -178,6 +193,7 @@ final class WorktrunkStore: ObservableObject {
         didSet {
             if oldValue != sidebarListMode {
                 saveSidebarListMode()
+                rebuildSidebarSnapshot()
             }
         }
     }
@@ -194,6 +210,8 @@ final class WorktrunkStore: ObservableObject {
     private var firstSeenAtByWorktreePath: [String: Date] = [:]
     private var lastAppQuitTimestamp: Date?
     private var sidebarModelRevisionCounter: Int = 0
+    private var refreshAllTask: Task<Void, Never>? = nil
+    private var refreshAllNeedsRerun: Bool = false
 
     init() {
         load()
@@ -205,6 +223,7 @@ final class WorktrunkStore: ObservableObject {
         pruneAgentEventLogIfNeeded()
         startAgentEventTailer()
         seedAgentStatusesFromLog()
+        rebuildSidebarSnapshot()
     }
 
     private func bumpSidebarModelRevision() {
@@ -238,6 +257,27 @@ final class WorktrunkStore: ObservableObject {
         return sortWorktrees(all, pinMain: sidebarListMode != .flatWorktrees)
     }
 
+    private func rebuildSidebarSnapshot() {
+        let repoNameByID = Dictionary(uniqueKeysWithValues: repositories.map { ($0.id, $0.name) })
+        let allWorktrees = repositories.flatMap { worktreesByRepositoryID[$0.id] ?? [] }
+        let sorted = sortWorktrees(allWorktrees, pinMain: sidebarListMode != .flatWorktrees)
+        let snapshot = SidebarSnapshot(
+            repositories: repositories,
+            worktreesByRepositoryID: worktreesByRepositoryID,
+            flatWorktrees: sorted.filter { !$0.isMain },
+            repoNameByID: repoNameByID
+        )
+        if snapshot != sidebarSnapshot {
+            sidebarSnapshot = snapshot
+        }
+    }
+
+    private func rebuildSnapshotIfRecencySensitive() {
+        if sidebarListMode == .flatWorktrees, worktreeSortOrder == .recentActivity {
+            rebuildSidebarSnapshot()
+        }
+    }
+
     func sessions(for worktreePath: String) -> [AISession] {
         sessionsByWorktreePath[worktreePath] ?? []
     }
@@ -259,16 +299,22 @@ final class WorktrunkStore: ObservableObject {
 
     func acknowledgeAgentStatus(for worktreePath: String) {
         guard let entry = agentStatusByWorktreePath[worktreePath] else { return }
+        var didChange = false
 
         switch entry.status {
         case .review:
             agentStatusByWorktreePath.removeValue(forKey: worktreePath)
             acknowledgeAgentStatusPersistently(for: worktreePath)
+            didChange = true
         case .permission:
             agentStatusByWorktreePath[worktreePath] = .init(status: .working, updatedAt: Date())
             acknowledgeAgentStatusPersistently(for: worktreePath)
+            didChange = true
         case .working:
             break
+        }
+        if didChange {
+            rebuildSnapshotIfRecencySensitive()
         }
     }
 
@@ -278,6 +324,7 @@ final class WorktrunkStore: ObservableObject {
         guard entry.status == .review else { return }
         agentStatusByWorktreePath.removeValue(forKey: worktreePath)
         acknowledgeAgentStatusPersistently(for: worktreePath)
+        rebuildSnapshotIfRecencySensitive()
     }
 
     func addRepositoryValidated(path: String, displayName: String? = nil) async {
@@ -307,6 +354,7 @@ final class WorktrunkStore: ObservableObject {
         repositories.append(.init(path: normalized, displayName: displayName))
         save()
         bumpSidebarModelRevision()
+        rebuildSidebarSnapshot()
         Task { await refreshAll() }
     }
 
@@ -317,21 +365,166 @@ final class WorktrunkStore: ObservableObject {
         pruneWorktreeScopedState(removedPaths: removedPaths)
         save()
         bumpSidebarModelRevision()
+        rebuildSidebarSnapshot()
     }
 
     func refreshAll() async {
+        if let existing = refreshAllTask {
+            refreshAllNeedsRerun = true
+            await existing.value
+            if refreshAllNeedsRerun {
+                refreshAllNeedsRerun = false
+                await refreshAll()
+            }
+            return
+        }
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.refreshAllBatchedLoop()
+        }
+        refreshAllTask = task
+        await task.value
+        refreshAllTask = nil
+    }
+
+    private struct RefreshListResult {
+        var repoID: UUID
+        var worktrees: [Worktree]?
+        var error: String?
+        var previousPaths: Set<String>
+        var hadExistingList: Bool
+    }
+
+    private func refreshAllBatchedLoop() async {
         await MainActor.run {
             isRefreshing = true
         }
-
-        for repo in repositories {
-            await refresh(repoID: repo.id)
-        }
-
-        await refreshSessions()
-
+        repeat {
+            refreshAllNeedsRerun = false
+            await refreshAllBatchedOnce()
+        } while refreshAllNeedsRerun
         await MainActor.run {
             isRefreshing = false
+        }
+    }
+
+    private func refreshAllBatchedOnce() async {
+        let repoSnapshot = await MainActor.run { repositories }
+        let previousByRepoID = await MainActor.run {
+            var snapshot: [UUID: (hadExisting: Bool, paths: Set<String>)] = [:]
+            snapshot.reserveCapacity(repositories.count)
+            for repo in repositories {
+                let existing = worktreesByRepositoryID[repo.id]
+                snapshot[repo.id] = (existing != nil, Set(existing?.map(\.path) ?? []))
+            }
+            return snapshot
+        }
+
+        var results: [RefreshListResult] = []
+        results.reserveCapacity(repoSnapshot.count)
+
+        await withTaskGroup(of: RefreshListResult.self) { group in
+            for repo in repoSnapshot {
+                let previous = previousByRepoID[repo.id] ?? (hadExisting: false, paths: Set<String>())
+                group.addTask { [self] in
+                    do {
+                        let result = try await WorktrunkClient.run(["-C", repo.path, "list", "--format=json"])
+                        let data = Data(result.stdout.utf8)
+                        let worktrees = try decodeWorktrees(repoID: repo.id, data: data)
+                        return RefreshListResult(
+                            repoID: repo.id,
+                            worktrees: worktrees,
+                            error: nil,
+                            previousPaths: previous.paths,
+                            hadExistingList: previous.hadExisting
+                        )
+                    } catch {
+                        let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                        return RefreshListResult(
+                            repoID: repo.id,
+                            worktrees: nil,
+                            error: message,
+                            previousPaths: previous.paths,
+                            hadExistingList: previous.hadExisting
+                        )
+                    }
+                }
+            }
+
+            for await result in group {
+                results.append(result)
+            }
+        }
+
+        let resultsByRepoID = Dictionary(uniqueKeysWithValues: results.map { ($0.repoID, $0) })
+        let allPreviousPaths = results.reduce(into: Set<String>()) { $0.formUnion($1.previousPaths) }
+
+        await MainActor.run {
+            var removedPaths = Set<String>()
+            var didChangeFirstSeen = false
+            var lastError: String? = nil
+
+            for repo in repoSnapshot {
+                guard let result = resultsByRepoID[repo.id] else { continue }
+                if let error = result.error {
+                    lastError = error
+                    continue
+                }
+
+                lastError = nil
+
+                guard let worktrees = result.worktrees else { continue }
+                let newPaths = Set(worktrees.map(\.path))
+                let removed = result.previousPaths.subtracting(newPaths)
+                let added = newPaths.subtracting(result.previousPaths)
+                removedPaths.formUnion(removed)
+
+                if result.hadExistingList, !added.isEmpty {
+                    let now = Date()
+                    for path in added {
+                        if firstSeenAtByWorktreePath[path] == nil {
+                            firstSeenAtByWorktreePath[path] = now
+                            didChangeFirstSeen = true
+                        }
+                    }
+                }
+
+                worktreesByRepositoryID[repo.id] = sortWorktrees(worktrees)
+            }
+
+            if didChangeFirstSeen {
+                saveFirstSeenAt()
+            }
+
+            reconcilePendingAgentEvents()
+            pruneWorktreeScopedState(removedPaths: removedPaths)
+            errorMessage = lastError
+            bumpSidebarModelRevision()
+            rebuildSidebarSnapshot()
+        }
+
+        let allWorktrees = await MainActor.run {
+            repositories.flatMap { worktreesByRepositoryID[$0.id] ?? [] }
+        }
+
+        await refreshGitTracking(for: allWorktrees, removing: allPreviousPaths)
+        await refreshSessions()
+    }
+
+    private func decodeWorktrees(repoID: UUID, data: Data) throws -> [Worktree] {
+        let items = try JSONDecoder().decode([WtListItem].self, from: data)
+        return items.compactMap { item in
+            guard item.kind == "worktree" else { return nil }
+            guard let branch = item.branch, !branch.isEmpty else { return nil }
+            guard let path = item.path, !path.isEmpty else { return nil }
+            return Worktree(
+                repositoryID: repoID,
+                branch: branch,
+                path: path,
+                isMain: item.isMain,
+                isCurrent: item.isCurrent
+            )
         }
     }
 
@@ -344,20 +537,7 @@ final class WorktrunkStore: ObservableObject {
         do {
             let result = try await WorktrunkClient.run(["-C", repo.path, "list", "--format=json"])
             let data = Data(result.stdout.utf8)
-            let items = try JSONDecoder().decode([WtListItem].self, from: data)
-
-            let worktrees: [Worktree] = items.compactMap { item in
-                guard item.kind == "worktree" else { return nil }
-                guard let branch = item.branch, !branch.isEmpty else { return nil }
-                guard let path = item.path, !path.isEmpty else { return nil }
-                return Worktree(
-                    repositoryID: repoID,
-                    branch: branch,
-                    path: path,
-                    isMain: item.isMain,
-                    isCurrent: item.isCurrent
-                )
-            }
+            let worktrees = try decodeWorktrees(repoID: repoID, data: data)
             let newPaths = Set(worktrees.map(\.path))
             let removedPaths = previousPaths.subtracting(newPaths)
             let addedPaths = newPaths.subtracting(previousPaths)
@@ -380,6 +560,7 @@ final class WorktrunkStore: ObservableObject {
                 reconcilePendingAgentEvents()
                 pruneWorktreeScopedState(removedPaths: removedPaths)
                 bumpSidebarModelRevision()
+                rebuildSidebarSnapshot()
             }
             await refreshGitTracking(for: worktrees, removing: previousPaths)
         } catch {
@@ -542,6 +723,7 @@ final class WorktrunkStore: ObservableObject {
         }
         if didChange {
             bumpSidebarModelRevision()
+            rebuildSidebarSnapshot()
         }
     }
 
@@ -953,6 +1135,9 @@ final class WorktrunkStore: ObservableObject {
             await MainActor.run {
                 sessionsByWorktreePath = snapshot
                 bumpSidebarModelRevision()
+                if sidebarListMode == .flatWorktrees, worktreeSortOrder == .recentActivity {
+                    rebuildSidebarSnapshot()
+                }
             }
         }
 
@@ -1328,11 +1513,13 @@ final class WorktrunkStore: ObservableObject {
             }
 
             self.agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: event.timestamp)
+            self.rebuildSnapshotIfRecencySensitive()
         }
     }
 
     private func reconcilePendingAgentEvents() {
         if pendingAgentEventsByCwd.isEmpty { return }
+        var didChange = false
 
         for (cwd, event) in pendingAgentEventsByCwd {
             guard let worktreePath = findMatchingWorktree(cwd) else { continue }
@@ -1358,6 +1545,11 @@ final class WorktrunkStore: ObservableObject {
 
             agentStatusByWorktreePath[worktreePath] = .init(status: status, updatedAt: event.timestamp)
             pendingAgentEventsByCwd.removeValue(forKey: cwd)
+            didChange = true
+        }
+
+        if didChange {
+            rebuildSnapshotIfRecencySensitive()
         }
     }
 
