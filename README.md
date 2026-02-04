@@ -51,6 +51,10 @@ See the [download page](https://ghostty.org/download) on the Ghostty website.
 
 See the [documentation](https://ghostty.org/docs) on the Ghostty website.
 
+On Linux (GTK), Ghostty will automatically retry with software rendering if
+an OpenGL context cannot be created. This behavior is configurable via
+`gtk-opengl-auto-fallback`.
+
 ## Contributing and Developing
 
 If you have any ideas, issues, etc. regarding Ghostty, or would like to
