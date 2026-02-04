@@ -3,11 +3,21 @@ import Foundation
 enum SessionSource: String, Codable {
     case claude
     case codex
+    case opencode
 
     var icon: String {
         switch self {
         case .claude: return "terminal"
         case .codex: return "sparkles"
+        case .opencode: return "terminal"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        case .opencode: return "OpenCode"
         }
     }
 }
@@ -82,6 +92,79 @@ final class SessionCacheManager {
 
     func isCacheValid(entry: SessionCacheEntry, mtime: TimeInterval, size: Int64) -> Bool {
         entry.fileMtime == mtime && entry.fileSize == size
+    }
+}
+
+// MARK: - Session Index
+
+struct SessionIndexEntry: Codable {
+    var sessionId: String
+    var cwd: String
+    var timestamp: Date
+    var snippet: String?
+    var messageCount: Int
+    var worktreePath: String?
+    var fileMtime: TimeInterval
+    var fileSize: Int64
+}
+
+struct OpenCodeIndexEntry: Codable {
+    var sessionId: String
+    var projectSlug: String
+    var infoPath: String
+    var infoMtime: TimeInterval
+    var infoSize: Int64
+    var title: String?
+    var updatedAt: Date
+    var messageDirMtime: TimeInterval?
+    var messageCount: Int
+    var worktreePath: String?
+}
+
+struct SessionIndex: Codable {
+    var version: Int = 1
+    var claude: [String: SessionIndexEntry] = [:]
+    var codex: [String: SessionIndexEntry] = [:]
+    var opencode: [String: OpenCodeIndexEntry] = [:]
+}
+
+final class SessionIndexManager {
+    private var index = SessionIndex()
+    private let indexURL: URL
+    private let queue = DispatchQueue(label: "dev.sidequery.Ghostree.sessionindex")
+
+    init() {
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("dev.sidequery.Ghostree")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        indexURL = cacheDir.appendingPathComponent("sessions-index.json")
+        loadFromDisk()
+    }
+
+    func snapshot() -> SessionIndex {
+        queue.sync { index }
+    }
+
+    func update(_ newIndex: SessionIndex) {
+        queue.sync { index = newIndex }
+    }
+
+    func saveToDisk() {
+        queue.async { [self] in
+            do {
+                let data = try JSONEncoder().encode(index)
+                try data.write(to: indexURL, options: .atomic)
+            } catch {
+                // Ignore save failures
+            }
+        }
+    }
+
+    private func loadFromDisk() {
+        guard let data = try? Data(contentsOf: indexURL),
+              let loaded = try? JSONDecoder().decode(SessionIndex.self, from: data),
+              loaded.version == 1 else { return }
+        index = loaded
     }
 }
 
@@ -178,6 +261,8 @@ final class WorktrunkStore: ObservableObject {
     @Published private var gitTrackingByWorktreePath: [String: GitTracking] = [:]
     @Published private(set) var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
     @Published private(set) var sidebarSnapshot: SidebarSnapshot = .empty
+    private(set) var sidebarRepoIDs: Set<UUID> = []
+    private(set) var sidebarWorktreePaths: Set<String> = []
     @Published var isRefreshing: Bool = false
     @Published var isInstallingWorktrunk: Bool = false
     @Published var needsWorktrunkInstall: Bool = false
@@ -206,6 +291,7 @@ final class WorktrunkStore: ObservableObject {
     private let agentStatusAcksKey = "GhostreeWorktrunkAgentStatusAcks.v1"
     private let firstSeenAtKey = "GhostreeWorktrunkWorktreeFirstSeenAtByPath.v1"
     private let sessionCache = SessionCacheManager()
+    private let sessionIndex = SessionIndexManager()
     private var agentEventTailer: AgentEventTailer? = nil
     private var pendingAgentEventsByCwd: [String: AgentLifecycleEvent] = [:]
     private var agentStatusAckedAtByWorktreePath: [String: Date] = [:]
@@ -262,11 +348,25 @@ final class WorktrunkStore: ObservableObject {
     private func rebuildSidebarSnapshot() {
         let repoNameByID = Dictionary(uniqueKeysWithValues: repositories.map { ($0.id, $0.name) })
         let allWorktrees = repositories.flatMap { worktreesByRepositoryID[$0.id] ?? [] }
-        let sorted = sortWorktrees(allWorktrees, pinMain: sidebarListMode != .flatWorktrees)
+        var allWorktreePaths = Set<String>()
+        allWorktreePaths.reserveCapacity(allWorktrees.count)
+        for wt in allWorktrees {
+            allWorktreePaths.insert(wt.path)
+        }
+        sidebarRepoIDs = Set(repositories.map(\.id))
+        sidebarWorktreePaths = allWorktreePaths
+
+        let flatWorktrees: [Worktree]
+        if sidebarListMode == .flatWorktrees {
+            let sorted = sortWorktrees(allWorktrees, pinMain: false)
+            flatWorktrees = sorted.filter { !$0.isMain }
+        } else {
+            flatWorktrees = []
+        }
         let snapshot = SidebarSnapshot(
             repositories: repositories,
             worktreesByRepositoryID: worktreesByRepositoryID,
-            flatWorktrees: sorted.filter { !$0.isMain },
+            flatWorktrees: flatWorktrees,
             repoNameByID: repoNameByID
         )
         if snapshot != sidebarSnapshot {
@@ -359,8 +459,8 @@ final class WorktrunkStore: ObservableObject {
         guard !repositories.contains(where: { normalizePath($0.path) == normalized }) else { return }
         repositories.append(.init(path: normalized, displayName: displayName))
         save()
-        bumpSidebarModelRevision()
         rebuildSidebarSnapshot()
+        bumpSidebarModelRevision()
         Task { await refreshAll() }
     }
 
@@ -370,8 +470,8 @@ final class WorktrunkStore: ObservableObject {
         worktreesByRepositoryID[id] = nil
         pruneWorktreeScopedState(removedPaths: removedPaths)
         save()
-        bumpSidebarModelRevision()
         rebuildSidebarSnapshot()
+        bumpSidebarModelRevision()
     }
 
     func refreshAll() async {
@@ -506,8 +606,8 @@ final class WorktrunkStore: ObservableObject {
             reconcilePendingAgentEvents()
             pruneWorktreeScopedState(removedPaths: removedPaths)
             errorMessage = lastError
-            bumpSidebarModelRevision()
             rebuildSidebarSnapshot()
+            bumpSidebarModelRevision()
         }
 
         let allWorktrees = await MainActor.run {
@@ -566,8 +666,8 @@ final class WorktrunkStore: ObservableObject {
                 needsWorktrunkInstall = false
                 reconcilePendingAgentEvents()
                 pruneWorktreeScopedState(removedPaths: removedPaths)
-                bumpSidebarModelRevision()
                 rebuildSidebarSnapshot()
+                bumpSidebarModelRevision()
             }
             await refreshGitTracking(for: worktrees, removing: previousPaths)
         } catch {
@@ -768,7 +868,8 @@ final class WorktrunkStore: ObservableObject {
         latestActivityDate(for: worktreePath) ?? firstSeenAtByWorktreePath[worktreePath]
     }
 
-    private func resortAllWorktrees() {
+    @discardableResult
+    private func resortAllWorktrees() -> Bool {
         var didChange = false
         for repoID in worktreesByRepositoryID.keys {
             if let existing = worktreesByRepositoryID[repoID] {
@@ -780,9 +881,10 @@ final class WorktrunkStore: ObservableObject {
             }
         }
         if didChange {
-            bumpSidebarModelRevision()
             rebuildSidebarSnapshot()
+            bumpSidebarModelRevision()
         }
+        return didChange
     }
 
     private func sortWorktrees(_ worktrees: [Worktree], pinMain: Bool = true) -> [Worktree] {
@@ -852,14 +954,19 @@ final class WorktrunkStore: ObservableObject {
         }
 
         await MainActor.run {
+            var next = gitTrackingByWorktreePath
             for path in previousPaths where !newPaths.contains(path) {
-                gitTrackingByWorktreePath[path] = nil
+                next[path] = nil
             }
-            for path in newPaths where results[path] == nil {
-                gitTrackingByWorktreePath[path] = nil
+            for path in newPaths {
+                if let tracking = results[path] {
+                    next[path] = tracking
+                } else {
+                    next[path] = nil
+                }
             }
-            for (path, tracking) in results {
-                gitTrackingByWorktreePath[path] = tracking
+            if next != gitTrackingByWorktreePath {
+                gitTrackingByWorktreePath = next
             }
         }
     }
@@ -1166,6 +1273,46 @@ final class WorktrunkStore: ObservableObject {
 
     // MARK: - Session Discovery
 
+    private struct OpenCodeSessionInfo: Decodable {
+        struct TimeInfo: Decodable {
+            var created: Double?
+            var updated: Double?
+        }
+
+        var id: String
+        var title: String?
+        var time: TimeInfo
+    }
+
+    private func openCodeSlugVariants(for path: String) -> [String] {
+        let trimmed = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        let slug = trimmed.replacingOccurrences(of: "/", with: "-")
+        return ["\(slug)", "-\(slug)"]
+    }
+
+    private func resolveWorktreePath(
+        cachedPath: String?,
+        cwd: String,
+        validWorktreePaths: Set<String>
+    ) -> String? {
+        if let cachedPath, validWorktreePaths.contains(cachedPath) {
+            return cachedPath
+        }
+        return findMatchingWorktree(cwd)
+    }
+
+    private func parseOpenCodeSessionInfo(_ url: URL) -> OpenCodeSessionInfo? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(OpenCodeSessionInfo.self, from: data)
+    }
+
+    private func fileAttributes(for url: URL) -> (mtime: TimeInterval, size: Int64)? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else { return nil }
+        let size = Int64((attrs[.size] as? UInt64) ?? (attrs[.size] as? Int).map { UInt64($0) } ?? 0)
+        return (mtime, size)
+    }
+
     func refreshSessions() async {
         var allSessions: [String: [AISession]] = [:]
         var updateCount = 0
@@ -1173,6 +1320,24 @@ final class WorktrunkStore: ObservableObject {
         let publishCheckBatch = 25
         let publishIntervalSeconds: TimeInterval = 0.2
         var lastPublish = Date.distantPast
+        let validWorktreePaths = sidebarWorktreePaths
+        var index = sessionIndex.snapshot()
+        var seenClaudePaths = Set<String>()
+        var seenCodexPaths = Set<String>()
+        var seenOpenCodePaths = Set<String>()
+        var openCodeSlugToWorktreePath: [String: String] = [:]
+
+        for path in validWorktreePaths {
+            for slug in openCodeSlugVariants(for: path) {
+                if let existing = openCodeSlugToWorktreePath[slug] {
+                    if path.count > existing.count {
+                        openCodeSlugToWorktreePath[slug] = path
+                    }
+                } else {
+                    openCodeSlugToWorktreePath[slug] = path
+                }
+            }
+        }
 
         func prepareForPublish() {
             guard !dirtyWorktreePaths.isEmpty else { return }
@@ -1191,11 +1356,18 @@ final class WorktrunkStore: ObservableObject {
             prepareForPublish()
             let snapshot = allSessions
             await MainActor.run {
-                sessionsByWorktreePath = snapshot
-                bumpSidebarModelRevision()
-                if sidebarListMode == .flatWorktrees, worktreeSortOrder == .recentActivity {
-                    rebuildSidebarSnapshot()
+                if sessionsByWorktreePath != snapshot {
+                    sessionsByWorktreePath = snapshot
                 }
+            }
+        }
+
+        func noteSession(_ session: AISession, worktreePath: String) async {
+            allSessions[worktreePath, default: []].append(session)
+            dirtyWorktreePaths.insert(worktreePath)
+            updateCount += 1
+            if updateCount % publishCheckBatch == 0 {
+                await publishSnapshotIfNeeded()
             }
         }
 
@@ -1203,33 +1375,89 @@ final class WorktrunkStore: ObservableObject {
         let claudeProjectsDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
 
-        if let projectDirs = try? FileManager.default.contentsOfDirectory(
-            at: claudeProjectsDir,
-            includingPropertiesForKeys: [.isDirectoryKey]
-        ) {
+        if FileManager.default.fileExists(atPath: claudeProjectsDir.path),
+           let projectDirs = try? FileManager.default.contentsOfDirectory(
+               at: claudeProjectsDir,
+               includingPropertiesForKeys: [.isDirectoryKey]
+           ) {
             for projectDir in projectDirs {
+                let isDirectory = (try? projectDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                guard isDirectory else { continue }
+
                 let sessionFiles = (try? FileManager.default.contentsOfDirectory(
                     at: projectDir,
                     includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
                 ))?.filter { $0.pathExtension == "jsonl" } ?? []
 
                 for sessionFile in sessionFiles {
-                    if var session = parseClaudeSession(sessionFile) {
-                        if session.snippet == "Warmup" { continue }
-                        if let worktreePath = findMatchingWorktree(session.cwd) {
-                            session.worktreePath = worktreePath
-                            allSessions[worktreePath, default: []].append(session)
-                            dirtyWorktreePaths.insert(worktreePath)
-                            updateCount += 1
+                    seenClaudePaths.insert(sessionFile.path)
+                    guard let attrs = fileAttributes(for: sessionFile) else { continue }
+                    let cached = index.claude[sessionFile.path]
 
-                            if updateCount % publishCheckBatch == 0 {
-                                await publishSnapshotIfNeeded()
+                    if let cached,
+                       cached.fileMtime == attrs.mtime,
+                       cached.fileSize == attrs.size {
+                        if cached.snippet == "Warmup" { continue }
+                        if let worktreePath = resolveWorktreePath(
+                            cachedPath: cached.worktreePath,
+                            cwd: cached.cwd,
+                            validWorktreePaths: validWorktreePaths
+                        ) {
+                            let session = AISession(
+                                id: cached.sessionId,
+                                source: .claude,
+                                worktreePath: worktreePath,
+                                cwd: cached.cwd,
+                                timestamp: cached.timestamp,
+                                snippet: cached.snippet,
+                                sourcePath: sessionFile.path,
+                                messageCount: cached.messageCount
+                            )
+                            await noteSession(session, worktreePath: worktreePath)
+                            if cached.worktreePath != worktreePath {
+                                var updated = cached
+                                updated.worktreePath = worktreePath
+                                index.claude[sessionFile.path] = updated
                             }
                         }
+                        continue
+                    }
+
+                    if var session = parseClaudeSession(sessionFile) {
+                        if session.snippet == "Warmup" {
+                            index.claude[sessionFile.path] = nil
+                            continue
+                        }
+                        if let worktreePath = resolveWorktreePath(
+                            cachedPath: nil,
+                            cwd: session.cwd,
+                            validWorktreePaths: validWorktreePaths
+                        ) {
+                            session.worktreePath = worktreePath
+                            await noteSession(session, worktreePath: worktreePath)
+                            index.claude[sessionFile.path] = SessionIndexEntry(
+                                sessionId: session.id,
+                                cwd: session.cwd,
+                                timestamp: session.timestamp,
+                                snippet: session.snippet,
+                                messageCount: session.messageCount,
+                                worktreePath: worktreePath,
+                                fileMtime: attrs.mtime,
+                                fileSize: attrs.size
+                            )
+                        } else {
+                            index.claude[sessionFile.path] = nil
+                        }
+                    } else {
+                        index.claude[sessionFile.path] = nil
                     }
                 }
             }
+        } else {
+            index.claude = [:]
         }
+
+        index.claude = index.claude.filter { seenClaudePaths.contains($0.key) }
 
         // Scan Codex sessions
         let codexSessionsDir = FileManager.default.homeDirectoryForCurrentUser
@@ -1242,32 +1470,229 @@ final class WorktrunkStore: ObservableObject {
            ) {
             for case let fileURL as URL in enumerator {
                 guard fileURL.pathExtension == "jsonl" else { continue }
+                let isRegular = (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+                guard isRegular else { continue }
+
+                seenCodexPaths.insert(fileURL.path)
+                guard let attrs = fileAttributes(for: fileURL) else { continue }
+                let cached = index.codex[fileURL.path]
+
+                if let cached,
+                   cached.fileMtime == attrs.mtime,
+                   cached.fileSize == attrs.size {
+                    if let worktreePath = resolveWorktreePath(
+                        cachedPath: cached.worktreePath,
+                        cwd: cached.cwd,
+                        validWorktreePaths: validWorktreePaths
+                    ) {
+                        let session = AISession(
+                            id: cached.sessionId,
+                            source: .codex,
+                            worktreePath: worktreePath,
+                            cwd: cached.cwd,
+                            timestamp: cached.timestamp,
+                            snippet: cached.snippet,
+                            sourcePath: fileURL.path,
+                            messageCount: cached.messageCount
+                        )
+                        await noteSession(session, worktreePath: worktreePath)
+                        if cached.worktreePath != worktreePath {
+                            var updated = cached
+                            updated.worktreePath = worktreePath
+                            index.codex[fileURL.path] = updated
+                        }
+                    }
+                    continue
+                }
 
                 if var session = parseCodexSession(fileURL) {
-                    if let worktreePath = findMatchingWorktree(session.cwd) {
+                    if let worktreePath = resolveWorktreePath(
+                        cachedPath: nil,
+                        cwd: session.cwd,
+                        validWorktreePaths: validWorktreePaths
+                    ) {
                         session.worktreePath = worktreePath
-                        allSessions[worktreePath, default: []].append(session)
-                        dirtyWorktreePaths.insert(worktreePath)
-                        updateCount += 1
+                        await noteSession(session, worktreePath: worktreePath)
+                        index.codex[fileURL.path] = SessionIndexEntry(
+                            sessionId: session.id,
+                            cwd: session.cwd,
+                            timestamp: session.timestamp,
+                            snippet: session.snippet,
+                            messageCount: session.messageCount,
+                            worktreePath: worktreePath,
+                            fileMtime: attrs.mtime,
+                            fileSize: attrs.size
+                        )
+                    } else {
+                        index.codex[fileURL.path] = nil
+                    }
+                } else {
+                    index.codex[fileURL.path] = nil
+                }
+            }
+        } else {
+            index.codex = [:]
+        }
 
-                        if updateCount % publishCheckBatch == 0 {
-                            await publishSnapshotIfNeeded()
+        index.codex = index.codex.filter { seenCodexPaths.contains($0.key) }
+
+        // Scan OpenCode sessions
+        let openCodeRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/opencode/project")
+
+        if FileManager.default.fileExists(atPath: openCodeRoot.path),
+           let projectDirs = try? FileManager.default.contentsOfDirectory(
+               at: openCodeRoot,
+               includingPropertiesForKeys: [.isDirectoryKey]
+           ) {
+            for projectDir in projectDirs {
+                let isDirectory = (try? projectDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                guard isDirectory else { continue }
+
+                let projectSlug = projectDir.lastPathComponent
+                let infoDir = projectDir
+                    .appendingPathComponent("storage")
+                    .appendingPathComponent("session")
+                    .appendingPathComponent("info")
+                guard FileManager.default.fileExists(atPath: infoDir.path) else { continue }
+
+                let infoFiles = (try? FileManager.default.contentsOfDirectory(
+                    at: infoDir,
+                    includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
+                ))?.filter { $0.pathExtension == "json" } ?? []
+
+                for infoFile in infoFiles {
+                    seenOpenCodePaths.insert(infoFile.path)
+                    guard let attrs = fileAttributes(for: infoFile) else { continue }
+                    let cached = index.opencode[infoFile.path]
+
+                    if var cached,
+                       cached.infoMtime == attrs.mtime,
+                       cached.infoSize == attrs.size {
+                        let messageDir = projectDir
+                            .appendingPathComponent("storage")
+                            .appendingPathComponent("session")
+                            .appendingPathComponent("message")
+                            .appendingPathComponent(cached.sessionId)
+                        var didUpdate = false
+                        if let dirAttrs = try? FileManager.default.attributesOfItem(atPath: messageDir.path),
+                           let dirMtime = (dirAttrs[.modificationDate] as? Date)?.timeIntervalSince1970 {
+                            if cached.messageDirMtime != dirMtime {
+                                cached.messageDirMtime = dirMtime
+                                cached.messageCount = (try? FileManager.default.contentsOfDirectory(
+                                    at: messageDir,
+                                    includingPropertiesForKeys: nil
+                                ))?.count ?? 0
+                                didUpdate = true
+                            }
+                        } else if cached.messageCount != 0 || cached.messageDirMtime != nil {
+                            cached.messageCount = 0
+                            cached.messageDirMtime = nil
+                            didUpdate = true
                         }
+
+                        if let mapped = openCodeSlugToWorktreePath[projectSlug] {
+                            if cached.worktreePath != mapped {
+                                cached.worktreePath = mapped
+                                didUpdate = true
+                            }
+                        } else if cached.worktreePath != nil {
+                            cached.worktreePath = nil
+                            didUpdate = true
+                        }
+
+                        if didUpdate {
+                            index.opencode[infoFile.path] = cached
+                        }
+
+                        if let worktreePath = cached.worktreePath {
+                            let session = AISession(
+                                id: cached.sessionId,
+                                source: .opencode,
+                                worktreePath: worktreePath,
+                                cwd: worktreePath,
+                                timestamp: cached.updatedAt,
+                                snippet: cached.title,
+                                sourcePath: infoFile.path,
+                                messageCount: cached.messageCount
+                            )
+                            await noteSession(session, worktreePath: worktreePath)
+                        }
+                        continue
+                    }
+
+                    guard let info = parseOpenCodeSessionInfo(infoFile) else {
+                        index.opencode[infoFile.path] = nil
+                        continue
+                    }
+
+                    let updatedMs = info.time.updated ?? info.time.created ?? 0
+                    let updatedAt = Date(timeIntervalSince1970: updatedMs / 1000.0)
+                    let messageDir = projectDir
+                        .appendingPathComponent("storage")
+                        .appendingPathComponent("session")
+                        .appendingPathComponent("message")
+                        .appendingPathComponent(info.id)
+                    var messageDirMtime: TimeInterval? = nil
+                    var messageCount = 0
+                    if let dirAttrs = try? FileManager.default.attributesOfItem(atPath: messageDir.path),
+                       let dirMtime = (dirAttrs[.modificationDate] as? Date)?.timeIntervalSince1970 {
+                        messageDirMtime = dirMtime
+                        messageCount = (try? FileManager.default.contentsOfDirectory(
+                            at: messageDir,
+                            includingPropertiesForKeys: nil
+                        ))?.count ?? 0
+                    }
+
+                    let worktreePath = openCodeSlugToWorktreePath[projectSlug]
+
+                    let entry = OpenCodeIndexEntry(
+                        sessionId: info.id,
+                        projectSlug: projectSlug,
+                        infoPath: infoFile.path,
+                        infoMtime: attrs.mtime,
+                        infoSize: attrs.size,
+                        title: info.title,
+                        updatedAt: updatedAt,
+                        messageDirMtime: messageDirMtime,
+                        messageCount: messageCount,
+                        worktreePath: worktreePath
+                    )
+                    index.opencode[infoFile.path] = entry
+
+                    if let worktreePath {
+                        let session = AISession(
+                            id: info.id,
+                            source: .opencode,
+                            worktreePath: worktreePath,
+                            cwd: worktreePath,
+                            timestamp: updatedAt,
+                            snippet: info.title,
+                            sourcePath: infoFile.path,
+                            messageCount: messageCount
+                        )
+                        await noteSession(session, worktreePath: worktreePath)
                     }
                 }
             }
+        } else {
+            index.opencode = [:]
         }
+
+        index.opencode = index.opencode.filter { seenOpenCodePaths.contains($0.key) }
 
         // Final sort and update
         prepareForPublish()
 
         sessionCache.saveToDisk()
+        sessionIndex.update(index)
+        sessionIndex.saveToDisk()
 
         await MainActor.run {
             sessionsByWorktreePath = allSessions
-            bumpSidebarModelRevision()
-            if worktreeSortOrder == .recentActivity {
-                resortAllWorktrees()
+            let didResort = worktreeSortOrder == .recentActivity ? resortAllWorktrees() : false
+            if !didResort {
+                bumpSidebarModelRevision()
             }
         }
     }

@@ -248,6 +248,20 @@ struct WorktrunkSidebarView: View {
                     }
                 )
             ) {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle")
+                        .foregroundStyle(.secondary)
+                    Text("New worktree…")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.bottom, 2)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    createSheetRepo = repo
+                }
+                .help("Create worktree")
+
                 let worktrees = snapshot.worktreesByRepositoryID[repo.id] ?? []
                 if worktrees.isEmpty {
                     Text("No worktrees")
@@ -262,20 +276,6 @@ struct WorktrunkSidebarView: View {
                         )
                     }
                 }
-
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle")
-                        .foregroundStyle(.secondary)
-                    Text("New worktree…")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.top, 2)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    createSheetRepo = repo
-                }
-                .help("Create worktree")
             } label: {
                 HStack(spacing: 4) {
                     Text(repo.name)
@@ -309,20 +309,6 @@ struct WorktrunkSidebarView: View {
         let repoNameByID = snapshot.repoNameByID
         let worktrees = snapshot.flatWorktrees
 
-        if worktrees.isEmpty {
-            Text("No worktrees")
-                .foregroundStyle(.secondary)
-        } else {
-            ForEach(worktrees) { wt in
-                worktreeDisclosureGroup(
-                    wt: wt,
-                    repoName: repoNameByID[wt.repositoryID],
-                    showsFolderIcon: false,
-                    showsRepoName: true
-                )
-            }
-        }
-
         if !snapshot.repositories.isEmpty {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle")
@@ -331,7 +317,7 @@ struct WorktrunkSidebarView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             }
-            .padding(.top, 2)
+            .padding(.bottom, 2)
             .contentShape(Rectangle())
             .onTapGesture {
                 if snapshot.repositories.count == 1, let repo = snapshot.repositories.first {
@@ -352,6 +338,20 @@ struct WorktrunkSidebarView: View {
             }
             .onChange(of: showRepoPicker) { isShowing in
                 if isShowing { repoSearchText = "" }
+            }
+        }
+
+        if worktrees.isEmpty {
+            Text("No worktrees")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(worktrees) { wt in
+                worktreeDisclosureGroup(
+                    wt: wt,
+                    repoName: repoNameByID[wt.repositoryID],
+                    showsFolderIcon: false,
+                    showsRepoName: true
+                )
             }
         }
     }
@@ -665,7 +665,7 @@ private struct SessionRow: View {
                         .font(.caption)
                         .lineLimit(1)
                     HStack(spacing: 4) {
-                        Text(session.source.rawValue.capitalized)
+                        Text(session.source.label)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         if session.messageCount > 0 {
@@ -806,11 +806,38 @@ private struct RepoPickerPopover: View {
 }
 
 private struct SidebarRefreshProgressBar: View {
+    @State private var position: CGFloat = 0
+
+    private let barWidthRatio: CGFloat = 0.25
+
     var body: some View {
-        ProgressView()
-            .progressViewStyle(.linear)
-            .frame(maxWidth: .infinity)
-            .frame(height: 3)
-            .allowsHitTesting(false)
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.3))
+
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: geometry.size.width * barWidthRatio,
+                        height: geometry.size.height
+                    )
+                    .offset(x: position * (geometry.size.width * (1 - barWidthRatio)))
+            }
+        }
+        .frame(height: 3)
+        .clipped()
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(
+                .easeInOut(duration: 1.2)
+                .repeatForever(autoreverses: true)
+            ) {
+                position = 1
+            }
+        }
+        .onDisappear {
+            position = 0
+        }
     }
 }

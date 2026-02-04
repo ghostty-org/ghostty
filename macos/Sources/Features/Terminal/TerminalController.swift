@@ -68,13 +68,8 @@ final class WorktrunkSidebarState: ObservableObject {
     }
 
     func reconcile(with store: any WorktrunkSidebarReconcilingStore, listMode: WorktrunkSidebarListMode) {
-        let validRepoIDs = Set(store.repositories.map(\.id))
-        var validWorktreePaths = Set<String>()
-        for repo in store.repositories {
-            for wt in store.worktrees(for: repo.id) {
-                validWorktreePaths.insert(wt.path)
-            }
-        }
+        let validRepoIDs = store.sidebarRepoIDs
+        let validWorktreePaths = store.sidebarWorktreePaths
 
         let nextExpandedRepoIDs = expandedRepoIDs.intersection(validRepoIDs)
         if nextExpandedRepoIDs != expandedRepoIDs {
@@ -150,6 +145,8 @@ final class WorktrunkSidebarState: ObservableObject {
 
 protocol WorktrunkSidebarReconcilingStore {
     var repositories: [WorktrunkStore.Repository] { get }
+    var sidebarRepoIDs: Set<UUID> { get }
+    var sidebarWorktreePaths: Set<String> { get }
     func worktrees(for repositoryID: UUID) -> [WorktrunkStore.Worktree]
     func sessions(for worktreePath: String) -> [AISession]
 }
@@ -1793,6 +1790,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case .codex:
             // Codex handles cwd internally
             base.command = "codex resume \(session.id)"
+        case .opencode:
+            base.command = "opencode --session \(session.id)"
         }
 
         if WorktrunkPreferences.worktreeTabsEnabled {

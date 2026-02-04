@@ -7,6 +7,20 @@ private struct FakeWorktrunkSidebarStore: WorktrunkSidebarReconcilingStore {
     var worktreesByRepositoryID: [UUID: [WorktrunkStore.Worktree]]
     var sessionsByWorktreePath: [String: [AISession]]
 
+    var sidebarRepoIDs: Set<UUID> {
+        Set(repositories.map(\.id))
+    }
+
+    var sidebarWorktreePaths: Set<String> {
+        var paths = Set<String>()
+        for worktrees in worktreesByRepositoryID.values {
+            for wt in worktrees {
+                paths.insert(wt.path)
+            }
+        }
+        return paths
+    }
+
     func worktrees(for repositoryID: UUID) -> [WorktrunkStore.Worktree] {
         worktreesByRepositoryID[repositoryID] ?? []
     }
