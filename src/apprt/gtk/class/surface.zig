@@ -3093,6 +3093,8 @@ pub const Surface = extern struct {
             log.warn("failed to make GL context current: {s}", .{err.f_message orelse "(no message)"});
             log.warn("this error is almost always due to a library, driver, or GTK issue", .{});
             log.warn("this is a common cause of this issue: https://ghostty.org/docs/help/gtk-opengl-context", .{});
+            log.warn("you can try restarting with software rendering (LIBGL_ALWAYS_SOFTWARE=1)", .{});
+            if (self.tryRelaunchWithSoftwareRendering()) return;
             self.setError(true);
             return;
         }
@@ -3393,6 +3395,10 @@ pub const Surface = extern struct {
         _ = self.private().gl_area.as(gtk.Widget).grabFocus();
     }
 
+    fn errorRetrySoftware(_: *gtk.Button, self: *Self) callconv(.c) void {
+        _ = self.tryRelaunchWithSoftwareRendering();
+    }
+
     fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {
         const surface = self.core() orelse return;
         _ = surface.performBindingAction(.{ .search = std.mem.sliceTo(needle orelse "", 0) }) catch |err| {
@@ -3412,6 +3418,67 @@ pub const Surface = extern struct {
         _ = surface.performBindingAction(.{ .navigate_search = .previous }) catch |err| {
             log.warn("unable to perform navigate_search action err={}", .{err});
         };
+    }
+
+    const software_env_name = "LIBGL_ALWAYS_SOFTWARE";
+    const software_relaunch_env_name = "GHOSTTY_GL_SOFTWARE_RELAUNCH";
+
+    fn tryRelaunchWithSoftwareRendering(self: *Self) bool {
+        _ = self;
+
+        if (std.posix.getenv(software_env_name) != null) {
+            log.warn("software rendering already requested ({} set)", .{software_env_name});
+            return false;
+        }
+        if (std.posix.getenv(software_relaunch_env_name) != null) {
+            log.warn("software rendering relaunch already attempted", .{});
+            return false;
+        }
+
+        const alloc = Application.default().allocator();
+        var env = std.process.getEnvMap(alloc) catch |err| {
+            log.warn("failed to get environment for relaunch err={}", .{err});
+            return false;
+        };
+        defer env.deinit();
+
+        env.put(software_env_name, "1") catch |err| {
+            log.warn("failed to set {s} for relaunch err={}", .{ software_env_name, err });
+            return false;
+        };
+        env.put(software_relaunch_env_name, "1") catch |err| {
+            log.warn("failed to set {s} for relaunch err={}", .{ software_relaunch_env_name, err });
+            return false;
+        };
+
+        var args_iter = std.process.argsWithAllocator(alloc) catch |err| {
+            log.warn("failed to read argv for relaunch err={}", .{err});
+            return false;
+        };
+        defer args_iter.deinit();
+
+        var args = std.ArrayList([]const u8).init(alloc);
+        defer args.deinit();
+        while (args_iter.next()) |arg| {
+            args.append(arg) catch |err| {
+                log.warn("failed to build argv for relaunch err={}", .{err});
+                return false;
+            };
+        }
+        if (args.items.len == 0) {
+            log.warn("no argv available to relaunch", .{});
+            return false;
+        }
+
+        var child = std.process.Child.init(args.items, alloc);
+        child.env_map = &env;
+        child.spawn() catch |err| {
+            log.warn("failed to relaunch Ghostty with software rendering err={}", .{err});
+            return false;
+        };
+
+        log.info("relaunching Ghostty with software rendering enabled", .{});
+        std.process.exit(0);
     }
 
     const C = Common(Self, Private);
@@ -3492,6 +3559,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("search_changed", &searchChanged);
             class.bindTemplateCallback("search_next_match", &searchNextMatch);
             class.bindTemplateCallback("search_previous_match", &searchPreviousMatch);
+            class.bindTemplateCallback("error_retry_software", &errorRetrySoftware);
 
             // Properties
             gobject.ext.registerProperties(class, &.{

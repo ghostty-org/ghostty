@@ -6,9 +6,20 @@ Adw.StatusPage error_page {
   title: _("Oh, no.");
   description: _("Unable to acquire an OpenGL context for rendering.");
 
-  child: LinkButton {
-    label: "https://ghostty.org/docs/help/gtk-opengl-context";
-    uri: "https://ghostty.org/docs/help/gtk-opengl-context";
+  child: Box {
+    orientation: vertical;
+    spacing: 6;
+    halign: center;
+
+    LinkButton {
+      label: "https://ghostty.org/docs/help/gtk-opengl-context";
+      uri: "https://ghostty.org/docs/help/gtk-opengl-context";
+    }
+
+    Button {
+      label: _("Restart with software rendering");
+      clicked => $error_retry_software();
+    }
   };
 }
 
