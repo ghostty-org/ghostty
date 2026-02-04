@@ -1383,8 +1383,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             onSidebarWidthChange: { [weak self] width in
                 self?.updateWorktrunkTitlebarWidth(width)
             },
-            onGitDiffSelect: { [weak self] entry in
-                self?.showGitDiff(entry)
+            onGitDiffSelect: { [weak self] entry, scope in
+                self?.showGitDiff(entry, scope: scope)
             },
             onGitDiffWorktreeSelect: { [weak self] path in
                 self?.onWorktrunkSelectionChange(path)
@@ -1738,12 +1738,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    private func showGitDiff(_ entry: GitDiffEntry) {
+    private func showGitDiff(_ entry: GitDiffEntry, scope: GitDiffScope) {
         guard #available(macOS 26.0, *) else { return }
 
-        gitDiffSidebarState.selectedPath = entry.path
+        gitDiffSidebarState.selectedEntry = GitDiffSelection(path: entry.path, scope: scope)
         gitDiffSidebarState.isDiffActive = true
-        Task { await gitDiffSidebarState.loadDiff(entry) }
+        Task { await gitDiffSidebarState.loadDiff(entry, scope: scope) }
     }
 
     private func onWorktrunkSelectionChange(_ path: String?) {

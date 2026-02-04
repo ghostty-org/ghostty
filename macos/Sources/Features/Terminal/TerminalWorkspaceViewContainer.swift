@@ -19,7 +19,7 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
         openWorktreeAgent: @escaping (String, WorktrunkAgent) -> Void,
         resumeSession: ((AISession) -> Void)? = nil,
         onSidebarWidthChange: @escaping (CGFloat) -> Void,
-        onGitDiffSelect: @escaping (GitDiffEntry) -> Void,
+        onGitDiffSelect: @escaping (GitDiffEntry, GitDiffScope) -> Void,
         onGitDiffWorktreeSelect: @escaping (String?) -> Void
     ) {
         self.derivedConfig = DerivedConfig(config: ghostty.config)

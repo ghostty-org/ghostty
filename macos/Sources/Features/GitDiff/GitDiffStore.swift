@@ -6,16 +6,65 @@ struct GitDiffEntry: Identifiable, Hashable {
     let statusCode: String
     let kind: GitDiffKind
     let originalPath: String?
-    let additions: Int
-    let deletions: Int
+    let indexStatus: Character
+    let workingStatus: Character
+    let stagedAdditions: Int
+    let stagedDeletions: Int
+    let unstagedAdditions: Int
+    let unstagedDeletions: Int
 
     var id: String { path }
+
+    var additions: Int { stagedAdditions + unstagedAdditions }
+    var deletions: Int { stagedDeletions + unstagedDeletions }
+
+    var hasStagedChanges: Bool {
+        indexStatus != " " && indexStatus != "?"
+    }
+
+    var hasUnstagedChanges: Bool {
+        workingStatus != " "
+    }
 
     var displayPath: String {
         if let originalPath, !originalPath.isEmpty {
             return "\(path) ← \(originalPath)"
         }
         return path
+    }
+
+    func kind(for scope: GitDiffScope) -> GitDiffKind {
+        switch scope {
+        case .all:
+            return kind
+        case .staged:
+            return GitDiffEntry.kindFrom(status: indexStatus)
+        case .unstaged:
+            return GitDiffEntry.kindFrom(status: workingStatus)
+        }
+    }
+
+    func stats(for scope: GitDiffScope) -> (Int, Int) {
+        switch scope {
+        case .all:
+            return (additions, deletions)
+        case .staged:
+            return (stagedAdditions, stagedDeletions)
+        case .unstaged:
+            return (unstagedAdditions, unstagedDeletions)
+        }
+    }
+
+    private static func kindFrom(status: Character?) -> GitDiffKind {
+        guard let status else { return .unknown }
+        if status == "U" { return .conflicted }
+        if status == "A" { return .added }
+        if status == "D" { return .deleted }
+        if status == "R" { return .renamed }
+        if status == "C" { return .copied }
+        if status == "M" { return .modified }
+        if status == "?" { return .untracked }
+        return .unknown
     }
 }
 
@@ -28,6 +77,20 @@ enum GitDiffKind: String, Hashable {
     case untracked
     case conflicted
     case unknown
+}
+
+enum GitDiffScope: String, Hashable, CaseIterable {
+    case all
+    case staged
+    case unstaged
+
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .staged: return "Staged"
+        case .unstaged: return "Unstaged"
+        }
+    }
 }
 
 final class GitDiffStore {
@@ -73,21 +136,23 @@ final class GitDiffStore {
         return await enrichWithStats(repoRoot: repoRoot, entries: entries)
     }
 
-    func diffCommand(for entry: GitDiffEntry) -> String {
+    func diffCommand(for entry: GitDiffEntry, scope: GitDiffScope) -> String {
         let escaped = entry.path.shellEscaped
         if entry.kind == .untracked {
             return "git -c color.ui=always diff --no-index -- /dev/null \(escaped)"
         }
-        return "git -c color.ui=always diff -- \(escaped)"
+        switch scope {
+        case .all:
+            return "git -c color.ui=always diff HEAD -- \(escaped)"
+        case .staged:
+            return "git -c color.ui=always diff --cached -- \(escaped)"
+        case .unstaged:
+            return "git -c color.ui=always diff -- \(escaped)"
+        }
     }
 
-    func diffText(repoRoot: String, entry: GitDiffEntry) async throws -> String {
-        let args: [String]
-        if entry.kind == .untracked {
-            args = ["-C", repoRoot, "-c", "color.ui=never", "diff", "--no-index", "--", "/dev/null", entry.path]
-        } else {
-            args = ["-C", repoRoot, "-c", "color.ui=never", "diff", "--", entry.path]
-        }
+    func diffText(repoRoot: String, entry: GitDiffEntry, scope: GitDiffScope) async throws -> String {
+        let args = ["-C", repoRoot, "-c", "color.ui=never"] + diffArguments(entry: entry, scope: scope)
         let result = try await runGit(args)
         guard result.exitCode == 0 || result.exitCode == 1 else {
             throw GitDiffError.commandFailed(result.stderr)
@@ -186,7 +251,18 @@ final class GitDiffStore {
             let path = String(header[pathStart...])
 
             if indexStatus == "?" && workingStatus == "?" {
-                entries.append(GitDiffEntry(path: path, statusCode: "??", kind: .untracked, originalPath: nil, additions: 0, deletions: 0))
+                entries.append(GitDiffEntry(
+                    path: path,
+                    statusCode: "??",
+                    kind: .untracked,
+                    originalPath: nil,
+                    indexStatus: indexStatus,
+                    workingStatus: workingStatus,
+                    stagedAdditions: 0,
+                    stagedDeletions: 0,
+                    unstagedAdditions: 0,
+                    unstagedDeletions: 0
+                ))
                 index += 1
                 continue
             }
@@ -195,13 +271,35 @@ final class GitDiffStore {
             if isRenameOrCopy && (index + 1) < tokens.count {
                 let newPath = String(tokens[index + 1])
                 let kind = kindFrom(x: indexStatus, y: workingStatus)
-                entries.append(GitDiffEntry(path: newPath, statusCode: statusCode, kind: kind, originalPath: path, additions: 0, deletions: 0))
+                entries.append(GitDiffEntry(
+                    path: newPath,
+                    statusCode: statusCode,
+                    kind: kind,
+                    originalPath: path,
+                    indexStatus: indexStatus,
+                    workingStatus: workingStatus,
+                    stagedAdditions: 0,
+                    stagedDeletions: 0,
+                    unstagedAdditions: 0,
+                    unstagedDeletions: 0
+                ))
                 index += 2
                 continue
             }
 
             let kind = kindFrom(x: indexStatus, y: workingStatus)
-            entries.append(GitDiffEntry(path: path, statusCode: statusCode, kind: kind, originalPath: nil, additions: 0, deletions: 0))
+            entries.append(GitDiffEntry(
+                path: path,
+                statusCode: statusCode,
+                kind: kind,
+                originalPath: nil,
+                indexStatus: indexStatus,
+                workingStatus: workingStatus,
+                stagedAdditions: 0,
+                stagedDeletions: 0,
+                unstagedAdditions: 0,
+                unstagedDeletions: 0
+            ))
             index += 1
         }
         return entries
@@ -233,8 +331,12 @@ final class GitDiffStore {
                     statusCode: entry.statusCode,
                     kind: entry.kind,
                     originalPath: entry.originalPath,
-                    additions: adds,
-                    deletions: 0
+                    indexStatus: entry.indexStatus,
+                    workingStatus: entry.workingStatus,
+                    stagedAdditions: 0,
+                    stagedDeletions: 0,
+                    unstagedAdditions: adds,
+                    unstagedDeletions: 0
                 ))
                 continue
             }
@@ -245,11 +347,43 @@ final class GitDiffStore {
                 statusCode: entry.statusCode,
                 kind: entry.kind,
                 originalPath: entry.originalPath,
-                additions: uAdd + sAdd,
-                deletions: uDel + sDel
+                indexStatus: entry.indexStatus,
+                workingStatus: entry.workingStatus,
+                stagedAdditions: sAdd,
+                stagedDeletions: sDel,
+                unstagedAdditions: uAdd,
+                unstagedDeletions: uDel
             ))
         }
         return result
+    }
+
+    private func diffArguments(entry: GitDiffEntry, scope: GitDiffScope) -> [String] {
+        if entry.kind == .untracked {
+            return ["diff", "--no-index", "--", "/dev/null", entry.path]
+        }
+        switch scope {
+        case .all:
+            return ["diff", "HEAD", "--", entry.path]
+        case .staged:
+            return ["diff", "--cached", "--", entry.path]
+        case .unstaged:
+            return ["diff", "--", entry.path]
+        }
+    }
+
+    func stage(repoRoot: String, path: String) async throws {
+        let result = try await runGit(["-C", repoRoot, "add", "--", path])
+        guard result.exitCode == 0 else {
+            throw GitDiffError.commandFailed(result.stderr)
+        }
+    }
+
+    func unstage(repoRoot: String, path: String) async throws {
+        let result = try await runGit(["-C", repoRoot, "restore", "--staged", "--", path])
+        guard result.exitCode == 0 else {
+            throw GitDiffError.commandFailed(result.stderr)
+        }
     }
 
     private func fetchNumstatMap(repoRoot: String, args: [String]) async -> [String: (Int, Int)] {

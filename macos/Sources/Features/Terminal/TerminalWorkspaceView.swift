@@ -13,7 +13,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
     let openWorktreeAgent: (String, WorktrunkAgent) -> Void
     let resumeSession: ((AISession) -> Void)?
     let onSidebarWidthChange: (CGFloat) -> Void
-    let onGitDiffSelect: (GitDiffEntry) -> Void
+    let onGitDiffSelect: (GitDiffEntry, GitDiffScope) -> Void
     let onGitDiffWorktreeSelect: (String?) -> Void
 
     var body: some View {

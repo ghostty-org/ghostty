@@ -3,7 +3,7 @@ import SwiftUI
 
 struct GitDiffSidebarView: View {
     @ObservedObject var state: GitDiffSidebarState
-    let onSelect: (GitDiffEntry) -> Void
+    let onSelect: (GitDiffEntry, GitDiffScope) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +28,17 @@ struct GitDiffSidebarView: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
+            Picker("Scope", selection: $state.selectedScope) {
+                Text("All (\(state.allCount))")
+                    .tag(GitDiffScope.all)
+                Text("Staged (\(state.stagedCount))")
+                    .tag(GitDiffScope.staged)
+                Text("Unstaged (\(state.unstagedCount))")
+                    .tag(GitDiffScope.unstaged)
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .labelsHidden()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -56,7 +67,7 @@ struct GitDiffSidebarView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else if state.entries.isEmpty {
+        } else if state.visibleRows.isEmpty {
             if state.isLoading {
                 VStack {
                     Spacer()
@@ -65,40 +76,56 @@ struct GitDiffSidebarView: View {
                     Spacer()
                 }
             } else {
-                Text("Working tree clean")
+                Text(emptyMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            List(selection: $state.selectedPath) {
-                ForEach(state.entries) { entry in
+            List(selection: $state.selectedEntry) {
+                ForEach(state.visibleRows) { row in
+                    let stats = row.entry.stats(for: row.scope)
                     HStack(spacing: 8) {
-                        StatusBadge(kind: entry.kind)
-                        Text(entry.displayPath)
+                        StatusBadge(kind: row.entry.kind(for: row.scope))
+                        Text(row.entry.displayPath)
                             .lineLimit(1)
                         Spacer(minLength: 0)
-                        if entry.additions > 0 || entry.deletions > 0 {
-                            WorktreeChangeBadge(additions: entry.additions, deletions: entry.deletions)
+                        if stats.0 > 0 || stats.1 > 0 {
+                            WorktreeChangeBadge(additions: stats.0, deletions: stats.1)
                         } else {
-                            Text(entry.statusCode)
+                            Text(row.entry.statusCode)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        state.selectedPath = entry.path
+                        state.selectedEntry = row.id
                     }
-                    .tag(entry.path)
+                    .tag(row.id)
+                    .contextMenu {
+                        if row.entry.hasUnstagedChanges {
+                            Button("Stage") {
+                                Task { await state.stage(row.entry) }
+                            }
+                        }
+                        if row.entry.hasStagedChanges {
+                            Button("Unstage") {
+                                Task { await state.unstage(row.entry) }
+                            }
+                        }
+                        Button("Open") {
+                            openFile(row.entry)
+                        }
+                    }
                 }
             }
             .listStyle(.sidebar)
-            .onChange(of: state.selectedPath) { newValue in
+            .onChange(of: state.selectedEntry) { newValue in
                 guard let newValue else { return }
-                guard let entry = state.entries.first(where: { $0.path == newValue }) else { return }
-                onSelect(entry)
+                guard let entry = state.entries.first(where: { $0.path == newValue.path }) else { return }
+                onSelect(entry, newValue.scope)
             }
             .overlay(alignment: .topTrailing) {
                 if state.isLoading {
@@ -107,6 +134,28 @@ struct GitDiffSidebarView: View {
                         .padding(8)
                 }
             }
+        }
+    }
+
+    private func openFile(_ entry: GitDiffEntry) {
+        guard let repoRoot = state.repoRoot else { return }
+        let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(entry.path)
+        let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension) ?? NSWorkspace.shared.defaultTextEditor
+        if let editor {
+            NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private var emptyMessage: String {
+        switch state.selectedScope {
+        case .all:
+            return "Working tree clean"
+        case .staged:
+            return "No staged changes"
+        case .unstaged:
+            return "No unstaged changes"
         }
     }
 
