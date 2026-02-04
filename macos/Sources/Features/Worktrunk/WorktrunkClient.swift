@@ -8,7 +8,7 @@ enum WorktrunkClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            return "Worktrunk binary not found. Install worktrunk (provides `wt`) or set GHOSTTY_WORKTRUNK_BIN."
+            return "Worktrunk binary not found. Install worktrunk (provides `wt`), install it from Ghostree, or set GHOSTTY_WORKTRUNK_BIN."
         case .nonZeroExit(let code, let stderr):
             if stderr.isEmpty { return "Worktrunk failed (exit \(code))." }
             return "Worktrunk failed (exit \(code)): \(stderr)"
@@ -98,7 +98,7 @@ struct WorktrunkClient {
             return Invocation(executableURL: url, arguments: args, environment: env)
         }
 
-        for path in ["/opt/homebrew/bin/wt", "/usr/local/bin/wt", "/usr/bin/wt"] {
+        for path in wtExecutableCandidatePaths() {
             if FileManager.default.isExecutableFile(atPath: path) {
                 return Invocation(executableURL: URL(fileURLWithPath: path), arguments: args, environment: env)
             }
@@ -111,5 +111,49 @@ struct WorktrunkClient {
         }
 
         return Invocation(executableURL: envURL, arguments: ["wt"] + args, environment: env)
+    }
+
+    private static func wtExecutableCandidatePaths() -> [String] {
+        var paths: [String] = []
+
+        // On-demand install location (preferred for users without Worktrunk).
+        paths.append(AgentStatusPaths.binDir.appendingPathComponent("wt").path)
+
+        // Bundled inside the app bundle (preferred for packaged releases).
+        if let bundled = bundledExecutablePath(name: "wt") {
+            paths.append(bundled)
+        }
+
+        // Common system install locations.
+        paths.append(contentsOf: ["/opt/homebrew/bin/wt", "/usr/local/bin/wt", "/usr/bin/wt"])
+
+        return paths
+    }
+
+    private static func bundledExecutablePath(name: String) -> String? {
+        let base = Bundle.main.bundleURL
+
+        // Preferred bundle location.
+        let worktrunk = base
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("worktrunk", isDirectory: true)
+            .appendingPathComponent(name, isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: worktrunk.path) {
+            return worktrunk.path
+        }
+
+        // Legacy/alternate location (if nested under the existing "ghostty" resources folder).
+        let ghosttyWorktrunk = base
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("worktrunk", isDirectory: true)
+            .appendingPathComponent(name, isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: ghosttyWorktrunk.path) {
+            return ghosttyWorktrunk.path
+        }
+
+        return nil
     }
 }

@@ -21,6 +21,12 @@ APP_PATH="$BUILD_DIR/$APP_NAME.app"
 DMG_PATH="$BUILD_DIR/$APP_NAME.dmg"
 ENTITLEMENTS="$REPO_ROOT/macos/GhosttyReleaseLocal.entitlements"
 
+# Worktrunk (pinned)
+WORKTRUNK_VERSION="0.22.0"
+WORKTRUNK_ASSET="worktrunk-aarch64-apple-darwin.tar.xz"
+WORKTRUNK_URL="https://github.com/max-sixty/worktrunk/releases/download/v${WORKTRUNK_VERSION}/${WORKTRUNK_ASSET}"
+WORKTRUNK_SHA256="1fd193d8ed95453dbeadd900035312a6df61ff3fad43dc85eb1a9f7b48895b3c"
+
 # Required credentials from .env.release.local
 : "${SIGN_IDENTITY:?SIGN_IDENTITY not set in .env.release.local}"
 : "${NOTARYTOOL_PROFILE:?NOTARYTOOL_PROFILE not set in .env.release.local}"
@@ -34,6 +40,35 @@ build_app() {
     zig build -Doptimize=ReleaseFast
 }
 
+embed_worktrunk() {
+    log "Embedding Worktrunk CLI..."
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    local archive="$tmpdir/$WORKTRUNK_ASSET"
+
+    curl -L -o "$archive" "$WORKTRUNK_URL"
+
+    local sum
+    set -- $(shasum -a 256 "$archive")
+    sum="$1"
+    [[ "$sum" == "$WORKTRUNK_SHA256" ]] || err "Worktrunk sha256 mismatch: expected $WORKTRUNK_SHA256 got $sum"
+
+    tar -xJf "$archive" -C "$tmpdir"
+
+    local src="$tmpdir/worktrunk-aarch64-apple-darwin"
+    [[ -f "$src/wt" ]] || err "Missing wt in extracted Worktrunk archive"
+    [[ -f "$src/git-wt" ]] || err "Missing git-wt in extracted Worktrunk archive"
+
+    local dst="$APP_PATH/Contents/Resources/worktrunk"
+    mkdir -p "$dst"
+    cp "$src/wt" "$dst/wt"
+    cp "$src/git-wt" "$dst/git-wt"
+    chmod +x "$dst/wt" "$dst/git-wt"
+
+    rm -rf "$tmpdir"
+}
+
 sign_sparkle() {
     log "Signing Sparkle framework components..."
     local sparkle="$APP_PATH/Contents/Frameworks/Sparkle.framework"
@@ -45,6 +80,15 @@ sign_sparkle() {
     codesign -f -s "$SIGN_IDENTITY" -o runtime "$sparkle/Versions/B/Autoupdate"
     codesign -f -s "$SIGN_IDENTITY" -o runtime "$sparkle/Versions/B/Updater.app"
     codesign -f -s "$SIGN_IDENTITY" -o runtime "$sparkle"
+}
+
+sign_worktrunk() {
+    local wt_dir="$APP_PATH/Contents/Resources/worktrunk"
+    [[ -d "$wt_dir" ]] || return 0
+
+    log "Signing Worktrunk CLI..."
+    codesign -f -s "$SIGN_IDENTITY" -o runtime "$wt_dir/wt"
+    codesign -f -s "$SIGN_IDENTITY" -o runtime "$wt_dir/git-wt"
 }
 
 sign_app() {
@@ -85,7 +129,9 @@ main() {
     log "Starting $APP_NAME release build"
 
     build_app
+    embed_worktrunk
     sign_sparkle
+    sign_worktrunk
     sign_app
     create_dmg
     notarize

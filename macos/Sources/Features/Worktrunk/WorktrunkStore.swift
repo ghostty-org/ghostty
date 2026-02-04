@@ -179,6 +179,8 @@ final class WorktrunkStore: ObservableObject {
     @Published private(set) var agentStatusByWorktreePath: [String: WorktreeAgentStatusEntry] = [:]
     @Published private(set) var sidebarSnapshot: SidebarSnapshot = .empty
     @Published var isRefreshing: Bool = false
+    @Published var isInstallingWorktrunk: Bool = false
+    @Published var needsWorktrunkInstall: Bool = false
     @Published var errorMessage: String? = nil
     @Published private(set) var sidebarModelRevision: Int = 0
     @Published var worktreeSortOrder: WorktreeSortOrder = .recentActivity {
@@ -341,10 +343,14 @@ final class WorktrunkStore: ObservableObject {
             await MainActor.run {
                 addRepository(path: normalized, displayName: displayName)
                 errorMessage = nil
+                needsWorktrunkInstall = false
             }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            await MainActor.run { errorMessage = message }
+            await MainActor.run {
+                errorMessage = message
+                needsWorktrunkInstall = isWorktrunkMissing(error)
+            }
         }
     }
 
@@ -557,6 +563,7 @@ final class WorktrunkStore: ObservableObject {
                 }
                 worktreesByRepositoryID[repoID] = sortWorktrees(worktrees)
                 errorMessage = nil
+                needsWorktrunkInstall = false
                 reconcilePendingAgentEvents()
                 pruneWorktreeScopedState(removedPaths: removedPaths)
                 bumpSidebarModelRevision()
@@ -566,6 +573,7 @@ final class WorktrunkStore: ObservableObject {
         } catch {
             await MainActor.run {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                needsWorktrunkInstall = isWorktrunkMissing(error)
             }
         }
     }
@@ -591,10 +599,12 @@ final class WorktrunkStore: ObservableObject {
             _ = try await WorktrunkClient.run(args)
 
             await refresh(repoID: repoID)
+            await MainActor.run { needsWorktrunkInstall = false }
             return worktrees(for: repoID).first(where: { $0.branch == branch })
         } catch {
             await MainActor.run {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                needsWorktrunkInstall = isWorktrunkMissing(error)
             }
             return nil
         }
@@ -619,12 +629,60 @@ final class WorktrunkStore: ObservableObject {
             args.append(trimmedBranch)
             _ = try await WorktrunkClient.run(args)
             await refresh(repoID: repoID)
-            await MainActor.run { errorMessage = nil }
+            await MainActor.run {
+                errorMessage = nil
+                needsWorktrunkInstall = false
+            }
             return true
         } catch {
             await MainActor.run {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                needsWorktrunkInstall = isWorktrunkMissing(error)
             }
+            return false
+        }
+    }
+
+    func installWorktrunk() async -> Bool {
+        await MainActor.run {
+            isInstallingWorktrunk = true
+            errorMessage = nil
+        }
+
+        do {
+            try await WorktrunkInstaller.installPinnedWorktrunkIfNeeded()
+            await MainActor.run {
+                isInstallingWorktrunk = false
+                errorMessage = nil
+                needsWorktrunkInstall = false
+            }
+            await refreshAll()
+            return true
+        } catch {
+            await MainActor.run {
+                isInstallingWorktrunk = false
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                needsWorktrunkInstall = true
+            }
+            return false
+        }
+    }
+
+    private func isWorktrunkMissing(_ error: Error) -> Bool {
+        guard let wt = error as? WorktrunkClientError else { return false }
+        switch wt {
+        case .executableNotFound:
+            return true
+        case .nonZeroExit(let code, let stderr):
+            // When we fall back to `/usr/bin/env wt ...` and `wt` isn't on PATH, env exits 127.
+            if code == 127 {
+                let s = stderr.lowercased()
+                if s.contains("wt") && (s.contains("not found") || s.contains("no such file")) {
+                    return true
+                }
+            }
+            return false
+        case .invalidUTF8:
             return false
         }
     }

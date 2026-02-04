@@ -69,11 +69,29 @@ struct WorktrunkSidebarView: View {
             .padding(.vertical, 8)
             if let err = store.errorMessage, !err.isEmpty {
                 Divider()
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if store.needsWorktrunkInstall {
+                        HStack(spacing: 8) {
+                            Button {
+                                Task { _ = await store.installWorktrunk() }
+                            } label: {
+                                Text("Install Worktrunk…")
+                            }
+                            .disabled(store.isInstallingWorktrunk)
+
+                            if store.isInstallingWorktrunk {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(minWidth: 240, idealWidth: 280)
