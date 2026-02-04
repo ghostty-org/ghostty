@@ -3424,7 +3424,13 @@ pub const Surface = extern struct {
     const software_relaunch_env_name = "GHOSTTY_GL_SOFTWARE_RELAUNCH";
 
     fn tryRelaunchWithSoftwareRendering(self: *Self) bool {
-        _ = self;
+        if (self.private().config) |config| {
+            const cfg = config.get();
+            if (!cfg.@"gtk-opengl-auto-fallback") {
+                log.info("software rendering auto-fallback disabled by config", .{});
+                return false;
+            }
+        }
 
         if (std.posix.getenv(software_env_name) != null) {
             log.warn("software rendering already requested ({} set)", .{software_env_name});

@@ -3414,6 +3414,13 @@ else
 /// Available since: 1.1.0
 @"gtk-opengl-debug": bool = builtin.mode == .Debug,
 
+/// If `true`, Ghostty will automatically relaunch once with software rendering
+/// when GTK fails to create an OpenGL context. This helps older or broken
+/// drivers recover without manual intervention.
+///
+/// Available since: 1.6.0
+@"gtk-opengl-auto-fallback": bool = true,
+
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
 /// already a running process.
