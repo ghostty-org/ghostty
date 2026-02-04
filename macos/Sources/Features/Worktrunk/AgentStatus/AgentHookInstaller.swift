@@ -159,9 +159,6 @@ enum AgentHookInstaller {
                 "PermissionRequest": [
                     ["matcher": "*", "hooks": [["type": "command", "command": command]]],
                 ],
-                "PermissionResponse": [
-                    ["hooks": [["type": "command", "command": command]]],
-                ],
                 "SessionEnd": [
                     ["hooks": [["type": "command", "command": command]]],
                 ],

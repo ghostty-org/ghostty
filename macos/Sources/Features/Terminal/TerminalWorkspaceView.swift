@@ -66,6 +66,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
                 mainDetailView
             }
         }
+        .animation(.easeOut(duration: 0.12), value: worktrunkSidebarState.columnVisibility)
     }
 
     @ViewBuilder

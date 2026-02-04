@@ -95,7 +95,7 @@ struct WorktrunkSidebarView: View {
             }
         }
         .frame(minWidth: 240, idealWidth: 280)
-        .animation(.easeInOut(duration: 0.15), value: store.isRefreshing)
+        .animation(.easeOut(duration: 0.08), value: store.isRefreshing)
         .sheet(item: $createSheetRepo) { repo in
             CreateWorktreeSheet(
                 store: store,
