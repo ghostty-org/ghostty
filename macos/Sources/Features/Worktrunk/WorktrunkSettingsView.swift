@@ -4,6 +4,9 @@ struct WorktrunkSettingsView: View {
     @AppStorage(WorktrunkPreferences.worktreeTabsKey) private var worktreeTabsEnabled: Bool = false
     @AppStorage(WorktrunkPreferences.openBehaviorKey) private var openBehaviorRaw: String = WorktrunkOpenBehavior.newTab.rawValue
     @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultAgentRaw: String = WorktrunkAgent.claude.rawValue
+    @AppStorage(WorktrunkPreferences.githubIntegrationKey) private var githubIntegrationEnabled: Bool = true
+
+    @State private var ghAvailable: Bool = false
 
     private var openBehavior: WorktrunkOpenBehavior {
         WorktrunkOpenBehavior(rawValue: openBehaviorRaw) ?? .newTab
@@ -55,15 +58,40 @@ struct WorktrunkSettingsView: View {
                 .pickerStyle(.radioGroup)
 
                 if worktreeTabsEnabled && openBehavior == .newTab {
-                    Text("With Worktree tabs enabled, “New Tab” behaves like “Split Right”.")
+                    Text("With Worktree tabs enabled, "New Tab" behaves like "Split Right".")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("GitHub Integration") {
+                Toggle("Show PR and CI status", isOn: $githubIntegrationEnabled)
+                Text("Display CI check status for branches with open pull requests.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if githubIntegrationEnabled && !ghAvailable {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("GitHub CLI (gh) not found. Install with: brew install gh")
+                            .font(.caption)
+                    }
                 }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Worktrunk")
-        .onAppear(perform: normalizeDefaultAgentIfNeeded)
+        .onAppear {
+            normalizeDefaultAgentIfNeeded()
+            checkGHAvailability()
+        }
+    }
+
+    private func checkGHAvailability() {
+        Task {
+            ghAvailable = await GHClient.isAvailable()
+        }
     }
 
     private func normalizeDefaultAgentIfNeeded() {

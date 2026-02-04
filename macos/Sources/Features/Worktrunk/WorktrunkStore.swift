@@ -263,6 +263,9 @@ final class WorktrunkStore: ObservableObject {
     @Published private(set) var sidebarSnapshot: SidebarSnapshot = .empty
     private(set) var sidebarRepoIDs: Set<UUID> = []
     private(set) var sidebarWorktreePaths: Set<String> = []
+
+    // GitHub PR status
+    private(set) var prStatusManager: PRStatusManager?
     @Published var isRefreshing: Bool = false
     @Published var isInstallingWorktrunk: Bool = false
     @Published var needsWorktrunkInstall: Bool = false
@@ -312,6 +315,59 @@ final class WorktrunkStore: ObservableObject {
         startAgentEventTailer()
         seedAgentStatusesFromLog()
         rebuildSidebarSnapshot()
+        setupPRStatusManager()
+    }
+
+    private func setupPRStatusManager() {
+        guard WorktrunkPreferences.githubIntegrationEnabled else { return }
+
+        let manager = PRStatusManager()
+
+        // Wire up callbacks
+        manager.onPushDetected = { [weak self] repoPath in
+            await self?.handlePRPushDetected(repoPath: repoPath)
+        }
+
+        manager.onAppFocusRefresh = { [weak self] in
+            await self?.refreshAllPRStatuses()
+        }
+
+        prStatusManager = manager
+
+        // Start monitoring all repos
+        for repo in repositories {
+            manager.startMonitoring(repoPath: repo.path)
+        }
+    }
+
+    private func handlePRPushDetected(repoPath: String) async {
+        guard let repo = repositories.first(where: { $0.path == repoPath }) else { return }
+        let worktrees = worktreesByRepositoryID[repo.id] ?? []
+        let wtData = worktrees.map { (path: $0.path, branch: $0.branch) }
+        await prStatusManager?.refreshRepo(repoPath: repoPath, worktrees: wtData)
+    }
+
+    private func refreshAllPRStatuses() async {
+        for repo in repositories {
+            let worktrees = worktreesByRepositoryID[repo.id] ?? []
+            for wt in worktrees {
+                await prStatusManager?.fetchIfNeeded(
+                    worktreePath: wt.path,
+                    branch: wt.branch,
+                    repoPath: repo.path
+                )
+            }
+        }
+    }
+
+    // MARK: - PR Status Access
+
+    func prStatus(for worktreePath: String) -> PRStatus? {
+        prStatusManager?.prStatus(for: worktreePath)
+    }
+
+    func ciState(for worktreePath: String) -> CIState {
+        prStatusManager?.ciState(for: worktreePath) ?? .none
     }
 
     private func bumpSidebarModelRevision() {

@@ -90,8 +90,17 @@ enum WorktrunkPreferences {
     static let openBehaviorKey = "GhosttyWorktrunkOpenBehavior.v1"
     static let worktreeTabsKey = "GhosttyWorktreeTabs.v1"
     static let defaultAgentKey = "GhosttyWorktrunkDefaultAgent.v1"
+    static let githubIntegrationKey = "GhostreeGitHubIntegration.v1"
 
     static var worktreeTabsEnabled: Bool {
         UserDefaults.standard.bool(forKey: worktreeTabsKey)
+    }
+
+    static var githubIntegrationEnabled: Bool {
+        // Default to true if gh CLI is likely available
+        if !UserDefaults.standard.dictionaryRepresentation().keys.contains(githubIntegrationKey) {
+            return true  // Default enabled
+        }
+        return UserDefaults.standard.bool(forKey: githubIntegrationKey)
     }
 }

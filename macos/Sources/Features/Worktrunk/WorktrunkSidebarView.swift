@@ -4,6 +4,7 @@ import SwiftUI
 struct WorktrunkSidebarView: View {
     @ObservedObject var store: WorktrunkStore
     @ObservedObject var sidebarState: WorktrunkSidebarState
+    @ObservedObject var tooltipState: StatusRingTooltipState
     let openWorktree: (String) -> Void
     let openWorktreeAgent: (String, WorktrunkAgent) -> Void
     var resumeSession: ((AISession) -> Void)?
@@ -105,6 +106,7 @@ struct WorktrunkSidebarView: View {
             }
         }
         .frame(minWidth: 240, idealWidth: 280)
+        .environment(\.statusRingTooltipState, tooltipState)
         .animation(.easeOut(duration: 0.08), value: store.isRefreshing)
         .sheet(item: $createSheetRepo) { repo in
             CreateWorktreeSheet(
@@ -501,11 +503,28 @@ struct WorktrunkSidebarView: View {
             }
 
             Spacer(minLength: 0)
-            if status != nil || showsChanges {
+
+            let ciState = store.ciState(for: wt.path)
+            let prStatus = store.prStatus(for: wt.path)
+            let hasStatusRing = status != nil || ciState != .none
+
+            if hasStatusRing || showsChanges {
                 HStack(spacing: 6) {
-                    if let status {
-                        WorktreeAgentStatusBadge(status: status)
+                    // Combined status ring (agent + CI)
+                    if hasStatusRing {
+                        StatusRingView(
+                            agentStatus: status,
+                            ciState: ciState,
+                            prStatus: prStatus,
+                            onTap: {
+                                if let url = prStatus?.url, let nsURL = URL(string: url) {
+                                    NSWorkspace.shared.open(nsURL)
+                                }
+                            }
+                        )
                     }
+
+                    // Line changes badge
                     if let tracking, showsChanges {
                         WorktreeChangeBadge(
                             additions: tracking.lineAdditions,

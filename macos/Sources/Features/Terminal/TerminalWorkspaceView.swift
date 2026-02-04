@@ -16,6 +16,8 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
     let onGitDiffSelect: (GitDiffEntry, GitDiffScope) -> Void
     let onGitDiffWorktreeSelect: (String?) -> Void
 
+    @StateObject private var statusRingTooltipState = StatusRingTooltipState()
+
     var body: some View {
         let columnVisibility = Binding(
             get: { worktrunkSidebarState.columnVisibility },
@@ -25,6 +27,7 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
             WorktrunkSidebarView(
                 store: worktrunkStore,
                 sidebarState: worktrunkSidebarState,
+                tooltipState: statusRingTooltipState,
                 openWorktree: openWorktree,
                 openWorktreeAgent: openWorktreeAgent,
                 resumeSession: resumeSession,
@@ -69,6 +72,9 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: worktrunkSidebarState.columnVisibility)
+        .overlay {
+            StatusRingTooltipOverlay(state: statusRingTooltipState)
+        }
     }
 
     @ViewBuilder
