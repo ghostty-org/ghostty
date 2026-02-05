@@ -398,6 +398,7 @@ pub const Transmission = struct {
         rgb, // 24
         rgba, // 32
         png, // 100
+        jxl, // 101
 
         // The following are not supported directly via the protocol
         // but they are formats that a png may decode to that we
@@ -411,7 +412,7 @@ pub const Transmission = struct {
                 .gray_alpha => 2,
                 .rgb => 3,
                 .rgba => 4,
-                .png => unreachable, // Must be validated before
+                .png, .jxl => unreachable, // Must be validated before
             };
         }
     };
@@ -435,6 +436,7 @@ pub const Transmission = struct {
                 24 => .rgb,
                 32 => .rgba,
                 100 => .png,
+                101 => .jxl,
                 else => return error.InvalidFormat,
             };
         }

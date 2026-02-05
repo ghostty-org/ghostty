@@ -1,0 +1,9 @@
+.{
+    .name = .libjxl,
+    .version = "0.11.1",
+    .fingerprint = 0x2d5bd44d296bd19f,
+    .paths = .{""},
+    .dependencies = .{
+        .apple_sdk = .{ .path = "../apple-sdk" },
+    },
+}

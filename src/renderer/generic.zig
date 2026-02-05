@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const xev = @import("xev");
 const wuffs = @import("wuffs");
+const libjxl = @import("libjxl");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
@@ -1746,9 +1747,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 // Decode it if we know how.
-                const image_data = switch (file_type) {
+                const image_data: wuffs.ImageData = switch (file_type) {
                     .png => try wuffs.png.decode(self.alloc, contents),
                     .jpeg => try wuffs.jpeg.decode(self.alloc, contents),
+                    .jxl => jxl_data: {
+                        const jxl_result = try libjxl.decode(self.alloc, contents);
+                        break :jxl_data .{
+                            .width = jxl_result.width,
+                            .height = jxl_result.height,
+                            .data = jxl_result.data,
+                        };
+                    },
                     .unknown => {
                         log.warn(
                             "Cannot determine file type for background image file \"{s}\"!",

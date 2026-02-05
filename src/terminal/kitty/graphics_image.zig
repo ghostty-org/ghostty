@@ -9,6 +9,7 @@ const fastmem = @import("../../fastmem.zig");
 const command = @import("graphics_command.zig");
 const PageList = @import("../PageList.zig");
 const wuffs = @import("wuffs");
+const libjxl = @import("libjxl");
 
 const temp_dir = struct {
     const TempDir = @import("../../os/TempDir.zig");
@@ -149,9 +150,9 @@ pub const LoadingImage = struct {
         };
 
         const expected_size: usize = switch (self.image.format) {
-            // Png we decode the full data size because later decoding will
+            // Png/JXL we decode the full data size because later decoding will
             // get the proper dimensions and assert validity.
-            .png => stat_size,
+            .png, .jxl => stat_size,
 
             // For these formats we have a size we must have.
             .gray, .gray_alpha, .rgb, .rgba => |f| size: {
@@ -334,8 +335,9 @@ pub const LoadingImage = struct {
         // Decompress the data if it is compressed.
         try self.decompress(alloc);
 
-        // Decode the png if we have to
+        // Decode the png/jxl if we have to
         if (img.format == .png) try self.decodePng(alloc);
+        if (img.format == .jxl) try self.decodeJxl(alloc);
 
         // Validate our dimensions.
         if (img.width == 0 or img.height == 0) return error.DimensionsRequired;
@@ -438,6 +440,37 @@ pub const LoadingImage = struct {
 
         if (result.data.len > max_size) {
             log.warn("png image too large size={} max_size={}", .{ result.data.len, max_size });
+            return error.InvalidData;
+        }
+
+        // Replace our data
+        self.data.deinit(alloc);
+        self.data = .{};
+        try self.data.ensureUnusedCapacity(alloc, result.data.len);
+        try self.data.appendSlice(alloc, result.data[0..result.data.len]);
+
+        // Store updated image dimensions
+        self.image.width = result.width;
+        self.image.height = result.height;
+        self.image.format = .rgba;
+    }
+
+    /// Decode the data as JPEG XL. This will also update the image dimensions.
+    fn decodeJxl(self: *LoadingImage, alloc: Allocator) !void {
+        assert(self.image.format == .jxl);
+
+        const result = libjxl.decode(
+            alloc,
+            self.data.items,
+        ) catch |err| switch (err) {
+            error.JxlError => return error.InvalidData,
+            error.OutOfMemory => return error.OutOfMemory,
+            error.Overflow => return error.InvalidData,
+        };
+        defer alloc.free(result.data);
+
+        if (result.data.len > max_size) {
+            log.warn("jxl image too large size={} max_size={}", .{ result.data.len, max_size });
             return error.InvalidData;
         }
 

@@ -400,6 +400,12 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("wuffs", dep.module("wuffs"));
     }
+    if (b.lazyDependency("libjxl", .{
+        .target = target,
+        .optimize = optimize,
+    })) |dep| {
+        step.root_module.addImport("libjxl", dep.module("libjxl"));
+    }
     if (b.lazyDependency("libxev", .{
         .target = target,
         .optimize = optimize,

@@ -608,7 +608,7 @@ pub const State = struct {
                     .gray_alpha => .gray_alpha,
                     .rgb => .rgb,
                     .rgba => .rgba,
-                    .png => unreachable, // should be decoded by now
+                    .png, .jxl => unreachable, // should be decoded by now
                 },
 
                 // constCasts are always gross but this one is safe is because

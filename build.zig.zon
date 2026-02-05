@@ -70,6 +70,7 @@
         .harfbuzz = .{ .path = "./pkg/harfbuzz", .lazy = true },
         .highway = .{ .path = "./pkg/highway", .lazy = true },
         .libintl = .{ .path = "./pkg/libintl", .lazy = true },
+        .libjxl = .{ .path = "./pkg/libjxl", .lazy = true },
         .libpng = .{ .path = "./pkg/libpng", .lazy = true },
         .macos = .{ .path = "./pkg/macos", .lazy = true },
         .oniguruma = .{ .path = "./pkg/oniguruma", .lazy = true },

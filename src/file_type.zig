@@ -46,6 +46,16 @@ const type_details: []const struct {
         },
         .exts = &.{".webp"},
     },
+    .{
+        .typ = .jxl,
+        .sigs = &.{
+            // JPEG XL codestream
+            &.{ 0xFF, 0x0A },
+            // JPEG XL container (ISO BMFF)
+            &.{ 0x00, 0x00, 0x00, 0x0C, 0x4A, 0x58, 0x4C, 0x20, 0x0D, 0x0A, 0x87, 0x0A },
+        },
+        .exts = &.{".jxl"},
+    },
 };
 
 /// This is a helper for detecting file types based on magic bytes.
@@ -69,6 +79,9 @@ pub const FileType = enum {
 
     /// WebP image file.
     webp,
+
+    /// JPEG XL image file.
+    jxl,
 
     /// Unknown file format.
     unknown,
