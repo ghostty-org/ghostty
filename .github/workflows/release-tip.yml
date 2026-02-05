@@ -165,7 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a4cc4697b9de3b562bec5a856e6f3c31f94506e2 # v1.3.0
+        uses: namespacelabs/nscloud-cache-action@d985186ac29417ddff1a6e05044f69a27067b3a8 # v1.4.0
         with:
           path: |
             /nix
