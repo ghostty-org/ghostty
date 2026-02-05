@@ -838,38 +838,24 @@ private struct RepoPickerPopover: View {
 }
 
 private struct SidebarRefreshProgressBar: View {
-    @State private var position: CGFloat = 0
-
-    private let barWidthRatio: CGFloat = 0.25
-
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .fill(Color.accentColor.opacity(0.3))
-
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(
-                        width: geometry.size.width * barWidthRatio,
-                        height: geometry.size.height
-                    )
-                    .offset(x: position * (geometry.size.width * (1 - barWidthRatio)))
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let phase = (1 + sin(t * .pi)) / 2
+            Canvas { context, size in
+                context.fill(
+                    Path(CGRect(origin: .zero, size: size)),
+                    with: .color(.accentColor.opacity(0.15))
+                )
+                let barWidth = size.width * 0.25
+                let x = phase * (size.width - barWidth)
+                context.fill(
+                    Path(CGRect(x: x, y: 0, width: barWidth, height: size.height)),
+                    with: .color(.accentColor)
+                )
             }
         }
         .frame(height: 3)
-        .clipped()
         .allowsHitTesting(false)
-        .onAppear {
-            withAnimation(
-                .easeInOut(duration: 1.2)
-                .repeatForever(autoreverses: true)
-            ) {
-                position = 1
-            }
-        }
-        .onDisappear {
-            position = 0
-        }
     }
 }

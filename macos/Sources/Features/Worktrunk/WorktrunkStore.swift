@@ -1377,11 +1377,7 @@ final class WorktrunkStore: ObservableObject {
 
     func refreshSessions() async {
         var allSessions: [String: [AISession]] = [:]
-        var updateCount = 0
         var dirtyWorktreePaths = Set<String>()
-        let publishCheckBatch = 25
-        let publishIntervalSeconds: TimeInterval = 0.2
-        var lastPublish = Date.distantPast
         let validWorktreePaths = sidebarWorktreePaths
         var index = sessionIndex.snapshot()
         var seenClaudePaths = Set<String>()
@@ -1401,7 +1397,7 @@ final class WorktrunkStore: ObservableObject {
             }
         }
 
-        func prepareForPublish() {
+        func sortDirtySessions() {
             guard !dirtyWorktreePaths.isEmpty else { return }
             for path in dirtyWorktreePaths {
                 allSessions[path]?.sort { $0.timestamp > $1.timestamp }
@@ -1409,28 +1405,9 @@ final class WorktrunkStore: ObservableObject {
             dirtyWorktreePaths.removeAll(keepingCapacity: true)
         }
 
-        func publishSnapshotIfNeeded(force: Bool = false) async {
-            let now = Date()
-            if !force, now.timeIntervalSince(lastPublish) < publishIntervalSeconds {
-                return
-            }
-            lastPublish = now
-            prepareForPublish()
-            let snapshot = allSessions
-            await MainActor.run {
-                if sessionsByWorktreePath != snapshot {
-                    sessionsByWorktreePath = snapshot
-                }
-            }
-        }
-
-        func noteSession(_ session: AISession, worktreePath: String) async {
+        func noteSession(_ session: AISession, worktreePath: String) {
             allSessions[worktreePath, default: []].append(session)
             dirtyWorktreePaths.insert(worktreePath)
-            updateCount += 1
-            if updateCount % publishCheckBatch == 0 {
-                await publishSnapshotIfNeeded()
-            }
         }
 
         // Scan Claude sessions with periodic UI updates
@@ -1475,7 +1452,7 @@ final class WorktrunkStore: ObservableObject {
                                 sourcePath: sessionFile.path,
                                 messageCount: cached.messageCount
                             )
-                            await noteSession(session, worktreePath: worktreePath)
+                            noteSession(session, worktreePath: worktreePath)
                             if cached.worktreePath != worktreePath {
                                 var updated = cached
                                 updated.worktreePath = worktreePath
@@ -1496,7 +1473,7 @@ final class WorktrunkStore: ObservableObject {
                             validWorktreePaths: validWorktreePaths
                         ) {
                             session.worktreePath = worktreePath
-                            await noteSession(session, worktreePath: worktreePath)
+                            noteSession(session, worktreePath: worktreePath)
                             index.claude[sessionFile.path] = SessionIndexEntry(
                                 sessionId: session.id,
                                 cwd: session.cwd,
@@ -1557,7 +1534,7 @@ final class WorktrunkStore: ObservableObject {
                             sourcePath: fileURL.path,
                             messageCount: cached.messageCount
                         )
-                        await noteSession(session, worktreePath: worktreePath)
+                        noteSession(session, worktreePath: worktreePath)
                         if cached.worktreePath != worktreePath {
                             var updated = cached
                             updated.worktreePath = worktreePath
@@ -1574,7 +1551,7 @@ final class WorktrunkStore: ObservableObject {
                         validWorktreePaths: validWorktreePaths
                     ) {
                         session.worktreePath = worktreePath
-                        await noteSession(session, worktreePath: worktreePath)
+                        noteSession(session, worktreePath: worktreePath)
                         index.codex[fileURL.path] = SessionIndexEntry(
                             sessionId: session.id,
                             cwd: session.cwd,
@@ -1678,7 +1655,7 @@ final class WorktrunkStore: ObservableObject {
                                 sourcePath: infoFile.path,
                                 messageCount: cached.messageCount
                             )
-                            await noteSession(session, worktreePath: worktreePath)
+                            noteSession(session, worktreePath: worktreePath)
                         }
                         continue
                     }
@@ -1733,7 +1710,7 @@ final class WorktrunkStore: ObservableObject {
                             sourcePath: infoFile.path,
                             messageCount: messageCount
                         )
-                        await noteSession(session, worktreePath: worktreePath)
+                        noteSession(session, worktreePath: worktreePath)
                     }
                 }
             }
@@ -1743,8 +1720,8 @@ final class WorktrunkStore: ObservableObject {
 
         index.opencode = index.opencode.filter { seenOpenCodePaths.contains($0.key) }
 
-        // Final sort and update
-        prepareForPublish()
+        // Final sort and single publish
+        sortDirtySessions()
 
         sessionCache.saveToDisk()
         sessionIndex.update(index)
