@@ -2,7 +2,7 @@ import Foundation
 
 enum AgentHookInstaller {
     private static let notifyScriptMarker = "# Ghostree agent notification hook v6"
-    private static let claudeSettingsMarker = "\"_v\":2"
+    private static let claudeSettingsMarker = "\"_v\":3"
     private static let wrapperMarker = "# Ghostree agent wrapper v3"
 
     static func ensureInstalled() {
@@ -148,7 +148,7 @@ enum AgentHookInstaller {
         let escapedNotifyPath = notifyPath.replacingOccurrences(of: "'", with: "'\\''")
         let command = "bash '\(escapedNotifyPath)'"
         let settings: [String: Any] = [
-            "_v": 2,
+            "_v": 3,
             "hooks": [
                 "UserPromptSubmit": [
                     ["hooks": [["type": "command", "command": command]]],
