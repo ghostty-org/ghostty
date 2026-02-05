@@ -110,12 +110,6 @@ final class WorktrunkSidebarState: ObservableObject {
         if nextSelection != selection {
             self.selection = nextSelection
         }
-
-        pruneSelectionForVisibility(
-            listMode: listMode,
-            expandedRepoIDs: expandedRepoIDs,
-            expandedWorktreePaths: expandedWorktreePaths
-        )
     }
 
     private func pruneSelectionForVisibility(
@@ -2426,5 +2420,11 @@ extension TerminalController {
         } else {
             return nil
         }
+    }
+}
+
+extension TerminalController {
+    func openWorktreeFromPalette(atPath path: String) {
+        openWorktree(atPath: path)
     }
 }

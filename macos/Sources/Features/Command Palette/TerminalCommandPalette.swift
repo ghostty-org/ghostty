@@ -18,6 +18,16 @@ struct TerminalCommandPaletteView: View {
     /// The callback when an action is submitted.
     var onAction: ((String) -> Void)
 
+    @State private var query: String = ""
+
+    private enum WorktrunkPaletteMode: Hashable {
+        case root
+        case pickRepo
+        case createWorktree(repoID: UUID)
+    }
+
+    @State private var worktrunkMode: WorktrunkPaletteMode = .root
+
     var body: some View {
         ZStack {
             if isPresented {
@@ -30,9 +40,11 @@ struct TerminalCommandPaletteView: View {
 
                         CommandPaletteView(
                             isPresented: $isPresented,
+                            query: $query,
                             backgroundColor: ghosttyConfig.backgroundColor,
                             options: commandOptions
                         )
+                        .id(worktrunkMode)
                         .zIndex(1) // Ensure it's on top
 
                         Spacer()
@@ -46,6 +58,9 @@ struct TerminalCommandPaletteView: View {
             // surface view we were overlaid on top of. There's probably a better way
             // to handle the first responder state here but I don't know it.
             if !newValue {
+                worktrunkMode = .root
+                query = ""
+
                 // Has to be on queue because onChange happens on a user-interactive
                 // thread and Xcode is mad about this call on that.
                 DispatchQueue.main.async {
@@ -57,27 +72,33 @@ struct TerminalCommandPaletteView: View {
     
     /// All commands available in the command palette, combining update and terminal options.
     private var commandOptions: [CommandOption] {
-        var options: [CommandOption] = []
-        // Updates always appear first
-        options.append(contentsOf: updateOptions)
-        
-        // Sort the rest. We replace ":" with a character that sorts before space
-        // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
-        // for stable ordering when titles are equal.
-        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
-            let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
-            let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
-            let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
-            if comparison != .orderedSame {
-                return comparison == .orderedAscending
+        switch worktrunkMode {
+        case .root:
+            var options: [CommandOption] = []
+            // Updates always appear first
+            options.append(contentsOf: updateOptions)
+
+            let rest = (worktrunkRootOptions + jumpOptions + terminalOptions).sorted { a, b in
+                let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
+                let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
+                let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
+                if comparison != .orderedSame {
+                    return comparison == .orderedAscending
+                }
+                if let aSortKey = a.sortKey, let bSortKey = b.sortKey {
+                    return aSortKey < bSortKey
+                }
+                return false
             }
-            // Tie-breaker: use sortKey if both have one
-            if let aSortKey = a.sortKey, let bSortKey = b.sortKey {
-                return aSortKey < bSortKey
-            }
-            return false
-        })
-        return options
+            options.append(contentsOf: rest)
+            return options
+
+        case .pickRepo:
+            return worktrunkPickRepoOptions
+
+        case .createWorktree:
+            return worktrunkCreateWorktreeOptions
+        }
     }
 
     /// Commands for installing or canceling available updates.
@@ -164,6 +185,136 @@ struct TerminalCommandPaletteView: View {
                 }
             }
         }
+    }
+
+    private var terminalController: TerminalController? {
+        surfaceView.window?.windowController as? TerminalController
+    }
+
+    private var worktrunkStore: WorktrunkStore? {
+        (NSApp.delegate as? AppDelegate)?.worktrunkStore
+    }
+
+    private var worktrunkRootOptions: [CommandOption] {
+        guard terminalController != nil, let store = worktrunkStore else { return [] }
+
+        let linkFromCwd = CommandOption(
+            title: "Worktrunk: Link repo from current directory",
+            description: "Add the current directory to Worktrunk (runs `wt -C <pwd> list` to validate)."
+        ) { [surfaceView] in
+            guard let pwd = surfaceView.pwd else { return }
+            Task { await store.addRepositoryValidated(path: pwd) }
+        }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let linkAtTitle = trimmed.isEmpty
+            ? "Worktrunk: Link repo at “<type path in palette>”"
+            : "Worktrunk: Link repo at “\(trimmed)”"
+
+        let linkAtPath = CommandOption(
+            title: linkAtTitle,
+            description: "Uses the palette query as a path and adds it to Worktrunk."
+        ) { [trimmed] in
+            guard !trimmed.isEmpty else { return }
+            Task { await store.addRepositoryValidated(path: trimmed) }
+        }
+
+        let newWorktree = CommandOption(
+            title: "Worktrunk: New worktree…",
+            description: "Pick a repo, then type a branch/worktree name and press Enter.",
+            dismissOnSelect: false
+        ) {
+            worktrunkMode = .pickRepo
+            query = ""
+        }
+
+        return [newWorktree, linkFromCwd, linkAtPath]
+    }
+
+    private var worktrunkPickRepoOptions: [CommandOption] {
+        guard terminalController != nil, let store = worktrunkStore else { return [] }
+
+        var options: [CommandOption] = []
+
+        for repo in store.repositories {
+            options.append(CommandOption(
+                title: "Worktrunk: Use repo “\(repo.name)”",
+                subtitle: repo.path,
+                dismissOnSelect: false
+            ) {
+                worktrunkMode = .createWorktree(repoID: repo.id)
+                query = ""
+            })
+        }
+
+        options.append(CommandOption(
+            title: "Worktrunk: Back",
+            dismissOnSelect: false,
+            pinned: true
+        ) {
+            worktrunkMode = .root
+            query = ""
+        })
+
+        return options
+    }
+
+    private var worktrunkCreateWorktreeOptions: [CommandOption] {
+        guard let controller = terminalController, let store = worktrunkStore else { return [] }
+        guard case .createWorktree(let repoID) = worktrunkMode else { return [] }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var options: [CommandOption] = []
+        if trimmed.isEmpty {
+            options.append(CommandOption(
+                title: "Worktrunk: Type branch/worktree name to create",
+                description: "Type the branch/worktree name in the palette query, then press Enter.",
+                dismissOnSelect: false
+            ) {})
+        } else {
+            options.append(CommandOption(
+                title: "Worktrunk: Create worktree “\(trimmed)”",
+                emphasis: true,
+                dismissOnSelect: false
+            ) { [trimmed] in
+                Task {
+                    let created = await store.createWorktree(
+                        repoID: repoID,
+                        branch: trimmed,
+                        base: nil,
+                        createBranch: true
+                    )
+                    guard let created else { return }
+                    await MainActor.run {
+                        controller.openWorktreeFromPalette(atPath: created.path)
+                        worktrunkMode = .root
+                        query = ""
+                        isPresented = false
+                    }
+                }
+            })
+        }
+
+        options.append(CommandOption(
+            title: "Worktrunk: Back",
+            dismissOnSelect: false,
+            pinned: true
+        ) {
+            worktrunkMode = .pickRepo
+            query = ""
+        })
+
+        options.append(CommandOption(
+            title: "Worktrunk: Cancel",
+            dismissOnSelect: false,
+            pinned: true
+        ) {
+            worktrunkMode = .root
+            query = ""
+        })
+
+        return options
     }
 
 }

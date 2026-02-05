@@ -21,6 +21,10 @@ struct CommandOption: Identifiable, Hashable {
     let emphasis: Bool
     /// Sort key for stable ordering when titles are equal.
     let sortKey: AnySortKey?
+    /// If true, selecting this option keeps the palette open.
+    let dismissOnSelect: Bool
+    /// If true, this option is always visible even when the query doesn't match.
+    let pinned: Bool
     /// The action to perform when this option is selected.
     let action: () -> Void
     
@@ -34,6 +38,8 @@ struct CommandOption: Identifiable, Hashable {
         badge: String? = nil,
         emphasis: Bool = false,
         sortKey: AnySortKey? = nil,
+        dismissOnSelect: Bool = true,
+        pinned: Bool = false,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -45,6 +51,8 @@ struct CommandOption: Identifiable, Hashable {
         self.badge = badge
         self.emphasis = emphasis
         self.sortKey = sortKey
+        self.dismissOnSelect = dismissOnSelect
+        self.pinned = pinned
         self.action = action
     }
 
@@ -59,9 +67,9 @@ struct CommandOption: Identifiable, Hashable {
 
 struct CommandPaletteView: View {
     @Binding var isPresented: Bool
+    @Binding var query: String
     var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     var options: [CommandOption]
-    @State private var query = ""
     @State private var selectedIndex: UInt?
     @State private var hoveredOptionID: UUID?
     @FocusState private var isTextFieldFocused: Bool
@@ -72,19 +80,24 @@ struct CommandPaletteView: View {
         if query.isEmpty {
             return options
         } else {
+            let pinned = options.filter(\.pinned)
+
             // Filter by title/subtitle match OR color match
             let filtered = options.filter {
-                $0.title.localizedCaseInsensitiveContains(query) ||
-                ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false) ||
-                colorMatchScore(for: $0.leadingColor, query: query) > 0
+                if $0.pinned { return false }
+                return $0.title.localizedCaseInsensitiveContains(query) ||
+                    ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false) ||
+                    colorMatchScore(for: $0.leadingColor, query: query) > 0
             }
             
             // Sort by color match score (higher scores first), then maintain original order
-            return filtered.sorted { a, b in
+            let sorted = filtered.sorted { a, b in
                 let scoreA = colorMatchScore(for: a.leadingColor, query: query)
                 let scoreB = colorMatchScore(for: b.leadingColor, query: query)
                 return scoreA > scoreB
             }
+
+            return sorted + pinned
         }
     }
 
@@ -111,8 +124,14 @@ struct CommandPaletteView: View {
                     isPresented = false
 
                 case .submit:
-                    isPresented = false
-                    selectedOption?.action()
+                    guard let selectedOption else {
+                        isPresented = false
+                        break
+                    }
+                    if selectedOption.dismissOnSelect {
+                        isPresented = false
+                    }
+                    selectedOption.action()
 
                 case .move(.up):
                     if filteredOptions.isEmpty { break }
@@ -154,7 +173,9 @@ struct CommandPaletteView: View {
                 options: filteredOptions,
                 selectedIndex: $selectedIndex,
                 hoveredOptionID: $hoveredOptionID) { option in
-                    isPresented = false
+                    if option.dismissOnSelect {
+                        isPresented = false
+                    }
                     option.action()
             }
         }
