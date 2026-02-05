@@ -196,28 +196,7 @@ struct TerminalCommandPaletteView: View {
     }
 
     private var worktrunkRootOptions: [CommandOption] {
-        guard terminalController != nil, let store = worktrunkStore else { return [] }
-
-        let linkFromCwd = CommandOption(
-            title: "Worktrunk: Link repo from current directory",
-            description: "Add the current directory to Worktrunk (runs `wt -C <pwd> list` to validate)."
-        ) { [surfaceView] in
-            guard let pwd = surfaceView.pwd else { return }
-            Task { await store.addRepositoryValidated(path: pwd) }
-        }
-
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let linkAtTitle = trimmed.isEmpty
-            ? "Worktrunk: Link repo at “<type path in palette>”"
-            : "Worktrunk: Link repo at “\(trimmed)”"
-
-        let linkAtPath = CommandOption(
-            title: linkAtTitle,
-            description: "Uses the palette query as a path and adds it to Worktrunk."
-        ) { [trimmed] in
-            guard !trimmed.isEmpty else { return }
-            Task { await store.addRepositoryValidated(path: trimmed) }
-        }
+        guard terminalController != nil, worktrunkStore != nil else { return [] }
 
         let newWorktree = CommandOption(
             title: "Worktrunk: New worktree…",
@@ -228,7 +207,7 @@ struct TerminalCommandPaletteView: View {
             query = ""
         }
 
-        return [newWorktree, linkFromCwd, linkAtPath]
+        return [newWorktree]
     }
 
     private var worktrunkPickRepoOptions: [CommandOption] {
