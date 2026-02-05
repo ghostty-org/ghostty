@@ -42,6 +42,8 @@
                 <outlet property="menuQuickTerminal" destination="1pv-LF-NBJ" id="glN-5B-IGi"/>
                 <outlet property="menuQuit" destination="4sb-4s-VLi" id="qYN-S1-6UW"/>
                 <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
+                <outlet property="menuReopenClosedTab" destination="rCT-4x-7Pm" id="rCT-oL-7Pm"/>
+                <outlet property="menuSessions" destination="sM2-Sx-8Lm" id="sM7-Tx-3Gm"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
                 <outlet property="menuReturnToDefaultSize" destination="Gbx-Vi-OGC" id="po9-qC-Iz6"/>
@@ -200,6 +202,13 @@
                                     <action selector="closeAllWindows:" target="-1" id="hrz-eb-l5t"/>
                                 </connections>
                             </menuItem>
+                            <menuItem isSeparatorItem="YES" id="sR2-mT-9Kx"/>
+                            <menuItem title="Reopen Closed Tab" keyEquivalent="T" id="rCT-4x-7Pm">
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
+                                <connections>
+                                    <action selector="reopenClosedTab:" target="bbz-4X-AYv" id="pRT-5c-2Lm"/>
+                                </connections>
+                            </menuItem>
                         </items>
                     </menu>
                 </menuItem>
@@ -295,6 +304,23 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="toggleTerminalInspector:" target="-1" id="87m-3R-fQl"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Sessions" id="sM1-Hx-9Ks">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Sessions" id="sM2-Sx-8Lm">
+                        <items>
+                            <menuItem title="No Recent Sessions" enabled="NO" id="sM3-Nx-7Km">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="sM4-Px-6Jm"/>
+                            <menuItem title="Clear Session History" id="sM5-Qx-5Im">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="clearSessionHistory:" target="bbz-4X-AYv" id="sM6-Rx-4Hm"/>
                                 </connections>
                             </menuItem>
                         </items>

@@ -36,6 +36,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuCloseTab: NSMenuItem?
     @IBOutlet private var menuCloseWindow: NSMenuItem?
     @IBOutlet private var menuCloseAllWindows: NSMenuItem?
+    @IBOutlet private var menuReopenClosedTab: NSMenuItem?
+    @IBOutlet private var menuSessions: NSMenu?
 
     @IBOutlet private var menuUndo: NSMenuItem?
     @IBOutlet private var menuRedo: NSMenuItem?
@@ -265,6 +267,9 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+
+        // Setup session history manager
+        setupSessionHistory()
 
         // Setup signal handlers
         setupSignals()
@@ -1086,6 +1091,26 @@ class AppDelegate: NSObject,
         undoManager.redo()
     }
 
+    /// Reopens the last closed tab or window
+    @IBAction func reopenClosedTab(_ sender: Any?) {
+        guard undoManager.canUndo else { return }
+        undoManager.undo()
+        SessionHistoryManager.shared.removeLastSession()
+    }
+
+    /// Clears all session history
+    @IBAction func clearSessionHistory(_ sender: Any?) {
+        SessionHistoryManager.shared.clearHistory()
+    }
+
+    /// Sets up the session history manager
+    private func setupSessionHistory() {
+        let manager = SessionHistoryManager.shared
+        manager.sessionsMenu = menuSessions
+        manager.undoManager = undoManager
+        manager.updateMenu()
+    }
+
     private struct DerivedConfig {
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
@@ -1190,6 +1215,14 @@ extension AppDelegate: NSMenuItemValidation {
                 item.title = "Redo"
             }
             return undoManager.canRedo
+
+        case #selector(reopenClosedTab(_:)):
+            if undoManager.canUndo {
+                item.title = "Reopen \(undoManager.undoActionName)"
+            } else {
+                item.title = "Reopen Closed Tab"
+            }
+            return undoManager.canUndo
 
         default:
             return true
