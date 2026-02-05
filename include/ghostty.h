@@ -965,6 +965,7 @@ typedef void (*ghostty_runtime_write_clipboard_cb)(void*,
                                                    const ghostty_clipboard_content_s*,
                                                    size_t,
                                                    bool);
+typedef bool (*ghostty_runtime_clipboard_has_text_cb)(void*, ghostty_clipboard_e);
 typedef void (*ghostty_runtime_close_surface_cb)(void*, bool);
 typedef bool (*ghostty_runtime_action_cb)(ghostty_app_t,
                                           ghostty_target_s,
@@ -978,6 +979,7 @@ typedef struct {
   ghostty_runtime_read_clipboard_cb read_clipboard_cb;
   ghostty_runtime_confirm_read_clipboard_cb confirm_read_clipboard_cb;
   ghostty_runtime_write_clipboard_cb write_clipboard_cb;
+  ghostty_runtime_clipboard_has_text_cb clipboard_has_text_cb;
   ghostty_runtime_close_surface_cb close_surface_cb;
 } ghostty_runtime_config_s;
 

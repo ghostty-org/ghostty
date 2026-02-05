@@ -74,6 +74,11 @@ pub const App = struct {
             bool,
         ) callconv(.c) void,
 
+        /// Check if the clipboard contains text content. Used for performable
+        /// paste bindings to pass through when clipboard has non-text content
+        /// (e.g., images). If null, clipboard is assumed to contain text.
+        clipboard_has_text: ?*const fn (SurfaceUD, c_int) callconv(.c) bool = null,
+
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
     };
@@ -663,6 +668,17 @@ pub const Surface = struct {
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) !bool {
+        // For paste requests, check if clipboard has text format available.
+        // This allows performable paste bindings to pass through when the
+        // clipboard contains non-text content (e.g., images).
+        if (state == .paste) {
+            if (self.app.opts.clipboard_has_text) |check| {
+                if (!check(self.userdata, @intCast(@intFromEnum(clipboard_type)))) {
+                    return false;
+                }
+            }
+        }
+
         // We need to allocate to get a pointer to store our clipboard request
         // so that it is stable until the read_clipboard callback and call
         // complete_clipboard_request. This sucks but clipboard requests aren't
@@ -678,8 +694,6 @@ pub const Surface = struct {
             state_ptr,
         );
 
-        // Embedded apprt can't synchronously check clipboard content types,
-        // so we always return true to indicate the request was started.
         return true;
     }
 

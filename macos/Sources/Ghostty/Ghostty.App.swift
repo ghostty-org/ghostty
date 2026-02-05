@@ -66,6 +66,7 @@ extension Ghostty {
                 confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
                 write_clipboard_cb: { userdata, loc, content, len, confirm in
                     App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
+                clipboard_has_text_cb: { userdata, loc in App.clipboardHasText(userdata, location: loc) },
                 close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) }
             )
 
@@ -286,6 +287,10 @@ extension Ghostty {
             confirm: Bool
         ) {}
 
+        static func clipboardHasText(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e) -> Bool {
+            return true
+        }
+
         static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {}
         #endif
 
@@ -320,6 +325,11 @@ extension Ghostty {
             NotificationCenter.default.post(name: Notification.ghosttyCloseSurface, object: surface, userInfo: [
                 "process_alive": processAlive,
             ])
+        }
+
+        static func clipboardHasText(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e) -> Bool {
+            guard let pasteboard = NSPasteboard.ghostty(location) else { return false }
+            return pasteboard.getOpinionatedStringContents() != nil
         }
 
         static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
