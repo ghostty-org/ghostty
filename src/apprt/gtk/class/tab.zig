@@ -202,6 +202,8 @@ pub const Tab = extern struct {
         const actions = [_]ext.actions.Action(Self){
             .init("close", actionClose, s_param_type),
             .init("ring-bell", actionRingBell, null),
+            .init("next-page", actionNextPage, null),
+            .init("previous-page", actionPreviousPage, null),
         };
 
         _ = ext.actions.addAsGroup(Self, self, "tab", &actions);
@@ -235,12 +237,17 @@ pub const Tab = extern struct {
         return tree.getNeedsConfirmQuit();
     }
 
-    /// Get the tab page holding this tab, if any.
-    fn getTabPage(self: *Self) ?*adw.TabPage {
-        const tab_view = ext.getAncestor(
+    /// Get the tab view holding this tab, if any.
+    fn getTabView(self: *Self) ?*adw.TabView {
+        return ext.getAncestor(
             adw.TabView,
             self.as(gtk.Widget),
-        ) orelse return null;
+        );
+    }
+
+    /// Get the tab page holding this tab, if any.
+    fn getTabPage(self: *Self) ?*adw.TabPage {
+        const tab_view = self.getTabView() orelse return null;
         return tab_view.getPage(self.as(gtk.Widget));
     }
 
@@ -325,11 +332,7 @@ pub const Tab = extern struct {
         var str: ?[*:0]const u8 = null;
         param.get("&s", &str);
 
-        const tab_view = ext.getAncestor(
-            adw.TabView,
-            self.as(gtk.Widget),
-        ) orelse return;
-
+        const tab_view = self.getTabView() orelse return;
         const page = tab_view.getPage(self.as(gtk.Widget));
 
         const mode = std.meta.stringToEnum(
@@ -370,6 +373,26 @@ pub const Tab = extern struct {
         const page = self.getTabPage() orelse return;
         if (page.getSelected() != 0) return;
         page.setNeedsAttention(@intFromBool(true));
+    }
+
+    /// Select the next tab page.
+    fn actionNextPage(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const tab_view = self.getTabView() orelse return;
+        _ = tab_view.selectNextPage();
+    }
+
+    /// Select the previous tab page.
+    fn actionPreviousPage(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const tab_view = self.getTabView() orelse return;
+        _ = tab_view.selectPreviousPage();
     }
 
     fn closureComputedTitle(

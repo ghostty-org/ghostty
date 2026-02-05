@@ -53,10 +53,15 @@ Overlay terminal_page {
     }
 
     EventControllerScroll {
-      scroll => $scroll();
-      scroll-begin => $scroll_begin();
-      scroll-end => $scroll_end();
-      flags: both_axes;
+      scroll => $scroll_vertical();
+      scroll-begin => $scroll_vertical_begin();
+      scroll-end => $scroll_vertical_end();
+      flags: vertical;
+    }
+
+    EventControllerScroll {
+      scroll => $scroll_horizontal();
+      flags: horizontal;
     }
 
     EventControllerMotion {
