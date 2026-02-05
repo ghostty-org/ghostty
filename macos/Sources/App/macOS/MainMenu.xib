@@ -22,6 +22,7 @@
                 <outlet property="menuClose" destination="DVo-aG-piG" id="R3t-0C-aSU"/>
                 <outlet property="menuCloseAllWindows" destination="yKr-Vi-Yqw" id="Zet-Ir-zbm"/>
                 <outlet property="menuCloseTab" destination="Obb-Mk-j8J" id="Gda-L0-gdz"/>
+                <outlet property="menuReopenClosedTab" destination="rCT-4x-7Pm" id="rCT-oL-7Pm"/>
                 <outlet property="menuCloseWindow" destination="W5w-UZ-crk" id="6ff-BT-ENV"/>
                 <outlet property="menuCommandPalette" destination="et6-de-Mh7" id="53t-cu-dm5"/>
                 <outlet property="menuCopy" destination="Jqf-pv-Zcu" id="bKd-1C-oy9"/>
@@ -206,6 +207,13 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="closeAllWindows:" target="-1" id="hrz-eb-l5t"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="sR2-mT-9Kx"/>
+                            <menuItem title="Reopen Closed Tab" keyEquivalent="T" id="rCT-4x-7Pm">
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
+                                <connections>
+                                    <action selector="reopenClosedTab:" target="bbz-4X-AYv" id="pRT-5c-2Lm"/>
                                 </connections>
                             </menuItem>
                         </items>

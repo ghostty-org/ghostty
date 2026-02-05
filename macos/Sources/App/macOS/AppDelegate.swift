@@ -37,6 +37,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuCloseTab: NSMenuItem?
     @IBOutlet private var menuCloseWindow: NSMenuItem?
     @IBOutlet private var menuCloseAllWindows: NSMenuItem?
+    @IBOutlet private var menuReopenClosedTab: NSMenuItem?
 
     @IBOutlet private var menuUndo: NSMenuItem?
     @IBOutlet private var menuRedo: NSMenuItem?
@@ -1207,6 +1208,14 @@ class AppDelegate: NSObject,
         undoManager.redo()
     }
 
+    /// Reopens the last closed tab or window. This explicitly uses the app-level
+    /// undo manager to restore closed surfaces, unlike the standard undo action
+    /// which may act on text in the focused surface.
+    @IBAction func reopenClosedTab(_ sender: Any?) {
+        guard undoManager.canUndo else { return }
+        undoManager.undo()
+    }
+
     private struct DerivedConfig {
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
@@ -1320,6 +1329,15 @@ extension AppDelegate: NSMenuItemValidation {
                 item.title = "Redo"
             }
             return undoManager.canRedo
+
+        case #selector(reopenClosedTab(_:)):
+            // Show what will be restored in the menu title
+            if undoManager.canUndo {
+                item.title = "Reopen \(undoManager.undoActionName)"
+            } else {
+                item.title = "Reopen Closed Tab"
+            }
+            return undoManager.canUndo
 
         default:
             return true
