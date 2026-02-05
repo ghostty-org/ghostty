@@ -2128,12 +2128,11 @@ final class WorktrunkStore: ObservableObject {
         }
 
         for (_, event) in latestByCwd {
-            // Skip Stop/SessionEnd events from before the last app quit:
-            // they were already visible (or dismissed) in the previous session.
-            if (event.eventType == .stop || event.eventType == .sessionEnd),
-               let lastQuit = lastAppQuitTimestamp,
-               event.timestamp <= lastQuit {
-                continue
+            if let lastQuit = lastAppQuitTimestamp, event.timestamp <= lastQuit {
+                switch event.eventType {
+                case .start, .permissionRequest, .stop, .sessionEnd:
+                    continue
+                }
             }
             handleAgentLifecycleEvent(event)
         }
