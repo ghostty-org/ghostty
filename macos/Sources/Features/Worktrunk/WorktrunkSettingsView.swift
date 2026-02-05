@@ -3,7 +3,7 @@ import SwiftUI
 struct WorktrunkSettingsView: View {
     @AppStorage(WorktrunkPreferences.worktreeTabsKey) private var worktreeTabsEnabled: Bool = false
     @AppStorage(WorktrunkPreferences.openBehaviorKey) private var openBehaviorRaw: String = WorktrunkOpenBehavior.newTab.rawValue
-    @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultAgentRaw: String = WorktrunkAgent.claude.rawValue
+    @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultActionRaw: String = WorktrunkDefaultAction.terminal.rawValue
     @AppStorage(WorktrunkPreferences.githubIntegrationKey) private var githubIntegrationEnabled: Bool = true
 
     @State private var ghAvailable: Bool = false
@@ -12,16 +12,16 @@ struct WorktrunkSettingsView: View {
         WorktrunkOpenBehavior(rawValue: openBehaviorRaw) ?? .newTab
     }
 
-    private var availableAgents: [WorktrunkAgent] {
-        WorktrunkAgent.availableAgents()
+    private var availableActions: [WorktrunkDefaultAction] {
+        WorktrunkDefaultAction.availableActions()
     }
 
-    private var defaultAgentSelection: Binding<WorktrunkAgent> {
+    private var defaultActionSelection: Binding<WorktrunkDefaultAction> {
         Binding(
             get: {
-                WorktrunkAgent.preferredAgent(from: defaultAgentRaw, availableAgents: availableAgents) ?? .claude
+                WorktrunkDefaultAction.preferredAction(from: defaultActionRaw, availableActions: availableActions)
             },
-            set: { defaultAgentRaw = $0.rawValue }
+            set: { defaultActionRaw = $0.rawValue }
         )
     }
 
@@ -34,19 +34,13 @@ struct WorktrunkSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Default Agent") {
-                if availableAgents.isEmpty {
-                    Text("Install Claude Code, Codex, or OpenCode to enable agent sessions.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("New session", selection: defaultAgentSelection) {
-                        ForEach(availableAgents) { agent in
-                            Text(agent.title).tag(agent)
-                        }
+            Section("Default Action") {
+                Picker("New session", selection: defaultActionSelection) {
+                    ForEach(availableActions) { action in
+                        Text(action.title).tag(action)
                     }
-                    .pickerStyle(.radioGroup)
                 }
+                .pickerStyle(.radioGroup)
             }
 
             Section("New Session Placement") {
@@ -58,7 +52,7 @@ struct WorktrunkSettingsView: View {
                 .pickerStyle(.radioGroup)
 
                 if worktreeTabsEnabled && openBehavior == .newTab {
-                    Text("With Worktree tabs enabled, "New Tab" behaves like "Split Right".")
+                    Text("With Worktree tabs enabled, \"New Tab\" behaves like \"Split Right\".")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -83,7 +77,7 @@ struct WorktrunkSettingsView: View {
         .formStyle(.grouped)
         .navigationTitle("Worktrunk")
         .onAppear {
-            normalizeDefaultAgentIfNeeded()
+            normalizeDefaultActionIfNeeded()
             checkGHAvailability()
         }
     }
@@ -94,12 +88,10 @@ struct WorktrunkSettingsView: View {
         }
     }
 
-    private func normalizeDefaultAgentIfNeeded() {
-        guard let preferred = WorktrunkAgent.preferredAgent(from: defaultAgentRaw, availableAgents: availableAgents) else {
-            return
-        }
-        if preferred.rawValue != defaultAgentRaw {
-            defaultAgentRaw = preferred.rawValue
+    private func normalizeDefaultActionIfNeeded() {
+        let preferred = WorktrunkDefaultAction.preferredAction(from: defaultActionRaw, availableActions: availableActions)
+        if preferred.rawValue != defaultActionRaw {
+            defaultActionRaw = preferred.rawValue
         }
     }
 }

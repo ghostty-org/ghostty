@@ -70,6 +70,52 @@ enum WorktrunkAgent: String, CaseIterable, Identifiable {
     }
 }
 
+enum WorktrunkDefaultAction: String, CaseIterable, Identifiable {
+    case terminal
+    case claude
+    case codex
+    case opencode
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .terminal: return "Terminal"
+        case .claude: return "Claude Code"
+        case .codex: return "Codex"
+        case .opencode: return "OpenCode"
+        }
+    }
+
+    var agent: WorktrunkAgent? {
+        switch self {
+        case .terminal: return nil
+        case .claude: return .claude
+        case .codex: return .codex
+        case .opencode: return .opencode
+        }
+    }
+
+    var isAvailable: Bool {
+        switch self {
+        case .terminal: return true
+        default: return agent?.isAvailable ?? false
+        }
+    }
+
+    static func availableActions() -> [WorktrunkDefaultAction] {
+        allCases.filter { $0.isAvailable }
+    }
+
+    static func preferredAction(from rawValue: String, availableActions: [WorktrunkDefaultAction]) -> WorktrunkDefaultAction {
+        if let preferred = WorktrunkDefaultAction(rawValue: rawValue),
+           availableActions.contains(preferred) {
+            return preferred
+        }
+        return .terminal
+    }
+}
+
 enum WorktrunkOpenBehavior: String, CaseIterable, Identifiable {
     case newTab = "new_tab"
     case splitRight = "split_right"

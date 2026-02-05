@@ -285,8 +285,8 @@ final class GitDiffSidebarState: ObservableObject {
     }
 
     private func handleScopeChange() {
-        guard let selectedEntry else { return }
-        guard let entry = entries.first(where: { $0.path == selectedEntry.path }) else {
+        guard let currentSelection = selectedEntry else { return }
+        guard let entry = entries.first(where: { $0.path == currentSelection.path }) else {
             clearDiff()
             return
         }
@@ -294,9 +294,9 @@ final class GitDiffSidebarState: ObservableObject {
             clearDiff()
             return
         }
-        let selection = GitDiffSelection(path: entry.path, scope: selectedScope)
-        if selection == selectedEntry { return }
-        selectedEntry = selection
+        let newSelection = GitDiffSelection(path: entry.path, scope: selectedScope)
+        if newSelection == currentSelection { return }
+        selectedEntry = newSelection
     }
 
     private func entryVisible(_ entry: GitDiffEntry, in scope: GitDiffScope) -> Bool {

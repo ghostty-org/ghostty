@@ -321,22 +321,26 @@ final class WorktrunkStore: ObservableObject {
     private func setupPRStatusManager() {
         guard WorktrunkPreferences.githubIntegrationEnabled else { return }
 
-        let manager = PRStatusManager()
+        let repoPaths = repositories.map { $0.path }
 
-        // Wire up callbacks
-        manager.onPushDetected = { [weak self] repoPath in
-            await self?.handlePRPushDetected(repoPath: repoPath)
-        }
+        Task { @MainActor [weak self] in
+            let manager = PRStatusManager()
 
-        manager.onAppFocusRefresh = { [weak self] in
-            await self?.refreshAllPRStatuses()
-        }
+            // Wire up callbacks
+            manager.onPushDetected = { [weak self] repoPath in
+                await self?.handlePRPushDetected(repoPath: repoPath)
+            }
 
-        prStatusManager = manager
+            manager.onAppFocusRefresh = { [weak self] in
+                await self?.refreshAllPRStatuses()
+            }
 
-        // Start monitoring all repos
-        for repo in repositories {
-            manager.startMonitoring(repoPath: repo.path)
+            self?.prStatusManager = manager
+
+            // Start monitoring all repos
+            for repoPath in repoPaths {
+                manager.startMonitoring(repoPath: repoPath)
+            }
         }
     }
 
@@ -362,10 +366,12 @@ final class WorktrunkStore: ObservableObject {
 
     // MARK: - PR Status Access
 
+    @MainActor
     func prStatus(for worktreePath: String) -> PRStatus? {
         prStatusManager?.prStatus(for: worktreePath)
     }
 
+    @MainActor
     func ciState(for worktreePath: String) -> CIState {
         prStatusManager?.ciState(for: worktreePath) ?? .none
     }

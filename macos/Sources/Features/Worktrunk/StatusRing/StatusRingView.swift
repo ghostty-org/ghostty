@@ -29,7 +29,7 @@ struct StatusRingView: View {
         .background(
             GeometryReader { geo in
                 Color.clear
-                    .onChange(of: isHovering) { _, hovering in
+                    .onChange(of: isHovering) { hovering in
                         if hovering {
                             let globalFrame = geo.frame(in: .global)
                             tooltipState?.scheduleShow(
@@ -119,7 +119,7 @@ private struct AgentDotView: View {
                     isPulsing = true
                 }
             }
-            .onChange(of: status) { _, newStatus in
+            .onChange(of: status) { newStatus in
                 isPulsing = newStatus == .working || newStatus == .permission
             }
     }
