@@ -216,6 +216,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var worktrunkSidebarSyncCancellables: Set<AnyCancellable> = []
     private var worktrunkSidebarSyncApplyingRemoteUpdate: Bool = false
     private let gitDiffSidebarState = GitDiffSidebarState()
+    private var lastTabSwitchRefreshAt: Date? = nil
+    private let tabSwitchRefreshThrottle: TimeInterval = 0.15
+    private var pendingTabSwitchRefresh: DispatchWorkItem? = nil
+    private var lastTabSwitchSurfaceID: UUID? = nil
 
     private(set) var worktreeTabRootPath: String? = nil {
         didSet { syncWorktreeTabTitle() }
@@ -1887,20 +1891,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
-        syncSidebarSelectionToActiveTab()
-        syncWorktrunkSidebarStateToTabGroup()
-        if let appDelegate = NSApp.delegate as? AppDelegate,
-           let pwd = focusedSurface?.pwd {
-            appDelegate.worktrunkStore.clearAgentReviewIfViewing(cwd: pwd)
-        }
-
-        if #available(macOS 26.0, *) {
-            // Git diff should be ready for the active tab without requiring any Worktrunk interaction.
-            if gitDiffSidebarState.isVisible || gitDiffSidebarState.isDiffActive,
-               let pwd = focusedSurface?.pwd {
-                Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd), force: true) }
-            }
-        }
+        requestTabSwitchRefresh()
     }
 
     override func windowDidMove(_ notification: Notification) {
@@ -2078,10 +2069,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let focusedSurface else { return }
         syncAppearance(focusedSurface.derivedConfig)
 
-        if let appDelegate = NSApp.delegate as? AppDelegate,
-           let pwd = focusedSurface.pwd {
-            appDelegate.worktrunkStore.clearAgentReviewIfViewing(cwd: pwd)
-        }
+        requestTabSwitchRefresh()
 
         // We also want to get notified of certain changes to update our appearance.
         focusedSurface.$derivedConfig
@@ -2091,13 +2079,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
 
-        if #available(macOS 26.0, *) {
-            // Git diff should follow the currently focused terminal (surface).
-            if gitDiffSidebarState.isVisible || gitDiffSidebarState.isDiffActive,
-               let pwd = focusedSurface.pwd {
-                Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd), force: true) }
-            }
-        }
     }
 
     override func pwdDidChange(to: URL?) {
@@ -2115,6 +2096,53 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             guard let self else { return }
             guard self.focusedSurface == surface else { return }
             self.syncAppearance(surface.derivedConfig)
+        }
+    }
+
+    private func requestTabSwitchRefresh() {
+        let now = Date()
+        let currentSurfaceID = focusedSurface?.id
+        if let lastTabSwitchRefreshAt,
+           now.timeIntervalSince(lastTabSwitchRefreshAt) < tabSwitchRefreshThrottle {
+            if currentSurfaceID == lastTabSwitchSurfaceID {
+                return
+            }
+            scheduleTabSwitchRefresh()
+            return
+        }
+
+        lastTabSwitchRefreshAt = now
+        pendingTabSwitchRefresh?.cancel()
+        pendingTabSwitchRefresh = nil
+        performTabSwitchRefresh()
+    }
+
+    private func scheduleTabSwitchRefresh() {
+        pendingTabSwitchRefresh?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.lastTabSwitchRefreshAt = Date()
+            self.performTabSwitchRefresh()
+        }
+        pendingTabSwitchRefresh = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + tabSwitchRefreshThrottle, execute: item)
+    }
+
+    private func performTabSwitchRefresh() {
+        lastTabSwitchSurfaceID = focusedSurface?.id
+        syncSidebarSelectionToActiveTab()
+        syncWorktrunkSidebarStateToTabGroup()
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           let pwd = focusedSurface?.pwd {
+            appDelegate.worktrunkStore.clearAgentReviewIfViewing(cwd: pwd)
+        }
+
+        if #available(macOS 26.0, *) {
+            // Git diff should be ready for the active tab without requiring any Worktrunk interaction.
+            if gitDiffSidebarState.isVisible || gitDiffSidebarState.isDiffActive,
+               let pwd = focusedSurface?.pwd {
+                Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd), force: true) }
+            }
         }
     }
 

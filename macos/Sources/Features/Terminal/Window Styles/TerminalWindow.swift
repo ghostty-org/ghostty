@@ -41,6 +41,8 @@ class TerminalWindow: NSWindow {
     private var tabMenuObserver: NSObjectProtocol? = nil
     private var titlebarFontTabGroupObservation: NSKeyValueObservation? = nil
     private var titlebarFontTabBarObservation: NSKeyValueObservation? = nil
+    private var lastTitlebarFontState: TitlebarFontState? = nil
+    private var lastAppliedAppearance: AppearanceState? = nil
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -429,6 +431,16 @@ class TerminalWindow: NSWindow {
 
     // MARK: Title Text
 
+    private struct TitlebarFontState: Equatable {
+        let title: String
+        let fontName: String
+        let fontSize: CGFloat
+        let isKeyWindow: Bool
+        let macosTitlebarStyle: String
+        let tabCount: Int
+        let toolbarIdentifier: ObjectIdentifier?
+    }
+
     override var title: String {
         didSet {
             // Only manage tab titles for custom tab styles.
@@ -442,7 +454,6 @@ class TerminalWindow: NSWindow {
             /// Check ``titlebarFont`` down below
             /// to see why we need to check `hasMoreThanOneTabs` here
             enforceTitlebarFont()
-            updateWorktrunkToolbarTitle()
         }
     }
 
@@ -453,7 +464,6 @@ class TerminalWindow: NSWindow {
             enforcedTitlebarFont = font
 
             enforceTitlebarFont()
-            updateWorktrunkToolbarTitle()
         }
     }
 
@@ -474,8 +484,24 @@ class TerminalWindow: NSWindow {
     }
 
     func enforceTitlebarFont() {
+        let tabCount = tabGroup?.windows.count ?? 0
+        let font = enforcedTitlebarFont
+        let state = TitlebarFontState(
+            title: title,
+            fontName: font.fontName,
+            fontSize: font.pointSize,
+            isKeyWindow: isKeyWindow,
+            macosTitlebarStyle: derivedConfig.macosTitlebarStyle,
+            tabCount: tabCount,
+            toolbarIdentifier: toolbar.map(ObjectIdentifier.init)
+        )
+        if state == lastTitlebarFontState {
+            return
+        }
+        lastTitlebarFontState = state
+
         if derivedConfig.macosTitlebarStyle != "tabs",
-           (tabGroup?.windows.count ?? 0) > 1 {
+           tabCount > 1 {
             updateWorktrunkToolbarTitle()
             return
         }
@@ -541,13 +567,63 @@ class TerminalWindow: NSWindow {
 
     // MARK: Positioning And Styling
 
+    private struct ColorRGBA: Equatable {
+        let r: CGFloat
+        let g: CGFloat
+        let b: CGFloat
+        let a: CGFloat
+    }
+
+    private struct AppearanceState: Equatable {
+        let isFullScreen: Bool
+        let forceOpaque: Bool
+        let backgroundOpacity: Double
+        let backgroundBlur: Ghostty.Config.BackgroundBlur
+        let macosWindowShadow: Bool
+        let windowTheme: String
+        let windowAppearanceName: String?
+        let preferredBackground: ColorRGBA?
+    }
+
+    private func rgba(from color: NSColor?) -> ColorRGBA? {
+        guard let color else { return nil }
+        guard let rgb = color.usingColorSpace(.deviceRGB) else { return nil }
+        return ColorRGBA(
+            r: rgb.redComponent,
+            g: rgb.greenComponent,
+            b: rgb.blueComponent,
+            a: rgb.alphaComponent
+        )
+    }
+
     /// This is called by the controller when there is a need to reset the window appearance.
     func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         // If our window is not visible, then we do nothing. Some things such as blurring
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
-        guard isVisible else { return }
+        guard isVisible else {
+            lastAppliedAppearance = nil
+            return
+        }
         defer { updateColorSchemeForSurfaceTree() }
+
+        let isFullScreen = styleMask.contains(.fullScreen)
+        let forceOpaque = terminalController?.isBackgroundOpaque ?? false
+        let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredBackground = preferredBackgroundColor
+        let appearanceState = AppearanceState(
+            isFullScreen: isFullScreen,
+            forceOpaque: forceOpaque,
+            backgroundOpacity: surfaceConfig.backgroundOpacity,
+            backgroundBlur: surfaceConfig.backgroundBlur,
+            macosWindowShadow: surfaceConfig.macosWindowShadow,
+            windowTheme: windowTheme,
+            windowAppearanceName: surfaceConfig.windowAppearance?.name.rawValue,
+            preferredBackground: rgba(from: preferredBackground)
+        )
+        if appearanceState == lastAppliedAppearance {
+            return
+        }
 
         // Basic properties
         appearance = surfaceConfig.windowAppearance
@@ -558,8 +634,7 @@ class TerminalWindow: NSWindow {
         // becomes gray and widgets show through.
         //
         // Also check if the user has overridden transparency to be fully opaque.
-        let forceOpaque = terminalController?.isBackgroundOpaque ?? false
-        if !styleMask.contains(.fullScreen) &&
+        if !isFullScreen &&
             !forceOpaque &&
             (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle)
         {
@@ -579,15 +654,16 @@ class TerminalWindow: NSWindow {
         } else {
             isOpaque = true
 
-            let windowTheme = surfaceConfig.windowTheme.trimmingCharacters(in: .whitespacesAndNewlines)
             let usesTerminalBackgroundForWindow = windowTheme == "auto" || windowTheme == "ghostty"
             if usesTerminalBackgroundForWindow {
-                let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
+                let backgroundColor = preferredBackground ?? NSColor(surfaceConfig.backgroundColor)
                 self.backgroundColor = backgroundColor.withAlphaComponent(1)
             } else {
                 self.backgroundColor = NSColor.windowBackgroundColor
             }
         }
+
+        lastAppliedAppearance = appearanceState
     }
 
     /// The preferred window background color. The current window background color may not be set

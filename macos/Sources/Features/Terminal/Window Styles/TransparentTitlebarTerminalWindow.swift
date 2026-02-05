@@ -11,6 +11,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     /// KVO observation for tab group window changes.
     private var tabGroupWindowsObservation: NSKeyValueObservation?
     private var tabBarVisibleObservation: NSKeyValueObservation?
+    private weak var observedTabGroup: NSWindowTabGroup?
 
     deinit {
         tabGroupWindowsObservation?.invalidate()
@@ -145,6 +146,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
     private func setupKVO() {
         // See the docs for the respective setup functions for why.
+        resetTabGroupObservationsIfNeeded()
         setupTabGroupObservation()
         setupTabBarVisibleObservation()
     }
@@ -153,12 +155,12 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     /// This is necessary because when the windows change, the tab bar and titlebar are recreated
     /// which breaks our changes.
     private func setupTabGroupObservation() {
-        // Remove existing observation if any
-        tabGroupWindowsObservation?.invalidate()
-        tabGroupWindowsObservation = nil
-
         // Check if tabGroup is available
         guard let tabGroup else { return }
+
+        if tabGroupWindowsObservation != nil {
+            return
+        }
 
         // Set up KVO observation for the windows array. Whenever it changes
         // we resync the appearance because it can cause macOS to redraw the
@@ -182,12 +184,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     /// Monitors the tab bar for visibility. This lets the "Show/Hide Tab Bar" manual menu item
     /// to not break our appearance.
     private func setupTabBarVisibleObservation() {
-        // Remove existing observation if any
-        tabBarVisibleObservation?.invalidate()
-        tabBarVisibleObservation = nil
-
         // Set up KVO observation for isTabBarVisible
-        tabBarVisibleObservation = tabGroup?.observe(
+        guard let tabGroup else { return }
+        if tabBarVisibleObservation != nil {
+            return
+        }
+
+        tabBarVisibleObservation = tabGroup.observe(
             \.isTabBarVisible,
              options: [.new]
         ) { [weak self] _, change in
@@ -195,6 +198,27 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             guard let lastSurfaceConfig else { return }
             self.syncAppearance(lastSurfaceConfig)
         }
+    }
+
+    private func resetTabGroupObservationsIfNeeded() {
+        guard let tabGroup else {
+            observedTabGroup = nil
+            tabGroupWindowsObservation?.invalidate()
+            tabGroupWindowsObservation = nil
+            tabBarVisibleObservation?.invalidate()
+            tabBarVisibleObservation = nil
+            return
+        }
+
+        if tabGroup === observedTabGroup {
+            return
+        }
+
+        observedTabGroup = tabGroup
+        tabGroupWindowsObservation?.invalidate()
+        tabGroupWindowsObservation = nil
+        tabBarVisibleObservation?.invalidate()
+        tabBarVisibleObservation = nil
     }
 
     // MARK: macOS 13 to 15
