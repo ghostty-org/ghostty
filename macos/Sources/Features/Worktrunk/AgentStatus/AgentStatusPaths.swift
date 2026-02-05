@@ -46,7 +46,7 @@ enum AgentStatusPaths {
         binDir.appendingPathComponent("codex")
     }
 
-    static var opencodePluginMarker: String { "// Ghostree opencode plugin v4" }
+    static var opencodePluginMarker: String { "// Ghostree opencode plugin v5" }
 
     /** @see https://opencode.ai/docs/plugins */
     static var opencodeGlobalPluginPath: URL {

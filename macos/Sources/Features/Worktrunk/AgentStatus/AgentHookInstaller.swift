@@ -1,7 +1,7 @@
 import Foundation
 
 enum AgentHookInstaller {
-    private static let notifyScriptMarker = "# Ghostree agent notification hook v6"
+    private static let notifyScriptMarker = "# Ghostree agent notification hook v7"
     private static let claudeSettingsMarker = "\"_v\":3"
     private static let wrapperMarker = "# Ghostree agent wrapper v3"
 
@@ -86,6 +86,7 @@ enum AgentHookInstaller {
         EVENTS_DIR="${GHOSTREE_AGENT_EVENTS_DIR:-\(eventsDir)}"
         [ -z "$EVENTS_DIR" ] && exit 0
         mkdir -p "$EVENTS_DIR" >/dev/null 2>&1
+        DEBUG_PATH="$EVENTS_DIR/agent-events-debug.jsonl"
 
         if [ -n "$1" ]; then
           INPUT="$1"
@@ -128,9 +129,29 @@ enum AgentHookInstaller {
         [ "$EVENT_TYPE" = "UserPromptSubmit" ] && EVENT_TYPE="Start"
         [ "$EVENT_TYPE" = "PermissionResponse" ] && EVENT_TYPE="Start"
         [ "$EVENT_TYPE" = "SessionEnd" ] && EVENT_TYPE="SessionEnd"
-        [ -z "$EVENT_TYPE" ] && exit 0
+        if [ -z "$EVENT_TYPE" ]; then
+          TS="$(perl -MTime::HiRes=time -MPOSIX=strftime -e '$t=time; $s=int($t); $ms=int(($t-$s)*1000); print strftime(\"%Y-%m-%dT%H:%M:%S\", gmtime($s)).sprintf(\".%03dZ\", $ms);')"
+          CWD="$(pwd -P 2>/dev/null || pwd)"
+          ESC_CWD="${CWD//\\\\/\\\\\\\\}"
+          ESC_CWD="${ESC_CWD//\\\"/\\\\\\\"}"
+          INPUT_B64="$(printf "%s" "$INPUT" | base64 -b 0)"
+          printf '{\"timestamp\":\"%s\",\"kind\":\"unrecognized_payload\",\"reason\":\"missing_event_type\",\"cwd\":\"%s\",\"input_base64\":\"%s\"}\\n' "$TS" "$ESC_CWD" "$INPUT_B64" >> "$DEBUG_PATH" 2>/dev/null
+          exit 0
+        fi
 
         JSON_CWD=$(echo "$INPUT" | grep -oE '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        if [ -z "$JSON_CWD" ]; then
+          JSON_CWD=$(echo "$INPUT" | grep -oE '"directory"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        fi
+        if [ -z "$JSON_CWD" ]; then
+          JSON_CWD=$(echo "$INPUT" | grep -oE '"workdir"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        fi
+        if [ -z "$JSON_CWD" ]; then
+          JSON_CWD=$(echo "$INPUT" | grep -oE '"worktree"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+        fi
+        if [ "$JSON_CWD" = "/" ]; then
+          JSON_CWD=""
+        fi
         if [ -n "$JSON_CWD" ]; then
           CWD="$JSON_CWD"
         else
@@ -288,23 +309,63 @@ enum AgentHookInstaller {
         import path from "node:path";
         
         export const GhostreeNotifyPlugin = async ({ client, directory, worktree }) => {
-          if (globalThis.__ghostreeOpencodeNotifyPluginV4) return {};
-          globalThis.__ghostreeOpencodeNotifyPluginV4 = true;
+          if (globalThis.__ghostreeOpencodeNotifyPluginV5) return {};
+          globalThis.__ghostreeOpencodeNotifyPluginV5 = true;
 
           const eventsDir = process?.env?.GHOSTREE_AGENT_EVENTS_DIR;
           if (!eventsDir) return {};
           const logPath = path.join(eventsDir, "agent-events.jsonl");
-          const cwd = worktree || directory || process.cwd();
+          const debugPath = path.join(eventsDir, "agent-events-debug.jsonl");
+          const baseCwd = worktree || directory || process.cwd();
+          let lastKnownCwd = baseCwd;
 
-          const append = (eventType) => {
+          const resolveCwd = (event) => {
+            const props = event?.properties ?? {};
+            return (
+              props.directory ??
+              props.cwd ??
+              props.path ??
+              props.worktree ??
+              props.info?.directory ??
+              props.info?.cwd ??
+              props.info?.path ??
+              null
+            );
+          };
+
+          const updateCwd = (event) => {
+            const eventCwd = resolveCwd(event);
+            if (eventCwd && eventCwd !== "/") {
+              lastKnownCwd = eventCwd;
+            }
+          };
+
+          const append = (eventType, event) => {
             try {
               fs.mkdirSync(eventsDir, { recursive: true });
               const payload = {
                 timestamp: new Date().toISOString(),
                 eventType,
-                cwd,
+                cwd: resolveCwd(event) ?? lastKnownCwd ?? baseCwd ?? process.cwd(),
               };
               fs.appendFileSync(logPath, JSON.stringify(payload) + "\\n");
+            } catch {
+              // Best-effort only
+            }
+          };
+
+          const debug = (kind, event, extra = {}) => {
+            try {
+              fs.mkdirSync(eventsDir, { recursive: true });
+              const payload = {
+                timestamp: new Date().toISOString(),
+                kind,
+                cwd: lastKnownCwd ?? baseCwd ?? process.cwd(),
+                eventType: event?.type ?? null,
+                properties: event?.properties ?? null,
+                ...extra,
+              };
+              fs.appendFileSync(debugPath, JSON.stringify(payload) + "\\n");
             } catch {
               // Best-effort only
             }
@@ -337,22 +398,22 @@ enum AgentHookInstaller {
             return props.sessionID ?? props.sessionId ?? props.session_id ?? props.session ?? props.id ?? null;
           };
         
-          const handleBusy = async (sessionID) => {
+          const handleBusy = async (sessionID, event) => {
             const sid = normalizeSessionID(sessionID);
             if (!rootSessionID) rootSessionID = sid;
             if (sid !== rootSessionID) return;
             if (currentState === "idle") {
               currentState = "busy";
               stopSent = false;
-              append("Start");
+              append("Start", event);
             }
           };
-        
-          const handleStop = async (sessionID) => {
+
+          const handleStop = async (sessionID, event) => {
             if (!sessionID && currentState === "busy" && !stopSent) {
               currentState = "idle";
               stopSent = true;
-              append("Stop");
+              append("Stop", event);
               rootSessionID = null;
               return;
             }
@@ -361,7 +422,7 @@ enum AgentHookInstaller {
             if (currentState === "busy" && !stopSent) {
               currentState = "idle";
               stopSent = true;
-              append("Stop");
+              append("Stop", event);
               rootSessionID = null;
             }
           };
@@ -369,17 +430,34 @@ enum AgentHookInstaller {
           return {
             event: async ({ event }) => {
               const sessionID = getSessionID(event);
+              updateCwd(event);
         
               if (await isChildSession(sessionID)) return;
         
               if (event.type === "session.status") {
                 const status = event.properties?.status;
-                if (status?.type === "busy") await handleBusy(sessionID);
-                if (status?.type === "idle") await handleStop(sessionID);
+                if (status?.type === "busy") await handleBusy(sessionID, event);
+                if (status?.type === "idle") await handleStop(sessionID, event);
+                if (status?.type !== "busy" && status?.type !== "idle") {
+                  debug("unhandled_status_type", event, { statusType: status?.type ?? null });
+                }
+                return;
               }
-        
-              if (event.type === "session.idle") await handleStop(sessionID);
-              if (event.type === "session.error") await handleStop(sessionID);
+
+              if (event.type === "session.idle") {
+                await handleStop(sessionID, event);
+                return;
+              }
+              if (event.type === "session.error") {
+                await handleStop(sessionID, event);
+                return;
+              }
+              if (event.type === "server.instance.disposed") {
+                await handleStop(sessionID, event);
+                return;
+              }
+
+              debug("unhandled_event_type", event);
             },
             "permission.ask": async (_permission, output) => {
               if (output.status === "ask") append("PermissionRequest");
