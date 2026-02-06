@@ -1595,9 +1595,16 @@ pub const Surface = extern struct {
     }
 
     pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
-        const alloc = Application.default().allocator();
+        const app = Application.default();
+        const alloc = app.allocator();
         var env = try internal_os.getEnvMap(alloc);
         errdefer env.deinit();
+
+        if (app.savedLanguage()) |language| {
+            try env.put("LANG", language);
+        } else {
+            env.remove("LANG");
+        }
 
         // Don't leak these GTK environment variables to child processes.
         env.remove("GDK_DEBUG");
