@@ -13,9 +13,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz",
-    "dest": "vendor/p/N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v",
-    "sha256": "3ba2dd92158718acec5caaf1a716043b5aa055c27b081d914af3ccb40dce8a55"
+    "url": "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.17.1/fontconfig-2.17.1.tar.gz",
+    "dest": "vendor/p/N-V-__8AANIsLQB6bOopmMzDkvz9nvrqdzH21s2jaxfGK9b9",
+    "sha256": "82e73b26adad651b236e5f5d4b3074daf8ff0910188808496326bd3449e5261d"
   },
   {
     "type": "archive",
