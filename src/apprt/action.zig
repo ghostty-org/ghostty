@@ -7,6 +7,7 @@ const input = @import("../input.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const CoreSurface = @import("../Surface.zig");
+const lib = @import("../lib/main.zig");
 
 /// The target for an action. This is generally the thing that had focus
 /// while the action was made but the concept of "focus" is not guaranteed
@@ -436,8 +437,8 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 16,
-            8 => 24,
+            4 => 20,
+            8 => 32,
             else => unreachable,
         });
     }
@@ -855,17 +856,38 @@ pub const CloseTabMode = enum(c_int) {
 };
 
 pub const CommandFinished = struct {
+    /// The command line, as reported by the shell, or null if the command line
+    /// is unknown.
+    command_line: ?[]const u8,
+    /// The exit code, as reported by the shell. The exit code will be a number
+    /// between 0 and 255  or null if no exit code was provided. 0 indicates
+    /// that the command was successful. Any number from 1 to 255 indicates an
+    /// application specific error code.
     exit_code: ?u8,
+    /// How long the command took in nanoseconds. Despite the duration being
+    /// reported in nanoseconds the accuracy is probably only within a few
+    /// milliseconds.
     duration: configpkg.Config.Duration,
 
     /// sync with ghostty_action_command_finished_s in ghostty.h
     pub const C = extern struct {
+        /// The command line, as reported by the shell, or null if the command
+        /// line is unknown.
+        command_line: lib.String,
+        /// The exit code, as reported by the shell. The exit code will be a
+        /// number between 0 and 255  or null if no exit code was provided. 0
+        /// indicates that the command was successful. Any number from 1 to 255
+        /// indicates an application specific error code.
         exit_code: i16,
+        // How long the command took in nanoseconds. Despite the duration being
+        // reported in nanoseconds the accuracy is probably only within a few
+        // milliseconds.
         duration: u64,
     };
 
     pub fn cval(self: CommandFinished) C {
         return .{
+            .command_line = .init(self.command_line orelse ""),
             .exit_code = self.exit_code orelse -1,
             .duration = self.duration.duration,
         };

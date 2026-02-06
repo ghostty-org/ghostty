@@ -91,12 +91,13 @@ pub const Message = union(enum) {
     /// Report the progress of an action using a GUI element
     progress_report: terminal.osc.Command.ProgressReport,
 
-    /// A command has started in the shell, start a timer.
-    start_command,
+    /// A command has started in the shell. Start a timer and store the command
+    /// line (if provided) for later display.
+    start_command: StartCommand,
 
-    /// A command has finished in the shell, stop the timer and send out
-    /// notifications as appropriate. The optional u8 is the exit code
-    /// of the command.
+    /// A command has finished in the shell. Stop the timer and send out
+    /// notifications as appropriate. The optional u8 is the exit code of the
+    /// command.
     stop_command: ?u8,
 
     /// The scrollbar state changed for the surface.
@@ -128,6 +129,25 @@ pub const Message = union(enum) {
 
             .none => void,
         };
+    };
+
+    pub const StartCommand = struct {
+        command_line: ?WriteReq,
+
+        /// Return the command line, or null if no command line was supplied.
+        pub fn init(alloc: std.mem.Allocator, command_line: []const u8) StartCommand {
+            if (command_line.len == 0) return .{
+                .command_line = null,
+            };
+
+            return .{
+                .command_line = WriteReq.init(alloc, command_line) catch null,
+            };
+        }
+
+        pub fn deinit(self: *const StartCommand) void {
+            if (self.command_line) |command_line| command_line.deinit();
+        }
     };
 };
 
