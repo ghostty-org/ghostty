@@ -50,16 +50,19 @@
   fn sudo-with-terminfo {|@args|
     var sudoedit = $false
     for arg $args {
-      use str
-      if (str:has-prefix $arg -) {
-        if (has-value [e -edit] $arg[1..]) {
+      if (str:has-prefix $arg --) {
+        if (eq $arg --edit) {
           set sudoedit = $true
           break
         }
-        continue
+      } elif (str:has-prefix $arg -) {
+        if (str:contains (str:trim-prefix $arg -) e) {
+          set sudoedit = $true
+          break
+        }
+      } elif (not (str:contains $arg =)) {
+        break
       }
-
-      if (not (has-value $arg =)) { break }
     }
 
     if (not $sudoedit) { set args = [ --preserve-env=TERMINFO $@args ] }
