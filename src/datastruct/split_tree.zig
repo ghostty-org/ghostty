@@ -407,17 +407,50 @@ pub fn SplitTree(comptime V: type) type {
                     .split => continue,
                 }
 
-                // Ensure it is in the proper direction
-                if (!switch (direction) {
-                    .left => slot.maxX() <= target.x,
-                    .right => slot.x >= target.maxX(),
-                    .up => slot.maxY() <= target.y,
-                    .down => slot.y >= target.maxY(),
-                }) continue;
-
-                // Track our distance
-                const dx = slot.x - target.x;
-                const dy = slot.y - target.y;
+                var dx: f16 = undefined;
+                var dy: f16 = undefined;
+                switch (direction) {
+                    .left => {
+                        if (slot.maxX() <= target.x) {
+                            dx = slot.x - target.x;
+                        } else if (slot.x >= target.maxX()) {
+                            dx = slot.x - 1 - target.x;
+                        } else {
+                            continue;
+                        }
+                        dy = slot.y - target.y;
+                    },
+                    .right => {
+                        if (slot.x >= target.maxX()) {
+                            dx = slot.x - target.x;
+                        } else if (slot.maxX() <= target.x) {
+                            dx = slot.x + 1 - target.x;
+                        } else {
+                            continue;
+                        }
+                        dy = slot.y - target.y;
+                    },
+                    .up => {
+                        if (slot.maxY() <= target.y) {
+                            dy = slot.y - target.y;
+                        } else if (slot.y >= target.maxY()) {
+                            dy = slot.y - 1 - target.y;
+                        } else {
+                            continue;
+                        }
+                        dx = slot.x - target.x;
+                    },
+                    .down => {
+                        if (slot.y >= target.maxY()) {
+                            dy = slot.y - target.y;
+                        } else if (slot.maxY() <= target.y) {
+                            dy = slot.y + 1 - target.y;
+                        } else {
+                            continue;
+                        }
+                        dx = slot.x - target.x;
+                    },
+                }
                 const distance = @sqrt(dx * dx + dy * dy);
 
                 // If we have a nearest it must be closer.
@@ -1972,6 +2005,42 @@ test "SplitTree: spatial goto" {
         )).?;
         const view = split.nodes[target.idx()].leaf;
         try testing.expectEqualStrings("A", view.label);
+    }
+
+    // Spatial C => left
+    {
+        const target = (try split.goto(
+            alloc,
+            from: {
+                var it = split.iterator();
+                break :from while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "C")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .{ .spatial = .left },
+        )).?;
+        const view = split.nodes[target.idx()].leaf;
+        try testing.expectEqualStrings(view.label, "D");
+    }
+
+    // Spatial C => down
+    {
+        const target = (try split.goto(
+            alloc,
+            from: {
+                var it = split.iterator();
+                break :from while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "C")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .{ .spatial = .down },
+        )).?;
+        const view = split.nodes[target.idx()].leaf;
+        try testing.expectEqualStrings(view.label, "A");
     }
 
     // Equalize
