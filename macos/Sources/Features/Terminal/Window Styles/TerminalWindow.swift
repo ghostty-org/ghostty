@@ -669,6 +669,7 @@ private struct TabColorIndicatorView: View {
 
 extension TerminalWindow {
     private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+    private static let moveToQuickTerminalMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.moveToQuickTerminalMenuItem")
     private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.changeTitleMenuItem")
     private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
 
@@ -676,6 +677,12 @@ extension TerminalWindow {
 
     func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
         guard isTabContextMenu(menu) else { return }
+
+        // Remove our custom items to prevent duplicates
+        menu.removeItems(withIdentifiers: [
+            Self.closeTabsOnRightMenuItemIdentifier,
+            Self.moveToQuickTerminalMenuItemIdentifier
+        ])
 
         // Get the target from an existing menu item. The native tab context menu items
         // target the specific window/controller that was right-clicked, not the focused one.
@@ -701,6 +708,23 @@ extension TerminalWindow {
                 menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
                 menuItem.setImageIfDesired(systemSymbolName: "xmark")
             }
+        }
+
+        // Move Tab to Quick Terminal - insert after "Show All Tabs" (toggleTabOverview:)
+        let moveToQuickItem = NSMenuItem(
+            title: "Move Tab to Quick Terminal",
+            action: #selector(TerminalController.moveTabToQuickTerminal(_:)),
+            keyEquivalent: ""
+        )
+        moveToQuickItem.identifier = Self.moveToQuickTerminalMenuItemIdentifier
+        moveToQuickItem.target = targetController
+        if #available(macOS 26.0, *) {
+            moveToQuickItem.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
+        } else {
+            moveToQuickItem.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        }
+        if menu.insertItem(moveToQuickItem, after: NSSelectorFromString("toggleTabOverview:")) == nil {
+            menu.addItem(moveToQuickItem)
         }
 
         appendTabModifierSection(to: menu, target: targetController)
