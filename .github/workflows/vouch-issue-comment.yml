@@ -1,0 +1,64 @@
+name: Vouch Issue Comment
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  vouch:
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: namespace-profile-ghostty-xsm
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Manage contributor
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          status=$(nix develop -c nu .github/vouch/vouch.nu gh-manage-by-issue \
+            -R ${{ github.repository }} \
+            ${{ github.event.issue.number }} \
+            ${{ github.event.comment.id }} \
+            --dry-run=false \
+            | tail -1)
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.update.outputs.status != 'unchanged' && steps.update.outputs.status != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/VOUCHED
+          git diff --staged --quiet || git commit -m "chore: update VOUCHED for ${{ github.event.issue.user.login }}"
+          git push
+
+      - name: Comment on vouch
+        if: steps.update.outputs.status == 'vouched'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "@${{ github.event.issue.user.login }} has been vouched for and added to the contributors list. You can now submit PRs. Thanks for contributing!"
+
+      - name: Comment on denounce
+        if: steps.update.outputs.status == 'denounced'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "@${{ github.event.issue.user.login }} has been denounced from this project. Bye, Felicia!"
