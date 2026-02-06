@@ -39,6 +39,7 @@ const Window = @import("window.zig").Window;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
+const ExpiringUndoStack = @import("../expiring_undo_stack.zig").ExpiringUndoStack;
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -212,6 +213,10 @@ pub const Application = extern struct {
 
         /// Providers for loading custom stylesheets defined by user
         custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
+
+        /// Undo stack for closed surfaces. Allows undoing close operations
+        /// within the configured timeout window.
+        undo_stack: ?*ExpiringUndoStack = null,
 
         pub var offset: c_int = 0;
     };
@@ -416,6 +421,18 @@ pub const Application = extern struct {
     pub fn deinit(self: *Self) void {
         const alloc = self.allocator();
         const priv = self.private();
+        if (priv.undo_stack) |stack| {
+            stack.deinit();
+            alloc.destroy(stack);
+            priv.undo_stack = null;
+        }
+
+        // Flush GLib main loop to ensure surfaces are finalized before
+        // Core App asserts font_grid_set.count() == 0. The unref() calls
+        // in stack.deinit() schedule finalizations asynchronously.
+        const ctx = glib.MainContext.default();
+        while (glib.MainContext.iteration(ctx, 0) != 0) {}
+
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
@@ -629,6 +646,11 @@ pub const Application = extern struct {
                 // tries to free on its own. I think this is probably a bug in
                 // the fcitx ime widget but still, we don't want a double free!
                 if (gobject.ext.isA(window, Window)) {
+                    // Force cleanup of all Core surfaces before destroying.
+                    // GObject finalization is async, but Core App.deinit asserts
+                    // font_grid_set.count() == 0, so we must cleanup synchronously.
+                    const ghostty_window = gobject.ext.cast(Window, window).?;
+                    ghostty_window.forceDeinitAllSurfaces();
                     window.destroy();
                 }
             }
@@ -740,6 +762,11 @@ pub const Application = extern struct {
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
 
+            .undo => {
+                self.performUndo();
+                return true;
+            },
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -752,7 +779,6 @@ pub const Application = extern struct {
             .color_change,
             .reset_window_size,
             .check_for_updates,
-            .undo,
             .redo,
             => {
                 log.warn("unimplemented action={}", .{action});
@@ -1176,6 +1202,11 @@ pub const Application = extern struct {
         return self.private().config.ref();
     }
 
+    /// Returns the undo stack for close operations, if enabled.
+    pub fn undoStack(self: *Self) ?*ExpiringUndoStack {
+        return self.private().undo_stack;
+    }
+
     /// Set the configuration for this application. The reference count
     /// is increased on the new configuration and the old one is
     /// unreferenced.
@@ -1280,6 +1311,9 @@ pub const Application = extern struct {
 
         // Setup our action map
         self.startupActionMap();
+
+        // Setup undo stack for close operations
+        self.startupUndoStack();
 
         // Setup our global shortcuts
         self.startupGlobalShortcuts();
@@ -1400,9 +1434,33 @@ pub const Application = extern struct {
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
+            .init("undo", actionUndo, null),
         };
 
         ext.actions.add(Self, self, &actions);
+    }
+
+    /// Setup undo stack for close operations.
+    fn startupUndoStack(self: *Self) void {
+        const priv = self.private();
+        const config = priv.config.get();
+        const timeout_ms = config.@"undo-timeout".asMilliseconds();
+
+        // If timeout is 0, undo is disabled
+        if (timeout_ms == 0) {
+            log.debug("undo stack disabled (timeout=0)", .{});
+            return;
+        }
+
+        // Allocate and initialize the undo stack
+        const stack = self.allocator().create(ExpiringUndoStack) catch |err| {
+            log.warn("failed to create undo stack: {}", .{err});
+            return;
+        };
+        stack.* = ExpiringUndoStack.init(timeout_ms);
+        priv.undo_stack = stack;
+
+        log.debug("undo stack initialized with timeout={}ms", .{timeout_ms});
     }
 
     /// Setup our global shortcuts.
@@ -1725,6 +1783,72 @@ pub const Application = extern struct {
         priv.core_app.performAction(self.rt(), .quit) catch |err| {
             log.warn("error quitting err={}", .{err});
         };
+    }
+
+    /// Handle `app.undo` GTK action - undo the last close operation.
+    fn actionUndo(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        self.performUndo();
+    }
+
+    /// Perform undo operation - restores the last closed surface/tab.
+    /// Called from both GTK action and keybinding action.
+    pub fn performUndo(self: *Self) void {
+        const stack = self.undoStack() orelse {
+            log.debug("undo action: no undo stack available", .{});
+            return;
+        };
+
+        var entry = stack.pop() orelse {
+            log.debug("undo action: no entries to undo", .{});
+            return;
+        };
+
+        // Try to get the window where the close happened
+        const window = entry.window_ref.get() orelse {
+            log.debug("undo action: window no longer exists, cleaning up", .{});
+            // Window is gone, just unref the surfaces
+            for (entry.surfaces[0..entry.surface_count]) |surface| {
+                surface.as(gobject.Object).unref();
+            }
+            return;
+        };
+        defer window.as(gobject.Object).unref(); // get() returns a strong ref
+
+        switch (entry.kind) {
+            .split => {
+                // Restore a single surface to the current tab's split tree
+                if (entry.surface_count > 0) {
+                    const surface = entry.surfaces[0];
+                    window.restoreSurface(surface) catch |err| {
+                        log.warn("failed to restore surface: {}", .{err});
+                        // Failed to restore, clean up
+                        for (entry.surfaces[0..entry.surface_count]) |s| {
+                            s.as(gobject.Object).unref();
+                        }
+                        return;
+                    };
+                    // Surface ownership transferred to tree, don't unref
+                    log.info("restored split surface", .{});
+                }
+            },
+            .tab => {
+                // Restore an entire tab with all its surfaces
+                window.restoreTab(entry.surfaces[0..entry.surface_count], entry.tab_index) catch |err| {
+                    log.warn("failed to restore tab: {}", .{err});
+                    // Failed to restore, clean up
+                    for (entry.surfaces[0..entry.surface_count]) |s| {
+                        s.as(gobject.Object).unref();
+                    }
+                    return;
+                };
+                // Surface ownership transferred to tree, don't unref
+                log.info("restored tab with {} surfaces", .{entry.surface_count});
+            },
+        }
     }
 
     /// Handle `app.new-window` and `app.new-window-command` GTK actions
