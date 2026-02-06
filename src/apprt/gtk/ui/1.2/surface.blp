@@ -1,4 +1,5 @@
 using Gtk 4.0;
+using Gdk 4.0;
 using Adw 1;
 
 Adw.StatusPage error_page {
@@ -219,9 +220,55 @@ Overlay terminal_page {
     }
   }
 
+  [overlay]
+  CenterBox drag_handle {
+    halign: fill;
+    valign: start;
+
+    styles [
+      "drag-handle",
+    ]
+
+    [center]
+    Image {
+      icon-name: "view-more-horizontal-symbolic";
+    }
+
+    DragSource surface_drag_source {
+      actions: move;
+      content: bind $surface_content_provider() as <Gdk.ContentProvider>;
+      drag-begin => $surface_drag_begin();
+    }
+  }
+
+  [overlay]
+  DrawingArea drop_overlay {
+    halign: fill;
+    valign: fill;
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    styles [
+      "drop-overlay",
+    ]
+  }
+
   DropTarget drop_target {
     drop => $drop();
     actions: copy;
+  }
+
+  DropTarget surface_drop_target {
+    // Enabling preload is required since that lets us know
+    // which surface is currently being dragged, and to turn off
+    // the drop overlay if the source and target are the same
+    preload: true;
+    leave => $surface_drop_leave();
+    motion => $surface_drop_motion();
+    drop => $surface_drop();
+    notify::value => $notify_drop_value();
+    actions: move;
   }
 }
 

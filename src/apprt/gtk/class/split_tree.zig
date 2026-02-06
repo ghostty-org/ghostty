@@ -372,6 +372,74 @@ pub const SplitTree = extern struct {
         return true;
     }
 
+    /// Move the source split onto the target split in a given direction.
+    /// The target split must be located within this tree.
+    pub fn moveSplit(
+        self: *Self,
+        source: *Surface,
+        target: *Surface,
+        dir: Surface.Tree.Split.Direction,
+    ) Allocator.Error!void {
+        const alloc = Application.default().allocator();
+        const target_tree = self.getTree() orelse return;
+
+        // This really shouldn't fail, but just in case
+        const target_handle = target_tree.locate(target) orelse {
+            log.warn("target is not placed in a split tree", .{});
+            return;
+        };
+
+        // Try to find the source within the current tree.
+        // If it exists, then it's a local move; otherwise the logic gets more
+        // complicated
+        const source_handle = target_tree.locate(source);
+
+        // First add the source into this tree.
+        // We have to do this no matter what
+        var branch = try Surface.Tree.init(alloc, source);
+        defer branch.deinit();
+
+        var after_split = try target_tree.split(
+            alloc,
+            target_handle,
+            dir,
+            0.5,
+            &branch,
+        );
+        defer after_split.deinit();
+
+        if (source_handle) |handle| {
+            // Happy path: source and target are located within the same tree.
+            // In that case, we just remove the existing source from this tree
+
+            var after_remove = try after_split.remove(alloc, handle);
+            defer after_remove.deinit();
+
+            self.setTree(&after_remove);
+        } else {
+            // :( Cross-tree moves are a bit more complicated.
+
+            // TODO: Find a better way to access the split tree from here
+            const source_tree_widget = ext.getAncestor(
+                SplitTree,
+                source.as(gtk.Widget),
+            ) orelse {
+                log.warn("source is not placed in a split tree", .{});
+                return;
+            };
+            const source_tree = source_tree_widget.getTree() orelse return;
+
+            // Remove the source from its own tree
+            const handle = source_tree.locate(source) orelse return;
+            var new_source_tree = try source_tree.remove(alloc, handle);
+            defer new_source_tree.deinit();
+
+            // Finally, set the final tree structures for both tree widgets
+            source_tree_widget.setTree(&new_source_tree);
+            self.setTree(&after_split);
+        }
+    }
+
     fn disconnectSurfaceHandlers(self: *Self) void {
         const tree = self.getTree() orelse return;
         var it = tree.iterator();
@@ -688,17 +756,8 @@ pub const SplitTree = extern struct {
 
         // Find the surface in the tree to verify this is valid and
         // set our pending close handle.
-        priv.pending_close = handle: {
-            const tree = self.getTree() orelse return;
-            var it = tree.iterator();
-            while (it.next()) |entry| {
-                if (entry.view == surface) {
-                    break :handle entry.handle;
-                }
-            }
-
-            return;
-        };
+        const tree = self.getTree() orelse return;
+        priv.pending_close = tree.locate(surface) orelse return;
 
         // If we don't need to confirm then just close immediately.
         if (!core.needsConfirmQuit()) {
