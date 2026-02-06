@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 const adw = @import("adw");
+const gdk = @import("gdk");
 const gio = @import("gio");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
@@ -305,6 +306,35 @@ pub const CommandPalette = extern struct {
         self.activated(pos);
     }
 
+    /// Handle custom keys for scrolling the command palette.
+    fn ecKeyPressed(
+        _: *gtk.EventControllerKey,
+        keyval: c_uint,
+        _: c_uint,
+        gtk_mods: gdk.ModifierType,
+        self: *Self,
+    ) callconv(.c) c_int {
+        const priv: *Private = self.private();
+
+        const mods = key.translateMods(gtk_mods);
+        const total = priv.model.as(gio.ListModel).getNItems();
+        const current = priv.model.getSelected();
+
+        if ((keyval == gdk.KEY_n or keyval == gdk.KEY_j) and mods.ctrl and current + 1 < total) {
+            priv.model.setSelected(current + 1);
+            priv.view.scrollTo(current + 1, .{ .focus = true, .select = true }, null);
+            return @intFromBool(true);
+        }
+
+        if ((keyval == gdk.KEY_p or keyval == gdk.KEY_k) and mods.ctrl and current > 0) {
+            priv.model.setSelected(current - 1);
+            priv.view.scrollTo(current - 1, .{ .focus = true, .select = true }, null);
+            return @intFromBool(true);
+        }
+
+        return @intFromBool(false);
+    }
+
     //---------------------------------------------------------------
 
     /// Show or hide the command palette dialog. If the dialog is shown it will
@@ -399,6 +429,7 @@ pub const CommandPalette = extern struct {
             class.bindTemplateCallback("search_stopped", &searchStopped);
             class.bindTemplateCallback("search_activated", &searchActivated);
             class.bindTemplateCallback("row_activated", &rowActivated);
+            class.bindTemplateCallback("key_pressed", &ecKeyPressed);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
