@@ -1,0 +1,319 @@
+# Vietnamese translations for com.mitchellh.ghostty package.
+# Copyright (C) 2025 "Mitchell Hashimoto, Ghostty contributors"
+# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Anh Thang <buianhthang89@gmail.com>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: com.mitchellh.ghostty\n"
+"Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-09-25 23:52+0700\n"
+"Last-Translator: Anh Thang <buianhthang89@gmail.com>\n"
+"Language-Team: Vietnamese <translation-team-vi@lists.sourceforge.net>\n"
+"Language: vi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
+msgid "Change Terminal Title"
+msgstr "Đổi Tiêu đề Terminal"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
+msgid "Leave blank to restore the default title."
+msgstr "Để trống để khôi phục tiêu đề mặc định."
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
+#: src/apprt/gtk/CloseDialog.zig:44
+msgid "Cancel"
+msgstr "Hủy"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
+msgid "OK"
+msgstr "Đồng ý"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "Lỗi Cấu hình"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Đã tìm thấy một hoặc nhiều lỗi cấu hình. Vui lòng xem lại các lỗi bên dưới, "
+"và chọn tải lại cấu hình hoặc bỏ qua các lỗi này."
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
+msgid "Ignore"
+msgstr "Bỏ qua"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
+msgid "Reload Configuration"
+msgstr "Tải lại Cấu hình"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Chia Lên trên"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Chia Xuống dưới"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Chia Trái"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Chia Phải"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:16
+msgid "Execute a command…"
+msgstr "Thực thi một lệnh…"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
+msgid "Copy"
+msgstr "Sao chép"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11 src/apprt/gtk/ui/1.2/ccw-paste.blp:11
+msgid "Paste"
+msgstr "Dán"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+msgid "Clear"
+msgstr "Xóa"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+msgid "Reset"
+msgstr "Thiết lập lại"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+msgid "Split"
+msgstr "Chia"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+msgid "Change Title…"
+msgstr "Đổi Tiêu đề…"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
+msgid "Tab"
+msgstr "Thẻ"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
+#: src/apprt/gtk/Window.zig:265
+msgid "New Tab"
+msgstr "Thẻ Mới"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
+msgid "Close Tab"
+msgstr "Đóng Thẻ"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
+msgid "Window"
+msgstr "Cửa sổ"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
+msgid "New Window"
+msgstr "Cửa sổ Mới"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
+msgid "Close Window"
+msgstr "Đóng Cửa sổ"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
+msgid "Config"
+msgstr "Cấu hình"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+msgid "Open Configuration"
+msgstr "Mở Cấu hình"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+msgid "Command Palette"
+msgstr "Bảng lệnh"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+msgid "Terminal Inspector"
+msgstr "Trình kiểm tra Terminal"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+#: src/apprt/gtk/Window.zig:1038
+msgid "About Ghostty"
+msgstr "Giới thiệu về Ghostty"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:112
+msgid "Quit"
+msgstr "Thoát"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:6
+msgid "Authorize Clipboard Access"
+msgstr "Cho phép Truy cập Bảng tạm"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:7
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Một ứng dụng đang cố gắng đọc từ bảng tạm. Nội dung bảng tạm hiện tại "
+"được hiển thị bên dưới."
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:10
+msgid "Deny"
+msgstr "Từ chối"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:11
+msgid "Allow"
+msgstr "Cho phép"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
+msgid "Remember choice for this split"
+msgstr "Nhớ lựa chọn cho lần chia này"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
+msgid "Reload configuration to show this prompt again"
+msgstr "Tải lại cấu hình để hiển thị lời nhắc này lần nữa"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
+msgid ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Một ứng dụng đang cố gắng ghi vào bảng tạm. Nội dung bảng tạm hiện tại "
+"được hiển thị bên dưới."
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6 src/apprt/gtk/ui/1.2/ccw-paste.blp:6
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "Cảnh báo: Dán có thể không an toàn"
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7 src/apprt/gtk/ui/1.2/ccw-paste.blp:7
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
+msgstr ""
+"Việc dán văn bản này vào terminal có thể nguy hiểm vì có vẻ như "
+"một số lệnh có thể được thực thi."
+
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
+msgid "Close"
+msgstr "Đóng"
+
+#: src/apprt/gtk/CloseDialog.zig:87
+msgid "Quit Ghostty?"
+msgstr "Thoát Ghostty?"
+
+#: src/apprt/gtk/CloseDialog.zig:88
+msgid "Close Window?"
+msgstr "Đóng Cửa sổ?"
+
+#: src/apprt/gtk/CloseDialog.zig:89
+msgid "Close Tab?"
+msgstr "Đóng Thẻ?"
+
+#: src/apprt/gtk/CloseDialog.zig:90
+msgid "Close Split?"
+msgstr "Đóng Lần chia này?"
+
+#: src/apprt/gtk/CloseDialog.zig:96
+msgid "All terminal sessions will be terminated."
+msgstr "Tất cả các phiên terminal sẽ bị chấm dứt."
+
+#: src/apprt/gtk/CloseDialog.zig:97
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Tất cả các phiên terminal trong cửa sổ này sẽ bị chấm dứt."
+
+#: src/apprt/gtk/CloseDialog.zig:98
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Tất cả các phiên terminal trong tab này sẽ bị chấm dứt."
+
+#: src/apprt/gtk/CloseDialog.zig:99
+msgid "The currently running process in this split will be terminated."
+msgstr "Tiến trình đang chạy trong lần chia này sẽ bị chấm dứt."
+
+#: src/apprt/gtk/Surface.zig:1266
+msgid "Copied to clipboard"
+msgstr "Đã sao chép vào bảng tạm"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "Đã xóa bảng tạm"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "Lệnh đã thành công"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "Lệnh đã thất bại"
+
+#: src/apprt/gtk/Window.zig:216
+msgid "Main Menu"
+msgstr "Menu chính"
+
+#: src/apprt/gtk/Window.zig:239
+msgid "View Open Tabs"
+msgstr "Xem các Thẻ đang mở"
+
+#: src/apprt/gtk/Window.zig:266
+msgid "New Split"
+msgstr "Chia Mới"
+
+#: src/apprt/gtk/Window.zig:329
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Bạn đang chạy phiên bản gỡ lỗi của Ghostty! Hiệu suất sẽ bị giảm."
+
+#: src/apprt/gtk/Window.zig:775
+msgid "Reloaded the configuration"
+msgstr "Đã tải lại cấu hình"
+
+#: src/apprt/gtk/Window.zig:1019
+msgid "Ghostty Developers"
+msgstr "Nhà phát triển Ghostty"
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Trình kiểm tra Terminal"
