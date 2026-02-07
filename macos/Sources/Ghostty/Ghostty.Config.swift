@@ -520,6 +520,14 @@ extension Ghostty {
             return QuickTerminalSpaceBehavior(fromGhosttyConfig: str) ?? .move
         }
 
+        var quickTerminalFloating: Bool {
+            guard let config = self.config else { return false }
+            var v = false
+            let key = "quick-terminal-floating"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         var quickTerminalSize: QuickTerminalSize {
             guard let config = self.config else { return QuickTerminalSize() }
             var v = ghostty_config_quick_terminal_size_s()

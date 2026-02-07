@@ -472,10 +472,14 @@ class QuickTerminalController: BaseTerminalController {
                     return
                 }
 
-                // After animating in, we reset the window level to a value that
-                // is above other windows but not as high as popUpMenu. This allows
-                // things like IME dropdowns to appear properly.
-                window.level = .floating
+                // After animating in, we reset the window level. When floating mode
+                // is enabled, we use screenSaver level to appear above fullscreen apps.
+                // Otherwise, we use floating level which allows IME dropdowns to appear.
+                if self.derivedConfig.quickTerminalFloating {
+                    window.level = .screenSaver
+                } else {
+                    window.level = .floating
+                }
 
                 // Now that the window is visible, sync our appearance. This function
                 // requires the window is visible.
@@ -722,6 +726,7 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalAnimationDuration: Double
         let quickTerminalAutoHide: Bool
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
+        let quickTerminalFloating: Bool
         let quickTerminalSize: QuickTerminalSize
         let backgroundOpacity: Double
         let backgroundBlur: Ghostty.Config.BackgroundBlur
@@ -731,6 +736,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAnimationDuration = 0.2
             self.quickTerminalAutoHide = true
             self.quickTerminalSpaceBehavior = .move
+            self.quickTerminalFloating = false
             self.quickTerminalSize = QuickTerminalSize()
             self.backgroundOpacity = 1.0
             self.backgroundBlur = .disabled
@@ -741,6 +747,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
+            self.quickTerminalFloating = config.quickTerminalFloating
             self.quickTerminalSize = config.quickTerminalSize
             self.backgroundOpacity = config.backgroundOpacity
             self.backgroundBlur = config.backgroundBlur

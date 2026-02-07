@@ -2642,6 +2642,18 @@ keybind: Keybinds = .{},
 /// Available since: 1.1.0
 @"quick-terminal-space-behavior": QuickTerminalSpaceBehavior = .move,
 
+/// When enabled, the quick terminal window floats above all other windows,
+/// including fullscreen applications. This is similar to iTerm2's
+/// "Floating window" option for dedicated hotkey windows.
+///
+/// When this is set to `true`, the quick terminal will appear above
+/// fullscreen apps (e.g., a browser in fullscreen mode).
+///
+/// Only implemented on macOS.
+///
+/// Available since: 1.2.0
+@"quick-terminal-floating": bool = false,
+
 /// Determines under which circumstances that the quick terminal should receive
 /// keyboard input. See the corresponding [Wayland documentation](https://wayland.app/protocols/wlr-layer-shell-unstable-v1#zwlr_layer_surface_v1:enum:keyboard_interactivity)
 /// for a more detailed explanation of the behavior of each option.
