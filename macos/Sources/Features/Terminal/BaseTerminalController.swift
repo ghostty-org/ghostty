@@ -48,7 +48,8 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
-    
+    @Published var commandPaletteIsJumpPalette: Bool = false
+
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
@@ -157,6 +158,11 @@ class BaseTerminalController: NSWindowController,
             self,
             selector: #selector(ghosttyCommandPaletteDidToggle(_:)),
             name: .ghosttyCommandPaletteDidToggle,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyJumpPaletteDidToggle(_:)),
+            name: .ghosttyJumpPaletteDidToggle,
             object: nil)
         center.addObserver(
             self,
@@ -566,6 +572,12 @@ class BaseTerminalController: NSWindowController,
         guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(surfaceView) else { return }
         toggleCommandPalette(nil)
+    }
+
+    @objc private func ghosttyJumpPaletteDidToggle(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(surfaceView) else { return }
+        toggleJumpPalette(nil)
     }
 
     @objc private func ghosttyMaximizeDidToggle(_ notification: Notification) {
@@ -1366,6 +1378,12 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func toggleCommandPalette(_ sender: Any?) {
+        commandPaletteIsJumpPalette = false
+        commandPaletteIsShowing.toggle()
+    }
+
+    @IBAction func toggleJumpPalette( _ sender: Any?) {
+        commandPaletteIsJumpPalette = true
         commandPaletteIsShowing.toggle()
     }
     
