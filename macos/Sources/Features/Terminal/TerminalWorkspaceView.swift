@@ -8,10 +8,14 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
 
     @ObservedObject var worktrunkStore: WorktrunkStore
     @ObservedObject var worktrunkSidebarState: WorktrunkSidebarState
+    @ObservedObject var openTabsModel: WorktrunkOpenTabsModel
     @ObservedObject var gitDiffSidebarState: GitDiffSidebarState
     let openWorktree: (String) -> Void
     let openWorktreeAgent: (String, WorktrunkAgent) -> Void
     let resumeSession: ((AISession) -> Void)?
+    let focusNativeTab: (Int) -> Void
+    let moveNativeTabBefore: (Int, Int) -> Void
+    let moveNativeTabAfter: (Int, Int) -> Void
     let onSidebarWidthChange: (CGFloat) -> Void
     let onGitDiffSelect: (GitDiffEntry, GitDiffScope) -> Void
     let onGitDiffWorktreeSelect: (String?) -> Void
@@ -27,10 +31,14 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
             WorktrunkSidebarView(
                 store: worktrunkStore,
                 sidebarState: worktrunkSidebarState,
+                openTabsModel: openTabsModel,
                 tooltipState: statusRingTooltipState,
                 openWorktree: openWorktree,
                 openWorktreeAgent: openWorktreeAgent,
                 resumeSession: resumeSession,
+                focusNativeTab: focusNativeTab,
+                moveNativeTabBefore: moveNativeTabBefore,
+                moveNativeTabAfter: moveNativeTabAfter,
                 onSelectWorktree: { path in
                     onGitDiffWorktreeSelect(path)
                 }

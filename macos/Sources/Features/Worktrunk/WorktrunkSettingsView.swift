@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorktrunkSettingsView: View {
     @AppStorage(WorktrunkPreferences.worktreeTabsKey) private var worktreeTabsEnabled: Bool = false
+    @AppStorage(WorktrunkPreferences.sidebarTabsKey) private var sidebarTabsEnabled: Bool = false
     @AppStorage(WorktrunkPreferences.openBehaviorKey) private var openBehaviorRaw: String = WorktrunkOpenBehavior.newTab.rawValue
     @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultActionRaw: String = WorktrunkDefaultAction.terminal.rawValue
     @AppStorage(WorktrunkPreferences.githubIntegrationKey) private var githubIntegrationEnabled: Bool = true
@@ -30,6 +31,11 @@ struct WorktrunkSettingsView: View {
             Section("Tabs") {
                 Toggle("Worktree tabs", isOn: $worktreeTabsEnabled)
                 Text("When enabled: opening a worktree or AI session creates a split in a dedicated tab for that worktree, and the tab title stays pinned to the worktree.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Sidebar tabs", isOn: $sidebarTabsEnabled)
+                Text("When enabled: open tabs are shown at the top of the sidebar and the native tab bar is hidden.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

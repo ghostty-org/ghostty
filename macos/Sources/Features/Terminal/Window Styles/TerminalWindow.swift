@@ -240,7 +240,9 @@ class TerminalWindow: NSWindow {
 
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
-        if tabBarView != nil {
+        if WorktrunkPreferences.sidebarTabsEnabled {
+            collapseNativeTabBarRegionIfPresent()
+        } else if tabBarView != nil {
             tabBarDidAppear()
         } else {
             tabBarDidDisappear()
@@ -274,14 +276,32 @@ class TerminalWindow: NSWindow {
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
+        let isTabBarCandidate = isTabBar(childViewController)
+        if isTabBarCandidate, WorktrunkPreferences.sidebarTabsEnabled {
+            // Prevent a one-frame flash of the native tab strip by collapsing its reserved region
+            // before AppKit lays it out.
+            childViewController.identifier = Self.tabBarIdentifier
+            childViewController.view.isHidden = true
+            childViewController.view.alphaValue = 0
+            let c = childViewController.view.heightAnchor.constraint(equalToConstant: 0)
+            c.priority = .required
+            c.isActive = true
+        }
+
         super.addTitlebarAccessoryViewController(childViewController)
 
         // Tab bar is attached as a titlebar accessory view controller (layout bottom). We
         // can detect when it is shown or hidden by overriding add/remove and searching for
         // it. This has been verified to work on macOS 12 to 26
-        if isTabBar(childViewController) {
+        if isTabBarCandidate || isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
-            tabBarDidAppear()
+            if WorktrunkPreferences.sidebarTabsEnabled {
+                // In "Sidebar tabs" mode we keep native tab groups but hide the native
+                // tab bar UI so switching happens via the sidebar.
+                collapseTitlebarAccessoryClipViewIfPresent(containing: childViewController.view)
+            } else {
+                tabBarDidAppear()
+            }
         }
         DispatchQueue.main.async { [weak self] in
             self?.enforceTitlebarFont()
@@ -290,7 +310,9 @@ class TerminalWindow: NSWindow {
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
         if let childViewController = titlebarAccessoryViewControllers[safe: index], isTabBar(childViewController) {
-            tabBarDidDisappear()
+            if !WorktrunkPreferences.sidebarTabsEnabled {
+                tabBarDidDisappear()
+            }
         }
 
         super.removeTitlebarAccessoryViewController(at: index)
@@ -364,6 +386,42 @@ class TerminalWindow: NSWindow {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60)) { [weak self] in
             self?.enforceTitlebarFont()
+        }
+    }
+
+    private func removeNativeTabBarIfPresent() {
+        // Tab bars can appear via multiple accessory view controller arrangements depending on
+        // macOS + window state. Remove any tab bar accessory view controllers we detect.
+        while let idx = titlebarAccessoryViewControllers.firstIndex(where: { isTabBar($0) }) {
+            removeTitlebarAccessoryViewController(at: idx)
+        }
+    }
+
+    private func collapseNativeTabBarRegionIfPresent() {
+        guard WorktrunkPreferences.sidebarTabsEnabled else { return }
+        for tabBarVC in titlebarAccessoryViewControllers where isTabBar(tabBarVC) {
+            collapseTitlebarAccessoryClipViewIfPresent(containing: tabBarVC.view)
+        }
+    }
+
+    private func collapseTitlebarAccessoryClipViewIfPresent(containing view: NSView) {
+        var v: NSView? = view
+        while let cur = v, cur.className != "NSTitlebarAccessoryClipView" {
+            v = cur.superview
+        }
+        guard let clip = v else { return }
+
+        clip.isHidden = true
+        clip.translatesAutoresizingMaskIntoConstraints = false
+        if clip.constraints.first(where: { c in
+            c.firstAttribute == .height &&
+            c.relation == .equal &&
+            c.constant == 0 &&
+            c.priority == .required
+        }) == nil {
+            let c = clip.heightAnchor.constraint(equalToConstant: 0)
+            c.priority = .required
+            c.isActive = true
         }
     }
 

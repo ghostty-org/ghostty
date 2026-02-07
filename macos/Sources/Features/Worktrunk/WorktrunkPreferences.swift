@@ -135,11 +135,16 @@ enum WorktrunkOpenBehavior: String, CaseIterable, Identifiable {
 enum WorktrunkPreferences {
     static let openBehaviorKey = "GhosttyWorktrunkOpenBehavior.v1"
     static let worktreeTabsKey = "GhosttyWorktreeTabs.v1"
+    static let sidebarTabsKey = "GhostreeWorktrunkSidebarTabs.v1"
     static let defaultAgentKey = "GhosttyWorktrunkDefaultAgent.v1"
     static let githubIntegrationKey = "GhostreeGitHubIntegration.v1"
 
     static var worktreeTabsEnabled: Bool {
         UserDefaults.standard.bool(forKey: worktreeTabsKey)
+    }
+
+    static var sidebarTabsEnabled: Bool {
+        UserDefaults.standard.bool(forKey: sidebarTabsKey)
     }
 
     static var githubIntegrationEnabled: Bool {

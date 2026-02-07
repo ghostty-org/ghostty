@@ -207,6 +207,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var lastTitlebarFont: NSFont?
     
     private let worktrunkSidebarState: WorktrunkSidebarState
+    private let openTabsModel = WorktrunkOpenTabsModel()
     private var worktrunkSidebarSyncCancellables: Set<AnyCancellable> = []
     private var worktrunkSidebarSyncApplyingRemoteUpdate: Bool = false
     private let gitDiffSidebarState = GitDiffSidebarState()
@@ -343,6 +344,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let standardized {
             Self.worktreeTabControllers.setObject(self, forKey: standardized as NSString)
         }
+
+        openTabsModel.refresh(for: window)
     }
 
     private func syncWorktreeTabTitle() {
@@ -865,6 +868,68 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        openTabsModel.refresh(for: window)
+    }
+
+    private func focusNativeTab(windowNumber: Int) {
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+        guard let target = tabGroup.windows.first(where: { $0.windowNumber == windowNumber }) else { return }
+        target.makeKeyAndOrderFront(nil)
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func moveNativeTabBefore(movingWindowNumber: Int, targetWindowNumber: Int) {
+        guard movingWindowNumber != targetWindowNumber else { return }
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return }
+        guard let movingWindow = tabGroup.windows.first(where: { $0.windowNumber == movingWindowNumber }) else { return }
+        guard let targetWindow = tabGroup.windows.first(where: { $0.windowNumber == targetWindowNumber }) else { return }
+
+        if #available(macOS 26, *) {
+            if window is TitlebarTabsTahoeTerminalWindow {
+                tabGroup.removeWindow(movingWindow)
+                targetWindow.addTabbedWindow(movingWindow, ordered: .below)
+                relabelTabs()
+                return
+            }
+        }
+
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        tabGroup.removeWindow(movingWindow)
+        targetWindow.addTabbedWindow(movingWindow, ordered: .below)
+        NSAnimationContext.endGrouping()
+
+        relabelTabs()
+    }
+
+    private func moveNativeTabAfter(movingWindowNumber: Int, targetWindowNumber: Int) {
+        guard movingWindowNumber != targetWindowNumber else { return }
+        guard let window else { return }
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return }
+        guard let movingWindow = tabGroup.windows.first(where: { $0.windowNumber == movingWindowNumber }) else { return }
+        guard let targetWindow = tabGroup.windows.first(where: { $0.windowNumber == targetWindowNumber }) else { return }
+
+        if #available(macOS 26, *) {
+            if window is TitlebarTabsTahoeTerminalWindow {
+                tabGroup.removeWindow(movingWindow)
+                targetWindow.addTabbedWindow(movingWindow, ordered: .above)
+                relabelTabs()
+                return
+            }
+        }
+
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        tabGroup.removeWindow(movingWindow)
+        targetWindow.addTabbedWindow(movingWindow, ordered: .above)
+        NSAnimationContext.endGrouping()
+
+        relabelTabs()
     }
 
     private func fixTabBar() {
@@ -1368,6 +1433,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             delegate: self,
             worktrunkStore: worktrunkStore,
             worktrunkSidebarState: worktrunkSidebarState,
+            openTabsModel: openTabsModel,
             gitDiffSidebarState: gitDiffSidebarState,
             openWorktree: { [weak self] path in
                 self?.openWorktree(atPath: path)
@@ -1377,6 +1443,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             },
             resumeSession: { [weak self] session in
                 self?.resumeAISession(session)
+            },
+            focusNativeTab: { [weak self] windowNumber in
+                self?.focusNativeTab(windowNumber: windowNumber)
+            },
+            moveNativeTabBefore: { [weak self] moving, target in
+                self?.moveNativeTabBefore(movingWindowNumber: moving, targetWindowNumber: target)
+            },
+            moveNativeTabAfter: { [weak self] moving, target in
+                self?.moveNativeTabAfter(movingWindowNumber: moving, targetWindowNumber: target)
             },
             onSidebarWidthChange: { [weak self] width in
                 self?.updateWorktrunkTitlebarWidth(width)
@@ -1442,6 +1517,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // apply this based on the root config but change it later based on surface
         // config (see focused surface change callback).
         syncAppearance(.init(config))
+
+        openTabsModel.refresh(for: window)
     }
 
     private func installWorktrunkSidebarSync() {
@@ -1926,6 +2003,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @IBAction func newTab(_ sender: Any?) {
         guard let surface = focusedSurface?.surface else { return }
+        if WorktrunkPreferences.sidebarTabsEnabled {
+            // Sidebar tabs mode owns tab creation. Do not allow native titlebar tabs.
+            if WorktrunkPreferences.worktreeTabsEnabled, worktreeTabRootPath != nil {
+                openWorktreeTabNewSession(baseConfig: Ghostty.SurfaceConfiguration())
+            } else {
+                ghostty.newWindow(surface: surface)
+            }
+            return
+        }
+
         ghostty.newTab(surface: surface)
     }
 
