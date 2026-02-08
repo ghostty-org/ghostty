@@ -22,12 +22,6 @@ const oni = @import("oniguruma");
 ///
 /// There are many complicated cases where these heuristics break down, but
 /// handling them well requires a non-regex approach.
-pub const regex =
-    "(?:" ++ url_schemes ++
-    \\)(?:
-    ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|(?<!\w)\/)(?:(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?|(?![\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]+)*(?: +(?= *$))?)|[\w][\w\-.]*\/(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?
-    ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
 ;
@@ -35,6 +29,88 @@ const url_schemes =
 const ipv6_url_pattern =
     \\(?:\[[:0-9a-fA-F]+(?:[:0-9a-fA-F]*)+\](?::[0-9]+)?)
 ;
+
+const scheme_url_chars =
+    \\[\w\-.~:/?#@!$&*+,;=%]
+;
+
+const path_chars =
+    \\[\w\-.~:\/?#@!$&*+,;=%]
+;
+
+const optional_bracketed_word_suffix =
+    \\(?:[\(\[]\w*[\)\]])?
+;
+
+const no_trailing_punctuation =
+    \\(?<![,.])
+;
+
+const trailing_spaces_at_eol =
+    \\(?: +(?= *$))?
+;
+
+const dotted_path_lookahead =
+    \\(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)
+;
+
+const non_dotted_path_lookahead =
+    \\(?![\w\-.~:\/?#@!$&*+,;=%]*\.)
+;
+
+const dotted_path_space_segments =
+    \\(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*
+;
+
+const any_path_space_segments =
+    \\(?: [\w\-.~:\/?#@!$&*+,;=%]+)*
+;
+
+// Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
+const scheme_url_branch =
+    "(?:" ++ url_schemes ++ ")" ++
+    "(?:" ++ ipv6_url_pattern ++ "|" ++ scheme_url_chars ++ "+" ++ optional_bracketed_word_suffix ++ ")+" ++
+    no_trailing_punctuation;
+
+const rooted_or_relative_path_prefix =
+    \\(?:\.\.\/|\.\/|(?<!\w)\/)
+;
+
+// Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
+// A dotted segment is treated as file-like, while the undotted case stays
+// broad to capture directory-like paths with spaces.
+const rooted_or_relative_path_branch =
+    rooted_or_relative_path_prefix ++
+    "(?:" ++
+    dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    dotted_path_space_segments ++
+    trailing_spaces_at_eol ++
+    "|" ++
+    non_dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    any_path_space_segments ++
+    trailing_spaces_at_eol ++
+    ")";
+
+// Branch 3: Bare relative paths such as src/config/url.zig.
+const bare_relative_path_prefix =
+    \\[\w][\w\-.]*\/
+;
+
+const bare_relative_path_branch =
+    bare_relative_path_prefix ++
+    dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    dotted_path_space_segments ++
+    trailing_spaces_at_eol;
+
+pub const regex =
+    scheme_url_branch ++
+    "|" ++
+    rooted_or_relative_path_branch ++
+    "|" ++
+    bare_relative_path_branch;
 
 test "url regex" {
     const testing = std.testing;
