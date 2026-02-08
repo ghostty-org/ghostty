@@ -138,6 +138,24 @@ pub const SurfaceScrolledWindow = extern struct {
         };
     }
 
+    /// Handle middle-click at the ScrolledWindow level to prevent the
+    /// ScrolledWindow from intercepting it. This forwards the event to
+    /// the Surface's mouse handler.
+    fn scrolledWindowMouseDown(
+        gesture: *gtk.GestureClick,
+        n_press: c_int,
+        x: f64,
+        y: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = self.private().surface orelse return;
+        surface.forwardMouseDown(gesture, n_press, x, y);
+
+        // Claim the gesture to prevent the Surface's GestureClick from
+        // also handling this event (which would cause double-paste).
+        _ = gesture.as(gtk.Gesture).setState(.claimed);
+    }
+
     fn propSurface(
         self: *Self,
         _: *gobject.ParamSpec,
@@ -189,6 +207,7 @@ pub const SurfaceScrolledWindow = extern struct {
             // Bindings
             class.bindTemplateCallback("scrollbar_policy", &closureScrollbarPolicy);
             class.bindTemplateCallback("notify_surface", &propSurface);
+            class.bindTemplateCallback("scrolled_window_mouse_down", &scrolledWindowMouseDown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{

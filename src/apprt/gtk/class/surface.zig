@@ -2713,6 +2713,18 @@ pub const Surface = extern struct {
         };
     }
 
+    /// Public method to forward mouse down events from parent widgets
+    /// (e.g., ScrolledWindow capturing middle-clicks).
+    pub fn forwardMouseDown(
+        self: *Self,
+        gesture: *gtk.GestureClick,
+        n_press: c_int,
+        x: f64,
+        y: f64,
+    ) void {
+        gcMouseDown(gesture, n_press, x, y, self);
+    }
+
     fn gcMouseDown(
         gesture: *gtk.GestureClick,
         _: c_int,
