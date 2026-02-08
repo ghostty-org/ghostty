@@ -3349,13 +3349,12 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"macos-shortcuts": MacShortcuts = .ask,
 
-/// Put every surface (tab, split, window) into a dedicated Linux cgroup.
+/// Put every surface (tab, split, window) into a transient `systemd` scope.
 ///
-/// This makes it so that resource management can be done on a per-surface
-/// granularity. For example, if a shell program is using too much memory,
-/// only that shell will be killed by the oom monitor instead of the entire
-/// Ghostty process. Similarly, if a shell program is using too much CPU,
-/// only that surface will be CPU-throttled.
+/// This allows per-surface resource management. For example, if a shell program
+/// is using too much memory, only that shell will be killed by the oom monitor
+/// instead of the entire Ghostty process. Similarly, if a shell program is
+/// using too much CPU, only that surface will be CPU-throttled.
 ///
 /// This will cause startup times to be slower (a hundred milliseconds or so),
 /// so the default value is "single-instance." In single-instance mode, only
@@ -3364,9 +3363,12 @@ keybind: Keybinds = .{},
 /// more likely to have many windows, tabs, etc. so cgroup isolation is a
 /// big benefit.
 ///
-/// This feature requires systemd. If systemd is unavailable, cgroup
-/// initialization will fail. By default, this will not prevent Ghostty
-/// from working (see linux-cgroup-hard-fail).
+/// This feature requires `systemd`. If `systemd` is unavailable, cgroup
+/// initialization will fail. By default, this will not prevent Ghostty from
+/// working (see `linux-cgroup-hard-fail`).
+///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
 ///
 /// Valid values are:
 ///
@@ -3382,30 +3384,42 @@ else
 /// Memory limit for any individual terminal process (tab, split, window,
 /// etc.) in bytes. If this is unset then no memory limit will be set.
 ///
-/// Note that this sets the "memory.high" configuration for the memory
-/// controller, which is a soft limit. You should configure something like
-/// systemd-oom to handle killing processes that have too much memory
+/// Note that this sets the `MemoryHigh` setting on the transient `systemd`
+/// scope, which is a soft limit. You should configure something like
+/// `systemd-oom` to handle killing processes that have too much memory
 /// pressure.
+///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
+///
+/// See the `systemd.resource-control` manual page for more information:
+/// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
 @"linux-cgroup-memory-limit": ?u64 = null,
 
 /// Number of processes limit for any individual terminal process (tab, split,
 /// window, etc.). If this is unset then no limit will be set.
 ///
-/// Note that this sets the "pids.max" configuration for the process number
-/// controller, which is a hard limit.
+/// Note that this sets the `TasksMax` setting on the transient `systemd` scope,
+/// which is a hard limit.
+///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
+///
+/// See the `systemd.resource-control` manual page for more information:
+/// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
 @"linux-cgroup-processes-limit": ?u64 = null,
 
-/// If this is false, then any cgroup initialization (for linux-cgroup)
-/// will be allowed to fail and the failure is ignored. This is useful if
-/// you view cgroup isolation as a "nice to have" and not a critical resource
-/// management feature, because Ghostty startup will not fail if cgroup APIs
-/// fail.
+/// If this is false, then creating a transient `systemd` scope (for
+/// `linux-cgroup`) will be allowed to fail and the failure is ignored. This is
+/// useful if you view cgroup isolation as a "nice to have" and not a critical
+/// resource management feature, because surface creation will not fail if
+/// `systemd` APIs fail.
 ///
-/// If this is true, then any cgroup initialization failure will cause
-/// Ghostty to exit or new surfaces to not be created.
+/// If this is true, then any transient `systemd` scope creation failure will
+/// cause surface creation to fail.
 ///
-/// Note: This currently only affects cgroup initialization. Subprocesses
-/// must always be able to move themselves into an isolated cgroup.
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
 @"linux-cgroup-hard-fail": bool = false,
 
 /// Enable or disable GTK's OpenGL debugging logs. The default is `true` for

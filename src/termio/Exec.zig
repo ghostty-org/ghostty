@@ -565,7 +565,9 @@ pub const Config = struct {
     working_directory: ?[]const u8 = null,
     resources_dir: ?[]const u8,
     term: []const u8,
-    linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
+
+    rt_pre_exec_info: Command.RtPreExecInfo,
+    rt_post_fork_info: Command.RtPostForkInfo,
 };
 
 const Subprocess = struct {
@@ -583,7 +585,9 @@ const Subprocess = struct {
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
     process: ?Process = null,
-    linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
+
+    rt_pre_exec_info: Command.RtPreExecInfo,
+    rt_post_fork_info: Command.RtPostForkInfo,
 
     /// Union that represents the running process type.
     const Process = union(enum) {
@@ -849,21 +853,14 @@ const Subprocess = struct {
         // https://github.com/ghostty-org/ghostty/discussions/7769
         if (cwd) |pwd| try env.put("PWD", pwd);
 
-        // If we have a cgroup, then we copy that into our arena so the
-        // memory remains valid when we start.
-        const linux_cgroup: Command.LinuxCgroup = cgroup: {
-            const default = Command.linux_cgroup_default;
-            if (comptime builtin.os.tag != .linux) break :cgroup default;
-            const path = cfg.linux_cgroup orelse break :cgroup default;
-            break :cgroup try alloc.dupe(u8, path);
-        };
-
         return .{
             .arena = arena,
             .env = env,
             .cwd = cwd,
             .args = args,
-            .linux_cgroup = linux_cgroup,
+
+            .rt_pre_exec_info = cfg.rt_pre_exec_info,
+            .rt_post_fork_info = cfg.rt_post_fork_info,
 
             // Should be initialized with initTerminal call.
             .grid_size = .{},
@@ -1012,17 +1009,27 @@ const Subprocess = struct {
             .stdout = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .stderr = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .pseudo_console = if (builtin.os.tag == .windows) pty.pseudo_console else {},
-            .pre_exec = if (builtin.os.tag == .windows) null else (struct {
-                fn callback(cmd: *Command) void {
-                    const sp = cmd.getData(Subprocess) orelse unreachable;
-                    sp.childPreExec() catch |err| log.err(
-                        "error initializing child: {}",
-                        .{err},
-                    );
-                }
-            }).callback,
+            .os_pre_exec = switch (comptime builtin.os.tag) {
+                .windows => null,
+                else => f: {
+                    const f = struct {
+                        fn callback(cmd: *Command) ?u8 {
+                            const sp = cmd.getData(Subprocess) orelse unreachable;
+                            sp.childPreExec() catch |err| log.err(
+                                "error initializing child: {}",
+                                .{err},
+                            );
+                            return null;
+                        }
+                    };
+                    break :f f.callback;
+                },
+            },
+            .rt_pre_exec = if (comptime @hasDecl(apprt.runtime, "pre_exec")) apprt.runtime.pre_exec.preExec else null,
+            .rt_pre_exec_info = self.rt_pre_exec_info,
+            .rt_post_fork = if (comptime @hasDecl(apprt.runtime, "post_fork")) apprt.runtime.post_fork.postFork else null,
+            .rt_post_fork_info = self.rt_post_fork_info,
             .data = self,
-            .linux_cgroup = self.linux_cgroup,
         };
 
         cmd.start(alloc) catch |err| {
@@ -1044,9 +1051,6 @@ const Subprocess = struct {
             log.warn("error killing command during cleanup err={}", .{err});
         };
         log.info("started subcommand path={s} pid={?}", .{ self.args[0], cmd.pid });
-        if (comptime builtin.os.tag == .linux) {
-            log.info("subcommand cgroup={s}", .{self.linux_cgroup orelse "-"});
-        }
 
         self.process = .{ .fork_exec = cmd };
         return switch (builtin.os.tag) {
