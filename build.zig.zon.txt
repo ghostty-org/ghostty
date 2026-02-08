@@ -6,7 +6,7 @@ https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918
 https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz
 https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz
 https://deps.files.ghostty.org/gettext-0.24.tar.gz
-https://deps.files.ghostty.org/ghostty-themes-release-20260126-150817-02c580d.tgz
+https://deps.files.ghostty.org/ghostty-themes-release-20260202-151632-49169e9.tgz
 https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz
 https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst
 https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz
