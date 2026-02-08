@@ -1,15 +1,17 @@
 const std = @import("std");
 const oni = @import("oniguruma");
 
-/// Default URL regex. This is used to detect URLs in terminal output.
+/// Default URL/path regex. This is used to detect URLs and file paths in
+/// terminal output.
+///
 /// This is here in the config package because one day the matchers will be
 /// configurable and this will be a default.
 ///
-/// This regex is liberal in what it accepts after the scheme, with exceptions
-/// for URLs ending with . or ). Although such URLs are perfectly valid, it is
-/// common for text to contain URLs surrounded by parentheses (such as in
-/// Markdown links) or at the end of sentences. Therefore, this regex excludes
-/// them as follows:
+/// For scheme URLs, this regex is liberal in what it accepts after the scheme,
+/// with exceptions for URLs ending with . or ). Although such URLs are
+/// perfectly valid, it is common for text to contain URLs surrounded by
+/// parentheses (such as in Markdown links) or at the end of sentences.
+/// Therefore, this regex excludes them as follows:
 ///
 /// 1. Do not match regexes ending with .
 /// 2. Do not match regexes ending with ), except for ones which contain a (
@@ -22,12 +24,6 @@ const oni = @import("oniguruma");
 ///
 /// There are many complicated cases where these heuristics break down, but
 /// handling them well requires a non-regex approach.
-pub const regex =
-    "(?:" ++ url_schemes ++
-    \\)(?:
-    ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|(?<!\w)\/)(?:(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?|(?![\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]+)*(?: +(?= *$))?)|[\w][\w\-.]*\/(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?
-    ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
 ;
@@ -35,6 +31,88 @@ const url_schemes =
 const ipv6_url_pattern =
     \\(?:\[[:0-9a-fA-F]+(?:[:0-9a-fA-F]*)+\](?::[0-9]+)?)
 ;
+
+const scheme_url_chars =
+    \\[\w\-.~:/?#@!$&*+,;=%]
+;
+
+const path_chars =
+    \\[\w\-.~:\/?#@!$&*+;=%]
+;
+
+const optional_bracketed_word_suffix =
+    \\(?:[\(\[]\w*[\)\]])?
+;
+
+const no_trailing_punctuation =
+    \\(?<![,.])
+;
+
+const trailing_spaces_at_eol =
+    \\(?: +(?= *$))?
+;
+
+const dotted_path_lookahead =
+    \\(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)
+;
+
+const non_dotted_path_lookahead =
+    \\(?![\w\-.~:\/?#@!$&*+,;=%]*\.)
+;
+
+const dotted_path_space_segments =
+    \\(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*
+;
+
+const any_path_space_segments =
+    \\(?: [\w\-.~:\/?#@!$&*+,;=%]+)*
+;
+
+// Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
+const scheme_url_branch =
+    "(?:" ++ url_schemes ++ ")" ++
+    "(?:" ++ ipv6_url_pattern ++ "|" ++ scheme_url_chars ++ "+" ++ optional_bracketed_word_suffix ++ ")+" ++
+    no_trailing_punctuation;
+
+const rooted_or_relative_path_prefix =
+    \\(?:\.\.\/|\.\/|~\/|\$\w+\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
+;
+
+// Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
+// A dotted segment is treated as file-like, while the undotted case stays
+// broad to capture directory-like paths with spaces.
+const rooted_or_relative_path_branch =
+    rooted_or_relative_path_prefix ++
+    "(?:" ++
+    dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    dotted_path_space_segments ++
+    trailing_spaces_at_eol ++
+    "|" ++
+    non_dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    any_path_space_segments ++
+    trailing_spaces_at_eol ++
+    ")";
+
+// Branch 3: Bare relative paths such as src/config/url.zig.
+const bare_relative_path_prefix =
+    \\[\w][\w\-.]*\/
+;
+
+const bare_relative_path_branch =
+    bare_relative_path_prefix ++
+    dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    dotted_path_space_segments ++
+    trailing_spaces_at_eol;
+
+pub const regex =
+    scheme_url_branch ++
+    "|" ++
+    rooted_or_relative_path_branch ++
+    "|" ++
+    bare_relative_path_branch;
 
 test "url regex" {
     const testing = std.testing;
@@ -77,7 +155,7 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
-            .input = "Link trailing colon https://example.com, more text.",
+            .input = "Link trailing comma https://example.com, more text.",
             .expect = "https://example.com",
         },
         .{
@@ -290,6 +368,47 @@ test "url regex" {
         .{
             .input = "some-pkg/src/file.txt more text",
             .expect = "some-pkg/src/file.txt",
+        },
+        .{
+            .input = "~/foo/bar.txt",
+            .expect = "~/foo/bar.txt",
+        },
+        .{
+            .input = "open ~/Documents/notes.md please",
+            .expect = "~/Documents/notes.md",
+        },
+        .{
+            .input = "~/.config/ghostty/config",
+            .expect = "~/.config/ghostty/config",
+        },
+        .{
+            .input = "directory: ~/src/ghostty-org/ghostty",
+            .expect = "~/src/ghostty-org/ghostty",
+        },
+        .{
+            .input = "$HOME/src/config/url.zig",
+            .expect = "$HOME/src/config/url.zig",
+        },
+        .{
+            .input = "project dir: $PWD/src/ghostty/main.zig",
+            .expect = "$PWD/src/ghostty/main.zig",
+        },
+        .{
+            .input = ".config/ghostty/config",
+            .expect = ".config/ghostty/config",
+        },
+        .{
+            .input = "loaded from .local/share/ghostty/state.db now",
+            .expect = ".local/share/ghostty/state.db",
+        },
+        .{
+            .input = "../some/where",
+            .expect = "../some/where",
+        },
+        // comma-separated file paths
+        .{
+            .input = "  - shared/src/foo/SomeItem.m:12, shared/src/",
+            .expect = "shared/src/foo/SomeItem.m:12",
         },
     };
 
