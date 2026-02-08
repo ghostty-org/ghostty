@@ -75,7 +75,7 @@ const scheme_url_branch =
     no_trailing_punctuation;
 
 const rooted_or_relative_path_prefix =
-    \\(?:\.\.\/|\.\/|(?<!\w)\/)
+    \\(?:\.\.\/|\.\/|~\/|\$\w+\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
 ;
 
 // Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
