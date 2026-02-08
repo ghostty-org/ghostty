@@ -37,7 +37,7 @@ const scheme_url_chars =
 ;
 
 const path_chars =
-    \\[\w\-.~:\/?#@!$&*+,;=%]
+    \\[\w\-.~:\/?#@!$&*+;=%]
 ;
 
 const optional_bracketed_word_suffix =
