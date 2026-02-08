@@ -6074,10 +6074,11 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .copy } },
                 .{ .copy_to_clipboard = .mixed },
             );
-            try self.set.put(
+            try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .paste } },
                 .paste_from_clipboard,
+                .{ .performable = true },
             );
 
             // On non-MacOS desktop envs (Windows, KDE, Gnome, Xfce), ctrl+insert is an
@@ -6112,10 +6113,11 @@ pub const Keybinds = struct {
                 .{ .copy_to_clipboard = .mixed },
                 .{ .performable = true },
             );
-            try self.set.put(
+            try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'v' }, .mods = mods },
                 .{ .paste_from_clipboard = {} },
+                .{ .performable = true },
             );
         }
 
@@ -10407,5 +10409,49 @@ test "compatibility: window new-window" {
             MacOSDockDropBehavior.@"new-window",
             cfg.@"macos-dock-drop-behavior",
         );
+    }
+}
+
+test "default paste keybinds are performable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    const Trigger = inputpkg.Binding.Trigger;
+
+    // super+v (macOS) or ctrl+shift+v (Linux) paste binding should be performable
+    const paste_trigger: Trigger = .{
+        .key = .{ .unicode = 'v' },
+        .mods = if (comptime builtin.target.os.tag.isDarwin())
+            .{ .super = true }
+        else
+            .{ .ctrl = true, .shift = true },
+    };
+
+    const entry = cfg.keybind.set.get(paste_trigger);
+    try testing.expect(entry != null);
+    switch (entry.?.value_ptr.*) {
+        .leaf => |leaf| {
+            try testing.expect(leaf.flags.performable);
+            try testing.expectEqual(leaf.action, .paste_from_clipboard);
+        },
+        else => return error.UnexpectedValue,
+    }
+
+    // physical paste key should also be performable
+    const physical_paste_trigger: Trigger = .{
+        .key = .{ .physical = .paste },
+    };
+
+    const phys_entry = cfg.keybind.set.get(physical_paste_trigger);
+    try testing.expect(phys_entry != null);
+    switch (phys_entry.?.value_ptr.*) {
+        .leaf => |leaf| {
+            try testing.expect(leaf.flags.performable);
+            try testing.expectEqual(leaf.action, .paste_from_clipboard);
+        },
+        else => return error.UnexpectedValue,
     }
 }

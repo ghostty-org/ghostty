@@ -66,7 +66,8 @@ extension Ghostty {
                 confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
                 write_clipboard_cb: { userdata, loc, content, len, confirm in
                     App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
-                close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) }
+                close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) },
+                clipboard_has_text_cb: { userdata, loc in App.clipboardHasText(userdata, location: loc) }
             )
 
             // Create the ghostty app.
@@ -336,6 +337,11 @@ extension Ghostty {
             // Get our string
             let str = pasteboard.getOpinionatedStringContents() ?? ""
             completeClipboardRequest(surface, data: str, state: state)
+        }
+
+        static func clipboardHasText(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e) -> Bool {
+            guard let pasteboard = NSPasteboard.ghostty(location) else { return false }
+            return pasteboard.hasTextContent()
         }
 
         static func confirmReadClipboard(

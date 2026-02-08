@@ -76,6 +76,10 @@ pub const App = struct {
 
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
+
+        /// Check if the clipboard has text content. Used for paste requests
+        /// to determine if the keypress should pass through to the application.
+        clipboard_has_text: ?*const fn (SurfaceUD, c_int) callconv(.c) bool = null,
     };
 
     /// This is the key event sent for ghostty_surface_key and
@@ -663,6 +667,16 @@ pub const Surface = struct {
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) !bool {
+        // For paste requests, check if clipboard has text. If not, return
+        // false so that performable keybinds pass the key through to the app.
+        if (state == .paste) {
+            if (self.app.opts.clipboard_has_text) |cb| {
+                if (!cb(self.userdata, @intCast(@intFromEnum(clipboard_type)))) {
+                    return false;
+                }
+            }
+        }
+
         // We need to allocate to get a pointer to store our clipboard request
         // so that it is stable until the read_clipboard callback and call
         // complete_clipboard_request. This sucks but clipboard requests aren't
@@ -678,8 +692,6 @@ pub const Surface = struct {
             state_ptr,
         );
 
-        // Embedded apprt can't synchronously check clipboard content types,
-        // so we always return true to indicate the request was started.
         return true;
     }
 

@@ -37,6 +37,11 @@ extension NSPasteboard {
     /// - Tries to get the absolute filesystem path of the file in the pasteboard if there is one and ensures the file path is properly escaped.
     /// - Tries to get any string from the pasteboard.
     /// If all of the above fail, returns None.
+    /// Returns true if the pasteboard contains text or file URL content.
+    func hasTextContent() -> Bool {
+        return getOpinionatedStringContents() != nil
+    }
+
     func getOpinionatedStringContents() -> String? {
         if let urls = readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
