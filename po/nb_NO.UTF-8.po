@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"POT-Creation-Date: 2026-02-05 10:23+0800\n"
 "PO-Revision-Date: 2025-08-23 12:52+0000\n"
 "Last-Translator: Hanna Rose <me@hanna.lol>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
@@ -20,31 +20,47 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
-msgid "Change Terminal Title"
-msgstr "Endre terminaltittel"
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+msgid "Authorize Clipboard Access"
+msgstr "Gi tilgang til utklippstavlen"
 
-#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
-msgid "Leave blank to restore the default title."
-msgstr "Blank verdi gjenoppretter standardtittelen."
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
+msgid "Deny"
+msgstr "Avslå"
 
-#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
-#: src/apprt/gtk/CloseDialog.zig:44
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
+msgid "Allow"
+msgstr "Tillat"
+
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
+msgid "Remember choice for this split"
+msgstr "Husk valget for dette delte vinduet?"
+
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
+msgid "Reload configuration to show this prompt again"
+msgstr "Last inn konfigurasjonen på nytt for å vise denne meldingen igjen"
+
+#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
+#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:9
 msgid "Cancel"
 msgstr "Avbryt"
 
-#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
-msgid "OK"
-msgstr "OK"
+#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:85
+#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
+msgid "Close"
+msgstr "Lukk"
 
-#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:5
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid "Configuration Errors"
 msgstr "Konfigurasjonsfeil"
 
-#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:7
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
@@ -52,174 +68,182 @@ msgstr ""
 "Én eller flere konfigurasjonsfeil ble funnet. Vennligst gjennomgå feilene "
 "under, og enten last konfigurasjonen din på nytt eller ignorer disse feilene."
 
-#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Ignore"
 msgstr "Ignorer"
 
-#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
-#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
+#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:293
 msgid "Reload Configuration"
 msgstr "Last konfigurasjon på nytt"
 
-#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Del oppover"
+#: src/apprt/gtk/ui/1.2/debug-warning.blp:7
+#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr "⚠️ Du kjører et debug-bygg av Ghostty. Debug-bygg har redusert ytelse."
 
-#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Del nedover"
+#: src/apprt/gtk/ui/1.5/inspector-window.blp:5
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Terminalinspektør"
 
-#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Del til venstre"
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:29
+msgid "Find…"
+msgstr ""
 
-#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Del til høyre"
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:64
+msgid "Previous Match"
+msgstr ""
 
-#: src/apprt/gtk/ui/1.5/command-palette.blp:16
-msgid "Execute a command…"
-msgstr "Kjør en kommando…"
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:74
+msgid "Next Match"
+msgstr ""
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
+#: src/apprt/gtk/ui/1.2/surface.blp:6
+msgid "Oh, no."
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:7
+msgid "Unable to acquire an OpenGL context for rendering."
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:97
+msgid ""
+"This terminal is in read-only mode. You can still view, select, and scroll "
+"through the content, but no input events will be sent to the running "
+"application."
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:107
+msgid "Read-only"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
 msgstr "Kopier"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11 src/apprt/gtk/ui/1.2/ccw-paste.blp:11
+#: src/apprt/gtk/ui/1.2/surface.blp:265 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Paste"
 msgstr "Lim inn"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+#: src/apprt/gtk/ui/1.2/surface.blp:270
+msgid "Notify on Next Command Finish"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
 msgstr "Fjern"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:271
 msgid "Reset"
 msgstr "Nullstill"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:235
 msgid "Split"
 msgstr "Del vindu"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:238
 msgid "Change Title…"
 msgstr "Endre tittel…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
+#: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:175
+#: src/apprt/gtk/ui/1.5/window.blp:243
+msgid "Split Up"
+msgstr "Del oppover"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.5/window.blp:248
+msgid "Split Down"
+msgstr "Del nedover"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.5/window.blp:253
+msgid "Split Left"
+msgstr "Del til venstre"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.5/window.blp:258
+msgid "Split Right"
+msgstr "Del til høyre"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:322
 msgid "Tab"
 msgstr "Fane"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:265
+#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:57
+#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:222
 msgid "New Tab"
 msgstr "Ny fane"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
+#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:227
 msgid "Close Tab"
 msgstr "Lukk fane"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
+#: src/apprt/gtk/ui/1.2/surface.blp:337
 msgid "Window"
 msgstr "Vindu"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
+#: src/apprt/gtk/ui/1.2/surface.blp:340 src/apprt/gtk/ui/1.5/window.blp:210
 msgid "New Window"
 msgstr "Nytt vindu"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
+#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Close Window"
 msgstr "Lukk vindu"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
+#: src/apprt/gtk/ui/1.2/surface.blp:353
 msgid "Config"
 msgstr "Konfigurasjon"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+#: src/apprt/gtk/ui/1.2/surface.blp:356 src/apprt/gtk/ui/1.5/window.blp:288
 msgid "Open Configuration"
 msgstr "Åpne konfigurasjon"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:5
+msgid "Change Terminal Title"
+msgstr "Endre terminaltittel"
+
+#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:6
+msgid "Leave blank to restore the default title."
+msgstr "Blank verdi gjenoppretter standardtittelen."
+
+#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:10
+msgid "OK"
+msgstr "OK"
+
+#: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
+msgid "New Split"
+msgstr "Del opp vindu"
+
+#: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
+msgid "View Open Tabs"
+msgstr "Se åpne faner"
+
+#: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
+msgid "Main Menu"
+msgstr "Hovedmeny"
+
+#: src/apprt/gtk/ui/1.5/window.blp:278
 msgid "Command Palette"
 msgstr "Kommandopalett"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+#: src/apprt/gtk/ui/1.5/window.blp:283
 msgid "Terminal Inspector"
 msgstr "Terminalinspektør"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
-#: src/apprt/gtk/Window.zig:1038
+#: src/apprt/gtk/ui/1.5/window.blp:300 src/apprt/gtk/class/window.zig:1714
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:112
+#: src/apprt/gtk/ui/1.5/window.blp:305
 msgid "Quit"
 msgstr "Avslutt"
 
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:6
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:6
-msgid "Authorize Clipboard Access"
-msgstr "Gi tilgang til utklippstavlen"
+#: src/apprt/gtk/ui/1.5/command-palette.blp:17
+msgid "Execute a command…"
+msgstr "Kjør en kommando…"
 
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:7
-msgid ""
-"An application is attempting to read from the clipboard. The current "
-"clipboard contents are shown below."
-msgstr ""
-"En applikasjon forsøker å lese fra utklippstavlen. Gjeldende "
-"utklippstavleinnhold er vist nedenfor."
-
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:10
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:10
-msgid "Deny"
-msgstr "Avslå"
-
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:11
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:11
-msgid "Allow"
-msgstr "Tillat"
-
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
-msgid "Remember choice for this split"
-msgstr "Husk valget for dette delte vinduet?"
-
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
-msgid "Reload configuration to show this prompt again"
-msgstr "Last inn konfigurasjonen på nytt for å vise denne meldingen igjen"
-
-#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
-#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -227,11 +251,19 @@ msgstr ""
 "En applikasjon forsøker å skrive til utklippstavlen. Gjeldende "
 "utklippstavleinnhold er vist nedenfor."
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6 src/apprt/gtk/ui/1.2/ccw-paste.blp:6
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"En applikasjon forsøker å lese fra utklippstavlen. Gjeldende "
+"utklippstavleinnhold er vist nedenfor."
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Adarsel: Lim inn kan være utrygt"
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7 src/apprt/gtk/ui/1.2/ccw-paste.blp:7
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -239,83 +271,70 @@ msgstr ""
 "Det ser ut som at kommandoer vil bli kjørt hvis du limer inn dette, vurder "
 "om du mener det er trygt."
 
-#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
-msgid "Close"
-msgstr "Lukk"
-
-#: src/apprt/gtk/CloseDialog.zig:87
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
 msgstr "Avslutt Ghostty?"
 
-#: src/apprt/gtk/CloseDialog.zig:88
-msgid "Close Window?"
-msgstr "Lukk vindu?"
-
-#: src/apprt/gtk/CloseDialog.zig:89
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
 msgstr "Lukk fane?"
 
-#: src/apprt/gtk/CloseDialog.zig:90
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+msgid "Close Window?"
+msgstr "Lukk vindu?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
 msgstr "Lukk delt vindu?"
 
-#: src/apprt/gtk/CloseDialog.zig:96
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
 msgstr "Alle terminaløkter vil bli avsluttet."
 
-#: src/apprt/gtk/CloseDialog.zig:97
-msgid "All terminal sessions in this window will be terminated."
-msgstr "Alle terminaløkter i dette vinduet vil bli avsluttet."
-
-#: src/apprt/gtk/CloseDialog.zig:98
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this tab will be terminated."
 msgstr "Alle terminaløkter i denne fanen vil bli avsluttet."
 
-#: src/apprt/gtk/CloseDialog.zig:99
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Alle terminaløkter i dette vinduet vil bli avsluttet."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
-#: src/apprt/gtk/Surface.zig:1266
-msgid "Copied to clipboard"
-msgstr "Kopiert til utklippstavlen"
+#: src/apprt/gtk/class/surface.zig:1108
+msgid "Command Finished"
+msgstr ""
 
-#: src/apprt/gtk/Surface.zig:1268
-msgid "Cleared clipboard"
-msgstr "Utklippstavle tømt"
+#: src/apprt/gtk/class/surface.zig:1109
+msgid "Command Succeeded"
+msgstr ""
 
-#: src/apprt/gtk/Surface.zig:2525
+#: src/apprt/gtk/class/surface.zig:1110
+msgid "Command Failed"
+msgstr ""
+
+#: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
 msgstr "Kommando lyktes"
 
-#: src/apprt/gtk/Surface.zig:2527
+#: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command failed"
 msgstr "Kommando mislyktes"
 
-#: src/apprt/gtk/Window.zig:216
-msgid "Main Menu"
-msgstr "Hovedmeny"
-
-#: src/apprt/gtk/Window.zig:239
-msgid "View Open Tabs"
-msgstr "Se åpne faner"
-
-#: src/apprt/gtk/Window.zig:266
-msgid "New Split"
-msgstr "Del opp vindu"
-
-#: src/apprt/gtk/Window.zig:329
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Du kjører et debug-bygg av Ghostty. Debug-bygg har redusert ytelse."
-
-#: src/apprt/gtk/Window.zig:775
+#: src/apprt/gtk/class/window.zig:1001
 msgid "Reloaded the configuration"
 msgstr "Konfigurasjonen ble lastet på nytt"
 
-#: src/apprt/gtk/Window.zig:1019
+#: src/apprt/gtk/class/window.zig:1553
+msgid "Copied to clipboard"
+msgstr "Kopiert til utklippstavlen"
+
+#: src/apprt/gtk/class/window.zig:1555
+msgid "Cleared clipboard"
+msgstr "Utklippstavle tømt"
+
+#: src/apprt/gtk/class/window.zig:1695
 msgid "Ghostty Developers"
 msgstr "Ghostty-utviklere"
-
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Terminalinspektør"

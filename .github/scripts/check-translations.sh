@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/usr/bin/env bash
+
+set -euxo pipefail
 
 old_pot=$(mktemp)
 cp po/com.mitchellh.ghostty.pot "$old_pot"
