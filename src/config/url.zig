@@ -155,7 +155,7 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
-            .input = "Link trailing colon https://example.com, more text.",
+            .input = "Link trailing comma https://example.com, more text.",
             .expect = "https://example.com",
         },
         .{
@@ -368,6 +368,47 @@ test "url regex" {
         .{
             .input = "some-pkg/src/file.txt more text",
             .expect = "some-pkg/src/file.txt",
+        },
+        .{
+            .input = "~/foo/bar.txt",
+            .expect = "~/foo/bar.txt",
+        },
+        .{
+            .input = "open ~/Documents/notes.md please",
+            .expect = "~/Documents/notes.md",
+        },
+        .{
+            .input = "~/.config/ghostty/config",
+            .expect = "~/.config/ghostty/config",
+        },
+        .{
+            .input = "directory: ~/src/ghostty-org/ghostty",
+            .expect = "~/src/ghostty-org/ghostty",
+        },
+        .{
+            .input = "$HOME/src/config/url.zig",
+            .expect = "$HOME/src/config/url.zig",
+        },
+        .{
+            .input = "project dir: $PWD/src/ghostty/main.zig",
+            .expect = "$PWD/src/ghostty/main.zig",
+        },
+        .{
+            .input = ".config/ghostty/config",
+            .expect = ".config/ghostty/config",
+        },
+        .{
+            .input = "loaded from .local/share/ghostty/state.db now",
+            .expect = ".local/share/ghostty/state.db",
+        },
+        .{
+            .input = "../some/where",
+            .expect = "../some/where",
+        },
+        // comma-separated file paths
+        .{
+            .input = "  - shared/src/foo/SomeItem.m:12, shared/src/",
+            .expect = "shared/src/foo/SomeItem.m:12",
         },
     };
 
