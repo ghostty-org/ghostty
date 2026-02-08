@@ -1,15 +1,17 @@
 const std = @import("std");
 const oni = @import("oniguruma");
 
-/// Default URL regex. This is used to detect URLs in terminal output.
+/// Default URL/path regex. This is used to detect URLs and file paths in
+/// terminal output.
+///
 /// This is here in the config package because one day the matchers will be
 /// configurable and this will be a default.
 ///
-/// This regex is liberal in what it accepts after the scheme, with exceptions
-/// for URLs ending with . or ). Although such URLs are perfectly valid, it is
-/// common for text to contain URLs surrounded by parentheses (such as in
-/// Markdown links) or at the end of sentences. Therefore, this regex excludes
-/// them as follows:
+/// For scheme URLs, this regex is liberal in what it accepts after the scheme,
+/// with exceptions for URLs ending with . or ). Although such URLs are
+/// perfectly valid, it is common for text to contain URLs surrounded by
+/// parentheses (such as in Markdown links) or at the end of sentences.
+/// Therefore, this regex excludes them as follows:
 ///
 /// 1. Do not match regexes ending with .
 /// 2. Do not match regexes ending with ), except for ones which contain a (
