@@ -93,11 +93,11 @@ msgstr "Zoeken…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr "Vorig resultaat"
+msgstr "Vorige resultaat"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr "Volgend resultaat"
+msgstr "Volgende resultaat"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
