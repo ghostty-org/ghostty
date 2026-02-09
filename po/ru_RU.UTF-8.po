@@ -64,8 +64,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Конфигурация содержит ошибки. Проверьте их ниже, а затем либо перезагрузите "
-"конфигурацию, либо проигнорируйте ошибки."
+"В конфигурации обнаружены перечисленные ниже ошибки. При необходимости "
+"исправьте их, а затем перезагрузите конфигурацию."
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Ignore"
@@ -269,12 +269,12 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Вставка этого текста в терминал может быть опасной. Это выглядит как "
-"команды, которые могут быть исполнены."
+"Этот текст может быть опасен: его вставка в терминал приведёт к запуску "
+"команд."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
-msgstr "Закрыть Ghostty?"
+msgstr "Выйти из Ghostty?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -326,7 +326,7 @@ msgstr "Команда завершилась с ошибкой"
 
 #: src/apprt/gtk/class/window.zig:1001
 msgid "Reloaded the configuration"
-msgstr "Конфигурация была обновлена"
+msgstr "Конфигурация перезагружена"
 
 #: src/apprt/gtk/class/window.zig:1553
 msgid "Copied to clipboard"
