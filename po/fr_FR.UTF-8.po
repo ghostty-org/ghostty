@@ -89,23 +89,23 @@ msgstr "Ghostty: Inspecteur"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "Chercher…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "Précédent"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "Suivant"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "Oh, non."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "Impossible d’obtenir un contexte OpenGL pour le rendu."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -113,10 +113,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"Ce terminal est en mode lecture seule. Vous pouvez encore voir, selectionner,"
+"et naviguer dans son contenu, mais aucune entrée ne sera envoyée à l’application"
+"en cours."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "Lecture seule"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -128,7 +131,7 @@ msgstr "Coller"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "Notifier à la complétion de la prochaine commande"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
@@ -305,15 +308,15 @@ msgstr "Le processus en cours dans ce panneau va être arrêté."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr ""
+msgstr "Commande terminée"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "Commande réussie"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr ""
+msgstr "La commande a échoué"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
