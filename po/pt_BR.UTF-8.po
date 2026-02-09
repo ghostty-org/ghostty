@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-05 10:23+0800\n"
+"POT-Creation-Date: 2026-02-09 15:54-0600\n"
 "PO-Revision-Date: 2025-09-15 13:57-0300\n"
 "Last-Translator: Nilton Perim Neto <niltonperimneto@gmail.com>\n"
 "Language-Team: Brazilian Portuguese <ldpbr-"
@@ -310,20 +310,14 @@ msgid "Command Finished"
 msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr ""
-
-#: src/apprt/gtk/class/surface_child_exited.zig:109
-msgid "Command succeeded"
-msgstr "Comando executado com sucesso"
-
-#: src/apprt/gtk/class/surface_child_exited.zig:113
-msgid "Command failed"
-msgstr "Comando falhou"
 
 #: src/apprt/gtk/class/window.zig:1001
 msgid "Reloaded the configuration"
@@ -340,3 +334,9 @@ msgstr "Área de transferência limpa"
 #: src/apprt/gtk/class/window.zig:1695
 msgid "Ghostty Developers"
 msgstr "Desenvolvedores do Ghostty"
+
+#~ msgid "Command succeeded"
+#~ msgstr "Comando executado com sucesso"
+
+#~ msgid "Command failed"
+#~ msgstr "Comando falhou"
