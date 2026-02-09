@@ -307,15 +307,15 @@ msgstr "El proceso actualmente en ejecución en esta división será terminado."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr "El comando ha finalizado"
+msgstr "Comando finalizado"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr "El comando se ha ejecutado correctamente"
+msgstr "Comando ejecutado correctamente"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr "El comando ha fallado"
+msgstr "Comando fallido"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
@@ -323,7 +323,7 @@ msgstr "Comando ejecutado correctamente"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command failed"
-msgstr "El comando ha fallado"
+msgstr "Comando fallido"
 
 #: src/apprt/gtk/class/window.zig:1001
 msgid "Reloaded the configuration"
