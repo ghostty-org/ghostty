@@ -8,8 +8,8 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2025-08-23 21:01+0200\n"
-"Last-Translator: Kirwiisp <swiip__@hotmail.com>\n"
+"PO-Revision-Date: 2026-02-09 21:18+0200\n"
+"Last-Translator: Gerry Agbobada <gerry@gagbo.net>\n"
 "Language-Team: French <traduc@traduc.org>\n"
 "Language: fr\n"
 "MIME-Version: 1.0\n"
@@ -93,11 +93,11 @@ msgstr "Chercher…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr "Précédent"
+msgstr "Résultat Précédent"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr "Suivant"
+msgstr "Résultat Suivant"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
@@ -105,7 +105,7 @@ msgstr "Oh, non."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr "Impossible d’obtenir un contexte OpenGL pour le rendu."
+msgstr "Impossible d'obtenir un contexte OpenGL pour le rendu."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -113,8 +113,8 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Ce terminal est en mode lecture seule. Vous pouvez encore voir, selectionner,"
-"et naviguer dans son contenu, mais aucune entrée ne sera envoyée à l’application"
+"Ce terminal est en mode lecture seule. Vous pouvez encore voir, sélectionner, "
+"et naviguer dans son contenu, mais aucune entrée ne sera envoyée à l'application "
 "en cours."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
