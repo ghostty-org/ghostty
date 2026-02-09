@@ -24,13 +24,21 @@ const MainReturn = switch (build_config.artifact) {
 };
 
 pub fn main() !MainReturn {
+    // On Windows with subsystem=windows, there's no console by default.
+    // Attach to the parent console (if launched from a terminal) so that
+    // CLI actions (--help, +list-fonts, etc.) can write to stdout/stderr.
+    // This is a no-op when there's no parent console (e.g. launched from desktop).
+    if (comptime builtin.os.tag == .windows) {
+        _ = attachConsole(0xFFFFFFFF); // ATTACH_PARENT_PROCESS
+    }
+
     // We first start by initializing our global state. This will setup
     // process-level state we need to run the terminal. The reason we use
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
     state.init() catch |err| {
         var buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&buffer);
+        var stderr_writer = std.fs.File.stderr().writerStreaming(&buffer);
         const stderr = &stderr_writer.interface;
         defer posix.exit(1);
         const ErrSet = @TypeOf(err) || error{Unknown};
@@ -158,6 +166,10 @@ fn logFn(
 
         const level_txt = comptime level.asText();
         const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+        // Timestamp: seconds.milliseconds (monotonic, wraps every ~100000s)
+        const ts = std.time.milliTimestamp();
+        const ts_u: u64 = @intCast(@mod(ts, 100_000_000));
+        nosuspend stderr.print("[{d:>5}.{d:0>3}] ", .{ ts_u / 1000, ts_u % 1000 }) catch break :stderr;
         nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
         nosuspend stderr.flush() catch break :stderr;
     }
@@ -211,3 +223,10 @@ test {
     _ = @import("extra/vim.zig");
     _ = @import("extra/zsh.zig");
 }
+
+const attachConsole = if (builtin.os.tag == .windows)
+    struct {
+        extern "kernel32" fn AttachConsole(dwProcessId: u32) callconv(std.builtin.CallingConvention.winapi) i32;
+    }.AttachConsole
+else
+    void;

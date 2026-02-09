@@ -13,6 +13,7 @@ pub const Face = switch (options.backend) {
     .freetype,
     .fontconfig_freetype,
     .coretext_freetype,
+    .directwrite_freetype,
     => freetype.Face,
 
     .coretext,
@@ -64,7 +65,7 @@ pub const DesiredSize = struct {
             .{ .name = "GhosttyFontDesiredSize" },
         ),
 
-        .none => void,
+        .none, .win32 => void,
     };
 };
 

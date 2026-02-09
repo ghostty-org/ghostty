@@ -26,6 +26,10 @@ fc: if (options.backend == .fontconfig_freetype) ?Fontconfig else void =
 ct: if (font.Discover == font.discovery.CoreText) ?CoreText else void =
     if (font.Discover == font.discovery.CoreText) null else {},
 
+/// DirectWrite (Windows)
+dw: if (options.backend.hasDirectwrite()) ?DirectWriteData else void =
+    if (options.backend.hasDirectwrite()) null else {},
+
 /// Canvas
 wc: if (options.backend == .web_canvas) ?WebCanvas else void =
     if (options.backend == .web_canvas) null else {},
@@ -67,6 +71,23 @@ pub const CoreText = struct {
     }
 };
 
+/// DirectWrite specific data. This is only present when building for Windows.
+pub const DirectWriteData = struct {
+    /// Allocator used to allocate the owned path.
+    alloc: Allocator,
+
+    /// File path to the font (owned).
+    path: [:0]const u8,
+
+    /// Variations to apply to this font.
+    variations: []const font.face.Variation,
+
+    pub fn deinit(self: *DirectWriteData) void {
+        self.alloc.free(self.path);
+        self.* = undefined;
+    }
+};
+
 /// WebCanvas specific data. This is only present when building with canvas.
 pub const WebCanvas = struct {
     /// The allocator to use for fonts
@@ -87,6 +108,7 @@ pub const WebCanvas = struct {
 pub fn deinit(self: *DeferredFace) void {
     switch (options.backend) {
         .fontconfig_freetype => if (self.fc) |*fc| fc.deinit(),
+        .directwrite_freetype => if (self.dw) |*dw| dw.deinit(),
         .freetype => {},
         .web_canvas => if (self.wc) |*wc| wc.deinit(),
         .coretext,
@@ -105,6 +127,20 @@ pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
 
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.family, 0)).string,
+
+        .directwrite_freetype => if (self.dw) |dw| {
+            // Extract family name from the file path
+            const path: []const u8 = dw.path;
+            if (std.mem.lastIndexOf(u8, path, "\\")) |idx| {
+                const filename = path[idx + 1 ..];
+                if (std.mem.lastIndexOf(u8, filename, ".")) |dot| {
+                    const name_len = @min(dot, buf.len);
+                    @memcpy(buf[0..name_len], filename[0..name_len]);
+                    return buf[0..name_len];
+                }
+            }
+            return "unknown";
+        },
 
         .coretext,
         .coretext_freetype,
@@ -133,6 +169,10 @@ pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
 
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.fullname, 0)).string,
+
+        .directwrite_freetype => if (self.dw) |_| {
+            return try self.familyName(buf);
+        },
 
         .coretext,
         .coretext_freetype,
@@ -164,6 +204,7 @@ pub fn load(
 ) !Face {
     return switch (options.backend) {
         .fontconfig_freetype => try self.loadFontconfig(lib, opts),
+        .directwrite_freetype => try self.loadDirectWrite(lib, opts),
         .coretext, .coretext_harfbuzz, .coretext_noshape => try self.loadCoreText(lib, opts),
         .coretext_freetype => try self.loadCoreTextFreetype(lib, opts),
         .web_canvas => try self.loadWebCanvas(opts),
@@ -188,6 +229,20 @@ fn loadFontconfig(
     var face = try Face.initFile(lib, filename, face_index, opts);
     errdefer face.deinit();
     try face.setVariations(fc.variations, opts);
+    return face;
+}
+
+fn loadDirectWrite(
+    self: *DeferredFace,
+    lib: Library,
+    opts: font.face.Options,
+) !Face {
+    const dw = self.dw.?;
+
+    // Load font from file path using FreeType
+    var face = try Face.initFile(lib, dw.path, 0, opts);
+    errdefer face.deinit();
+    try face.setVariations(dw.variations, opts);
     return face;
 }
 
@@ -314,6 +369,16 @@ pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
                 // Get our glyphs
                 var glyphs = [2]macos.graphics.Glyph{ 0, 0 };
                 return ct.font.getGlyphsForCharacters(unichars[0..len], glyphs[0..len]);
+            }
+        },
+
+        .directwrite_freetype => {
+            // For DirectWrite-based discovery, we don't have quick
+            // codepoint lookup metadata. Return true to let the face
+            // be loaded and checked later. This is less efficient but
+            // correct - the face loading will verify codepoint support.
+            if (self.dw != null) {
+                return true;
             }
         },
 

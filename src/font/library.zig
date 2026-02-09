@@ -12,6 +12,7 @@ pub const Library = switch (options.backend) {
     .freetype,
     .fontconfig_freetype,
     .coretext_freetype,
+    .directwrite_freetype,
     => FreetypeLibrary,
 
     // Some backends such as CT and Canvas don't have a "library"

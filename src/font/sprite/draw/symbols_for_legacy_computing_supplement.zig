@@ -102,7 +102,13 @@ pub fn draw1CD00_1CDE5(
 
         const data = @embedFile("octants.txt");
         var it = std.mem.splitScalar(u8, data, '\n');
-        while (it.next()) |line| {
+        while (it.next()) |raw_line| {
+            // Trim trailing \r for Windows line endings
+            const line = if (raw_line.len > 0 and raw_line[raw_line.len - 1] == '\r')
+                raw_line[0 .. raw_line.len - 1]
+            else
+                raw_line;
+
             // Skip comments
             if (line.len == 0 or line[0] == '#') continue;
 
@@ -113,7 +119,7 @@ pub fn draw1CD00_1CDE5(
             // at the end are keys into our packed struct. Since we're
             // at comptime we can metaprogram it all.
             const idx = std.mem.indexOfScalar(u8, line, '-').?;
-            for (line[idx + 1 ..]) |c| @field(current, &.{c}) = true;
+            for (line[idx + 1 ..]) |c| @field(current, &[1]u8{c}) = true;
         }
 
         assert(i == octants_len);

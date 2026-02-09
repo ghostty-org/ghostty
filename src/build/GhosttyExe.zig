@@ -52,6 +52,16 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             exe.addWin32ResourceFile(.{
                 .file = b.path("dist/windows/ghostty.rc"),
             });
+
+            // Build and install the WinUI 3 shim DLL if requested.
+            if (cfg.winui) {
+                const winui_build = b.addSystemCommand(&.{
+                    "cmd.exe", "/C",
+                    b.pathFromRoot("src/apprt/win32/winui/build_winui.bat"),
+                    b.install_path,
+                });
+                install_step.step.dependOn(&winui_build.step);
+            }
         },
 
         else => {},

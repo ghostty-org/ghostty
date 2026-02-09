@@ -40,7 +40,7 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);
     const stdout = &stdout_writer.interface;
     const result = runInner(alloc, opts, stdout);
     try stdout_writer.end();

@@ -233,6 +233,9 @@ pub fn focusGained(
 ) !void {
     _ = self;
 
+    // Termios timer is not yet implemented on Windows.
+    if (comptime builtin.os.tag == .windows) return;
+
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
 
@@ -1353,9 +1356,17 @@ pub const ReadThread = struct {
         defer crash.sentry.thread_state = null;
 
         var buf: [1024]u8 = undefined;
+        // Diagnostic: track PTY read + processOutput timing
+        var read_count: u64 = 0;
+        var read_ns_total: u64 = 0;
+        var process_ns_total: u64 = 0;
+        var read_bytes_total: u64 = 0;
+        var last_pty_report: ?std.time.Instant = std.time.Instant.now() catch null;
+
         while (true) {
             while (true) {
                 var n: windows.DWORD = 0;
+                const read_start = std.time.Instant.now() catch null;
                 if (windows.kernel32.ReadFile(fd, &buf, buf.len, &n, null) == 0) {
                     const err = windows.kernel32.GetLastError();
                     switch (err) {
@@ -1369,7 +1380,55 @@ pub const ReadThread = struct {
                     }
                 }
 
+                const process_start = std.time.Instant.now() catch null;
                 @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });
+                const process_end = std.time.Instant.now() catch null;
+
+                // Per-read log: timestamp lets us correlate with write_small
+                // to measure ConPTY round-trip latency
+                const read_us: u64 = if (read_start) |rs| blk: {
+                    if (process_start) |ps| break :blk ps.since(rs) / 1000;
+                    break :blk 0;
+                } else 0;
+                const process_us: u64 = if (process_start) |ps| blk: {
+                    if (process_end) |pe| break :blk pe.since(ps) / 1000;
+                    break :blk 0;
+                } else 0;
+                log.info("pty data: {} bytes (read={}us, process={}us)", .{ n, read_us, process_us });
+
+                // Accumulate timing
+                read_count += 1;
+                read_bytes_total += n;
+                if (read_start) |rs| {
+                    if (process_start) |ps| read_ns_total += ps.since(rs);
+                }
+                if (process_start) |ps| {
+                    if (process_end) |pe| process_ns_total += pe.since(ps);
+                }
+
+                // Report every 2 seconds
+                if (last_pty_report) |lr| {
+                    if (process_end) |pe| {
+                        const elapsed_ns = pe.since(lr);
+                        if (elapsed_ns >= 2 * std.time.ns_per_s) {
+                            const elapsed_ms = elapsed_ns / std.time.ns_per_ms;
+                            const avg_read_us = if (read_count > 0) read_ns_total / read_count / 1000 else 0;
+                            const avg_process_us = if (read_count > 0) process_ns_total / read_count / 1000 else 0;
+                            log.info("pty read: {} reads in {}ms, {} bytes, avg read={}us, avg process={}us", .{
+                                read_count,
+                                elapsed_ms,
+                                read_bytes_total,
+                                avg_read_us,
+                                avg_process_us,
+                            });
+                            read_count = 0;
+                            read_ns_total = 0;
+                            process_ns_total = 0;
+                            read_bytes_total = 0;
+                            last_pty_report = pe;
+                        }
+                    }
+                }
             }
 
             var quit_bytes: windows.DWORD = 0;

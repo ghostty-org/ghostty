@@ -25,7 +25,7 @@ pub fn load(getProcAddress: anytype) !c_int {
         @TypeOf(null) => c.gladLoaderLoadGLContext(&context),
 
         // try as-is. If this introduces a compiler error, then add a new case.
-        else => c.gladLoadGLContext(&context, @ptrCast(getProcAddress)),
+        else => c.gladLoadGLContext(&context, @ptrCast(&getProcAddress)),
     };
     if (res == 0) return error.GLInitFailed;
     return res;

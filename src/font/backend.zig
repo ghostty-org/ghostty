@@ -22,6 +22,10 @@ pub const Backend = enum {
     /// CoreText for font discovery and rendering, no shaping.
     coretext_noshape,
 
+    /// DirectWrite for font discovery, FreeType for rendering, and
+    /// HarfBuzz for shaping (Windows).
+    directwrite_freetype,
+
     /// Use the browser font system and the Canvas API (wasm). This limits
     /// the available fonts to browser fonts (anything Canvas natively
     /// supports).
@@ -43,7 +47,9 @@ pub const Backend = enum {
         // macOS also supports "coretext_freetype" but there is no scenario
         // that is the default. It is only used by people who want to
         // self-compile Ghostty and prefer the freetype aesthetic.
-        return if (target.os.tag.isDarwin()) .coretext else .fontconfig_freetype;
+        if (target.os.tag.isDarwin()) return .coretext;
+        if (target.os.tag == .windows) return .directwrite_freetype;
+        return .fontconfig_freetype;
     }
 
     // All the functions below can be called at comptime or runtime to
@@ -54,6 +60,7 @@ pub const Backend = enum {
             .freetype,
             .fontconfig_freetype,
             .coretext_freetype,
+            .directwrite_freetype,
             => true,
 
             .coretext,
@@ -74,6 +81,7 @@ pub const Backend = enum {
 
             .freetype,
             .fontconfig_freetype,
+            .directwrite_freetype,
             .web_canvas,
             => false,
         };
@@ -84,6 +92,22 @@ pub const Backend = enum {
             .fontconfig_freetype => true,
 
             .freetype,
+            .coretext,
+            .coretext_freetype,
+            .coretext_harfbuzz,
+            .coretext_noshape,
+            .directwrite_freetype,
+            .web_canvas,
+            => false,
+        };
+    }
+
+    pub fn hasDirectwrite(self: Backend) bool {
+        return switch (self) {
+            .directwrite_freetype => true,
+
+            .freetype,
+            .fontconfig_freetype,
             .coretext,
             .coretext_freetype,
             .coretext_harfbuzz,
@@ -99,6 +123,7 @@ pub const Backend = enum {
             .fontconfig_freetype,
             .coretext_freetype,
             .coretext_harfbuzz,
+            .directwrite_freetype,
             => true,
 
             .coretext,

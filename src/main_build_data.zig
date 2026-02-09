@@ -34,7 +34,7 @@ pub fn main() !void {
 
     // Our output always goes to stdout.
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);
     const writer = &stdout_writer.interface;
     switch (action) {
         .bash => try writer.writeAll(@import("extra/bash.zig").completions),

@@ -79,7 +79,7 @@ pub fn run(alloc: Allocator) !u8 {
     // tests so we just do configfmt.format.
     var stdout: std.fs.File = .stdout();
     var buffer: [4096]u8 = undefined;
-    var stdout_writer = stdout.writer(&buffer);
+    var stdout_writer = stdout.writerStreaming(&buffer);
     try configfmt.format(&stdout_writer.interface);
     try stdout_writer.end();
     return 0;

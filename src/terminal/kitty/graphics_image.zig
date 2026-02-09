@@ -16,6 +16,34 @@ const temp_dir = struct {
     const freeTmpDir = @import("../../os/file.zig").freeTmpDir;
 };
 
+/// Win32 API bindings for shared memory support.
+const windows = if (builtin.os.tag == .windows) std.os.windows else struct {};
+const win32 = if (builtin.os.tag == .windows) struct {
+    const HANDLE = windows.HANDLE;
+    const BOOL = windows.BOOL;
+    const WINAPI = std.builtin.CallingConvention.winapi;
+
+    const FILE_MAP_READ: windows.DWORD = 4; // SECTION_MAP_READ
+
+    extern "kernel32" fn OpenFileMappingW(
+        dwDesiredAccess: windows.DWORD,
+        bInheritHandle: BOOL,
+        lpName: [*:0]const u16,
+    ) callconv(WINAPI) ?HANDLE;
+
+    extern "kernel32" fn MapViewOfFile(
+        hFileMappingObject: HANDLE,
+        dwDesiredAccess: windows.DWORD,
+        dwFileOffsetHigh: windows.DWORD,
+        dwFileOffsetLow: windows.DWORD,
+        dwNumberOfBytesToMap: usize,
+    ) callconv(WINAPI) ?windows.LPVOID;
+
+    extern "kernel32" fn UnmapViewOfFile(
+        lpBaseAddress: windows.LPVOID,
+    ) callconv(WINAPI) BOOL;
+} else struct {};
+
 const log = std.log.scoped(.kitty_gfx);
 
 /// Maximum width or height of an image. Taken directly from Kitty.
@@ -74,19 +102,15 @@ pub const LoadingImage = struct {
 
         // Otherwise, the payload data is guaranteed to be a path.
 
-        if (comptime builtin.os.tag != .windows) {
-            if (std.mem.indexOfScalar(u8, cmd.data, 0) != null) {
-                // posix.realpath *asserts* that the path does not have
-                // internal nulls instead of erroring.
-                log.warn("failed to get absolute path: BadPathName", .{});
-                return error.InvalidData;
-            }
+        if (std.mem.indexOfScalar(u8, cmd.data, 0) != null) {
+            log.warn("failed to get absolute path: BadPathName", .{});
+            return error.InvalidData;
         }
 
         var abs_buf: [std.fs.max_path_bytes]u8 = undefined;
         const path = switch (t.medium) {
             .direct => unreachable, // handled above
-            .file, .temporary_file => posix.realpath(cmd.data, &abs_buf) catch |err| {
+            .file, .temporary_file => std.fs.cwd().realpath(cmd.data, &abs_buf) catch |err| {
                 log.warn("failed to get absolute path: {}", .{err});
                 return error.InvalidData;
             },
@@ -111,9 +135,8 @@ pub const LoadingImage = struct {
         t: command.Transmission,
         path: []const u8,
     ) !void {
-        // windows is currently unsupported, does it support shm?
-        if (comptime builtin.target.os.tag == .windows) {
-            return error.UnsupportedMedium;
+        if (comptime builtin.os.tag == .windows) {
+            return self.readSharedMemoryWindows(alloc, t, path);
         }
 
         // libc is required for shm_open
@@ -148,17 +171,7 @@ pub const LoadingImage = struct {
             break :stat @intCast(stat.size);
         };
 
-        const expected_size: usize = switch (self.image.format) {
-            // Png we decode the full data size because later decoding will
-            // get the proper dimensions and assert validity.
-            .png => stat_size,
-
-            // For these formats we have a size we must have.
-            .gray, .gray_alpha, .rgb, .rgba => |f| size: {
-                const bpp = f.bpp();
-                break :size self.image.width * self.image.height * bpp;
-            },
-        };
+        const expected_size: usize = self.expectedShmSize(stat_size);
 
         // Our stat size must be at least the expected size otherwise
         // the shared memory data is invalid.
@@ -195,6 +208,92 @@ pub const LoadingImage = struct {
         try self.data.appendSlice(alloc, map[start..end]);
     }
 
+    /// Windows implementation of shared memory reading using Win32 file mapping APIs.
+    fn readSharedMemoryWindows(
+        self: *LoadingImage,
+        alloc: Allocator,
+        t: command.Transmission,
+        path: []const u8,
+    ) !void {
+        if (comptime builtin.os.tag != .windows) unreachable;
+
+        // The Kitty protocol uses POSIX shm names like "/shm-name"; strip
+        // the leading slash since Windows named objects don't use it.
+        const name = if (path.len > 0 and path[0] == '/') path[1..] else path;
+        if (name.len == 0) return error.InvalidData;
+
+        // Convert to wide string for Win32 API
+        var wide_buf: [256]u16 = undefined;
+        const wide_len = std.unicode.utf8ToUtf16Le(&wide_buf, name) catch return error.InvalidData;
+        if (wide_len >= wide_buf.len) return error.InvalidData;
+        wide_buf[wide_len] = 0;
+        const wide_name: [*:0]const u16 = wide_buf[0..wide_len :0];
+
+        const handle = win32.OpenFileMappingW(
+            win32.FILE_MAP_READ,
+            0, // bInheritHandle = FALSE
+            wide_name,
+        );
+        if (handle == null) {
+            log.warn("unable to open shared memory {s}: OpenFileMappingW failed", .{path});
+            return error.InvalidData;
+        }
+        defer windows.CloseHandle(handle.?);
+
+        // Map the entire view
+        const view_ptr = win32.MapViewOfFile(
+            handle.?,
+            win32.FILE_MAP_READ,
+            0,
+            0,
+            0, // Map entire section
+        );
+        if (view_ptr == null) {
+            log.warn("unable to map shared memory {s}: MapViewOfFile failed", .{path});
+            return error.InvalidData;
+        }
+        defer _ = win32.UnmapViewOfFile(view_ptr.?);
+
+        // Query the actual mapped size via VirtualQuery
+        var mem_info: windows.MEMORY_BASIC_INFORMATION = undefined;
+        const query_result = windows.kernel32.VirtualQuery(view_ptr.?, &mem_info, @sizeOf(windows.MEMORY_BASIC_INFORMATION));
+        if (query_result == 0) {
+            log.warn("unable to query shared memory size {s}: VirtualQuery failed", .{path});
+            return error.InvalidData;
+        }
+        const stat_size: usize = mem_info.RegionSize;
+
+        const expected_size: usize = self.expectedShmSize(stat_size);
+
+        if (stat_size < expected_size) {
+            log.warn(
+                "shared memory size too small expected={} actual={}",
+                .{ expected_size, stat_size },
+            );
+            return error.InvalidData;
+        }
+
+        const mapped: [*]const u8 = @ptrCast(view_ptr.?);
+
+        const start: usize = @intCast(t.offset);
+        const end: usize = if (t.size > 0) @min(
+            @as(usize, @intCast(t.offset)) + @as(usize, @intCast(t.size)),
+            expected_size,
+        ) else expected_size;
+
+        assert(self.data.items.len == 0);
+        try self.data.appendSlice(alloc, mapped[start..end]);
+    }
+
+    /// Returns the expected shared memory size based on image format.
+    /// For PNG, returns fallback_size since the actual size comes from the data.
+    fn expectedShmSize(self: *LoadingImage, fallback_size: usize) usize {
+        return switch (self.image.format) {
+            .png => fallback_size,
+            .gray, .gray_alpha, .rgb, .rgba => |f| self.image.width * self.image.height * f.bpp(),
+        };
+    }
+
     /// Reads the data from a temporary file and returns it. This allocates
     /// and does not free any of the data, so the caller must free it.
     ///
@@ -213,12 +312,14 @@ pub const LoadingImage = struct {
 
         // Verify file seems "safe". This is logic copied directly from Kitty,
         // mostly. This is really rough but it will catch obvious bad actors.
-        if (std.mem.startsWith(u8, path, "/proc/") or
-            std.mem.startsWith(u8, path, "/sys/") or
-            (std.mem.startsWith(u8, path, "/dev/") and
-                !std.mem.startsWith(u8, path, "/dev/shm/")))
-        {
-            return error.InvalidData;
+        if (comptime builtin.os.tag != .windows) {
+            if (std.mem.startsWith(u8, path, "/proc/") or
+                std.mem.startsWith(u8, path, "/sys/") or
+                (std.mem.startsWith(u8, path, "/dev/") and
+                    !std.mem.startsWith(u8, path, "/dev/shm/")))
+            {
+                return error.InvalidData;
+            }
         }
 
         // Temporary file logic
@@ -229,7 +330,7 @@ pub const LoadingImage = struct {
             }
         }
         defer if (medium == .temporary_file) {
-            posix.unlink(path) catch |err| {
+            std.fs.cwd().deleteFile(path) catch |err| {
                 log.warn("failed to delete temporary file: {}", .{err});
             };
         };
@@ -279,8 +380,10 @@ pub const LoadingImage = struct {
     /// Returns true if path appears to be in a temporary directory.
     /// Copies logic from Kitty.
     fn isPathInTempDir(path: []const u8) bool {
-        if (std.mem.startsWith(u8, path, "/tmp")) return true;
-        if (std.mem.startsWith(u8, path, "/dev/shm")) return true;
+        if (comptime builtin.os.tag != .windows) {
+            if (std.mem.startsWith(u8, path, "/tmp")) return true;
+            if (std.mem.startsWith(u8, path, "/dev/shm")) return true;
+        }
         if (temp_dir.allocTmpDir(std.heap.page_allocator)) |dir| {
             defer temp_dir.freeTmpDir(std.heap.page_allocator, dir);
             if (std.mem.startsWith(u8, path, dir)) return true;
@@ -288,7 +391,7 @@ pub const LoadingImage = struct {
             // The temporary dir is sometimes a symlink. On macOS for
             // example /tmp is /private/var/...
             var buf: [std.fs.max_path_bytes]u8 = undefined;
-            if (posix.realpath(dir, &buf)) |real_dir| {
+            if (std.fs.cwd().realpath(dir, &buf)) |real_dir| {
                 if (std.mem.startsWith(u8, path, real_dir)) return true;
             } else |_| {}
         }

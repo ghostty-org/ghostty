@@ -37,7 +37,7 @@ pub const Uniforms = extern struct {
 };
 
 /// The target to load shaders for.
-pub const Target = enum { glsl, msl };
+pub const Target = enum { glsl, msl, hlsl };
 
 /// Load a set of shaders from files and convert them to the target
 /// format. The shader order is preserved.
@@ -126,12 +126,13 @@ pub fn loadFromFile(
         break :spirv list.items;
     };
 
-    // Convert to MSL
+    // Convert to target language
     return switch (target) {
         // Important: using the alloc_gpa here on purpose because this
         // is the final result that will be returned to the caller.
         .glsl => try glslFromSpv(alloc_gpa, spirv),
         .msl => try mslFromSpv(alloc_gpa, spirv),
+        .hlsl => try hlslFromSpv(alloc_gpa, spirv),
     };
 }
 
@@ -238,7 +239,7 @@ pub const SpirvLog = struct {
 pub fn mslFromSpv(alloc: Allocator, spv: []const u8) ![:0]const u8 {
     const c = spvcross.c;
     return try spvCross(alloc, spvcross.c.SPVC_BACKEND_MSL, spv, (struct {
-        fn setOptions(options: c.spvc_compiler_options) error{SpvcFailed}!void {
+        fn setOptions(_: c.spvc_compiler, options: c.spvc_compiler_options) error{SpvcFailed}!void {
             // We enable decoration binding, because we need this
             // to properly locate the uniform block to index 1.
             if (c.spvc_compiler_options_set_bool(
@@ -252,13 +253,30 @@ pub fn mslFromSpv(alloc: Allocator, spv: []const u8) ![:0]const u8 {
     }).setOptions);
 }
 
+/// Convert SPIR-V binary to HLSL.
+pub fn hlslFromSpv(alloc: Allocator, spv: []const u8) ![:0]const u8 {
+    const c = spvcross.c;
+    return try spvCross(alloc, c.SPVC_BACKEND_HLSL, spv, (struct {
+        fn setOptions(_: c.spvc_compiler, options: c.spvc_compiler_options) error{SpvcFailed}!void {
+            // Target shader model 5.0 for D3D11
+            if (c.spvc_compiler_options_set_uint(
+                options,
+                c.SPVC_COMPILER_OPTION_HLSL_SHADER_MODEL,
+                50,
+            ) != c.SPVC_SUCCESS) {
+                return error.SpvcFailed;
+            }
+        }
+    }).setOptions);
+}
+
 /// Convert SPIR-V binary to GLSL.
 pub fn glslFromSpv(alloc: Allocator, spv: []const u8) ![:0]const u8 {
     const GLSL_VERSION = 430;
 
     const c = spvcross.c;
     return try spvCross(alloc, c.SPVC_BACKEND_GLSL, spv, (struct {
-        fn setOptions(options: c.spvc_compiler_options) error{SpvcFailed}!void {
+        fn setOptions(_: c.spvc_compiler, options: c.spvc_compiler_options) error{SpvcFailed}!void {
             if (c.spvc_compiler_options_set_uint(
                 options,
                 c.SPVC_COMPILER_OPTION_GLSL_VERSION,
@@ -274,7 +292,7 @@ fn spvCross(
     alloc: Allocator,
     backend: spvcross.c.spvc_backend,
     spv: []const u8,
-    comptime optionsFn_: ?*const fn (c: spvcross.c.spvc_compiler_options) error{SpvcFailed}!void,
+    comptime optionsFn_: ?*const fn (compiler: spvcross.c.spvc_compiler, options: spvcross.c.spvc_compiler_options) error{SpvcFailed}!void,
 ) ![:0]const u8 {
     // Spir-V is always a multiple of 4 because it is written as a series of words
     if (@mod(spv.len, 4) != 0) return error.SpirvInvalid;
@@ -324,7 +342,7 @@ fn spvCross(
             return error.SpvcFailed;
         }
 
-        try optionsFn(options);
+        try optionsFn(compiler, options);
 
         if (c.spvc_compiler_install_compiler_options(compiler, options) != c.SPVC_SUCCESS) {
             return error.SpvcFailed;

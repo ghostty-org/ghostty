@@ -936,7 +936,7 @@ pub const Action = union(enum) {
             .{ .name = "GhosttyBindingAction" },
         ),
 
-        .none => void,
+        .none, .win32 => void,
     };
 
     pub const CrashThread = enum {

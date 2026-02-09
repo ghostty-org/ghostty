@@ -45,6 +45,7 @@ strip: bool = false,
 patch_rpath: ?[]const u8 = null,
 
 /// Artifacts
+winui: bool = false,
 flatpak: bool = false,
 snap: bool = false,
 emit_bench: bool = false,
@@ -142,6 +143,12 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
 
     //---------------------------------------------------------------
     // Feature Flags
+
+    config.winui = b.option(
+        bool,
+        "winui",
+        "Build the WinUI 3 shim DLL for native Windows UI controls. Requires MSVC and Windows App SDK.",
+    ) orelse false;
 
     config.flatpak = b.option(
         bool,
@@ -473,6 +480,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
 pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
     // support all types.
+    step.addOption(bool, "winui", self.winui);
     step.addOption(bool, "flatpak", self.flatpak);
     step.addOption(bool, "snap", self.snap);
     step.addOption(bool, "x11", self.x11);
@@ -554,6 +562,7 @@ pub fn fromOptions() Config {
         .env = undefined,
 
         .version = options.app_version,
+        .winui = options.winui,
         .flatpak = options.flatpak,
         .app_runtime = std.meta.stringToEnum(ApprtRuntime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(FontBackend, @tagName(options.font_backend)).?,

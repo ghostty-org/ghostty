@@ -256,6 +256,24 @@ fn threadMain_(self: *Thread) !void {
     // Start the draw timer
     self.syncDrawTimer();
 
+    // On Windows, start a periodic polling timer to work around an xev IOCP
+    // backend race condition where Async.notify() calls from the IO thread
+    // can be lost (the completion posted via PostQueuedCompletionStatus may
+    // not wake GetQueuedCompletionStatusEx if timing is unfortunate). This
+    // ensures the renderer drains its mailbox and redraws at DRAW_INTERVAL
+    // regardless of async wakeup reliability. Uses the existing render_h/
+    // render_c which are otherwise unused.
+    if (comptime builtin.os.tag == .windows) {
+        self.render_h.run(
+            &self.loop,
+            &self.render_c,
+            DRAW_INTERVAL,
+            Thread,
+            self,
+            pollCallback,
+        );
+    }
+
     // Run
     log.debug("starting renderer thread", .{});
     defer log.debug("starting renderer thread shutdown", .{});
@@ -618,6 +636,36 @@ fn renderCallback(
     // Draw
     t.drawFrame(false);
 
+    return .disarm;
+}
+
+/// Windows-only polling callback. Works around xev IOCP async race condition
+/// by periodically draining the mailbox and rendering, ensuring the terminal
+/// stays responsive even when Async.notify() notifications are lost.
+fn pollCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch unreachable;
+    const t: *Thread = self_ orelse return .disarm;
+
+    // Drain any pending messages (same as wakeupCallback)
+    t.drainMailbox() catch |err|
+        log.err("error draining mailbox err={}", .{err});
+
+    // Update frame data and draw (same as renderCallback)
+    t.renderer.updateFrame(
+        t.state,
+        t.flags.cursor_blink_visible,
+    ) catch |err|
+        log.warn("error rendering err={}", .{err});
+
+    t.drawFrame(false);
+
+    // Rearm the timer
+    t.render_h.run(&t.loop, &t.render_c, DRAW_INTERVAL, Thread, t, pollCallback);
     return .disarm;
 }
 

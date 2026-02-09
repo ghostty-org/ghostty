@@ -15,6 +15,7 @@ const log = std.log.scoped(.discovery);
 pub const Discover = switch (options.backend) {
     .freetype => void, // no discovery
     .fontconfig_freetype => Fontconfig,
+    .directwrite_freetype => DirectWrite,
     .web_canvas => void, // no discovery
     .coretext,
     .coretext_freetype,
@@ -328,6 +329,268 @@ pub const Fontconfig = struct {
                     .variations = self.variations,
                 },
             };
+        }
+    };
+};
+
+/// DirectWrite-based font discovery for Windows.
+///
+/// Uses the Windows font directory to find fonts by family name.
+/// This provides a simple but functional font discovery mechanism
+/// that enumerates system fonts from standard Windows font directories.
+pub const DirectWrite = struct {
+    pub fn init() DirectWrite {
+        return .{};
+    }
+
+    pub fn deinit(self: *DirectWrite) void {
+        _ = self;
+    }
+
+    /// Discover fonts matching the given descriptor.
+    pub fn discover(
+        self: *const DirectWrite,
+        alloc: Allocator,
+        desc: Descriptor,
+    ) !DiscoverIterator {
+        _ = self;
+        return DiscoverIterator.init(alloc, desc);
+    }
+
+    /// Discover fallback fonts. For DirectWrite, this is the same as
+    /// normal discovery.
+    pub fn discoverFallback(
+        self: *const DirectWrite,
+        alloc: Allocator,
+        collection: *Collection,
+        desc: Descriptor,
+    ) !DiscoverIterator {
+        _ = collection;
+        return try self.discover(alloc, desc);
+    }
+
+    pub const DiscoverIterator = struct {
+        /// List of font file paths found
+        font_paths: std.ArrayList(FontEntry),
+        /// Allocator used for font path entries.
+        alloc: Allocator,
+        /// Current iteration index
+        i: usize,
+        /// Variations to apply
+        variations: []const Variation,
+
+        const FontEntry = struct {
+            path: [:0]const u8,
+            family: []const u8,
+        };
+
+        pub fn init(alloc: Allocator, desc: Descriptor) !DiscoverIterator {
+            var result: DiscoverIterator = .{
+                .font_paths = .empty,
+                .alloc = alloc,
+                .i = 0,
+                .variations = desc.variations,
+            };
+
+            // Search the Windows fonts directory
+            try result.scanWindowsFontsDir(alloc, desc);
+
+            return result;
+        }
+
+        pub fn deinit(self: *DiscoverIterator) void {
+            for (self.font_paths.items) |entry| {
+                self.alloc.free(entry.path);
+                self.alloc.free(entry.family);
+            }
+            self.font_paths.deinit(self.alloc);
+            self.* = undefined;
+        }
+
+        pub fn next(self: *DiscoverIterator) !?DeferredFace {
+            if (self.i >= self.font_paths.items.len) return null;
+
+            const entry = self.font_paths.items[self.i];
+            self.i += 1;
+
+            // Duplicate the path so the DeferredFace owns it and
+            // survives this iterator being deinited.
+            const owned_path = try self.alloc.dupeZ(u8, entry.path);
+
+            return DeferredFace{
+                .dw = .{
+                    .alloc = self.alloc,
+                    .path = owned_path,
+                    .variations = self.variations,
+                },
+            };
+        }
+
+        /// Scan Windows font directories for matching fonts.
+        fn scanWindowsFontsDir(self: *DiscoverIterator, alloc: Allocator, desc: Descriptor) !void {
+            // System fonts directory
+            self.scanFontDir(alloc, desc, "C:\\Windows\\Fonts") catch {};
+
+            // User-installed fonts (%LOCALAPPDATA%\Microsoft\Windows\Fonts)
+            // Windows 10+ allows per-user font installation to this directory.
+            if (std.process.getEnvVarOwned(alloc, "LOCALAPPDATA")) |local_app_data| {
+                defer alloc.free(local_app_data);
+                const user_dir = std.fs.path.join(alloc, &.{ local_app_data, "Microsoft", "Windows", "Fonts" }) catch return;
+                defer alloc.free(user_dir);
+                self.scanFontDir(alloc, desc, user_dir) catch {};
+            } else |_| {}
+        }
+
+        /// Scan a single directory for font files matching the descriptor.
+        fn scanFontDir(self: *DiscoverIterator, alloc: Allocator, desc: Descriptor, dir_path: []const u8) !void {
+            var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch return;
+            defer dir.close();
+
+            var iter = dir.iterate();
+            while (try iter.next()) |entry| {
+                if (entry.kind != .file) continue;
+
+                // Check for font file extensions
+                const name = entry.name;
+                const is_font = std.mem.endsWith(u8, name, ".ttf") or
+                    std.mem.endsWith(u8, name, ".otf") or
+                    std.mem.endsWith(u8, name, ".TTF") or
+                    std.mem.endsWith(u8, name, ".OTF") or
+                    std.mem.endsWith(u8, name, ".ttc") or
+                    std.mem.endsWith(u8, name, ".TTC");
+
+                if (!is_font) continue;
+
+                // Build full path
+                const full_path = try std.fs.path.joinZ(alloc, &.{ dir_path, name });
+
+                // Family name matching based on filename heuristic.
+                // Proper DirectWrite COM API integration would be better
+                // but requires COM bindings.
+                if (desc.family) |family| {
+                    if (!matchesFamilyName(name, family)) {
+                        alloc.free(full_path);
+                        continue;
+                    }
+                    // Filter by style: check filename suffix for Bold/Italic indicators
+                    if (!matchesStyle(name, desc.bold, desc.italic)) {
+                        alloc.free(full_path);
+                        continue;
+                    }
+                }
+
+                const family_name = if (desc.family) |f|
+                    try alloc.dupe(u8, f)
+                else
+                    try alloc.dupe(u8, name);
+
+                try self.font_paths.append(alloc, .{
+                    .path = full_path,
+                    .family = family_name,
+                });
+            }
+        }
+
+        /// Heuristic to match a font filename to a family name.
+        /// Uses a two-pointer approach that skips separators (spaces,
+        /// hyphens, underscores) in both strings, so "Zed Plex Mono"
+        /// matches "ZedPlexMono-Regular.ttf" and vice versa.
+        fn matchesFamilyName(filename: []const u8, family: []const u8) bool {
+            // Remove extension from filename
+            const base = blk: {
+                if (std.mem.lastIndexOf(u8, filename, ".")) |idx| {
+                    break :blk filename[0..idx];
+                }
+                break :blk filename;
+            };
+
+            var bi: usize = 0;
+            var fi: usize = 0;
+
+            while (fi < family.len) {
+                // Skip separators in family name
+                if (isSeparator(family[fi])) {
+                    fi += 1;
+                    continue;
+                }
+                // Skip separators in filename
+                while (bi < base.len and isSeparator(base[bi])) {
+                    bi += 1;
+                }
+                if (bi >= base.len) return false;
+
+                if (std.ascii.toLower(base[bi]) != std.ascii.toLower(family[fi])) return false;
+                bi += 1;
+                fi += 1;
+            }
+
+            return true;
+        }
+
+        fn isSeparator(ch: u8) bool {
+            return ch == ' ' or ch == '-' or ch == '_';
+        }
+
+        /// Check if a font filename's style suffix matches the requested
+        /// bold/italic flags. For example, "ZedPlexMono-Bold.ttf" should
+        /// only match when bold=true, italic=false.
+        fn matchesStyle(filename: []const u8, want_bold: bool, want_italic: bool) bool {
+            // Remove extension
+            const base = if (std.mem.lastIndexOf(u8, filename, ".")) |idx|
+                filename[0..idx]
+            else
+                filename;
+
+            // Find the style suffix after a separator (-, _, space)
+            // e.g., "ZedPlexMono-BoldItalic" → "BoldItalic"
+            const suffix = blk: {
+                var i = base.len;
+                while (i > 0) {
+                    i -= 1;
+                    if (isSeparator(base[i])) {
+                        break :blk base[i + 1 ..];
+                    }
+                }
+                break :blk "";
+            };
+
+            const has_bold = containsCaseInsensitive(suffix, "Bold") or
+                containsCaseInsensitive(suffix, "Heavy") or
+                containsCaseInsensitive(suffix, "Black");
+            const has_italic = containsCaseInsensitive(suffix, "Italic") or
+                containsCaseInsensitive(suffix, "Oblique");
+            const is_regular = suffix.len == 0 or
+                containsCaseInsensitive(suffix, "Regular") or
+                containsCaseInsensitive(suffix, "Roman") or
+                containsCaseInsensitive(suffix, "Book") or
+                containsCaseInsensitive(suffix, "Medium");
+
+            if (want_bold and want_italic) {
+                return has_bold and has_italic;
+            } else if (want_bold) {
+                return has_bold and !has_italic;
+            } else if (want_italic) {
+                return has_italic and !has_bold;
+            } else {
+                // Regular: prefer files without bold/italic markers
+                return is_regular or (!has_bold and !has_italic);
+            }
+        }
+
+        fn containsCaseInsensitive(haystack: []const u8, needle: []const u8) bool {
+            if (haystack.len < needle.len) return false;
+            var i: usize = 0;
+            while (i + needle.len <= haystack.len) : (i += 1) {
+                var matches = true;
+                for (0..needle.len) |j| {
+                    if (std.ascii.toLower(haystack[i + j]) != std.ascii.toLower(needle[j])) {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches) return true;
+            }
+            return false;
         }
     };
 };

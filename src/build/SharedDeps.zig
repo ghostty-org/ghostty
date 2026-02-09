@@ -470,6 +470,31 @@ pub fn add(
         }
     }
 
+    // Windows-specific libraries
+    if (target.result.os.tag == .windows) {
+        // Rendering
+        if (self.config.renderer == .directx) {
+            step.linkSystemLibrary("d3d11");
+            step.linkSystemLibrary("dxgi");
+            step.linkSystemLibrary("d3dcompiler_47");
+        } else {
+            step.linkSystemLibrary("opengl32");
+        }
+        // Window management
+        step.linkSystemLibrary("user32");
+        step.linkSystemLibrary("gdi32");
+        // DirectWrite font rendering
+        step.linkSystemLibrary("dwrite");
+        // IME support
+        step.linkSystemLibrary("imm32");
+        // Desktop Window Manager for DPI
+        step.linkSystemLibrary("dwmapi");
+        // Shell for common dialogs if needed
+        step.linkSystemLibrary("shell32");
+        // Windows sockets (might be needed for IPC)
+        step.linkSystemLibrary("ws2_32");
+    }
+
     // cimgui
     if (b.lazyDependency("dcimgui", .{
         .target = target,
@@ -542,6 +567,7 @@ pub fn add(
         switch (self.config.app_runtime) {
             .none => {},
             .gtk => try self.addGtkNg(step),
+            .win32 => {}, // Windows libraries already linked above
         }
     }
 

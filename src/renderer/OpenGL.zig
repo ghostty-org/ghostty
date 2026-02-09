@@ -45,6 +45,14 @@ blending: configpkg.Config.AlphaBlending,
 /// The most recently presented target, in case we need to present it again.
 last_target: ?Target = null,
 
+/// The apprt surface, stored during threadEnter for platform-specific
+/// operations like SwapBuffers on Win32.
+surface: ?*apprt.Surface = null,
+
+/// Overlay resources for unfocused split dimming (lazily initialized).
+overlay_program: ?gl.Program = null,
+overlay_vao: ?gl.VertexArray = null,
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -56,6 +64,8 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
 }
 
 pub fn deinit(self: *OpenGL) void {
+    if (self.overlay_vao) |vao| vao.destroy();
+    if (self.overlay_program) |prog| prog.destroy();
     self.* = undefined;
 }
 
@@ -169,6 +179,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         apprt.gtk,
         => try prepareContext(null),
 
+        // Win32 loads OpenGL via WGL, context is already prepared
+        // by the surface's initOpenGL which calls glad.load.
+        apprt.win32 => {},
+
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
             // to compile for OpenGL targets but libghostty is strictly
@@ -190,14 +204,19 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 /// thread for final main thread setup requirements.
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
+
+    switch (apprt.runtime) {
+        apprt.win32 => {
+            // Release the OpenGL context from the main thread so the
+            // renderer thread can make it current in threadEnter.
+            surface.releaseContext();
+        },
+        else => {},
+    }
 }
 
 /// Callback called by renderer.Thread when it begins.
-pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
-    _ = self;
-    _ = surface;
-
+pub fn threadEnter(self: *OpenGL, surface: *apprt.Surface) !void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -212,6 +231,16 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // TODO(mitchellh): this does nothing today to allow libghostty
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
+        },
+
+        apprt.win32 => {
+            // Make the OpenGL context current on the renderer thread.
+            try surface.makeContextCurrent();
+            // Reload the glad function pointers on this thread since
+            // the glad context is threadlocal.
+            try surface.prepareOpenGL();
+            // Store the surface for SwapBuffers in drawFrameEnd.
+            self.surface = surface;
         },
     }
 }
@@ -230,6 +259,12 @@ pub fn threadExit(self: *const OpenGL) void {
 
         apprt.embedded => {
             // TODO: see threadEnter
+        },
+
+        apprt.win32 => {
+            // Release the context from the renderer thread.
+            // Note: not strictly necessary since the thread is exiting,
+            // but good practice.
         },
     }
 }
@@ -250,17 +285,29 @@ pub fn displayRealized(self: *const OpenGL) void {
 }
 
 /// Actions taken before doing anything in `drawFrame`.
-///
-/// Right now there's nothing we need to do for OpenGL.
 pub fn drawFrameStart(self: *OpenGL) void {
-    _ = self;
+    // On Win32, the GL viewport isn't automatically updated when the
+    // window is resized (unlike GTK/GLFW which do this for you).
+    // We sync it here so that surfaceSize() returns the correct
+    // dimensions and the renderer can detect size changes.
+    if (apprt.runtime == apprt.win32) {
+        if (self.surface) |s| {
+            const size = s.getSize() catch return;
+            gl.glad.context.Viewport.?(0, 0, @intCast(size.width), @intCast(size.height));
+        }
+    }
 }
 
 /// Actions taken after `drawFrame` is done.
-///
-/// Right now there's nothing we need to do for OpenGL.
 pub fn drawFrameEnd(self: *OpenGL) void {
-    _ = self;
+    // On Win32, swap buffers to present the frame.
+    if (apprt.runtime == apprt.win32) {
+        if (self.surface) |s| {
+            s.swapBuffers() catch |err| {
+                log.warn("SwapBuffers failed: {}", .{err});
+            };
+        }
+    }
 }
 
 pub fn initShaders(
@@ -326,6 +373,15 @@ pub fn present(self: *OpenGL, target: Target) !void {
         gl.c.GL_NEAREST,
     );
 
+    // Draw unfocused split overlay if needed (win32 only).
+    if (apprt.runtime == apprt.win32) {
+        if (self.surface) |s| {
+            if (s.getUnfocusedSplitOverlay()) |color| {
+                self.drawOverlay(color);
+            }
+        }
+    }
+
     // Keep track of this target in case we need to repeat it.
     self.last_target = target;
 }
@@ -333,6 +389,70 @@ pub fn present(self: *OpenGL, target: Target) !void {
 /// Present the last presented target again.
 pub fn presentLastTarget(self: *OpenGL) !void {
     if (self.last_target) |target| try self.present(target);
+}
+
+/// Draw a semi-transparent colored overlay for unfocused split dimming.
+fn drawOverlay(self: *OpenGL, color: [4]f32) void {
+    // Lazily initialize overlay resources.
+    if (self.overlay_program == null) {
+        self.initOverlay() catch |err| {
+            log.warn("Failed to init overlay resources: {}", .{err});
+            return;
+        };
+    }
+
+    const prog = self.overlay_program orelse return;
+    const vao = self.overlay_vao orelse return;
+
+    // Bind program and set overlay color uniform.
+    const pbind = prog.use() catch return;
+    defer pbind.unbind();
+
+    prog.setUniform("overlay_color", @as(@Vector(4, f32), color)) catch return;
+
+    // Bind empty VAO (vertex shader generates positions from gl_VertexID).
+    const vaobind = vao.bind() catch return;
+    defer vaobind.unbind();
+
+    // Enable premultiplied alpha blending.
+    gl.enable(gl.c.GL_BLEND) catch return;
+    gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch {};
+    defer {
+        gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch {};
+        gl.disable(gl.c.GL_BLEND) catch {};
+    }
+
+    // Draw full-screen triangle.
+    gl.glad.context.DrawArrays.?(gl.c.GL_TRIANGLES, 0, 3);
+}
+
+/// Compile and create GL resources for the overlay effect.
+fn initOverlay(self: *OpenGL) !void {
+    const vs_src: [:0]const u8 =
+        \\#version 430 core
+        \\void main() {
+        \\    vec2 pos;
+        \\    pos.x = (gl_VertexID == 2) ? 3.0 : -1.0;
+        \\    pos.y = (gl_VertexID == 0) ? -3.0 : 1.0;
+        \\    gl_Position = vec4(pos, 0.0, 1.0);
+        \\}
+    ;
+    const fs_src: [:0]const u8 =
+        \\#version 430 core
+        \\uniform vec4 overlay_color;
+        \\out vec4 frag_color;
+        \\void main() {
+        \\    frag_color = overlay_color;
+        \\}
+    ;
+
+    self.overlay_program = try gl.Program.createVF(vs_src, fs_src);
+    errdefer {
+        self.overlay_program.?.destroy();
+        self.overlay_program = null;
+    }
+
+    self.overlay_vao = try gl.VertexArray.create();
 }
 
 /// Returns the options to use when constructing buffers.
