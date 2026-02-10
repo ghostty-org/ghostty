@@ -17,7 +17,8 @@ enum GHClientError: LocalizedError {
                 return "GitHub CLI not authenticated. Run: gh auth login"
             }
             if stderr.isEmpty { return "gh failed (exit \(code))." }
-            return "gh failed (exit \(code)): \(stderr)"
+            let firstLine = stderr.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? stderr
+            return "gh failed (exit \(code)): \(firstLine)"
         case .invalidUTF8:
             return "gh returned invalid UTF-8 output."
         case .invalidJSON(let detail):
@@ -43,6 +44,47 @@ struct GHClient {
         var environment: [String: String]
     }
 
+    private actor PRListCache {
+        struct Key: Hashable {
+            var repoPath: String
+            var headBranch: String?
+            var includeChecks: Bool
+        }
+
+        struct Entry {
+            var fetchedAt: Date
+            var prs: [PRStatus]
+        }
+
+        private var cache: [Key: Entry] = [:]
+        private var inFlight: [Key: Task<[PRStatus], Error>] = [:]
+        private let ttl: TimeInterval = 5
+
+        func getOrFetch(key: Key, fetch: @escaping () async throws -> [PRStatus]) async throws -> [PRStatus] {
+            let now = Date()
+            if let entry = cache[key], now.timeIntervalSince(entry.fetchedAt) < ttl {
+                return entry.prs
+            }
+            if let task = inFlight[key] {
+                return try await task.value
+            }
+
+            let task = Task { try await fetch() }
+            inFlight[key] = task
+            do {
+                let prs = try await task.value
+                cache[key] = Entry(fetchedAt: now, prs: prs)
+                inFlight[key] = nil
+                return prs
+            } catch {
+                inFlight[key] = nil
+                throw error
+            }
+        }
+    }
+
+    private static let prListCache = PRListCache()
+
     // MARK: - Public API
 
     /// Check if gh CLI is available and authenticated
@@ -56,11 +98,12 @@ struct GHClient {
     }
 
     /// List open PRs for a repository, optionally filtering by branch
-    static func listPRs(repoPath: String, headBranch: String? = nil) async throws -> [PRStatus] {
+    static func listPRs(repoPath: String, headBranch: String? = nil, includeChecks: Bool = true) async throws -> [PRStatus] {
         var args = [
-            "-C", repoPath,
             "pr", "list",
-            "--json", "number,title,headRefName,state,url,updatedAt,statusCheckRollup",
+            "--json", includeChecks
+                ? "number,title,headRefName,state,url,updatedAt,statusCheckRollup"
+                : "number,title,headRefName,state,url,updatedAt",
             "--limit", "50"
         ]
 
@@ -68,20 +111,39 @@ struct GHClient {
             args.append(contentsOf: ["--head", branch])
         }
 
-        let result = try await run(args)
-        return try parsePRListResponse(result.stdout)
+        let key = PRListCache.Key(repoPath: repoPath, headBranch: headBranch, includeChecks: includeChecks)
+        return try await prListCache.getOrFetch(key: key) {
+            let result = try await run(args, cwd: URL(fileURLWithPath: repoPath))
+            return try parsePRListResponse(result.stdout)
+        }
     }
 
     /// Fetch PR status for a specific branch (returns nil if no PR exists)
     static func prForBranch(repoPath: String, branch: String) async throws -> PRStatus? {
-        let prs = try await listPRs(repoPath: repoPath, headBranch: branch)
+        let prs = try await listPRs(repoPath: repoPath, headBranch: branch, includeChecks: true)
         // Prefer open PRs, fall back to most recent
         return prs.first(where: { $0.isOpen }) ?? prs.first
     }
 
+    /// Fetch PR info for a branch without loading CI checks (faster, used by diff UI).
+    static func prForBranchLite(repoPath: String, branch: String) async throws -> PRStatus? {
+        let prs = try await listPRs(repoPath: repoPath, headBranch: branch, includeChecks: false)
+        return prs.first(where: { $0.isOpen }) ?? prs.first
+    }
+
+    /// Fetch the patch diff for a PR number.
+    static func prDiff(repoPath: String, number: Int) async throws -> String {
+        let result = try await run([
+            "pr", "diff",
+            String(number),
+            "--patch",
+        ], cwd: URL(fileURLWithPath: repoPath))
+        return result.stdout
+    }
+
     /// Get GitHub repo info from a local git repo
     static func getRepoInfo(repoPath: String) async throws -> GitHubRepoInfo? {
-        let result = try await run(["-C", repoPath, "repo", "view", "--json", "owner,name"])
+        let result = try await run(["repo", "view", "--json", "owner,name"], cwd: URL(fileURLWithPath: repoPath))
 
         guard let data = result.stdout.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -95,19 +157,20 @@ struct GHClient {
 
     // MARK: - Low-level
 
-    static func run(_ args: [String]) async throws -> CommandResult {
+    static func run(_ args: [String], cwd: URL? = nil) async throws -> CommandResult {
         try await Task.detached(priority: .userInitiated) {
-            try runSync(args)
+            try runSync(args, cwd: cwd)
         }.value
     }
 
-    private static func runSync(_ args: [String]) throws -> CommandResult {
+    private static func runSync(_ args: [String], cwd: URL?) throws -> CommandResult {
         let invocation = try makeInvocation(args)
 
         let process = Process()
         process.executableURL = invocation.executableURL
         process.arguments = invocation.arguments
         process.environment = invocation.environment
+        process.currentDirectoryURL = cwd
 
         let stdinPipe = Pipe()
         stdinPipe.fileHandleForWriting.closeFile()
@@ -120,9 +183,23 @@ struct GHClient {
 
         try process.run()
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let group = DispatchGroup()
+        var stdoutData = Data()
+        var stderrData = Data()
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+
         process.waitUntilExit()
+        group.wait()
 
         guard let stdout = String(data: stdoutData, encoding: .utf8),
               let stderr = String(data: stderrData, encoding: .utf8) else {

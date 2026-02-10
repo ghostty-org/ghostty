@@ -1456,9 +1456,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             onSidebarWidthChange: { [weak self] width in
                 self?.updateWorktrunkTitlebarWidth(width)
             },
-            onGitDiffSelect: { [weak self] entry, scope in
-                self?.showGitDiff(entry, scope: scope)
-            },
             onGitDiffWorktreeSelect: { [weak self] path in
                 self?.onWorktrunkSelectionChange(path)
             }
@@ -1813,15 +1810,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    private func showGitDiff(_ entry: GitDiffEntry, scope: GitDiffScope) {
-        guard #available(macOS 26.0, *) else { return }
-
-        gitDiffSidebarState.selectedEntry = GitDiffSelection(path: entry.path, scope: scope)
-        gitDiffSidebarState.isDiffActive = true
-        Task { await gitDiffSidebarState.loadDiff(entry, scope: scope) }
-    }
-
     private func onWorktrunkSelectionChange(_ path: String?) {
+        if #available(macOS 26.0, *) {
+            Task { await gitDiffSidebarState.setSelectedWorktreePath(path) }
+        }
+
         guard let path else { return }
 
         if WorktrunkPreferences.worktreeTabsEnabled {
@@ -1840,8 +1833,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard #available(macOS 26.0, *) else { return }
         let willShow = !gitDiffSidebarState.isVisible
         Task {
-            gitDiffSidebarState.selectedWorktreePath = nil
-            await gitDiffSidebarState.setVisible(willShow, cwd: focusedSurface?.pwd)
+            let selectedWorktreePath: String? = {
+                switch worktrunkSidebarState.selection {
+                case .worktree(_, let path):
+                    return path
+                case .session(_, _, let worktreePath):
+                    return worktreePath
+                default:
+                    return nil
+                }
+            }()
+
+            if willShow {
+                gitDiffSidebarState.selectedWorktreePath = selectedWorktreePath
+            }
+
+            await gitDiffSidebarState.setVisible(
+                willShow,
+                cwd: selectedWorktreePath ?? focusedSurface?.pwd
+            )
             if let window = window as? TerminalWindow {
                 window.titlebarFont = lastTitlebarFont
             }
@@ -1850,8 +1860,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @objc func closeGitDiff(_ sender: Any?) {
         guard #available(macOS 26.0, *) else { return }
-        gitDiffSidebarState.isDiffActive = false
-        gitDiffSidebarState.clearDiff()
+        Task { await gitDiffSidebarState.setVisible(false, cwd: nil) }
     }
 
     private func resumeAISession(_ session: AISession) {
@@ -2166,7 +2175,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.pwdDidChange(to: to)
         if #available(macOS 26.0, *) {
             guard let to else { return }
-            Task { await gitDiffSidebarState.refresh(cwd: to) }
+            Task { @MainActor in
+                gitDiffSidebarState.requestRefresh(cwd: to, force: false)
+            }
         }
     }
 
@@ -2220,9 +2231,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         if #available(macOS 26.0, *) {
             // Git diff should be ready for the active tab without requiring any Worktrunk interaction.
-            if gitDiffSidebarState.isVisible || gitDiffSidebarState.isDiffActive,
+            if gitDiffSidebarState.isVisible,
                let pwd = focusedSurface?.pwd {
-                Task { await gitDiffSidebarState.refresh(cwd: URL(fileURLWithPath: pwd), force: true) }
+                Task { @MainActor in
+                    gitDiffSidebarState.requestRefresh(cwd: URL(fileURLWithPath: pwd), force: false)
+                }
             }
         }
     }

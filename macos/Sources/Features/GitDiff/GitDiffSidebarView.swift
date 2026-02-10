@@ -3,45 +3,101 @@ import SwiftUI
 
 struct GitDiffSidebarView: View {
     @ObservedObject var state: GitDiffSidebarState
-    let onSelect: (GitDiffEntry, GitDiffScope) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var headerModeIndex: Binding<Int> {
+        Binding(
+            get: {
+                switch state.source {
+                case .workingTree:
+                    switch state.selectedScope {
+                    case .all: return 0
+                    case .staged: return 1
+                    case .unstaged: return 2
+                    }
+                case .pullRequest:
+                    return 3
+                }
+            },
+            set: { newValue in
+                switch newValue {
+                case 0:
+                    state.selectedScope = .all
+                    if state.source != .workingTree {
+                        state.source = .workingTree
+                    }
+                case 1:
+                    state.selectedScope = .staged
+                    if state.source != .workingTree {
+                        state.source = .workingTree
+                    }
+                case 2:
+                    state.selectedScope = .unstaged
+                    if state.source != .workingTree {
+                        state.source = .workingTree
+                    }
+                case 3:
+                    if state.source != .pullRequest {
+                        state.source = .pullRequest
+                    }
+                default:
+                    return
+                }
+            }
+        )
     }
 
     private var header: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 10) {
             HStack(spacing: 8) {
-                Text("Changes")
-                    .font(.headline)
+                Text("Files changed")
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer(minLength: 0)
+                if let summary = diffSummary {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            if summary.unresolved > 0 {
+                                UnresolvedBadge(count: summary.unresolved)
+                            }
+                            DiffChangeBadge(additions: summary.additions, deletions: summary.deletions)
+                        }
+                        DiffChangeBadge(additions: summary.additions, deletions: summary.deletions)
+                        EmptyView()
+                    }
+                }
+                Button {
+                    Task { await state.setVisible(false, cwd: nil) }
+                } label: {
+                    Image(systemName: "xmark")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
             }
-            HStack {
-                Text(state.repoRoot?.abbreviatedPath ?? "No repository")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            Picker("Scope", selection: $state.selectedScope) {
-                Text("All (\(state.allCount))")
-                    .tag(GitDiffScope.all)
-                Text("Staged (\(state.stagedCount))")
-                    .tag(GitDiffScope.staged)
-                Text("Unstaged (\(state.unstagedCount))")
-                    .tag(GitDiffScope.unstaged)
-            }
-            .pickerStyle(.segmented)
-            .controlSize(.small)
-            .labelsHidden()
+            CapsuleSegmentedControl(
+                labels: ["All", "Staged", "Unstaged", "PR"],
+                selection: headerModeIndex
+            )
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(height: 1)
+        }
     }
 
     @ViewBuilder
@@ -67,7 +123,7 @@ struct GitDiffSidebarView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else if state.visibleRows.isEmpty {
+        } else if state.source == .workingTree, state.visibleRows.isEmpty {
             if state.isLoading {
                 VStack {
                     Spacer()
@@ -82,64 +138,115 @@ struct GitDiffSidebarView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else {
-            List(selection: $state.selectedEntry) {
-                ForEach(state.visibleRows) { row in
-                    let stats = row.entry.stats(for: row.scope)
-                    HStack(spacing: 8) {
-                        StatusBadge(kind: row.entry.kind(for: row.scope))
-                        Text(row.entry.displayPath)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        if stats.0 > 0 || stats.1 > 0 {
-                            WorktreeChangeBadge(additions: stats.0, deletions: stats.1)
-                        } else {
-                            Text(row.entry.statusCode)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        state.selectedEntry = row.id
-                    }
-                    .tag(row.id)
-                    .contextMenu {
-                        if row.entry.hasUnstagedChanges {
-                            Button("Stage") {
-                                Task { await state.stage(row.entry) }
-                            }
-                        }
-                        if row.entry.hasStagedChanges {
-                            Button("Unstage") {
-                                Task { await state.unstage(row.entry) }
-                            }
-                        }
-                        Button("Open") {
-                            openFile(row.entry)
-                        }
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .onChange(of: state.selectedEntry) { newValue in
-                guard let newValue else { return }
-                guard let entry = state.entries.first(where: { $0.path == newValue.path }) else { return }
-                onSelect(entry, newValue.scope)
-            }
-            .overlay(alignment: .topTrailing) {
-                if state.isLoading {
+        } else if state.document == nil || state.document?.files.isEmpty == true {
+            if state.isDiffLoading {
+                VStack {
+                    Spacer()
                     ProgressView()
                         .controlSize(.small)
-                        .padding(8)
+                    Spacer()
+                }
+            } else if let diffError = state.diffError, !diffError.isEmpty {
+                Text(diffError)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(state.source == .workingTree ? emptyMessage : "No file diffs found")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            let files = state.document?.files ?? []
+            GeometryReader { geo in
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(files, id: \.id) { file in
+                            let unresolved = unresolvedCount(for: file.primaryPath)
+                            Button {
+                                state.requestScroll(to: file.id)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    DiffFileStatusBadge(status: file.status)
+                                    fileTitle(file)
+                                        .layoutPriority(1)
+                                    Spacer(minLength: 0)
+                                    if unresolved > 0 {
+                                        UnresolvedBadge(count: unresolved)
+                                    }
+                                    DiffChangeBadge(additions: file.additions, deletions: file.deletions)
+                                }
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(rowBackground(for: file.id))
+                            .contextMenu {
+                                Button("Open") {
+                                    openFile(file.primaryPath)
+                                }
+                            }
+
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.12))
+                                .frame(height: 1)
+                        }
+                    }
+                    .frame(width: geo.size.width, alignment: .leading)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if state.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(8)
+                    }
                 }
             }
         }
     }
 
-    private func openFile(_ entry: GitDiffEntry) {
+    private var diffSummary: (files: Int, additions: Int, deletions: Int, unresolved: Int)? {
+        guard let doc = state.document else { return nil }
+        let adds = doc.files.reduce(0) { $0 + $1.additions }
+        let dels = doc.files.reduce(0) { $0 + $1.deletions }
+        let unresolved = state.commentsEnabled ? state.reviewDraft.threads.filter { !$0.isResolved }.count : 0
+        return (doc.files.count, adds, dels, unresolved)
+    }
+
+    @ViewBuilder
+    private func fileTitle(_ file: DiffFile) -> some View {
+        let primary = file.primaryPath
+        let pieces = primary.split(separator: "/", omittingEmptySubsequences: true)
+        let fileName = pieces.last.map(String.init) ?? primary
+        let dir = pieces.dropLast().joined(separator: "/")
+
+        VStack(alignment: .leading, spacing: 1) {
+            Text(fileName)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+            if !dir.isEmpty {
+                Text(dir)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let old = file.pathOld, let new = file.pathNew, !old.isEmpty, !new.isEmpty, old != new {
+                Text("\(old) → \(new)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func openFile(_ path: String) {
         guard let repoRoot = state.repoRoot else { return }
-        let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(entry.path)
+        let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(path)
         let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension) ?? NSWorkspace.shared.defaultTextEditor
         if let editor {
             NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
@@ -157,6 +264,17 @@ struct GitDiffSidebarView: View {
         case .unstaged:
             return "No unstaged changes"
         }
+    }
+
+    private func rowBackground(for path: String) -> Color {
+        let highlight = state.currentVisiblePath ?? state.selectedPath
+        guard let highlight, highlight == path else { return Color.clear }
+        return Color.accentColor.opacity(0.14)
+    }
+
+    private func unresolvedCount(for path: String) -> Int {
+        guard state.commentsEnabled else { return 0 }
+        return state.reviewDraft.threads.filter { $0.path == path && !$0.isResolved }.count
     }
 
     private func iconName(for entry: GitDiffEntry) -> String {
@@ -186,6 +304,55 @@ struct GitDiffSidebarView: View {
     }
 }
 
+private struct CapsuleSegmentedControl: NSViewRepresentable {
+    let labels: [String]
+    @Binding var selection: Int
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let c = NSSegmentedControl(
+            labels: labels,
+            trackingMode: .selectOne,
+            target: context.coordinator,
+            action: #selector(Coordinator.changed(_:))
+        )
+        c.segmentStyle = .capsule
+        if #available(macOS 26.0, *) {
+            c.borderShape = .circle
+        }
+        c.selectedSegmentBezelColor = NSColor(white: 0.35, alpha: 1.0)
+        if #available(macOS 11.0, *) {
+            c.segmentDistribution = .fillEqually
+        }
+        c.controlSize = .small
+        c.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        c.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        c.selectedSegment = selection
+        return c
+    }
+
+    func updateNSView(_ c: NSSegmentedControl, context: Context) {
+        if c.selectedSegment != selection {
+            c.selectedSegment = selection
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<Int>
+
+        init(selection: Binding<Int>) {
+            self.selection = selection
+        }
+
+        @objc func changed(_ sender: NSSegmentedControl) {
+            selection.wrappedValue = sender.selectedSegment
+        }
+    }
+}
+
 private struct StatusBadge: View {
     let kind: GitDiffKind
 
@@ -193,6 +360,7 @@ private struct StatusBadge: View {
         Text(label)
             .font(.caption2)
             .foregroundStyle(color)
+            .frame(width: 18)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.18)))
@@ -222,27 +390,5 @@ private struct StatusBadge: View {
         case .modified: return .secondary
         case .unknown: return .secondary
         }
-    }
-}
-
-private struct WorktreeChangeBadge: View {
-    let additions: Int
-    let deletions: Int
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if additions > 0 {
-                Text("+\(additions)")
-                    .foregroundStyle(Color.green)
-            }
-            if deletions > 0 {
-                Text("-\(deletions)")
-                    .foregroundStyle(Color.red)
-            }
-        }
-        .font(.caption2)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 1)
-        .background(Capsule().fill(Color.secondary.opacity(0.15)))
     }
 }

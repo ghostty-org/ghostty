@@ -23,7 +23,6 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
         moveNativeTabBefore: @escaping (Int, Int) -> Void,
         moveNativeTabAfter: @escaping (Int, Int) -> Void,
         onSidebarWidthChange: @escaping (CGFloat) -> Void,
-        onGitDiffSelect: @escaping (GitDiffEntry, GitDiffScope) -> Void,
         onGitDiffWorktreeSelect: @escaping (String?) -> Void
     ) {
         self.derivedConfig = DerivedConfig(config: ghostty.config)
@@ -42,7 +41,6 @@ class TerminalWorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
             moveNativeTabBefore: moveNativeTabBefore,
             moveNativeTabAfter: moveNativeTabAfter,
             onSidebarWidthChange: onSidebarWidthChange,
-            onGitDiffSelect: onGitDiffSelect,
             onGitDiffWorktreeSelect: onGitDiffWorktreeSelect
         ))
         super.init(frame: .zero)

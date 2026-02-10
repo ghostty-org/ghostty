@@ -1,13 +1,17 @@
 import AppKit
-import Foundation
 import SwiftUI
 
 struct GitDiffMainView: View {
     @ObservedObject var state: GitDiffSidebarState
 
+    @State private var hoveredLineID: String? = nil
+    @State private var composer: ComposerLocation? = nil
+    @State private var composerText: String = ""
+    @State private var lastVisibleFileID: String? = nil
+
     var body: some View {
         content
-        .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
+            .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -25,497 +29,691 @@ struct GitDiffMainView: View {
                 .foregroundStyle(.secondary)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if state.diffText.isEmpty {
+        } else if let doc = state.document, !doc.files.isEmpty {
+            DiffDocumentView(
+                files: doc.files,
+                state: state,
+                hoveredLineID: $hoveredLineID,
+                composer: $composer,
+                composerText: $composerText,
+                lastVisibleFileID: $lastVisibleFileID
+            )
+        } else {
             Text("No diff")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            DiffTextViewRepresentable(
-                text: state.diffText,
-                filePath: state.selectedPath
-            )
         }
     }
 }
 
-private struct DiffTextViewRepresentable: NSViewRepresentable {
-    let text: String
-    let filePath: String?
-
-    func makeNSView(context: Context) -> DiffTextContainerView {
-        DiffTextContainerView()
-    }
-
-    func updateNSView(_ nsView: DiffTextContainerView, context: Context) {
-        nsView.update(text: text, filePath: filePath)
-    }
-}
-
-private final class DiffTextContainerView: NSView {
-    private let headerView = DiffStickyHeaderView()
-    private let scrollView = NSScrollView()
-    private let textView = DiffTextView()
-
-    private var sections: [DiffFileSection] = []
-    private var renderNonce: Int = 0
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    func update(text: String, filePath: String?) {
-        let key = DiffTextView.RenderKey(text: text, filePath: filePath)
-        if textView.lastRenderKey == key { return }
-        textView.lastRenderKey = key
-
-        renderNonce += 1
-        let nonce = renderNonce
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let parsed = DiffFileSectionParser.parse(text: text)
-            let highlighted = DiffSyntaxHighlighter.highlightedDiff(text: parsed.displayText, filePath: filePath)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard nonce == self.renderNonce else { return }
-                self.sections = parsed.sections
-                self.textView.textStorage?.setAttributedString(highlighted)
-                self.updateStickyHeaderForScroll()
-            }
-        }
-    }
-
-    private func setup() {
-        headerView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(headerView)
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
-
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            scrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = true
-        textView.drawsBackground = false
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = false
-        textView.textContainer?.heightTracksTextView = false
-        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isHorizontallyResizable = true
-        textView.isVerticallyResizable = true
-        textView.autoresizingMask = [.width, .height]
-        textView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
-
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.documentView = textView
-
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(scrollBoundsDidChange),
-            name: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView
-        )
-    }
-
-    @objc
-    private func scrollBoundsDidChange() {
-        updateStickyHeaderForScroll()
-    }
-
-    private func updateStickyHeaderForScroll() {
-        guard !sections.isEmpty else {
-            headerView.update(title: textView.lastRenderKey?.filePath ?? "Diff", headerLines: [])
-            return
-        }
-
-        let charLocation = visibleCharacterLocation()
-        let section = sections.section(atCharacterOffset: charLocation) ?? sections.first
-        headerView.update(
-            title: section?.title ?? "Diff",
-            headerLines: section?.headerLines ?? []
-        )
-    }
-
-    private func visibleCharacterLocation() -> Int {
-        guard let layoutManager = textView.layoutManager, let textContainer = textView.textContainer else { return 0 }
-        let visibleRect = scrollView.contentView.bounds
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-        return charRange.location
-    }
-}
-
-private final class DiffStickyHeaderView: NSView {
-    private let titleLabel = NSTextField(labelWithString: "")
-    private var lineLabels: [NSTextField] = []
-    private let stackView = NSStackView()
-    private let bottomBorder = NSView()
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-
-    func update(title: String, headerLines: [String]) {
-        let display = displayTitle(from: title)
-        let normalized = normalizedHeaderLines(headerLines)
-        if titleLabel.stringValue == display,
-           titleLabel.toolTip == title,
-           zip(lineLabels, normalized + Array(repeating: "", count: max(0, lineLabels.count - normalized.count))).allSatisfy({ $0.stringValue == $1 })
-        {
-            return
-        }
-
-        titleLabel.stringValue = display
-        titleLabel.toolTip = title
-
-        for (idx, label) in lineLabels.enumerated() {
-            let value = idx < normalized.count ? normalized[idx] : ""
-            label.stringValue = value
-            label.isHidden = value.isEmpty
-        }
-    }
-
-    private func setup() {
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-
-        titleLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-        titleLabel.textColor = NSColor.labelColor
-        titleLabel.lineBreakMode = .byTruncatingMiddle
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        stackView.orientation = .vertical
-        stackView.spacing = 2
-        stackView.alignment = .leading
-        stackView.distribution = .fill
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.addArrangedSubview(titleLabel)
-
-        lineLabels = (0..<8).map { _ in
-            let label = NSTextField(labelWithString: "")
-            label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-            label.textColor = NSColor.secondaryLabelColor
-            label.lineBreakMode = .byTruncatingMiddle
-            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            label.translatesAutoresizingMaskIntoConstraints = false
-            label.isHidden = true
-            stackView.addArrangedSubview(label)
-            NSLayoutConstraint.activate([
-                label.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
-            ])
-            return label
-        }
-
-        NSLayoutConstraint.activate([
-            titleLabel.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
-        ])
-
-        addSubview(stackView)
-
-        bottomBorder.wantsLayer = true
-        bottomBorder.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        bottomBorder.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(bottomBorder)
-
-        NSLayoutConstraint.activate([
-            bottomBorder.heightAnchor.constraint(equalToConstant: 1),
-            bottomBorder.leadingAnchor.constraint(equalTo: leadingAnchor),
-            bottomBorder.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bottomBorder.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stackView.bottomAnchor.constraint(equalTo: bottomBorder.topAnchor, constant: -6),
-        ])
-    }
-
-    private func displayTitle(from title: String) -> String {
-        let separator = " ← "
-        if let range = title.range(of: separator) {
-            let right = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let left = String(title[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return "\(basename(right)) ← \(basename(left))"
-        }
-        return basename(title)
-    }
-
-    private func basename(_ path: String) -> String {
-        let component = URL(fileURLWithPath: path).lastPathComponent
-        return component.isEmpty ? path : component
-    }
-
-    private func normalizedHeaderLines(_ headerLines: [String]) -> [String] {
-        let lines = headerLines
-            .prefix(8)
-            .map { $0.trimmingCharacters(in: .newlines) }
-        return Array(lines)
-    }
-}
-
-private final class DiffTextView: NSTextView {
-    struct RenderKey: Equatable {
-        let textHash: Int
-        let filePath: String?
-
-        init(text: String, filePath: String?) {
-            self.textHash = text.hashValue
-            self.filePath = filePath
-        }
-    }
-
-    var lastRenderKey: RenderKey?
-
-}
-
-private struct DiffFileSection: Equatable {
-    let startOffsetUtf16: Int
-    let title: String
-    let headerLines: [String]
-}
-
-private enum DiffFileSectionParser {
-    struct ParsedDiff: Equatable {
-        let displayText: String
-        let sections: [DiffFileSection]
-    }
-
-    static func parse(text: String) -> ParsedDiff {
-        var displayLines: [String] = []
-        displayLines.reserveCapacity(512)
-
-        var sections: [DiffFileSection] = []
-        sections.reserveCapacity(32)
-
-        var displayOffsetUtf16 = 0
-        var currentSectionIndex: Int? = nil
-        var inHeaderBlock = false
-        var capturedFirstHunkHeader = false
-
-        for line in splitLines(text) {
-            if line.hasPrefix("diff --git ") {
-                let title = titleFromDiffGitLine(line) ?? "Diff"
-                sections.append(DiffFileSection(startOffsetUtf16: displayOffsetUtf16, title: title, headerLines: [line]))
-                currentSectionIndex = sections.count - 1
-                inHeaderBlock = true
-                capturedFirstHunkHeader = false
-                continue
-            }
-
-            if inHeaderBlock, let currentSectionIndex {
-                if isGitHeaderLine(line) || isGitMetaLine(line) {
-                    let section = sections[currentSectionIndex]
-                    sections[currentSectionIndex] = DiffFileSection(
-                        startOffsetUtf16: section.startOffsetUtf16,
-                        title: section.title,
-                        headerLines: section.headerLines + [line]
-                    )
-                    continue
-                }
-
-                if line.hasPrefix("@@"), !capturedFirstHunkHeader {
-                    let section = sections[currentSectionIndex]
-                    sections[currentSectionIndex] = DiffFileSection(
-                        startOffsetUtf16: section.startOffsetUtf16,
-                        title: section.title,
-                        headerLines: section.headerLines + [line]
-                    )
-                    capturedFirstHunkHeader = true
-                    inHeaderBlock = false
-                    continue
-                }
-
-                if line.hasPrefix("Binary files ") || line.hasPrefix("GIT binary patch") {
-                    let section = sections[currentSectionIndex]
-                    sections[currentSectionIndex] = DiffFileSection(
-                        startOffsetUtf16: section.startOffsetUtf16,
-                        title: section.title,
-                        headerLines: section.headerLines + [line]
-                    )
-                    inHeaderBlock = false
-                    continue
-                }
-
-                inHeaderBlock = false
-            }
-
-            displayLines.append(line)
-            displayOffsetUtf16 += line.utf16.count
-        }
-
-        return ParsedDiff(displayText: displayLines.joined(), sections: sections)
-    }
-
-    private static func isGitHeaderLine(_ line: String) -> Bool {
-        line.hasPrefix("index ")
-            || line.hasPrefix("--- ")
-            || line.hasPrefix("+++ ")
-    }
-
-    private static func isGitMetaLine(_ line: String) -> Bool {
-        line.hasPrefix("new file mode ")
-            || line.hasPrefix("deleted file mode ")
-            || line.hasPrefix("old mode ")
-            || line.hasPrefix("new mode ")
-            || line.hasPrefix("similarity index ")
-            || line.hasPrefix("dissimilarity index ")
-            || line.hasPrefix("rename from ")
-            || line.hasPrefix("rename to ")
-            || line.hasPrefix("copy from ")
-            || line.hasPrefix("copy to ")
-    }
-
-    private static func splitLines(_ text: String) -> [String] {
-        if text.isEmpty { return [""] }
-        var lines: [String] = []
-        lines.reserveCapacity(256)
-
-        var current = ""
-        current.reserveCapacity(128)
-        for ch in text {
-            current.append(ch)
-            if ch == "\n" {
-                lines.append(current)
-                current = ""
-            }
-        }
-        if !current.isEmpty {
-            lines.append(current)
-        }
-        return lines
-    }
-
-    private static func titleFromDiffGitLine(_ line: String) -> String? {
-        guard let range = line.range(of: "diff --git ") else { return nil }
-        let remainder = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let (a, b) = parseTwoTokens(remainder) else { return nil }
-
-        let aPath = stripGitDiffPathPrefix(a)
-        let bPath = stripGitDiffPathPrefix(b)
-
-        let isDevNullA = aPath == "/dev/null"
-        let isDevNullB = bPath == "/dev/null"
-
-        if isDevNullA && !isDevNullB { return bPath }
-        if isDevNullB && !isDevNullA { return aPath }
-        if aPath != bPath { return "\(bPath) ← \(aPath)" }
-        return bPath
-    }
-
-    private static func stripGitDiffPathPrefix(_ token: String) -> String {
-        if token.hasPrefix("a/") { return String(token.dropFirst(2)) }
-        if token.hasPrefix("b/") { return String(token.dropFirst(2)) }
-        return token
-    }
-
-    private static func parseTwoTokens(_ input: String) -> (String, String)? {
-        var tokens: [String] = []
-        tokens.reserveCapacity(2)
-
-        let quote: Character = "\""
-        let backslash: Character = "\\"
-
-        var idx = input.startIndex
-        while tokens.count < 2 {
-            while idx < input.endIndex, isWhitespace(input[idx]) {
-                idx = input.index(after: idx)
-            }
-            guard idx < input.endIndex else { break }
-
-            if input[idx] == quote {
-                idx = input.index(after: idx)
-                var token = ""
-                while idx < input.endIndex {
-                    let ch = input[idx]
-                    if ch == quote {
-                        idx = input.index(after: idx)
-                        break
-                    }
-                    if ch == backslash {
-                        let next = input.index(after: idx)
-                        if next < input.endIndex {
-                            token.append(input[next])
-                            idx = input.index(after: next)
-                            continue
+private struct DiffDocumentView: View {
+    let files: [DiffFile]
+    @ObservedObject var state: GitDiffSidebarState
+
+    @Binding var hoveredLineID: String?
+    @Binding var composer: ComposerLocation?
+    @Binding var composerText: String
+    @Binding var lastVisibleFileID: String?
+
+    private let lineNumberWidth: CGFloat = 36
+    private let changeMarkerWidth: CGFloat = 3
+    @State private var highlightCache = DiffHighlightCache()
+    @State private var headerOffsetsUpdateTask: Task<Void, Never>? = nil
+    @State private var latestHeaderOffsets: [String: CGFloat] = [:]
+    @State private var scrollTask: Task<Void, Never>? = nil
+    @State private var isScrolling: Bool = false
+    @State private var scrollIdleTask: Task<Void, Never>? = nil
+
+    private let initialRenderedFiles: Int = 12
+    private let renderStep: Int = 8
+    private let renderAhead: Int = 4
+
+    var body: some View {
+        GeometryReader { containerGeo in
+            let minContentWidth = containerGeo.size.width
+            ScrollViewReader { proxy in
+                ScrollView([.vertical, .horizontal], showsIndicators: true) {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        ForEach(Array(files.enumerated()), id: \.element.id) { idx, file in
+                            Section {
+                                // Anchor for sidebar jump-to-file. Keeping it in section content (not the header)
+                                // makes scrolling more reliable with pinned section headers.
+                                Color.clear
+                                    .frame(height: 0)
+                                    .id(file.id)
+                                if shouldRenderFileBody(fileID: file.id, index: idx),
+                                   !state.collapsedFileIDs.contains(file.id) {
+                                    DiffFileBodyView(
+                                        file: file,
+                                        state: state,
+                                        hoveredLineID: $hoveredLineID,
+                                        composer: $composer,
+                                        composerText: $composerText,
+                                        highlightCache: highlightCache,
+                                        minContentWidth: minContentWidth,
+                                        isScrolling: isScrolling,
+                                        lineNumberWidth: lineNumberWidth,
+                                        changeMarkerWidth: changeMarkerWidth
+                                    )
+                                }
+                            } header: {
+                                DiffFileHeaderView(
+                                    file: file,
+                                    state: state,
+                                    unresolvedCount: unresolvedCount(for: file.primaryPath)
+                                )
+                                .frame(minWidth: minContentWidth, alignment: .leading)
+                                .background(
+                                    GeometryReader { headerGeo in
+                                        let minY = headerGeo.frame(in: .named("diffScroll")).minY
+                                        // Avoid emitting offsets for every file header on every scroll tick.
+                                        // We only need headers near the top edge to compute the "current visible file".
+                                        let window = max(600, containerGeo.size.height * 1.25)
+                                        Color.clear.preference(
+                                            key: DiffFileHeaderOffsetPreferenceKey.self,
+                                            value: abs(minY) <= window ? [file.id: minY] : [:]
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
-                    token.append(ch)
-                    idx = input.index(after: idx)
+                    // When a ScrollView supports horizontal scrolling, its content tends to collapse to
+                    // its intrinsic width (making the diff look "iphone sized"). Enforce a minimum width
+                    // so the diff fills the available space.
+                    .frame(minWidth: minContentWidth, minHeight: containerGeo.size.height, alignment: .topLeading)
                 }
-                tokens.append(token)
-            } else {
-                let start = idx
-                while idx < input.endIndex, !isWhitespace(input[idx]) {
-                    idx = input.index(after: idx)
+                .coordinateSpace(name: "diffScroll")
+                .onChange(of: state.scrollRequest?.nonce ?? 0) { _ in
+                    guard let req = state.scrollRequest else { return }
+                    scrollTask?.cancel()
+                    scrollTask = Task { @MainActor in
+                        // ScrollViewReader can be flaky with Lazy* stacks; doing an immediate scroll and a
+                        // next-runloop scroll makes it much more reliable for large diffs.
+                        proxy.scrollTo(req.path, anchor: .top)
+                        await Task.yield()
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            proxy.scrollTo(req.path, anchor: .top)
+                        }
+                    }
                 }
-                tokens.append(String(input[start..<idx]))
+                .onPreferenceChange(DiffFileHeaderOffsetPreferenceKey.self) { offsets in
+                    latestHeaderOffsets = offsets
+                    isScrolling = true
+                    scrollIdleTask?.cancel()
+                    scrollIdleTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 120_000_000)
+                        isScrolling = false
+                    }
+                    // Coalesce preference churn (these values update during scrolling/layout).
+                    if headerOffsetsUpdateTask == nil {
+                        headerOffsetsUpdateTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 50_000_000) // ~20Hz
+                            updateVisibleFile(latestHeaderOffsets)
+                            headerOffsetsUpdateTask = nil
+                        }
+                    }
+                }
             }
         }
-
-        guard tokens.count == 2 else { return nil }
-        return (tokens[0], tokens[1])
     }
 
-    private static func isWhitespace(_ ch: Character) -> Bool {
-        ch.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
+    private func shouldRenderFileBody(fileID: String, index: Int) -> Bool {
+        if index < max(state.renderedFileCount, min(initialRenderedFiles, files.count)) { return true }
+        if state.selectedPath == fileID { return true }
+        if state.currentVisiblePath == fileID { return true }
+        return false
+    }
+
+    private func unresolvedCount(for path: String) -> Int {
+        guard state.commentsEnabled else { return 0 }
+        return state.reviewDraft.threads.filter { $0.path == path && !$0.isResolved }.count
+    }
+
+    private func updateVisibleFile(_ offsets: [String: CGFloat]) {
+        guard !offsets.isEmpty else { return }
+        // Prefer the header that's at (or just above) the top edge. This avoids jitter where we
+        // oscillate between two headers around the midpoint.
+        let best: String? = offsets
+            .filter { $0.value <= 1 }
+            .max(by: { $0.value < $1.value })?
+            .key
+            ?? offsets.min(by: { abs($0.value) < abs($1.value) })?.key
+        guard let best else { return }
+        guard best != lastVisibleFileID else { return }
+        lastVisibleFileID = best
+        if state.currentVisiblePath != best {
+            state.currentVisiblePath = best
+        }
+        maybeIncreaseRenderedFiles(visibleFileID: best)
+    }
+
+    private func maybeIncreaseRenderedFiles(visibleFileID: String) {
+        guard !files.isEmpty else { return }
+        guard let idx = files.firstIndex(where: { $0.id == visibleFileID }) else { return }
+        let rendered = max(state.renderedFileCount, min(initialRenderedFiles, files.count))
+        guard idx >= max(0, rendered - renderAhead) else { return }
+
+        // Avoid jumping from 12 -> 200+ when a user jumps directly to a far file via the sidebar.
+        guard idx <= rendered + (renderStep * 2) else { return }
+
+        let next = min(files.count, max(rendered, idx + renderStep))
+        if next != state.renderedFileCount {
+            state.renderedFileCount = next
+        }
     }
 }
 
-private extension Array where Element == DiffFileSection {
-    func section(atCharacterOffset offset: Int) -> DiffFileSection? {
-        guard !isEmpty else { return nil }
-        if offset <= 0 { return first }
-        if offset >= (last?.startOffsetUtf16 ?? 0) { return last }
+private struct DiffFileHeaderView: View {
+    let file: DiffFile
+    @ObservedObject var state: GitDiffSidebarState
+    let unresolvedCount: Int
 
-        var low = 0
-        var high = count - 1
-        while low <= high {
-            let mid = (low + high) / 2
-            let midOffset = self[mid].startOffsetUtf16
-            if midOffset == offset { return self[mid] }
-            if midOffset < offset {
-                low = mid + 1
-            } else {
-                high = mid - 1
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Button {
+                    state.toggleFileCollapsed(file.id)
+                } label: {
+                    Image(systemName: state.collapsedFileIDs.contains(file.id) ? "chevron.right" : "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(state.collapsedFileIDs.contains(file.id) ? "Expand" : "Collapse")
+
+                DiffFileStatusBadge(status: file.status)
+
+                Text(file.displayTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 0)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        if state.commentsEnabled, unresolvedCount > 0 {
+                            UnresolvedBadge(count: unresolvedCount)
+                        }
+                        DiffChangeBadge(additions: file.additions, deletions: file.deletions)
+                    }
+                    DiffChangeBadge(additions: file.additions, deletions: file.deletions)
+                    EmptyView()
+                }
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(file.primaryPath, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Copy path")
+                .disabled(!isOpenablePath(file.primaryPath))
+
+                Button {
+                    openFile(file.primaryPath)
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Open file")
+                .disabled(!isOpenablePath(file.primaryPath))
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        // Use an opaque background so the pinned header doesn't "change styles" as content scrolls beneath it.
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(height: 1)
+        }
+    }
 
-        let index = Swift.max(0, Swift.min(high, count - 1))
-        return self[index]
+    private func isOpenablePath(_ path: String) -> Bool {
+        !path.hasPrefix(".gitdiff/")
+    }
+
+    private func openFile(_ path: String) {
+        guard let repoRoot = state.repoRoot else { return }
+        let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(path)
+        let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension) ?? NSWorkspace.shared.defaultTextEditor
+        if let editor {
+            NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct DiffFileBodyView: View {
+    let file: DiffFile
+    @ObservedObject var state: GitDiffSidebarState
+    @Binding var hoveredLineID: String?
+    @Binding var composer: ComposerLocation?
+    @Binding var composerText: String
+    let highlightCache: DiffHighlightCache
+
+    let minContentWidth: CGFloat
+    let isScrolling: Bool
+    let lineNumberWidth: CGFloat
+    let changeMarkerWidth: CGFloat
+
+    var body: some View {
+        if file.isBinary || file.isCombinedUnsupported || file.hunks.isEmpty {
+            let fallback = file.fallbackText ?? (file.isBinary ? "Binary file not shown." : "No diff to render.")
+            VStack(alignment: .leading, spacing: 0) {
+                Text(fallback)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                Divider()
+            }
+            .frame(minWidth: minContentWidth, alignment: .leading)
+        } else {
+            let language = DiffSyntaxHighlighter.Language.from(filePath: file.primaryPath)
+            let threadsByNewLine = state.commentsEnabled
+                ? mapThreadsByNewLine(threads: state.reviewDraft.threads, path: file.primaryPath)
+                : [:]
+
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(file.hunks, id: \.id) { hunk in
+                    DiffHunkHeaderRow(
+                        header: hunk.header,
+                        minContentWidth: minContentWidth,
+                        lineNumberWidth: lineNumberWidth,
+                        changeMarkerWidth: changeMarkerWidth
+                    )
+
+                    ForEach(hunk.lines, id: \.id) { line in
+                        DiffLineRow(
+                            filePath: file.primaryPath,
+                            line: line,
+                            language: language,
+                            highlightCache: highlightCache,
+                            threads: (line.newLine.flatMap { threadsByNewLine[$0] } ?? []),
+                            hoveredLineID: $hoveredLineID,
+                            composer: $composer,
+                            composerText: $composerText,
+                            state: state,
+                            minContentWidth: minContentWidth,
+                            isScrolling: isScrolling,
+                            lineNumberWidth: lineNumberWidth,
+                            changeMarkerWidth: changeMarkerWidth
+                        )
+                    }
+                }
+            }
+            Divider()
+        }
+    }
+
+    private func mapThreadsByNewLine(threads: [DiffThread], path: String) -> [Int: [DiffThread]] {
+        var map: [Int: [DiffThread]] = [:]
+        for thread in threads {
+            guard thread.path == path else { continue }
+            guard case .line(let ln) = thread.anchor else { continue }
+            map[ln, default: []].append(thread)
+        }
+        return map
+    }
+}
+
+private struct DiffHunkHeaderRow: View {
+    let header: String
+    let minContentWidth: CGFloat
+    let lineNumberWidth: CGFloat
+    let changeMarkerWidth: CGFloat
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: lineNumberWidth)
+            Color.clear.frame(width: lineNumberWidth)
+            Color.clear.frame(width: changeMarkerWidth)
+            Text(header)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(Color(nsColor: .systemPurple))
+                .lineLimit(1)
+                .padding(.vertical, 4)
+                .padding(.leading, 4)
+            Spacer(minLength: 0)
+        }
+        .frame(minWidth: minContentWidth, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+    }
+}
+
+private struct DiffLineRow: View {
+    let filePath: String
+    let line: DiffLine
+    let language: DiffSyntaxHighlighter.Language
+    let highlightCache: DiffHighlightCache
+    let threads: [DiffThread]
+
+    @Binding var hoveredLineID: String?
+    @Binding var composer: ComposerLocation?
+    @Binding var composerText: String
+
+    @ObservedObject var state: GitDiffSidebarState
+
+    let minContentWidth: CGFloat
+    let isScrolling: Bool
+    let lineNumberWidth: CGFloat
+    let changeMarkerWidth: CGFloat
+
+    private struct HighlightTaskKey: Hashable {
+        let id: String
+        let language: DiffSyntaxHighlighter.Language
+        let text: String
+        let canHighlight: Bool
+    }
+
+    @State private var renderedText: AttributedString? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            lineRow
+                .task(id: HighlightTaskKey(id: line.id, language: language, text: line.text, canHighlight: !isScrolling)) {
+                    guard !isScrolling else { return }
+                    // Keep rendering updates local to this row (avoid global invalidation storms).
+                    let highlighted = await highlightCache.highlighted(id: line.id, text: line.text, language: language)
+                    await MainActor.run {
+                        renderedText = highlighted
+                    }
+                }
+
+            if state.commentsEnabled, let newLine = line.newLine {
+                ForEach(threads, id: \.id) { thread in
+                    DiffThreadRow(
+                        thread: thread,
+                        state: state,
+                        minContentWidth: minContentWidth,
+                        lineNumberWidth: lineNumberWidth,
+                        changeMarkerWidth: changeMarkerWidth
+                    )
+                }
+
+                if composer?.path == filePath, composer?.newLine == newLine {
+                    DiffComposerRow(
+                        path: filePath,
+                        newLine: newLine,
+                        text: $composerText,
+                        onCancel: { composer = nil; composerText = "" },
+                        onSave: {
+                            let body = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !body.isEmpty else { return }
+                            Task { await state.addDraftThread(path: filePath, anchor: .line(newLine: newLine), body: body) }
+                            composer = nil
+                            composerText = ""
+                        },
+                        minContentWidth: minContentWidth,
+                        lineNumberWidth: lineNumberWidth,
+                        changeMarkerWidth: changeMarkerWidth
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var lineRow: some View {
+        let baseRow = HStack(spacing: 0) {
+            lineNumberColumn(line.oldLine)
+            lineNumberColumn(line.newLine)
+            changeMarkerColumn
+            codeColumn
+            Spacer(minLength: 0)
+        }
+        .frame(minWidth: minContentWidth, alignment: .leading)
+        .background(lineBackground)
+        .contentShape(Rectangle())
+
+        if state.commentsEnabled {
+            baseRow
+                .overlay(alignment: .leading) {
+                    commentButtonOverlay
+                }
+                .onHover { hovering in
+                    guard !isScrolling else { return }
+                    if hovering {
+                        hoveredLineID = line.id
+                    } else if hoveredLineID == line.id {
+                        hoveredLineID = nil
+                    }
+                }
+        } else {
+            baseRow
+        }
+    }
+
+    private var commentButtonOverlay: some View {
+        Group {
+            if canComment, hoveredLineID == line.id {
+                Button {
+                    openComposer()
+                } label: {
+                    Image(systemName: "plus.bubble")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 18, height: 18)
+                // Uses existing unused space on the leading side of the old-line gutter.
+                .padding(.leading, 2)
+                .help("Add comment")
+            }
+        }
+    }
+
+    private var canComment: Bool {
+        // Anchor comments on the new-side line number.
+        state.commentsEnabled && !isScrolling && line.newLine != nil && (line.kind == .add || line.kind == .context)
+    }
+
+    private func openComposer() {
+        guard state.commentsEnabled else { return }
+        guard let newLine = line.newLine else { return }
+        composer = ComposerLocation(path: filePath, newLine: newLine)
+        composerText = ""
+    }
+
+    private func lineNumberColumn(_ number: Int?) -> some View {
+        Text(number.map(String.init) ?? "")
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .frame(width: lineNumberWidth, alignment: .trailing)
+            .padding(.trailing, 4)
+    }
+
+    private var changeMarkerColumn: some View {
+        Rectangle()
+            .fill(changeMarkerColor)
+            .frame(width: changeMarkerWidth)
+    }
+
+    private var codeColumn: some View {
+        Text(renderedText ?? AttributedString(line.text))
+            .font(.system(size: 12, design: .monospaced))
+            .textSelection(.enabled)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.vertical, 2)
+            .padding(.leading, 4)
+    }
+
+    private var changeMarkerColor: Color {
+        switch line.kind {
+        case .add: return Color.green.opacity(0.75)
+        case .del: return Color.red.opacity(0.75)
+        case .context: return Color.clear
+        case .meta: return Color.secondary.opacity(0.35)
+        }
+    }
+
+    private var lineBackground: some View {
+        switch line.kind {
+        case .add:
+            return AnyView(Color.green.opacity(0.12))
+        case .del:
+            return AnyView(Color.red.opacity(0.12))
+        case .context, .meta:
+            return AnyView(Color.clear)
+        }
+    }
+}
+
+private struct DiffThreadRow: View {
+    let thread: DiffThread
+    @ObservedObject var state: GitDiffSidebarState
+    let minContentWidth: CGFloat
+    let lineNumberWidth: CGFloat
+    let changeMarkerWidth: CGFloat
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Color.clear.frame(width: lineNumberWidth)
+            Color.clear.frame(width: lineNumberWidth)
+            Color.clear.frame(width: changeMarkerWidth)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("You (draft)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button(thread.isResolved ? "Unresolve" : "Resolve") {
+                        Task { await state.setThreadResolved(thread.id, resolved: !thread.isResolved) }
+                    }
+                    .buttonStyle(.borderless)
+                    Button("Delete") {
+                        Task { await state.deleteThread(thread.id) }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                Text(thread.body)
+                    .font(.system(size: 12))
+                    .textSelection(.enabled)
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.10)))
+            .padding(.vertical, 6)
+            Spacer(minLength: 0)
+        }
+        .frame(minWidth: minContentWidth, alignment: .leading)
+    }
+}
+
+private struct DiffComposerRow: View {
+    let path: String
+    let newLine: Int
+    @Binding var text: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    let minContentWidth: CGFloat
+    let lineNumberWidth: CGFloat
+    let changeMarkerWidth: CGFloat
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Color.clear.frame(width: lineNumberWidth)
+            Color.clear.frame(width: lineNumberWidth)
+            Color.clear.frame(width: changeMarkerWidth)
+            VStack(alignment: .leading, spacing: 10) {
+                TextEditor(text: $text)
+                    .font(.system(size: 12))
+                    .frame(minHeight: 60)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    }
+                HStack {
+                    Spacer(minLength: 0)
+                    Button("Cancel", action: onCancel)
+                    Button("Save", action: onSave)
+                        .keyboardShortcut(.return, modifiers: [.command])
+                }
+                .controlSize(.small)
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.10)))
+            .padding(.vertical, 6)
+            Spacer(minLength: 0)
+        }
+        .frame(minWidth: minContentWidth, alignment: .leading)
+    }
+}
+
+private struct ComposerLocation: Hashable {
+    let path: String
+    let newLine: Int
+}
+
+private struct DiffFileHeaderOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private actor DiffHighlightCache {
+    private struct Key: Hashable {
+        let id: String
+        let language: DiffSyntaxHighlighter.Language
+        let text: String
+    }
+
+    private var cache: [Key: AttributedString] = [:]
+    private var order: [Key] = []
+    private var inFlight: [Key: Task<AttributedString, Never>] = [:]
+
+    private let maxEntries: Int = 2500
+    private let maxLineLengthForHighlighting: Int = 500
+
+    func highlighted(id: String, text: String, language: DiffSyntaxHighlighter.Language) async -> AttributedString {
+        guard !text.isEmpty else { return AttributedString("") }
+        guard language != .unknown else { return AttributedString(text) }
+        guard text.count <= maxLineLengthForHighlighting else { return AttributedString(text) }
+
+        let key = Key(id: id, language: language, text: text)
+        if let cached = cache[key] { return cached }
+
+        if let task = inFlight[key] {
+            return await task.value
+        }
+
+        let task = Task.detached(priority: .utility) { [text, language] in
+            DiffSyntaxHighlighter.highlightedCodeLineAttributed(text: text, language: language)
+        }
+        inFlight[key] = task
+
+        let attr = await task.value
+        inFlight[key] = nil
+        insert(key: key, value: attr)
+        return attr
+    }
+
+    private func insert(key: Key, value: AttributedString) {
+        if cache.count >= maxEntries {
+            let over = (cache.count + 1) - maxEntries
+            if over > 0, over <= order.count {
+                for _ in 0..<over {
+                    let evict = order.removeFirst()
+                    cache[evict] = nil
+                }
+            } else if over > 0 {
+                cache.removeAll(keepingCapacity: true)
+                order.removeAll(keepingCapacity: true)
+            }
+        }
+        cache[key] = value
+        order.append(key)
     }
 }

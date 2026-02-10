@@ -79,7 +79,7 @@ enum GitDiffKind: String, Hashable {
     case unknown
 }
 
-enum GitDiffScope: String, Hashable, CaseIterable {
+enum GitDiffScope: String, Hashable, CaseIterable, Codable {
     case all
     case staged
     case unstaged
@@ -117,6 +117,18 @@ final class GitDiffStore {
         }
     }
 
+    func currentBranch(repoRoot: String) async -> String? {
+        do {
+            let result = try await runGit(["-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD"])
+            guard result.exitCode == 0 else { return nil }
+            let branch = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if branch.isEmpty || branch == "HEAD" { return nil }
+            return branch
+        } catch {
+            return nil
+        }
+    }
+
     func statusEntries(repoRoot: String) async throws -> [GitDiffEntry] {
         let result = try await runGit([
             "--no-optional-locks",
@@ -127,32 +139,31 @@ final class GitDiffStore {
             "-b",
             "-z",
             "-M",
-            "-uall",
+            "-unormal",
         ])
         guard result.exitCode == 0 else {
             throw GitDiffError.commandFailed(result.stderr)
         }
-        let entries = parseStatusV1(result.stdout)
-        return await enrichWithStats(repoRoot: repoRoot, entries: entries)
+        return parseStatusV1(result.stdout)
     }
 
     func diffCommand(for entry: GitDiffEntry, scope: GitDiffScope) -> String {
         let escaped = entry.path.shellEscaped
         if entry.kind == .untracked {
-            return "git -c color.ui=always diff --no-index -- /dev/null \(escaped)"
+            return "git -c color.ui=always -c core.quotePath=false diff --no-index -- /dev/null \(escaped)"
         }
         switch scope {
         case .all:
-            return "git -c color.ui=always diff HEAD -- \(escaped)"
+            return "git -c color.ui=always -c core.quotePath=false diff HEAD -- \(escaped)"
         case .staged:
-            return "git -c color.ui=always diff --cached -- \(escaped)"
+            return "git -c color.ui=always -c core.quotePath=false diff --cached -- \(escaped)"
         case .unstaged:
-            return "git -c color.ui=always diff -- \(escaped)"
+            return "git -c color.ui=always -c core.quotePath=false diff -- \(escaped)"
         }
     }
 
     func diffText(repoRoot: String, entry: GitDiffEntry, scope: GitDiffScope) async throws -> String {
-        let args = ["-C", repoRoot, "-c", "color.ui=never"] + diffArguments(entry: entry, scope: scope)
+        let args = ["-C", repoRoot, "-c", "color.ui=never", "-c", "core.quotePath=false"] + diffArguments(entry: entry, scope: scope)
         let result = try await runGit(args)
         guard result.exitCode == 0 || result.exitCode == 1 else {
             throw GitDiffError.commandFailed(result.stderr)
@@ -160,37 +171,114 @@ final class GitDiffStore {
         return result.stdout
     }
 
-    private func runGit(_ args: [String]) async throws -> CommandResult {
-        try await withCheckedThrowingContinuation { continuation in
-            let invocation = try? makeGitInvocation(args: args)
-            guard let invocation else {
-                continuation.resume(throwing: GitDiffError.commandFailed("git not found"))
-                return
+    func unifiedDiffText(repoRoot: String, scope: GitDiffScope, entries: [GitDiffEntry]) async throws -> String {
+        let args = ["-C", repoRoot, "-c", "color.ui=never", "-c", "core.quotePath=false"] + unifiedDiffArguments(scope: scope)
+        let result = try await runGit(args)
+        guard result.exitCode == 0 || result.exitCode == 1 else {
+            throw GitDiffError.commandFailed(result.stderr)
+        }
+
+        var chunks: [String] = []
+        chunks.reserveCapacity(1 + 8)
+        if !result.stdout.isEmpty {
+            chunks.append(result.stdout)
+        }
+
+        if scope != .staged {
+            let untracked = entries.filter { $0.kind == .untracked }
+            let maxUntrackedDiffs = 25
+            let maxUntrackedPlaceholders = 200
+
+            for entry in untracked.prefix(maxUntrackedDiffs) {
+                if let text = try await untrackedDiffText(repoRoot: repoRoot, path: entry.path) {
+                    if !text.isEmpty {
+                        chunks.append(text)
+                    }
+                } else {
+                    chunks.append(untrackedPlaceholderDiff(path: entry.path, message: "Untracked path is a directory, diff not shown."))
+                }
             }
-            let process = Process()
-            process.executableURL = invocation.executableURL
-            process.arguments = invocation.arguments
-            process.environment = invocation.environment
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            process.terminationHandler = { process in
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                continuation.resume(returning: CommandResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus))
-            }
-
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
+            if untracked.count > maxUntrackedDiffs {
+                let omitted = untracked.dropFirst(maxUntrackedDiffs)
+                for entry in omitted.prefix(maxUntrackedPlaceholders) {
+                    chunks.append(untrackedPlaceholderDiff(path: entry.path, message: "Untracked diff omitted for performance (too many untracked files)."))
+                }
+                let remaining = omitted.count - min(omitted.count, maxUntrackedPlaceholders)
+                if remaining > 0 {
+                    chunks.append(untrackedPlaceholderDiff(
+                        path: ".gitdiff/omitted_untracked",
+                        message: "Omitted diffs for \(remaining) additional untracked file(s)."
+                    ))
+                }
             }
         }
+
+        if chunks.isEmpty { return "" }
+
+        return chunks
+            .map { $0.hasSuffix("\n") ? $0 : ($0 + "\n") }
+            .joined(separator: "\n")
+    }
+
+    private func untrackedPlaceholderDiff(path: String, message: String) -> String {
+        """
+        diff --git a/\(path) b/\(path)
+        new file mode 100644
+        --- /dev/null
+        +++ b/\(path)
+        # \(message)
+
+        """
+    }
+
+    private func runGit(_ args: [String]) async throws -> CommandResult {
+        guard let invocation = try? makeGitInvocation(args: args) else {
+            throw GitDiffError.commandFailed("git not found")
+        }
+        return try await Task.detached(priority: .userInitiated) {
+            try GitDiffStore.runGitInvocation(invocation)
+        }.value
+    }
+
+    private static func runGitInvocation(_ invocation: GitInvocation) throws -> CommandResult {
+        let process = Process()
+        process.executableURL = invocation.executableURL
+        process.arguments = invocation.arguments
+        process.environment = invocation.environment
+
+        let stdinPipe = Pipe()
+        stdinPipe.fileHandleForWriting.closeFile()
+        process.standardInput = stdinPipe
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+
+        let group = DispatchGroup()
+        var stdoutData = Data()
+        var stderrData = Data()
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+
+        process.waitUntilExit()
+        group.wait()
+
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        return CommandResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
     }
 
     private func makeGitInvocation(args: [String]) throws -> GitInvocation {
@@ -316,48 +404,6 @@ final class GitDiffStore {
         return .unknown
     }
 
-    private func enrichWithStats(repoRoot: String, entries: [GitDiffEntry]) async -> [GitDiffEntry] {
-        let (unstagedMap, stagedMap) = await (
-            fetchNumstatMap(repoRoot: repoRoot, args: ["diff", "--numstat"]),
-            fetchNumstatMap(repoRoot: repoRoot, args: ["diff", "--cached", "--numstat"])
-        )
-
-        var result: [GitDiffEntry] = []
-        for entry in entries {
-            if entry.kind == .untracked {
-                let adds = countUntrackedAdditions(repoRoot: repoRoot, path: entry.path)
-                result.append(GitDiffEntry(
-                    path: entry.path,
-                    statusCode: entry.statusCode,
-                    kind: entry.kind,
-                    originalPath: entry.originalPath,
-                    indexStatus: entry.indexStatus,
-                    workingStatus: entry.workingStatus,
-                    stagedAdditions: 0,
-                    stagedDeletions: 0,
-                    unstagedAdditions: adds,
-                    unstagedDeletions: 0
-                ))
-                continue
-            }
-            let (uAdd, uDel) = unstagedMap[entry.path] ?? (0, 0)
-            let (sAdd, sDel) = stagedMap[entry.path] ?? (0, 0)
-            result.append(GitDiffEntry(
-                path: entry.path,
-                statusCode: entry.statusCode,
-                kind: entry.kind,
-                originalPath: entry.originalPath,
-                indexStatus: entry.indexStatus,
-                workingStatus: entry.workingStatus,
-                stagedAdditions: sAdd,
-                stagedDeletions: sDel,
-                unstagedAdditions: uAdd,
-                unstagedDeletions: uDel
-            ))
-        }
-        return result
-    }
-
     private func diffArguments(entry: GitDiffEntry, scope: GitDiffScope) -> [String] {
         if entry.kind == .untracked {
             return ["diff", "--no-index", "--", "/dev/null", entry.path]
@@ -370,6 +416,45 @@ final class GitDiffStore {
         case .unstaged:
             return ["diff", "--", entry.path]
         }
+    }
+
+    private func unifiedDiffArguments(scope: GitDiffScope) -> [String] {
+        switch scope {
+        case .all:
+            return ["diff", "HEAD", "-M"]
+        case .staged:
+            return ["diff", "--cached", "-M"]
+        case .unstaged:
+            return ["diff", "-M"]
+        }
+    }
+
+    private func untrackedDiffText(repoRoot: String, path: String) async throws -> String? {
+        let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(path)
+
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            return nil
+        }
+
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? NSNumber,
+           size.int64Value > 1_000_000 {
+            return """
+            diff --git a/\(path) b/\(path)
+            new file mode 100644
+            --- /dev/null
+            +++ b/\(path)
+            # File too large to render (\(size.int64Value) bytes)
+
+            """
+        }
+
+        let result = try await runGit(["-C", repoRoot, "-c", "color.ui=never", "-c", "core.quotePath=false", "diff", "--no-index", "--", "/dev/null", path])
+        guard result.exitCode == 0 || result.exitCode == 1 else {
+            throw GitDiffError.commandFailed(result.stderr)
+        }
+        return result.stdout
     }
 
     func stage(repoRoot: String, path: String) async throws {
@@ -386,38 +471,6 @@ final class GitDiffStore {
         }
     }
 
-    private func fetchNumstatMap(repoRoot: String, args: [String]) async -> [String: (Int, Int)] {
-        guard let result = try? await runGit(["-C", repoRoot] + args) else { return [:] }
-        guard result.exitCode == 0 else { return [:] }
-        return parseNumstatMap(result.stdout)
-    }
-
-    private func parseNumstatMap(_ output: String) -> [String: (Int, Int)] {
-        var map: [String: (Int, Int)] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(separator: "\t")
-            if parts.count < 3 { continue }
-            let addStr = String(parts[0])
-            let delStr = String(parts[1])
-            let path = String(parts[2])
-            let adds = addStr == "-" ? 0 : (Int(addStr) ?? 0)
-            let dels = delStr == "-" ? 0 : (Int(delStr) ?? 0)
-            map[path] = (adds, dels)
-        }
-        return map
-    }
-
-    private func countUntrackedAdditions(repoRoot: String, path: String) -> Int {
-        let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(path)
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? NSNumber else { return 0 }
-        if size.int64Value > 1_000_000 { return 0 }
-        if let data = try? Data(contentsOf: url),
-           let content = String(data: data, encoding: .utf8) {
-            return content.split(separator: "\n", omittingEmptySubsequences: false).count
-        }
-        return 0
-    }
 }
 
 enum GitDiffError: Error {

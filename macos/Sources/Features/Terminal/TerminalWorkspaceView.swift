@@ -17,7 +17,6 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
     let moveNativeTabBefore: (Int, Int) -> Void
     let moveNativeTabAfter: (Int, Int) -> Void
     let onSidebarWidthChange: (CGFloat) -> Void
-    let onGitDiffSelect: (GitDiffEntry, GitDiffScope) -> Void
     let onGitDiffWorktreeSelect: (String?) -> Void
 
     @StateObject private var statusRingTooltipState = StatusRingTooltipState()
@@ -59,12 +58,11 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
             if #available(macOS 26.0, *) {
                 if gitDiffSidebarState.isVisible {
                     HStack(spacing: 0) {
-                        mainDetailView
+                        GitDiffMainView(state: gitDiffSidebarState)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         Divider()
                         GitDiffSidebarView(
-                            state: gitDiffSidebarState,
-                            onSelect: onGitDiffSelect
+                            state: gitDiffSidebarState
                         )
                         .frame(width: gitDiffSidebarState.panelWidth)
                         .overlay(
@@ -87,19 +85,11 @@ struct TerminalWorkspaceView<ViewModel: TerminalViewModel>: View {
 
     @ViewBuilder
     private var mainDetailView: some View {
-        ZStack {
-            TerminalView(
-                ghostty: ghostty,
-                viewModel: viewModel,
-                delegate: delegate
-            )
-            .opacity(gitDiffSidebarState.isDiffActive ? 0 : 1)
-            .allowsHitTesting(!gitDiffSidebarState.isDiffActive)
-
-            if gitDiffSidebarState.isDiffActive {
-                GitDiffMainView(state: gitDiffSidebarState)
-            }
-        }
+        TerminalView(
+            ghostty: ghostty,
+            viewModel: viewModel,
+            delegate: delegate
+        )
     }
 }
 
