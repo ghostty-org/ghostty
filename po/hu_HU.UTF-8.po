@@ -112,9 +112,9 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Ez a terminál csak olvasható módban van. A tartalom továbbra is "
-"megtekinthető, kijelölhető és görgethető, de a futó alkalmazás nem kap "
-"bemeneti eseményeket."
+"Ez a terminál csak olvasható módban van. A tartalmat továbbra is "
+"megtekintheti, kijelölheti és görgetheti, de nem küld bemeneti eseményeket a "
+"futó alkalmazásnak."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
