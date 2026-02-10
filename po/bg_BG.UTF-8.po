@@ -88,7 +88,7 @@ msgstr "Ghostty: Инспектор на терминала"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr "Намери"
+msgstr "Намери…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
@@ -104,7 +104,7 @@ msgstr "О, не."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr "Невъзможно е придобиване на OpenGL контекст за рендиране."
+msgstr "Неуспешно придобиване на OpenGL контекст за рендиране."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -307,15 +307,15 @@ msgstr "Текущият процес в това разделяне ще бъд
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr "Командата приключи"
+msgstr "Командата завърши"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr "Командата е успешна"
+msgstr "Командата завърши успешно"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr "Командата е неуспешна"
+msgstr "Командата завърши неуспешно"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
