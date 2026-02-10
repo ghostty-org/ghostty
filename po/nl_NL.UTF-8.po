@@ -105,7 +105,7 @@ msgstr "Oh, nee."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr "Kan geen OpenGL-context voor rendering aanmaken."
+msgstr "OpenGL-context voor rendering aanmaken mislukt."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -113,9 +113,8 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Deze terminal is in alleen-lezen modus. Je kunt de inhoud nog steeds bekijken, "
-"selecteren en erdoorheen scrollen, maar invoer zal niet naar de applicatie"
-"gestuurd worden"
+"Deze terminal staat in alleen-lezen modus. Je kunt de inhoud nog steeds bekijken "
+"en selecteren, maar er wordt geen invoer naar de applicatie verzonden."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
@@ -131,7 +130,7 @@ msgstr "Plakken"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Aangeven wanneer het volgende commando is afgerond"
+msgstr "Meld wanneer het volgende commando is afgerond"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
