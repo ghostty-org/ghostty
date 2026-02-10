@@ -131,7 +131,7 @@ msgstr "Yapıştır"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Sonraki Komut Bitişinde Bildir"
+msgstr "Sonraki Komut Bittiğinde Bildir"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
