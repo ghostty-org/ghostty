@@ -97,7 +97,7 @@ msgstr "Résultat précédent"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr "Résultat Suivant"
+msgstr "Résultat suivant"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
