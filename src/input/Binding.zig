@@ -661,6 +661,15 @@ pub const Action = union(enum) {
     /// the logs.
     open_config,
 
+    /// Change the terminal theme at runtime without modifying config files.
+    ///
+    /// The parameter is the theme name to apply (e.g. "Catppuccin Mocha").
+    /// This overrides the configured theme for the current surface only and
+    /// persists across config reloads until the surface is closed.
+    ///
+    /// Usage: `keybind = ctrl+shift+t=change_theme:Catppuccin Mocha`
+    change_theme: []const u8,
+
     /// Reload the configuration.
     ///
     /// The exact meaning depends on the app runtime in use, but this usually
@@ -1359,6 +1368,7 @@ pub const Action = union(enum) {
             .activate_key_table_once,
             .deactivate_key_table,
             .deactivate_all_key_tables,
+            .change_theme,
             .end_key_sequence,
             .crash,
             => .surface,

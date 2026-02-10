@@ -703,6 +703,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .deactivate_key_table,
         .deactivate_all_key_tables,
         .end_key_sequence,
+        .change_theme,
         .crash,
         => comptime &.{},
 

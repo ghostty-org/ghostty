@@ -4196,6 +4196,40 @@ pub fn changeConditionalState(
     return new_config;
 }
 
+/// Change the theme at runtime by name. This replays the configuration
+/// with the given theme name overriding whatever theme was previously set.
+/// The conditional state is also updated so that light/dark theme selection
+/// within the theme works correctly.
+///
+/// Returns a new Config that must be deinitialized by the caller.
+pub fn changeTheme(
+    self: *const Config,
+    cond_state: conditional.State,
+    theme_name: []const u8,
+) !Config {
+    const alloc_gpa = self._arena.?.child_allocator;
+    var new_config = try self.cloneEmpty(alloc_gpa);
+    errdefer new_config.deinit();
+
+    // Set the conditional state for the replay
+    new_config._conditional_state = cond_state;
+
+    // Replay all of our steps to rebuild the configuration
+    var it = Replay.iterator(self._replay_steps.items, &new_config);
+    try new_config.loadIter(alloc_gpa, &it);
+
+    // Override the theme with the requested name
+    const arena_alloc = new_config._arena.?.allocator();
+    const duped = try arena_alloc.dupeZ(u8, theme_name);
+    new_config.theme = .{ .light = duped, .dark = duped };
+
+    // Finalize triggers loadTheme which will load the theme file
+    // and replay user config on top
+    try new_config.finalize();
+
+    return new_config;
+}
+
 /// Expand the relative paths in config-files to be absolute paths
 /// relative to the base directory.
 fn expandPaths(self: *Config, base: []const u8) !void {

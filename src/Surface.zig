@@ -137,6 +137,10 @@ config: DerivedConfig,
 /// is sent whenever this changes.
 config_conditional_state: configpkg.ConditionalState,
 
+/// Theme override set by the `change_theme` keybind action. When set,
+/// this overrides the `theme` config for this surface only.
+config_theme_override: ?[]const u8 = null,
+
 /// This is set to true if our IO thread notifies us our child exited.
 /// This is used to determine if we need to confirm, hold open, etc.
 child_exited: bool = false,
@@ -818,6 +822,7 @@ pub fn deinit(self: *Surface) void {
     // Clean up our render state
     if (self.renderer_state.preedit) |p| self.alloc.free(p.codepoints);
     self.alloc.destroy(self.renderer_state.mutex);
+    if (self.config_theme_override) |override| self.alloc.free(override);
     self.config.deinit();
 
     log.info("surface closed addr={x}", .{@intFromPtr(self)});
@@ -1694,14 +1699,24 @@ pub fn updateConfig(
     self: *Surface,
     original: *const configpkg.Config,
 ) !void {
-    // Apply our conditional state. If we fail to apply the conditional state
-    // then we log and attempt to move forward with the old config.
-    var config_: ?configpkg.Config = original.changeConditionalState(
-        self.config_conditional_state,
-    ) catch |err| err: {
-        log.warn("failed to apply conditional state to config err={}", .{err});
-        break :err null;
-    };
+    // Apply our conditional state and optional theme override. If we have
+    // a theme override, we use changeTheme which also applies conditional
+    // state. Otherwise, we use changeConditionalState as before.
+    var config_: ?configpkg.Config = if (self.config_theme_override) |theme_name|
+        original.changeTheme(
+            self.config_conditional_state,
+            theme_name,
+        ) catch |err| err: {
+            log.warn("failed to apply theme override err={}", .{err});
+            break :err null;
+        }
+    else
+        original.changeConditionalState(
+            self.config_conditional_state,
+        ) catch |err| err: {
+            log.warn("failed to apply conditional state to config err={}", .{err});
+            break :err null;
+        };
     defer if (config_) |*c| c.deinit();
 
     // We want a config pointer for everything so we get that either
@@ -5759,6 +5774,16 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle_background_opacity,
             {},
         ),
+
+        .change_theme => |name| {
+            if (self.config_theme_override) |old| self.alloc.free(old);
+            self.config_theme_override = self.alloc.dupe(u8, name) catch |err| {
+                log.warn("failed to allocate theme override err={}", .{err});
+                self.config_theme_override = null;
+                return false;
+            };
+            self.notifyConfigConditionalState();
+        },
 
         .show_on_screen_keyboard => return try self.rt_app.performAction(
             .{ .surface = self },
