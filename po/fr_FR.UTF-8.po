@@ -93,7 +93,7 @@ msgstr "Chercher…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr "Résultat Précédent"
+msgstr "Résultat précédent"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
