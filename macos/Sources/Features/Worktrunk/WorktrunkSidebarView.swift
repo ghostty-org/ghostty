@@ -131,10 +131,6 @@ struct WorktrunkSidebarView: View {
             )
         }
         .onChange(of: sidebarState.selection) { newValue in
-            if sidebarState.isApplyingRemoteUpdate {
-                return
-            }
-
             var focusedWorktreePath: String?
             if sidebarTabsEnabled {
                 let worktreePath: String?
@@ -382,23 +378,23 @@ struct WorktrunkSidebarView: View {
                 openWorktreeAgent: openWorktreeAgent,
                 defaultAction: defaultAction,
                 availableAgents: availableAgents,
-                focusNativeTab: focusNativeTab,
-                moveBefore: moveBeforePreservingScroll,
-                moveAfter: moveAfterPreservingScroll,
-                windowNumberByWorktreePath: windowNumberByWorktreePath
-            )
-        }
+                  focusNativeTab: focusNativeTab,
+                  moveBefore: moveBeforePreservingScroll,
+                  moveAfter: moveAfterPreservingScroll,
+                  windowNumberByWorktreePath: windowNumberByWorktreePath
+              )
+          }
 
-        if let last = shownTabs.last?.tab {
-            Rectangle()
-                .fill(Color.clear)
-                .frame(maxWidth: .infinity)
-                .frame(height: 4)
-                .contentShape(Rectangle())
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowSeparator(.hidden)
-                .overlay(alignment: .center) {
-                    if sidebarTabsEndDropTarget {
+          if let last = shownTabs.last?.tab {
+              Rectangle()
+                  .fill(Color.clear)
+                  .frame(maxWidth: .infinity)
+                  .frame(height: 1)
+                  .contentShape(Rectangle())
+                  .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                  .listRowSeparator(.hidden)
+                  .overlay(alignment: .center) {
+                      if sidebarTabsEndDropTarget {
                         SidebarInsertionIndicatorLine()
                     }
                 }
@@ -627,18 +623,22 @@ struct WorktrunkSidebarView: View {
                     ))
                 }
             }
-        } label: {
-            worktreeRowLabel(
-                wt: wt,
-                repoName: repoName,
-                showsFolderIcon: showsFolderIcon,
-                showsRepoName: showsRepoName
-            )
-            .contentShape(Rectangle())
-            .contextMenu {
-                Button("Remove Worktree…") {
-                    removeWorktreeConfirm = wt
-                }
+          } label: {
+              worktreeRowLabel(
+                  wt: wt,
+                  repoName: repoName,
+                  showsFolderIcon: showsFolderIcon,
+                  showsRepoName: showsRepoName
+              )
+              .padding(.leading, 4)
+              .alignmentGuide(.firstTextBaseline) { d in
+                  d[VerticalAlignment.center]
+              }
+              .contentShape(Rectangle())
+              .contextMenu {
+                  Button("Remove Worktree…") {
+                      removeWorktreeConfirm = wt
+                  }
                 .disabled(wt.isMain)
                 Button("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: wt.path)])
@@ -905,26 +905,34 @@ private struct WorktreeTabDisclosureGroup: View {
                     ))
                 }
             }
-        } label: {
-            WorktreeTabRowLabel(
-                store: store,
-                tab: tab,
-                worktree: worktree,
-                repoName: repoName,
-                defaultAction: defaultAction,
-                availableAgents: availableAgents,
-                openWorktree: openWorktree,
-                openWorktreeAgent: openWorktreeAgent,
-                onDropBefore: { moving in
-                    guard moving != tab.windowNumber else { return }
-                    moveBefore(moving, tab.windowNumber)
-                },
-                windowNumberByWorktreePath: windowNumberByWorktreePath
-            )
-        }
-        .tag(SidebarSelection.worktree(repoID: worktree.repositoryID, path: worktree.path))
-    }
-}
+          } label: {
+              WorktreeTabRowLabel(
+                  store: store,
+                  tab: tab,
+                  worktree: worktree,
+                  repoName: repoName,
+                  defaultAction: defaultAction,
+                  availableAgents: availableAgents,
+                  openWorktree: openWorktree,
+                  openWorktreeAgent: openWorktreeAgent,
+                  onActivate: {
+                      sidebarState.selection = .worktree(repoID: worktree.repositoryID, path: worktree.path)
+                      focusNativeTab(tab.windowNumber)
+                  },
+                  onDropBefore: { moving in
+                      guard moving != tab.windowNumber else { return }
+                      moveBefore(moving, tab.windowNumber)
+                  },
+                  windowNumberByWorktreePath: windowNumberByWorktreePath
+              )
+              .padding(.leading, 4)
+              .alignmentGuide(.firstTextBaseline) { d in
+                  d[VerticalAlignment.center]
+              }
+          }
+          .tag(SidebarSelection.worktree(repoID: worktree.repositoryID, path: worktree.path))
+      }
+  }
 
 private struct WorktreeTabRowLabel: View {
     @ObservedObject var store: WorktrunkStore
@@ -935,6 +943,7 @@ private struct WorktreeTabRowLabel: View {
     let availableAgents: [WorktrunkAgent]
     let openWorktree: (String) -> Void
     let openWorktreeAgent: (String, WorktrunkAgent) -> Void
+    let onActivate: () -> Void
     let onDropBefore: (Int) -> Void
     let windowNumberByWorktreePath: [String: Int]
 
@@ -986,6 +995,8 @@ private struct WorktreeTabRowLabel: View {
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded(onActivate))
 
                 if hasStatusRing || showsChanges {
                     HStack(spacing: 6) {
@@ -1012,7 +1023,6 @@ private struct WorktreeTabRowLabel: View {
                     .layoutPriority(2)
                 }
             }
-            .contentShape(Rectangle())
             .draggable(URL(fileURLWithPath: URL(fileURLWithPath: worktree.path).standardizedFileURL.path))
 
             HStack(spacing: 4) {
