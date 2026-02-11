@@ -4,7 +4,11 @@ on:
     types: [completed]
     branches: [main]
 
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      pr:
+        type: number
+        required: false
 
 name: Release Tip
 
@@ -161,7 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a4cc4697b9de3b562bec5a856e6f3c31f94506e2 # v1.3.0
+        uses: namespacelabs/nscloud-cache-action@4d61c33d0b4333a518e975a0c4de7633d28713bb # v1.4.1
         with:
           path: |
             /nix
@@ -424,12 +428,21 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
-      - name: Echo Release URLs
+      - name: Show and Save Release URLs
         run: |
-          echo "Release URLs:"
-          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip"
-          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip"
-          echo "  DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg"
+          cat << EOF | tee release-urls.txt
+          Release URLs:
+            App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip
+            Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip
+            DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg
+          EOF
+
+      - name: Upload Release URLs
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5 # v6.0
+        with:
+          name: release-urls-${{ inputs.pr || '0' }}
+          path: release-urls.txt
+          retention-days: 2
 
   build-macos-debug-slow:
     needs: [setup]

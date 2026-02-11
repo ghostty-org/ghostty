@@ -370,7 +370,7 @@ requirements for macOS are detailed below.
 ### Linux
 
 1. Check out the Ghostty source and change to the directory.
-2. Run `nix run .#check.<system>.<test-name>.driver`. `<system>` should be
+2. Run `nix run .#checks.<system>.<test-name>.driver`. `<system>` should be
    `x86_64-linux` or `aarch64-linux` (even on macOS, this launches a Linux
    VM, not a macOS one). `<test-name>` should be one of the tests defined in
    `nix/tests.nix`. The test will build and then launch. Depending on the speed

@@ -697,6 +697,13 @@ pub const Surface = extern struct {
         /// Whether primary paste (middle-click paste) is enabled.
         gtk_enable_primary_paste: bool = true,
 
+        /// How much pending horizontal scroll do we have?
+        pending_horizontal_scroll: f64 = 0.0,
+
+        /// Timer to reset the amount of horizontal scroll if the user
+        /// stops scrolling.
+        pending_horizontal_scroll_reset: ?c_uint = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -1880,6 +1887,13 @@ pub const Surface = extern struct {
             priv.idle_rechild = null;
         }
 
+        if (priv.pending_horizontal_scroll_reset) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove pending horizontal scroll reset source", .{});
+            }
+            priv.pending_horizontal_scroll_reset = null;
+        }
+
         // This works around a GTK double-free bug where if you bind
         // to a top-level template child, it frees twice if the widget is
         // also the root child of the template. By unsetting the child here,
@@ -2879,27 +2893,27 @@ pub const Surface = extern struct {
         }
     }
 
-    fn ecMouseScrollPrecisionBegin(
+    fn ecMouseScrollVerticalPrecisionBegin(
         _: *gtk.EventControllerScroll,
         self: *Self,
     ) callconv(.c) void {
         self.private().precision_scroll = true;
     }
 
-    fn ecMouseScrollPrecisionEnd(
+    fn ecMouseScrollVerticalPrecisionEnd(
         _: *gtk.EventControllerScroll,
         self: *Self,
     ) callconv(.c) void {
         self.private().precision_scroll = false;
     }
 
-    fn ecMouseScroll(
+    fn ecMouseScrollVertical(
         _: *gtk.EventControllerScroll,
         x: f64,
         y: f64,
         self: *Self,
     ) callconv(.c) c_int {
-        const priv = self.private();
+        const priv: *Private = self.private();
         const surface = priv.core_surface orelse return 0;
 
         // Multiply precision scrolls by 10 to get a better response from
@@ -2924,6 +2938,57 @@ pub const Surface = extern struct {
         };
 
         return 1;
+    }
+
+    fn ecMouseScrollHorizontal(
+        ec: *gtk.EventControllerScroll,
+        x: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) c_int {
+        const priv: *Private = self.private();
+
+        switch (ec.getUnit()) {
+            .surface => {},
+            .wheel => return @intFromBool(false),
+            else => return @intFromBool(false),
+        }
+
+        priv.pending_horizontal_scroll += x;
+
+        if (@abs(priv.pending_horizontal_scroll) < 120) {
+            if (priv.pending_horizontal_scroll_reset) |v| {
+                _ = glib.Source.remove(v);
+                priv.pending_horizontal_scroll_reset = null;
+            }
+            priv.pending_horizontal_scroll_reset = glib.timeoutAdd(500, ecMouseScrollHorizontalReset, self);
+            return @intFromBool(true);
+        }
+
+        _ = self.as(gtk.Widget).activateAction(
+            if (priv.pending_horizontal_scroll < 0.0)
+                "tab.next-page"
+            else
+                "tab.previous-page",
+            null,
+        );
+
+        if (priv.pending_horizontal_scroll_reset) |v| {
+            _ = glib.Source.remove(v);
+            priv.pending_horizontal_scroll_reset = null;
+        }
+
+        priv.pending_horizontal_scroll = 0.0;
+
+        return @intFromBool(true);
+    }
+
+    fn ecMouseScrollHorizontalReset(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return @intFromBool(glib.SOURCE_REMOVE)));
+        const priv: *Private = self.private();
+        priv.pending_horizontal_scroll = 0.0;
+        priv.pending_horizontal_scroll_reset = null;
+        return @intFromBool(glib.SOURCE_REMOVE);
     }
 
     fn imPreeditStart(
@@ -3464,9 +3529,10 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("mouse_up", &gcMouseUp);
             class.bindTemplateCallback("mouse_motion", &ecMouseMotion);
             class.bindTemplateCallback("mouse_leave", &ecMouseLeave);
-            class.bindTemplateCallback("scroll", &ecMouseScroll);
-            class.bindTemplateCallback("scroll_begin", &ecMouseScrollPrecisionBegin);
-            class.bindTemplateCallback("scroll_end", &ecMouseScrollPrecisionEnd);
+            class.bindTemplateCallback("scroll_vertical", &ecMouseScrollVertical);
+            class.bindTemplateCallback("scroll_vertical_begin", &ecMouseScrollVerticalPrecisionBegin);
+            class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
+            class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
             class.bindTemplateCallback("drop", &dtDrop);
             class.bindTemplateCallback("gl_realize", &glareaRealize);
             class.bindTemplateCallback("gl_unrealize", &glareaUnrealize);
