@@ -126,27 +126,26 @@ class QuickTerminalController: BaseTerminalController {
         // Setup our initial size based on our configured position
         position.setLoaded(window, size: derivedConfig.quickTerminalSize)
 
-        // Upon first adding this Window to its host view, older SwiftUI
-        // seems to have a "hiccup" and corrupts the frameRect,
-        // sometimes setting the size to zero, sometimes corrupting it.
-        // We pass the actual window's frame as "initial" frame directly
-        // to the window, so it can use that instead of the frameworks
-        // "interpretation"
+        // Lock the window size to prevent SwiftUI's NSHostingView from
+        // corrupting it. SwiftUI layout can resize the window when:
+        //   1. The contentView is first set (immediate layout pass)
+        //   2. The surfaceTree is populated in animateIn() (deferred layout)
+        //   3. The window becomes visible via makeKeyAndOrderFront
+        // This is especially important when initial-window=false because
+        // the quick terminal is the first window and SwiftUI's initial
+        // layout is more aggressive about resizing.
+        //
+        // The lock is cleared after the animate-in animation completes.
         if let qtWindow = window as? QuickTerminalWindow {
-            qtWindow.initialFrame = window.frame
+            qtWindow.lockedSize = window.frame.size
         }
-        
+
         // Setup our content
         window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self
         )
-        
-        // Clear out our frame at this point, the fixup from above is complete.
-        if let qtWindow = window as? QuickTerminalWindow {
-            qtWindow.initialFrame = nil
-        }
 
         // Animate the window in
         animateIn()
@@ -354,6 +353,14 @@ class QuickTerminalController: BaseTerminalController {
         // animate out.
         if surfaceTree.isEmpty,
            let ghostty_app = ghostty.app {
+            // Lock the window size before populating the surface tree.
+            // Setting surfaceTree triggers SwiftUI layout via @Published,
+            // which can corrupt the window frame by resizing it to the
+            // NSHostingView's intrinsic content size.
+            if let qtWindow = window as? QuickTerminalWindow, qtWindow.lockedSize == nil {
+                qtWindow.lockedSize = window.frame.size
+            }
+
             if let tree = restorationState?.surfaceTree, !tree.isEmpty {
                 surfaceTree = tree
                 let view = tree.first(where: { $0.id.uuidString == restorationState?.focusedSurface }) ?? tree.first!
@@ -370,7 +377,7 @@ class QuickTerminalController: BaseTerminalController {
             } else {
                 var config = Ghostty.SurfaceConfiguration()
                 config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
-                
+
                 let view = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
                 surfaceTree = SplitTree(view: view)
                 focusedSurface = view
@@ -417,9 +424,18 @@ class QuickTerminalController: BaseTerminalController {
 
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
-        
+
         // Grab our last closed frame to use from the cache.
         let closedFrame = screenStateCache.frame(for: screen)
+
+        // Update the size lock to use the correct size for the target screen.
+        // The lock was initially set in windowDidLoad using the default screen,
+        // but the animation target screen may differ (e.g. quick-terminal-screen=mouse).
+        if let qtWindow = window as? QuickTerminalWindow {
+            let targetSize = closedFrame?.size ?? position.configuredFrameSize(
+                on: screen, terminalSize: derivedConfig.quickTerminalSize)
+            qtWindow.lockedSize = targetSize
+        }
 
         // Move our window off screen to the initial animation position.
         position.setInitial(
@@ -470,6 +486,13 @@ class QuickTerminalController: BaseTerminalController {
                 guard self.visible else {
                     self.hiddenDock = nil
                     return
+                }
+
+                // Release the size lock now that the animation is complete and
+                // the window is in its final position. This allows the user to
+                // manually resize the window if desired.
+                if let qtWindow = window as? QuickTerminalWindow {
+                    qtWindow.lockedSize = nil
                 }
 
                 // After animating in, we reset the window level to a value that
