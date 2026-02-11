@@ -63,7 +63,7 @@ msgid ""
 "and either reload your configuration or ignore these errors."
 msgstr ""
 "Une ou plusieurs erreurs de configuration ont été trouvées. Veuillez lire "
-"les erreurs ci-dessous,et recharger votre configuration ou bien ignorer ces "
+"les erreurs ci-dessous, et recharger votre configuration ou bien ignorer ces "
 "erreurs."
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
@@ -180,7 +180,7 @@ msgstr "Nouvel onglet"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:227
 msgid "Close Tab"
-msgstr "Fermer onglet"
+msgstr "Fermer l'onglet"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:337
 msgid "Window"
@@ -251,7 +251,7 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Une application essaie d'écrire dans le presse-papiers.Le contenu actuel du "
+"Une application essaie d'écrire dans le presse-papiers. Le contenu actuel du "
 "presse-papiers est affiché ci-dessous."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
@@ -259,7 +259,7 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Une application essaie de lire depuis le presse-papiers.Le contenu actuel du "
+"Une application essaie de lire depuis le presse-papiers. Le contenu actuel du "
 "presse-papiers est affiché ci-dessous."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
@@ -328,7 +328,7 @@ msgstr "La commande a échoué"
 
 #: src/apprt/gtk/class/window.zig:1001
 msgid "Reloaded the configuration"
-msgstr "Recharger la configuration"
+msgstr "Configuration rechargée"
 
 #: src/apprt/gtk/class/window.zig:1553
 msgid "Copied to clipboard"
