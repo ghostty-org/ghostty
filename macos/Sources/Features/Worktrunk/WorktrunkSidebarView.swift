@@ -16,7 +16,7 @@ struct WorktrunkSidebarView: View {
     var onSelectWorktree: ((String?) -> Void)?
 
     @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultActionRaw: String = WorktrunkDefaultAction.terminal.rawValue
-    @AppStorage(WorktrunkPreferences.sidebarTabsKey) private var sidebarTabsEnabled: Bool = false
+    @AppStorage(WorktrunkPreferences.sidebarTabsKey) private var sidebarTabsEnabled: Bool = true
     @State private var createSheetRepo: WorktrunkStore.Repository?
     @State private var removeRepoConfirm: WorktrunkStore.Repository?
     @State private var removeWorktreeConfirm: WorktrunkStore.Worktree?

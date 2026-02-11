@@ -2,7 +2,7 @@ import SwiftUI
 
 struct WorktrunkSettingsView: View {
     @AppStorage(WorktrunkPreferences.worktreeTabsKey) private var worktreeTabsEnabled: Bool = false
-    @AppStorage(WorktrunkPreferences.sidebarTabsKey) private var sidebarTabsEnabled: Bool = false
+    @AppStorage(WorktrunkPreferences.sidebarTabsKey) private var sidebarTabsEnabled: Bool = true
     @AppStorage(WorktrunkPreferences.openBehaviorKey) private var openBehaviorRaw: String = WorktrunkOpenBehavior.newTab.rawValue
     @AppStorage(WorktrunkPreferences.defaultAgentKey) private var defaultActionRaw: String = WorktrunkDefaultAction.terminal.rawValue
     @AppStorage(WorktrunkPreferences.githubIntegrationKey) private var githubIntegrationEnabled: Bool = true

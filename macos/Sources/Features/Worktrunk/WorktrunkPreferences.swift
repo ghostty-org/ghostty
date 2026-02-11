@@ -144,7 +144,10 @@ enum WorktrunkPreferences {
     }
 
     static var sidebarTabsEnabled: Bool {
-        UserDefaults.standard.bool(forKey: sidebarTabsKey)
+        if !UserDefaults.standard.dictionaryRepresentation().keys.contains(sidebarTabsKey) {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: sidebarTabsKey)
     }
 
     static var githubIntegrationEnabled: Bool {
