@@ -5,7 +5,30 @@ class QuickTerminalWindow: NSPanel {
     // still become key/main and receive events.
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
-    
+
+    /// Whether the window is using the decorated style (`.titled` with hidden titlebar).
+    private var isDecorated = false
+
+    override var contentView: NSView? {
+        get { super.contentView }
+        set {
+            super.contentView = newValue
+            if isDecorated {
+                makeTitlebarTransparent()
+            }
+        }
+    }
+
+    override var contentLayoutRect: CGRect {
+        if isDecorated {
+            var rect = super.contentLayoutRect
+            rect.origin.y = 0
+            rect.size.height = self.frame.height
+            return rect
+        }
+        return super.contentLayoutRect
+    }
+
     override func awakeFromNib() {
         super.awakeFromNib()
 
@@ -33,14 +56,61 @@ class QuickTerminalWindow: NSPanel {
     /// producing a borderless, square window (the legacy behavior).
     func applyDecoration(_ decorated: Bool) {
         if decorated {
+            isDecorated = true
             styleMask.insert(.fullSizeContentView)
             titleVisibility = .hidden
             titlebarAppearsTransparent = true
             standardWindowButton(.closeButton)?.isHidden = true
             standardWindowButton(.miniaturizeButton)?.isHidden = true
             standardWindowButton(.zoomButton)?.isHidden = true
+
+            makeTitlebarTransparent()
         } else {
+            isDecorated = false
             styleMask.remove(.titled)
+            contentView?.additionalSafeAreaInsets.top = 0
+        }
+    }
+
+    /// Makes the titlebar area visually transparent so glass refracts through
+    /// and no opaque gap is visible. We keep the `NSTitlebarContainerView`
+    /// itself visible (preserving `safeAreaInsets.top` for the glass effect
+    /// constraint) but strip its internal background layers — the same
+    /// approach `TransparentTitlebarTerminalWindow` uses for the main window.
+    ///
+    /// Called from both `applyDecoration` and the `contentView` setter
+    /// because replacing the content view can cause macOS to recreate
+    /// titlebar background layers.
+    private func makeTitlebarTransparent() {
+        guard let themeFrame = contentView?.superview else { return }
+        guard let titleBarContainer = themeFrame.firstDescendant(withClassName: "NSTitlebarContainerView") else { return }
+
+        if #available(macOS 26.0, *) {
+            // Tahoe: clear the NSTitlebarView layer and hide background view.
+            if let titlebarView = titleBarContainer.firstDescendant(withClassName: "NSTitlebarView") {
+                titlebarView.wantsLayer = true
+                titlebarView.layer?.backgroundColor = NSColor.clear.cgColor
+            }
+            titleBarContainer.firstDescendant(withClassName: "NSTitlebarBackgroundView")?.isHidden = true
+        } else {
+            // Ventura/Sonoma/Sequoia: clear the container layer and hide the
+            // NSVisualEffectView that forces an opaque compositing layer.
+            titleBarContainer.wantsLayer = true
+            titleBarContainer.layer?.backgroundColor = NSColor.clear.cgColor
+            if let effectView = titleBarContainer.descendants(withClassName: "NSVisualEffectView").first {
+                effectView.isHidden = true
+            }
+        }
+
+        // Negate the top safe area inset so SwiftUI content fills to the top.
+        // We read from the themeFrame (not contentView) because its
+        // safeAreaInsets.top is stable and unaffected by additionalSafeAreaInsets
+        // on the contentView. The glass effect constraint in TerminalViewContainer
+        // also reads themeFrame.safeAreaInsets.top, so the glass still extends
+        // correctly into the titlebar area.
+        let titlebarHeight = themeFrame.safeAreaInsets.top
+        if titlebarHeight > 0 {
+            contentView?.additionalSafeAreaInsets.top = -titlebarHeight
         }
     }
 
