@@ -44,6 +44,15 @@ class QuickTerminalWindow: NSPanel {
         }
     }
 
+    // The quick terminal is always positioned programmatically by
+    // QuickTerminalPosition, so we disable macOS's built-in frame
+    // constraining. Without this, `.titled` windows cannot be placed
+    // above the top edge of the screen, breaking the slide animation
+    // for `position = top`.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        return frameRect
+    }
+
     /// This is set to the frame prior to setting `contentView`. This is purely a hack to workaround
     /// bugs in older macOS versions (Ventura): https://github.com/ghostty-org/ghostty/pull/8026
     var initialFrame: NSRect? = nil
