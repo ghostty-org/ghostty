@@ -120,6 +120,11 @@ class QuickTerminalController: BaseTerminalController {
         // We disable this for better control
         window.isRestorable = false
 
+        // Apply decoration style before anything else that depends on window chrome.
+        if let qtWindow = window as? QuickTerminalWindow {
+            qtWindow.applyDecoration(derivedConfig.quickTerminalDecoration)
+        }
+
         // Setup our configured appearance that we support.
         syncAppearance()
 
@@ -723,6 +728,7 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalAutoHide: Bool
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let quickTerminalSize: QuickTerminalSize
+        let quickTerminalDecoration: Bool
         let backgroundOpacity: Double
         let backgroundBlur: Ghostty.Config.BackgroundBlur
 
@@ -732,6 +738,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAutoHide = true
             self.quickTerminalSpaceBehavior = .move
             self.quickTerminalSize = QuickTerminalSize()
+            self.quickTerminalDecoration = false
             self.backgroundOpacity = 1.0
             self.backgroundBlur = .disabled
         }
@@ -742,6 +749,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
             self.quickTerminalSize = config.quickTerminalSize
+            self.quickTerminalDecoration = config.quickTerminalDecoration
             self.backgroundOpacity = config.backgroundOpacity
             self.backgroundBlur = config.backgroundBlur
         }

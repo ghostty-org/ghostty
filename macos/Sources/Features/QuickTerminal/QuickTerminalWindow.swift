@@ -21,13 +21,27 @@ class QuickTerminalWindow: NSPanel {
         // AeroSpace to treat the Quick Terminal as a floating window)
         self.setAccessibilitySubrole(.floatingWindow)
 
-        // Remove the title completely. This will make the window square. One
-        // downside is it also hides the cursor indications of resize but the
-        // window remains resizable.
-        self.styleMask.remove(.titled)
-
         // We don't want to activate the owning app when quick terminal is triggered.
         self.styleMask.insert(.nonactivatingPanel)
+    }
+
+    /// Configures window decoration for the quick terminal.
+    ///
+    /// When `decorated` is `true`, the window keeps the `.titled` style mask
+    /// (from the nib) for native rounded corners, but hides the titlebar and
+    /// window buttons. When `false`, the `.titled` mask is removed entirely,
+    /// producing a borderless, square window (the legacy behavior).
+    func applyDecoration(_ decorated: Bool) {
+        if decorated {
+            styleMask.insert(.fullSizeContentView)
+            titleVisibility = .hidden
+            titlebarAppearsTransparent = true
+            standardWindowButton(.closeButton)?.isHidden = true
+            standardWindowButton(.miniaturizeButton)?.isHidden = true
+            standardWindowButton(.zoomButton)?.isHidden = true
+        } else {
+            styleMask.remove(.titled)
+        }
     }
 
     /// This is set to the frame prior to setting `contentView`. This is purely a hack to workaround

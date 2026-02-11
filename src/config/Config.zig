@@ -2606,6 +2606,20 @@ keybind: Keybinds = .{},
 /// Only implemented on macOS.
 @"quick-terminal-animation-duration": f64 = 0.2,
 
+/// Whether the quick terminal should use window decorations.
+///
+/// When `true`, the quick terminal uses a native window frame with
+/// rounded corners and a hidden titlebar. When `false`, the quick
+/// terminal is a borderless, square window (the legacy behavior).
+///
+/// When this is not set, it defaults to `true` if
+/// `quick-terminal-position` is `center`, and `false` otherwise.
+///
+/// Changing this configuration requires restarting Ghostty completely.
+///
+/// Only implemented on macOS.
+@"quick-terminal-decoration": ?bool = null,
+
 /// Automatically hide the quick terminal when focus shifts to another window.
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 ///
@@ -4525,6 +4539,10 @@ pub fn finalize(self: *Config) !void {
     // loaded in environments where a build config isn't available.
     if (self.@"auto-update-channel" == null) {
         self.@"auto-update-channel" = build_config.release_channel;
+    }
+
+    if (self.@"quick-terminal-decoration" == null) {
+        self.@"quick-terminal-decoration" = self.@"quick-terminal-position" == .center;
     }
 
     self.@"faint-opacity" = std.math.clamp(self.@"faint-opacity", 0.0, 1.0);
