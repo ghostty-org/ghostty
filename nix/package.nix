@@ -77,7 +77,6 @@ in
 
     buildInputs = buildInputs;
 
-    dontConfigure = true;
     dontStrip = !strip;
 
     GI_TYPELIB_PATH = gi_typelib_path;

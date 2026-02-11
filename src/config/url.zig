@@ -26,7 +26,7 @@ pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
     ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|\/)(?:(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?|(?![\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]+)*(?: +(?= *$))?)
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|(?<!\w)\/)(?:(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?|(?![\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]+)*(?: +(?= *$))?)|[\w][\w\-.]*\/(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?
     ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -270,6 +270,27 @@ test "url regex" {
             .input = "/tmp/test folder/file.txt",
             .expect = "/tmp/test folder/file.txt",
         },
+        // Bare relative file paths (no ./ or ../ prefix)
+        .{
+            .input = "src/config/url.zig",
+            .expect = "src/config/url.zig",
+        },
+        .{
+            .input = "app/folder/file.rb:1",
+            .expect = "app/folder/file.rb:1",
+        },
+        .{
+            .input = "modified:   src/config/url.zig",
+            .expect = "src/config/url.zig",
+        },
+        .{
+            .input = "lib/ghostty/terminal.zig:42:10",
+            .expect = "lib/ghostty/terminal.zig:42:10",
+        },
+        .{
+            .input = "some-pkg/src/file.txt more text",
+            .expect = "some-pkg/src/file.txt",
+        },
     };
 
     for (cases) |case| {
@@ -283,5 +304,18 @@ test "url regex" {
         try testing.expectEqual(@as(usize, case.num_matches), reg.count());
         const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
         try testing.expectEqualStrings(case.expect, match);
+    }
+
+    // Bare relative paths without any dot should not match as file paths
+    const no_match_cases = [_][]const u8{
+        "input/output",
+        "foo/bar",
+    };
+    for (no_match_cases) |input| {
+        var result = re.search(input, .{});
+        if (result) |*reg| {
+            reg.deinit();
+            return error.TestUnexpectedResult;
+        } else |_| {}
     }
 }

@@ -623,6 +623,7 @@
 				INFOPLIST_KEY_NSLocationUsageDescription = "A program running within Ghostty would like to access your location information.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "A program running within Ghostty would like to use your microphone.";
+				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "A program running within Ghostty would like to access your system's audio.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "A program running within Ghostty would like to access motion data.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "A program running within Ghostty would like to access your Photo Library.";
 				INFOPLIST_KEY_NSRemindersUsageDescription = "A program running within Ghostty would like to access your reminders.";

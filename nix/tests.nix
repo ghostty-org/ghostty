@@ -91,6 +91,7 @@
           };
           programs.ssh = {
             enable = true;
+            enableDefaultConfig = false;
             extraOptionOverrides = {
               StrictHostKeyChecking = "accept-new";
               UserKnownHostsFile = "/dev/null";

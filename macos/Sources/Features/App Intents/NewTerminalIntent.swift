@@ -68,7 +68,7 @@ struct NewTerminalIntent: AppIntent {
         // We don't run command as "command" and instead use "initialInput" so
         // that we can get all the login scripts to setup things like PATH.
         if let command {
-            config.initialInput = "\(command); exit\n"
+            config.initialInput = "\(command.shellQuoted()); exit\n"
         }
 
         // If we were given a working directory then open that directory

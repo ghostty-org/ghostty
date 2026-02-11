@@ -184,9 +184,6 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
   }
 fi
 
-# Import bash-preexec, safe to do multiple times
-builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
-
 # This is set to 1 when we're executing a command so that we don't
 # send prompt marks multiple times.
 _ghostty_executing=""
@@ -260,5 +257,48 @@ function __ghostty_preexec() {
   _ghostty_executing=1
 }
 
-preexec_functions+=(__ghostty_preexec)
-precmd_functions+=(__ghostty_precmd)
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+  __ghostty_preexec_hook() {
+    builtin local cmd
+    cmd=$(LC_ALL=C HISTTIMEFORMAT='' builtin history 1)
+    cmd="${cmd#*[[:digit:]][* ] }"  # remove leading history number
+    [[ -n "$cmd" ]] && __ghostty_preexec "$cmd"
+  }
+
+  # Use function substitution in 5.3+. Otherwise, use command substitution.
+  # Any output (including escape sequences) goes to the terminal.
+  if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
+    # shellcheck disable=SC2016
+    builtin readonly __ghostty_ps0='${ __ghostty_preexec_hook; }'
+  else
+    # shellcheck disable=SC2016
+    builtin readonly __ghostty_ps0='$(__ghostty_preexec_hook >/dev/tty)'
+  fi
+
+  __ghostty_hook() {
+    builtin local ret=$?
+    __ghostty_precmd "$ret"
+    PS0=$__ghostty_ps0
+  }
+
+  # Append our hook to PROMPT_COMMAND, preserving its existing type.
+  if [[ ";${PROMPT_COMMAND[*]:-};" != *";__ghostty_hook;"* ]]; then
+    if [[ -z "${PROMPT_COMMAND[*]}" ]]; then
+      if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
+        PROMPT_COMMAND=(__ghostty_hook)
+      else
+        # shellcheck disable=SC2178
+        PROMPT_COMMAND="__ghostty_hook"
+      fi
+    elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a "* ]]; then
+      PROMPT_COMMAND+=(__ghostty_hook)
+    else
+      # shellcheck disable=SC2179
+      PROMPT_COMMAND+="; __ghostty_hook"
+    fi
+  fi
+else
+  builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
+  preexec_functions+=(__ghostty_preexec)
+  precmd_functions+=(__ghostty_precmd)
+fi

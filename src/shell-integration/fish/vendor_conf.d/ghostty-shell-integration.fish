@@ -200,7 +200,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     end
 
     # Setup prompt marking
-    function __ghostty_mark_prompt_start --on-event fish_prompt --on-event fish_cancel --on-event fish_posterror
+    function __ghostty_mark_prompt_start --on-event fish_prompt --on-event fish_posterror
         # If we never got the output end event, then we need to send it now.
         if test "$__ghostty_prompt_state" != prompt-start
             echo -en "\e]133;D\a"
