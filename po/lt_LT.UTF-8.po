@@ -128,7 +128,7 @@ msgstr "Įklijuoti"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Pranešti apie kitos komandos užbaigimą"
+msgstr "Pranešti apie sekančios komandos užbaigimą"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
