@@ -111,7 +111,7 @@ msgid ""
 "application."
 msgstr ""
 "Šis terminalas yra tik skaitymui. Vis tiek galite peržiūrėti, pasirinkti ir "
-"slinkti per turinį, tačiau jokių įvesties įvykių nebus siunčiama veikiančiai "
+"slinkti per turinį, tačiau jokie įvesties įvykiai nebus siunčiami veikiančiai "
 "programai."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
