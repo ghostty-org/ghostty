@@ -214,7 +214,6 @@ function __ghostty_precmd() {
     # Cursor
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
       [[ "$PS1" != *'\[\e[5 q\]'* ]] && PS1=$PS1'\[\e[5 q\]' # input
-      [[ "$PS0" != *'\[\e[0 q\]'* ]] && PS0=$PS0'\[\e[0 q\]' # reset
     fi
 
     # Title (working directory)
@@ -246,6 +245,11 @@ function __ghostty_preexec() {
 
   PS1="$_GHOSTTY_SAVE_PS1"
   PS2="$_GHOSTTY_SAVE_PS2"
+
+  # Cursor
+  if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+    builtin printf "\e[0 q" # reset
+  fi
 
   # Title (current command)
   if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
