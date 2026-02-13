@@ -716,6 +716,25 @@ pub const Surface = extern struct {
         return priv.core_surface;
     }
 
+    /// Force cleanup of the core surface. This is called during application
+    /// shutdown to ensure the core surface is deinited before the Core App
+    /// asserts that all font grids are released. Normally this happens in
+    /// finalize, but during shutdown we need to force it synchronously.
+    pub fn forceDeinitCore(self: *Self) void {
+        const priv = self.private();
+        if (priv.core_surface) |v| {
+            // Remove ourselves from the list of known surfaces in the app.
+            Application.default().core().deleteSurface(self.rt());
+
+            // Deinit the surface
+            v.deinit();
+            const alloc = Application.default().allocator();
+            alloc.destroy(v);
+
+            priv.core_surface = null;
+        }
+    }
+
     pub fn rt(self: *Self) *ApprtSurface {
         const priv = self.private();
         return &priv.rt_surface;
