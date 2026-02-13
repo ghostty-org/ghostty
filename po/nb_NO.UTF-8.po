@@ -93,11 +93,11 @@ msgstr "Finn…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr "Forrige Treff"
+msgstr "Forrige treff"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr "Neste Treff"
+msgstr "Neste treff"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
@@ -131,7 +131,7 @@ msgstr "Lim inn"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Varsle Når Neste Kommandoen Fullføres"
+msgstr "Varsle når neste kommandoen fullføres"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
@@ -308,15 +308,15 @@ msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr "Kommandoen Fullført"
+msgstr "Kommandoen fullført"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr "Kommandoen Lyktes"
+msgstr "Kommandoen lyktes"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr "Kommandoen Mislyktes"
+msgstr "Kommandoen mislyktes"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
