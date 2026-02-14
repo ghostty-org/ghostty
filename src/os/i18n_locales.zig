@@ -52,6 +52,7 @@ pub const locales = [_][:0]const u8{
     "he_IL.UTF-8",
     "zh_TW.UTF-8",
     "hr_HR.UTF-8",
+    "vi_VN.UTF-8",
     "lt_LT.UTF-8",
     "lv_LV.UTF-8",
 };
