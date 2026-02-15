@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-05 10:23+0800\n"
+"POT-Creation-Date: 2026-02-15 11:01+0100\n"
 "PO-Revision-Date: 2026-02-10 08:14+0100\n"
 "Last-Translator: Tadas Lotuzas <tdslot@gmail.com>\n"
 "Language-Team: Language LT\n"
@@ -15,6 +15,10 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr ""
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -111,8 +115,8 @@ msgid ""
 "application."
 msgstr ""
 "Šis terminalas yra tik skaitymui. Vis tiek galite peržiūrėti, pasirinkti ir "
-"slinkti per turinį, tačiau jokie įvesties įvykiai nebus siunčiami veikiančiai "
-"programai."
+"slinkti per turinį, tačiau jokie įvesties įvykiai nebus siunčiami "
+"veikiančiai programai."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"

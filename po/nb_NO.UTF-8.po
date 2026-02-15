@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-05 10:23+0800\n"
+"POT-Creation-Date: 2026-02-15 11:01+0100\n"
 "PO-Revision-Date: 2026-02-12 15:50+0000\n"
 "Last-Translator: Hanna Rose <me@hanna.lol>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
@@ -19,6 +19,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr ""
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -113,9 +117,9 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Denne terminalen er i skrivebeskyttet modus. Du kan fortsatt se, markere og bla "
-"gjennom innholdet, men ingen inndatahendelser vil bli sendt til den kjørende "
-"applikasjonen."
+"Denne terminalen er i skrivebeskyttet modus. Du kan fortsatt se, markere og "
+"bla gjennom innholdet, men ingen inndatahendelser vil bli sendt til den "
+"kjørende applikasjonen."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
