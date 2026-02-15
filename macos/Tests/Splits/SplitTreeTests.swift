@@ -7,6 +7,12 @@ struct SplitTreeTests {
         #expect(tree.isEmpty)
     }
 
+    @Test func nonEmptyTreeIsNotEmpty() {
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+        #expect(!tree.isEmpty)
+    }
+
     @Test func isNotSplit() {
         let view1 = MockView()
         let tree = SplitTree<MockView>(view: view1)
