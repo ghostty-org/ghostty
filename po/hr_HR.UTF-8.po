@@ -2,14 +2,14 @@
 # Hrvatski prijevod za paket com.mitchellh.ghostty.
 # Copyright (C) 2025 "Mitchell Hashimoto, Ghostty contributors"
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-# Filip <filipm7@protonmail.com>, 2025.
+# Filip <filipm7@protonmail.com>, 2026.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2025-09-16 17:47+0200\n"
+"PO-Revision-Date: 2026-02-10 22:25+0200\n"
 "Last-Translator: Filip7 <filipm7@protonmail.com>\n"
 "Language-Team: Croatian <lokalizacija@linux.hr>\n"
 "Language: hr\n"
@@ -88,23 +88,23 @@ msgstr "Ghostty: inspektor terminala"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "Pretraži…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "Prethodno podudaranje"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "Sljedeće podudaranje"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "Oh, ne."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "Neuspjelo dohvaćanje OpenGL konteksta za renderiranje."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -112,10 +112,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"Ovaj terminal je u načinu rada samo za čitanje. I dalje je moguće gledati, "
+"odabirati i skrolati kroz sadržaj, no unos neće biti poslan pokrenutoj "
+"aplikaciji."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "Samo za čitanje"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -127,7 +130,7 @@ msgstr "Zalijepi"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "Obavijesti kada iduća naredba završi"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
@@ -247,7 +250,7 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Aplikacija pokušava pisati u međuspremnik. Trenutačna vrijednost "
+"Aplikacija pokušava pisati u međuspremnik. Trenutna vrijednost "
 "međuspremnika prikazana je niže."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
@@ -255,7 +258,7 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Program pokušava pročitati vrijednost međuspremnika. Trenutnavrijednost "
+"Aplikacija pokušava pročitati vrijednost međuspremnika. Trenutna vrijednost "
 "međuspremnika je prikazana niže."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
@@ -304,15 +307,15 @@ msgstr "Pokrenuti procesi u ovom odjeljku će biti prekinuti."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr ""
+msgstr "Naredba je završena"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "Naredba je uspjela"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr ""
+msgstr "Naredba nije uspjela"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
