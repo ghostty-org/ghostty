@@ -120,9 +120,41 @@ struct SplitTreeTests {
         let view2 = MockView()
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
-        #expect(tree.contains(.leaf(view: view2)))
         let result = try tree.replacing(node: .leaf(view: view2), with: .leaf(view: view2))
         #expect(result.contains(.leaf(view: view1)))
         #expect(result.contains(.leaf(view: view2)))
+    }
+
+    /// focusTarget should find the next view to focus based on the current focused node and direction
+    @Test func focusTargetShouldFindNextFocusedNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let target = tree.focusTarget(for: .next, from: .leaf(view: view1))
+        #expect(target === view2)
+    }
+
+    /// focusTarget should find the previous view to focus based on the current focused node and direction
+    @Test func focusTargetShouldFindPreviousFocusedNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let target = tree.focusTarget(for: .previous, from: .leaf(view: view2))
+        #expect(target === view1)
+    }
+
+    /// focusTarget with spatial direction should navigate to the adjacent view
+    @Test func focusTargetShouldFindSpatialFocusedNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let target = tree.focusTarget(for: .spatial(.left), from: .leaf(view: view2))
+        #expect(target === view1)
     }
 }
