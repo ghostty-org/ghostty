@@ -2059,6 +2059,57 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
     }
 
+    /// Compute and set the initial window size from config and font metrics.
+    /// This can be called before the core surface exists to set up the window
+    /// size before presenting.
+    pub fn computeInitialSize(self: *Self) void {
+        const priv = self.private();
+        const config_obj = priv.config orelse return;
+        const config = config_obj.get();
+
+        // Both dimensions must be configured
+        if (config.@"window-height" <= 0 or config.@"window-width" <= 0) return;
+
+        const app = Application.default();
+        const alloc = app.allocator();
+
+        // Get content scale and compute DPI
+        const content_scale = self.getContentScale();
+        const x_dpi = content_scale.x * font.face.default_dpi;
+        const y_dpi = content_scale.y * font.face.default_dpi;
+
+        const font_size: font.face.DesiredSize = .{
+            .points = config.@"font-size",
+            .xdpi = @intFromFloat(x_dpi),
+            .ydpi = @intFromFloat(y_dpi),
+        };
+
+        // Get font grid for cell metrics
+        var derived_config = font.SharedGridSet.DerivedConfig.init(alloc, config) catch return;
+        defer derived_config.deinit();
+
+        const font_grid_key, const font_grid = app.core().font_grid_set.ref(
+            &derived_config,
+            font_size,
+        ) catch return;
+        defer app.core().font_grid_set.deref(font_grid_key);
+
+        const cell = font_grid.cellSize();
+
+        // Calculate size: "best guess"; Padding unavailable pre-init.
+        // We do not need to @max here because the surface init will set
+        // size_limit which enforces minimums defined in src/Surface.zig
+        const width = config.@"window-width" * cell.width;
+        const height = config.@"window-height" * cell.height;
+        const width_f32: f32 = @floatFromInt(width);
+        const height_f32: f32 = @floatFromInt(height);
+
+        const final_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
+        const final_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
+
+        self.setDefaultSize(.{ .width = final_width, .height = final_height });
+    }
+
     /// Get the key sequence list. Full transfer.
     fn getKeySequence(self: *Self) ?*ext.StringList {
         const priv = self.private();
