@@ -35,14 +35,14 @@ struct SplitTreeTests {
     @Test func treeContainsView() {
         let view = MockView()
         let tree = SplitTree<MockView>(view: view)
-        #expect(tree.contains(view))
+        #expect(tree.contains(.leaf(view: view)))
     }
 
     /// A tree without a view does not contain that view.
     @Test func treeDoesNotContainView() {
         let view = MockView()
         let tree = SplitTree<MockView>()
-        #expect(!tree.contains(view))
+        #expect(!tree.contains(.leaf(view: view)))
     }
 
     /// Finding a view in a tree returns the view.
@@ -68,7 +68,7 @@ struct SplitTreeTests {
         let view2 = MockView()
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
-        #expect(tree.contains(view2))
+        #expect(tree.contains(.leaf(view: view2)))
     }
 
     /// A tree that never inserts a view does not contain that view.
@@ -76,7 +76,7 @@ struct SplitTreeTests {
         let view1 = MockView()
         let view2 = MockView()
         let tree = SplitTree<MockView>(view: view1)
-        #expect(!tree.contains(view2))
+        #expect(!tree.contains(.leaf(view: view2)))
     }
 
     /// A tree with a removed view does not contain that view.
@@ -86,8 +86,8 @@ struct SplitTreeTests {
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
         tree = tree.removing(.leaf(view: view1))
-        #expect(!tree.contains(view1))
-        #expect(tree.contains(view2))
+        #expect(!tree.contains(.leaf(view: view1)))
+        #expect(tree.contains(.leaf(view: view2)))
     }
 
     /// Attempting to remove a view from a tree that doesn't contain it has no effect
@@ -96,7 +96,7 @@ struct SplitTreeTests {
         let view2 = MockView()
         let tree = SplitTree<MockView>(view: view1)
         let result = tree.removing(.leaf(view: view2))
-        #expect(result.contains(view1))
+        #expect(result.contains(.leaf(view: view1)))
         #expect(!result.isEmpty)
     }
 }
