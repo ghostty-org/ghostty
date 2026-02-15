@@ -19,9 +19,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz",
-    "dest": "vendor/p/N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub",
-    "sha256": "427201f5d5151670d05c1f5b45bef5dda1f2e7dd971ef54f0feaaa7ffd2ab90c"
+    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.gz",
+    "dest": "vendor/p/N-V-__8AAIT5KwGz955VFk9c5rWaksEC9xVOvGDyR5JBAXnB",
+    "sha256": "174d9e53402e1bf9ec7277e22ec199ba3e55a6be2c0740cb18c0ee9850fc8c34"
   },
   {
     "type": "archive",
