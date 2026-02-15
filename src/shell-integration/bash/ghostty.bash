@@ -213,7 +213,10 @@ function __ghostty_precmd() {
 
     # Cursor
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
-      [[ "$PS1" != *'\[\e[5 q\]'* ]] && PS1=$PS1'\[\e[5 q\]' # input
+      builtin local cursor=5  # blinking bar
+      [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:steady"* ]] && cursor=6  # steady bar
+
+      [[ "$PS1" != *"\[\e[${cursor} q\]"* ]] && PS1=$PS1"\[\e[${cursor} q\]"
       [[ "$PS0" != *'\[\e[0 q\]'* ]] && PS0=$PS0'\[\e[0 q\]' # reset
     fi
 

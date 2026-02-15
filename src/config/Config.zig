@@ -2731,7 +2731,7 @@ keybind: Keybinds = .{},
 ///
 /// Available features:
 ///
-///   * `cursor` - Set the cursor to a blinking bar at the prompt.
+///   * `cursor` - Set the cursor to a bar at the prompt.
 ///
 ///   * `sudo` - Set sudo wrapper to preserve terminfo.
 ///

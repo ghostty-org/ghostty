@@ -562,6 +562,7 @@ pub const Config = struct {
     env_override: configpkg.RepeatableStringMap = .{},
     shell_integration: configpkg.Config.ShellIntegration = .detect,
     shell_integration_features: configpkg.Config.ShellIntegrationFeatures = .{},
+    cursor_blink: ?bool = null,
     working_directory: ?[]const u8 = null,
     resources_dir: ?[]const u8,
     term: []const u8,
@@ -755,6 +756,7 @@ const Subprocess = struct {
             try shell_integration.setupFeatures(
                 &env,
                 cfg.shell_integration_features,
+                cfg.cursor_blink orelse true,
             );
 
             const force: ?shell_integration.Shell = switch (cfg.shell_integration) {
