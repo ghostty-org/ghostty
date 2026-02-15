@@ -11,13 +11,13 @@ struct ColorizedGhosttyIcon {
     let frame: Ghostty.MacOSIconFrame
 
     /// Make a custom colorized ghostty icon.
-    func makeImage() -> NSImage? {
+    func makeImage(in bundle: Bundle) -> NSImage? {
         // All of our layers (not in order)
-        guard let screen = NSImage(named: "CustomIconScreen") else { return nil }
-        guard let screenMask = NSImage(named: "CustomIconScreenMask") else { return nil }
-        guard let ghost = NSImage(named: "CustomIconGhost") else { return nil }
-        guard let crt = NSImage(named: "CustomIconCRT") else { return nil }
-        guard let gloss = NSImage(named: "CustomIconGloss") else { return nil }
+        guard let screen = bundle.image(forResource: "CustomIconScreen") else { return nil }
+        guard let screenMask = bundle.image(forResource: "CustomIconScreenMask") else { return nil }
+        guard let ghost = bundle.image(forResource: "CustomIconGhost") else { return nil }
+        guard let crt = bundle.image(forResource: "CustomIconCRT") else { return nil }
+        guard let gloss = bundle.image(forResource: "CustomIconGloss") else { return nil }
 
         let baseName = switch (frame) {
         case .aluminum: "CustomIconBaseAluminum"
@@ -25,7 +25,7 @@ struct ColorizedGhosttyIcon {
         case .chrome: "CustomIconBaseChrome"
         case .plastic: "CustomIconBasePlastic"
         }
-        guard let base = NSImage(named: baseName) else { return nil }
+        guard let base = bundle.image(forResource: baseName) else { return nil }
 
         // Apply our color in various ways to our layers.
         // NOTE: These functions are not built-in, they're implemented as an extension
