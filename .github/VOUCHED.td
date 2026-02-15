@@ -21,6 +21,7 @@
 bernsno
 bkircher
 hqnna
+jake-stewart
 jcollie
 mitchellh
 pluiedev
