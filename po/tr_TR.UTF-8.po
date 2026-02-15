@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2025-08-23 17:30+0300\n"
+"PO-Revision-Date: 2026-02-09 22:18+0300\n"
 "Last-Translator: Emir SARI <emir_sari@icloud.com>\n"
 "Language-Team: Turkish\n"
 "Language: tr\n"
@@ -89,23 +89,23 @@ msgstr "Ghostty: Uçbirim Denetçisi"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "Bul…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "Önceki Eşleşme"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "Sonraki Eşleşme"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "Hayır, olamaz."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "Oluşturma işlemi için OpenGL bağlamı elde edilemiyor."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -113,10 +113,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"Bu uçbirim salt okunur kipte. İçeriği görüntüleyebilir, seçebilir ve "
+"kaydırabilirsiniz; ancak çalışan uygulamaya hiçbir giriş olayı "
+"gönderilmeyecektir."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "Salt Okunur"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -128,7 +131,7 @@ msgstr "Yapıştır"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "Sonraki Komut Bittiğinde Bildir"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
@@ -305,15 +308,15 @@ msgstr "Bu bölmedeki şu anda çalışan süreç sonlandırılacaktır."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr ""
+msgstr "Komut Bitti"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "Komut Başarılı"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr ""
+msgstr "Komut Başarısız"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
