@@ -12,6 +12,7 @@ const wayland = @import("wayland");
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
+const blur = @import("blur.zig");
 
 const wl = wayland.client.wl;
 const org = wayland.client.org;
@@ -25,6 +26,8 @@ pub const App = struct {
     context: *Context,
 
     const Context = struct {
+        compositor: ?*wl.Compositor = null,
+
         kde_blur_manager: ?*org.KdeKwinBlurManager = null,
 
         // FIXME: replace with `zxdg_decoration_v1` once GTK merges
@@ -305,7 +308,7 @@ pub const Window = struct {
 
     pub fn deinit(self: Window, alloc: Allocator) void {
         _ = alloc;
-        if (self.blur_token) |blur| blur.release();
+        if (self.blur_token) |token| token.release();
         if (self.decoration) |deco| deco.release();
         if (self.slide) |slide| slide.release();
     }
@@ -313,9 +316,6 @@ pub const Window = struct {
     pub fn resizeEvent(_: *Window) !void {}
 
     pub fn syncAppearance(self: *Window) !void {
-        self.syncBlur() catch |err| {
-            log.err("failed to sync blur={}", .{err});
-        };
         self.syncDecoration() catch |err| {
             log.err("failed to sync blur={}", .{err});
         };
@@ -360,27 +360,42 @@ pub const Window = struct {
     }
 
     /// Update the blur state of the window.
-    fn syncBlur(self: *Window) !void {
+    pub fn setBlur(self: *Window, region: blur.Region) !void {
+        const compositor = self.app_context.compositor orelse return;
         const manager = self.app_context.kde_blur_manager orelse return;
+
         const config = if (self.apprt_window.getConfig()) |v|
             v.get()
         else
             return;
-        const blur = config.@"background-blur";
+        const blur_setting = config.@"background-blur";
 
-        if (self.blur_token) |tok| {
-            // Only release token when transitioning from blurred -> not blurred
-            if (!blur.enabled()) {
-                manager.unset(self.surface);
-                tok.release();
-                self.blur_token = null;
+        if (blur_setting.enabled()) {
+            // Do we already have a blur token? If not, create one.
+            const token = self.blur_token orelse try manager.create(self.surface);
+            defer self.blur_token = token;
+
+            const wl_region = try compositor.createRegion();
+            errdefer wl_region.destroy();
+
+            for (region.slices.items) |slice| {
+                // X11 coming over to bite Wayland.
+                wl_region.add(
+                    @intCast(slice.x),
+                    @intCast(slice.y),
+                    @intCast(slice.width),
+                    @intCast(slice.height),
+                );
             }
+
+            token.setRegion(wl_region);
+            token.commit();
         } else {
-            // Only acquire token when transitioning from not blurred -> blurred
-            if (blur.enabled()) {
-                const tok = try manager.create(self.surface);
-                tok.commit();
-                self.blur_token = tok;
+            // Destroy the blur token if present.
+            if (self.blur_token) |token| {
+                manager.unset(self.surface);
+                token.release();
+                self.blur_token = null;
             }
         }
     }
