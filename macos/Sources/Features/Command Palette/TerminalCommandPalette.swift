@@ -143,8 +143,15 @@ struct TerminalCommandPaletteView: View {
             let displayColor = color != TerminalTabColor.none ? color : nil
 
             return controller.surfaceTree.map { surface in
-                let title = surface.title.isEmpty ? window.title : surface.title
-                let displayTitle = title.isEmpty ? "Untitled" : title
+                let terminalTitle = surface.title.isEmpty ? window.title : surface.title
+                let displayTitle: String
+                if let override = controller.titleOverride, !override.isEmpty {
+                    displayTitle = override
+                } else if !terminalTitle.isEmpty {
+                    displayTitle = terminalTitle
+                } else {
+                    displayTitle = "Untitled"
+                }
                 let pwd = surface.pwd?.abbreviatedPath
                 let subtitle: String? = if let pwd, !displayTitle.contains(pwd) {
                     pwd
