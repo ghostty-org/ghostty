@@ -153,7 +153,11 @@ pub const Command = union(Key) {
     /// Kitty text sizing protocol (OSC 66)
     kitty_text_sizing: parsers.kitty_text_sizing.OSC,
 
+    kitty_clipboard_protocol: KittyClipboardProtocol,
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
+
+    pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
     pub const Key = LibEnum(
         if (build_options.c_abi) .c else .zig,
@@ -182,6 +186,7 @@ pub const Command = union(Key) {
             "conemu_xterm_emulation",
             "conemu_comment",
             "kitty_text_sizing",
+            "kitty_clipboard_protocol",
         },
     );
 
@@ -325,6 +330,7 @@ pub const Parser = struct {
         @"21",
         @"22",
         @"52",
+        @"55",
         @"66",
         @"77",
         @"104",
@@ -339,8 +345,10 @@ pub const Parser = struct {
         @"118",
         @"119",
         @"133",
+        @"552",
         @"777",
         @"1337",
+        @"5522",
     };
 
     pub fn init(alloc: ?Allocator) Parser {
@@ -402,6 +410,7 @@ pub const Parser = struct {
             .semantic_prompt,
             .show_desktop_notification,
             .kitty_text_sizing,
+            .kitty_clipboard_protocol,
             => {},
         }
 
@@ -569,6 +578,7 @@ pub const Parser = struct {
             .@"5" => switch (c) {
                 ';' => if (self.ensureAllocator()) self.writeToFixed(),
                 '2' => self.state = .@"52",
+                '5' => self.state = .@"55",
                 else => self.state = .invalid,
             },
 
@@ -581,6 +591,11 @@ pub const Parser = struct {
             .@"66",
             => switch (c) {
                 ';' => self.writeToAllocating(),
+                else => self.state = .invalid,
+            },
+
+            .@"55" => switch (c) {
+                '2' => self.state = .@"552",
                 else => self.state = .invalid,
             },
 
@@ -602,9 +617,20 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
+            .@"552" => switch (c) {
+                '2' => self.state = .@"5522",
+                else => self.state = .invalid,
+            },
+
             .@"1337",
             => switch (c) {
                 ';' => self.writeToFixed(),
+                else => self.state = .invalid,
+            },
+
+            .@"5522",
+            => switch (c) {
+                ';' => self.writeToAllocating(),
                 else => self.state = .invalid,
             },
 
@@ -676,6 +702,8 @@ pub const Parser = struct {
 
             .@"52" => parsers.clipboard_operation.parse(self, terminator_ch),
 
+            .@"55" => null,
+
             .@"6" => null,
 
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
@@ -684,9 +712,13 @@ pub const Parser = struct {
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
+            .@"552" => null,
+
             .@"777" => parsers.rxvt_extension.parse(self, terminator_ch),
 
             .@"1337" => parsers.iterm2.parse(self, terminator_ch),
+
+            .@"5522" => parsers.kitty_clipboard_protocol.parse(self, terminator_ch),
         };
     }
 };
