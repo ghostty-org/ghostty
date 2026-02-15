@@ -175,8 +175,18 @@ pub const DerivedConfig = struct {
         errdefer arena.deinit();
         const alloc = arena.allocator();
 
+        const palette = if (config.@"generate-256-palette")
+            terminalpkg.color.generate_256_palette(
+                config.palette.value,
+                config.palette.mask,
+                config.background.toTerminalRGB(),
+                config.foreground.toTerminalRGB()
+            )
+        else
+            config.palette.value;
+
         return .{
-            .palette = config.palette.value,
+            .palette = palette,
             .image_storage_limit = config.@"image-storage-limit",
             .cursor_style = config.@"cursor-style",
             .cursor_blink = config.@"cursor-style-blink",

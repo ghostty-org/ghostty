@@ -786,6 +786,13 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// [see this cheat sheet](https://www.ditig.com/256-colors-cheat-sheet).
 palette: Palette = .{},
 
+/// Whether to generate the extended 256 palette from your base16 colors.
+/// This option is true by default but will not replace manually defined colors.
+///
+/// For more information
+/// [see here](https://gist.github.com/jake-stewart/0a8ea46159a7da2c808e5be2177e1783).
+@"generate-256-palette": bool = true,
+
 /// The color of the cursor. If this is not set, a default will be chosen.
 ///
 /// Direct colors can be specified as either hex (`#RRGGBB` or `RRGGBB`)
@@ -5538,6 +5545,11 @@ pub const Palette = struct {
     /// The actual value that is updated as we parse.
     value: terminal.color.Palette = terminal.color.default,
 
+    /// Keep track of which indexes were manually set by the user.
+    mask: Mask = .initEmpty(),
+
+    const Mask = std.StaticBitSet(@typeInfo(terminal.color.Palette).array.len);
+
     /// ghostty_config_palette_s
     pub const C = extern struct {
         colors: [265]Color.C,
@@ -5574,6 +5586,7 @@ pub const Palette = struct {
         // Parse the color part (Color.parseCLI will handle whitespace)
         const rgb = try Color.parseCLI(value[eqlIdx + 1 ..]);
         self.value[key] = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
+        self.mask.set(key);
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -10430,3 +10443,4 @@ test "compatibility: window new-window" {
         );
     }
 }
+
