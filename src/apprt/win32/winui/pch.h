@@ -44,6 +44,7 @@
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Input.h>
+#include <winrt/Microsoft.UI.Windowing.h>
 
 // MRT Core (Modern Resource Technology) for resource management
 #include <winrt/Microsoft.Windows.ApplicationModel.Resources.h>

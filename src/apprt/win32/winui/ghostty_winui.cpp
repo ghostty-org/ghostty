@@ -21,6 +21,7 @@ static PFN_ContentPreTranslateMessage g_pfnContentPreTranslateMessage = nullptr;
 #include <string>
 #include <vector>
 #include <memory>
+#include <functional>
 #include <cmath>
 #include <limits>
 
@@ -32,6 +33,8 @@ namespace winrt {
     using namespace Microsoft::UI::Xaml::Markup;
     using namespace Microsoft::UI::Xaml::Media;
     using namespace Microsoft::UI::Content;
+    using namespace Microsoft::UI::Input;
+    using namespace Microsoft::UI::Windowing;
 }
 
 // ---------------------------------------------------------------
@@ -1020,80 +1023,191 @@ GHOSTTY_WINUI_API void ghostty_title_dialog_show(
 }
 
 // ---------------------------------------------------------------
-// Hit testing
+// Drag region management (InputNonClientPointerSource)
 // ---------------------------------------------------------------
 
-GHOSTTY_WINUI_API int32_t ghostty_tabview_hit_test(
-    GhosttyTabView tv,
-    int32_t x, int32_t y
-) {
-    if (!tv || !tv->root_grid) {
+static void update_drag_regions_impl(GhosttyTabViewImpl* tv, HWND parent_hwnd) {
+    if (!tv || !tv->tab_view || !tv->root_grid) {
         log_init();
-        if (g_log) { fprintf(g_log, "hit_test(%d,%d): null tv or root_grid\n", x, y); fflush(g_log); }
-        return 0;
+        if (g_log) { fprintf(g_log, "update_drag_regions: null tv/tab_view/root_grid\n"); fflush(g_log); }
+        return;
     }
 
     try {
-        // Convert pixel coordinates to a Point for XAML hit testing.
-        winrt::Windows::Foundation::Point pt{
-            static_cast<float>(x), static_cast<float>(y)
+        auto xaml_root = tv->root_grid.XamlRoot();
+        if (!xaml_root) {
+            log_init();
+            if (g_log) { fprintf(g_log, "update_drag_regions: no XamlRoot yet\n"); fflush(g_log); }
+            return;
+        }
+
+        double scale = xaml_root.RasterizationScale();
+        log_init();
+        if (g_log) { fprintf(g_log, "update_drag_regions: scale=%.2f parent_hwnd=%p\n", scale, (void*)parent_hwnd); fflush(g_log); }
+
+        // Get the AppWindow for this HWND.
+        auto windowId = winrt::Microsoft::UI::GetWindowIdFromWindow(parent_hwnd);
+        auto appWindow = winrt::AppWindow::GetFromWindowId(windowId);
+        auto nonClientSrc = winrt::InputNonClientPointerSource::GetForWindowId(windowId);
+
+        // Collect passthrough rects for interactive elements.
+        std::vector<winrt::Windows::Graphics::RectInt32> passthrough_rects;
+
+        // Helper to add a rect for a FrameworkElement.
+        auto add_element_rect = [&](winrt::FrameworkElement const& elem, const char* label) {
+            if (!elem) return;
+            try {
+                auto transform = elem.TransformToVisual(nullptr);
+                auto logical = transform.TransformBounds(winrt::Windows::Foundation::Rect{
+                    0, 0,
+                    static_cast<float>(elem.ActualWidth()),
+                    static_cast<float>(elem.ActualHeight())
+                });
+
+                winrt::Windows::Graphics::RectInt32 physical{
+                    static_cast<int32_t>(std::round(logical.X * scale)),
+                    static_cast<int32_t>(std::round(logical.Y * scale)),
+                    static_cast<int32_t>(std::round(logical.Width * scale)),
+                    static_cast<int32_t>(std::round(logical.Height * scale))
+                };
+
+                log_init();
+                if (g_log) {
+                    auto name = elem.Name();
+                    fprintf(g_log, "  passthrough[%d] %s [%ls]: logical=(%.0f,%.0f,%.0f,%.0f) physical=(%d,%d,%d,%d)\n",
+                        (int)passthrough_rects.size(), label, name.c_str(),
+                        logical.X, logical.Y, logical.Width, logical.Height,
+                        physical.X, physical.Y, physical.Width, physical.Height);
+                    fflush(g_log);
+                }
+
+                passthrough_rects.push_back(physical);
+            } catch (winrt::hresult_error const& ex) {
+                log_init();
+                if (g_log) { fprintf(g_log, "  passthrough %s: EXCEPTION 0x%08X\n", label, (unsigned)ex.code()); fflush(g_log); }
+            }
         };
 
-        // Find all XAML elements at this point.
-        auto elements = winrt::VisualTreeHelper::FindElementsInHostCoordinates(
-            pt, tv->root_grid);
+        // Add each TabViewItem as a passthrough rect.
+        auto items = tv->tab_view.TabItems();
+        for (uint32_t i = 0; i < items.Size(); i++) {
+            auto item = items.GetAt(i);
+            auto tvi = item.try_as<winrt::TabViewItem>();
+            if (tvi) {
+                char label[32];
+                snprintf(label, sizeof(label), "tab[%u]", i);
+                add_element_rect(tvi, label);
+            }
+        }
 
-        int elem_count = 0;
-        for (auto const& elem : elements) {
-            elem_count++;
-            auto fe = elem.try_as<winrt::FrameworkElement>();
-            auto name = fe ? fe.Name() : winrt::hstring{};
-            auto class_name = winrt::get_class_name(elem);
+        // Add the add-tab button. It's inside TabView's template — walk visual tree to find it.
+        std::function<winrt::FrameworkElement(winrt::DependencyObject const&)> find_button;
+        find_button = [&find_button](winrt::DependencyObject const& root) -> winrt::FrameworkElement {
+            int count = winrt::VisualTreeHelper::GetChildrenCount(root);
+            for (int i = 0; i < count; i++) {
+                auto child = winrt::VisualTreeHelper::GetChild(root, i);
+                auto fe = child.try_as<winrt::FrameworkElement>();
+                if (fe) {
+                    auto name = fe.Name();
+                    if (name == L"AddButton") return fe;
+                }
+                auto result = find_button(child);
+                if (result) return result;
+            }
+            return nullptr;
+        };
 
-            // Check if any element at this point is interactive.
-            if (elem.try_as<winrt::Controls::Primitives::ButtonBase>()) {
-                log_init();
-                if (g_log) { fprintf(g_log, "hit_test(%d,%d): HIT ButtonBase [%ls] (%ls) (elem %d)\n",
-                    x, y, name.c_str(), class_name.c_str(), elem_count); fflush(g_log); }
-                return 1;
-            }
-            if (elem.try_as<winrt::TabViewItem>()) {
-                log_init();
-                if (g_log) { fprintf(g_log, "hit_test(%d,%d): HIT TabViewItem [%ls] (%ls) (elem %d)\n",
-                    x, y, name.c_str(), class_name.c_str(), elem_count); fflush(g_log); }
-                return 1;
-            }
-            if (elem.try_as<winrt::TextBox>()) {
-                log_init();
-                if (g_log) { fprintf(g_log, "hit_test(%d,%d): HIT TextBox [%ls] (%ls) (elem %d)\n",
-                    x, y, name.c_str(), class_name.c_str(), elem_count); fflush(g_log); }
-                return 1;
-            }
-            if (elem.try_as<winrt::Controls::Primitives::SelectorItem>()) {
-                log_init();
-                if (g_log) { fprintf(g_log, "hit_test(%d,%d): HIT SelectorItem [%ls] (%ls) (elem %d)\n",
-                    x, y, name.c_str(), class_name.c_str(), elem_count); fflush(g_log); }
-                return 1;
-            }
-            if (elem.try_as<winrt::Controls::Primitives::Thumb>()) {
-                log_init();
-                if (g_log) { fprintf(g_log, "hit_test(%d,%d): HIT Thumb [%ls] (%ls) (elem %d)\n",
-                    x, y, name.c_str(), class_name.c_str(), elem_count); fflush(g_log); }
-                return 1;
-            }
-
+        auto add_btn = find_button(tv->tab_view);
+        if (add_btn) {
+            add_element_rect(add_btn, "add-button");
+        } else {
             log_init();
-            if (g_log) { fprintf(g_log, "hit_test(%d,%d): skip [%ls] (%ls) (elem %d)\n",
-                x, y, name.c_str(), class_name.c_str(), elem_count); fflush(g_log); }
+            if (g_log) { fprintf(g_log, "  add-button: NOT FOUND in visual tree\n"); fflush(g_log); }
+        }
+
+        // Set the passthrough regions.
+        if (!passthrough_rects.empty()) {
+            auto arr = winrt::array_view<winrt::Windows::Graphics::RectInt32>(
+                passthrough_rects.data(),
+                static_cast<uint32_t>(passthrough_rects.size()));
+            nonClientSrc.SetRegionRects(winrt::NonClientRegionKind::Passthrough, arr);
         }
 
         log_init();
-        if (g_log) { fprintf(g_log, "hit_test(%d,%d): MISS (%d elements checked) -> draggable\n",
-            x, y, elem_count); fflush(g_log); }
-        return 0;  // Background area — draggable
+        if (g_log) { fprintf(g_log, "update_drag_regions: SetRegionRects called with %d passthrough rects\n",
+            (int)passthrough_rects.size()); fflush(g_log); }
+
+    } catch (winrt::hresult_error const& ex) {
+        log_init();
+        if (g_log) { fprintf(g_log, "update_drag_regions: EXCEPTION 0x%08X\n", (unsigned)ex.code()); fflush(g_log); }
     } catch (...) {
         log_init();
-        if (g_log) { fprintf(g_log, "hit_test(%d,%d): EXCEPTION caught\n", x, y); fflush(g_log); }
-        return 0;
+        if (g_log) { fprintf(g_log, "update_drag_regions: UNKNOWN EXCEPTION\n"); fflush(g_log); }
     }
+}
+
+GHOSTTY_WINUI_API void ghostty_tabview_setup_drag_regions(
+    GhosttyTabView tv,
+    HWND parent_hwnd
+) {
+    if (!tv || !parent_hwnd) {
+        log_init();
+        if (g_log) { fprintf(g_log, "setup_drag_regions: null tv or parent_hwnd\n"); fflush(g_log); }
+        return;
+    }
+
+    try {
+        log_init();
+        if (g_log) { fprintf(g_log, "setup_drag_regions: parent_hwnd=%p\n", (void*)parent_hwnd); fflush(g_log); }
+
+        // Set ExtendsContentIntoTitleBar = true via AppWindow.
+        auto windowId = winrt::Microsoft::UI::GetWindowIdFromWindow(parent_hwnd);
+        auto appWindow = winrt::AppWindow::GetFromWindowId(windowId);
+        auto titleBar = appWindow.TitleBar();
+        titleBar.ExtendsContentIntoTitleBar(true);
+        titleBar.PreferredHeightOption(winrt::TitleBarHeightOption::Tall);
+
+        log_init();
+        if (g_log) { fprintf(g_log, "setup_drag_regions: ExtendsContentIntoTitleBar=true, PreferredHeightOption=Tall\n"); fflush(g_log); }
+
+        // Hook SizeChanged on the root grid to auto-update regions.
+        tv->root_grid.SizeChanged([tv, parent_hwnd](auto&&, auto&&) {
+            log_init();
+            if (g_log) { fprintf(g_log, "setup_drag_regions: SizeChanged fired -> updating regions\n"); fflush(g_log); }
+            update_drag_regions_impl(tv, parent_hwnd);
+        });
+
+        // Hook TabItems vector changed to update on tab add/remove.
+        auto items = tv->tab_view.TabItems();
+        auto observable = items.try_as<winrt::Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable>>();
+        if (observable) {
+            observable.VectorChanged([tv, parent_hwnd](auto&&, auto&&) {
+                log_init();
+                if (g_log) { fprintf(g_log, "setup_drag_regions: TabItems VectorChanged -> updating regions\n"); fflush(g_log); }
+                update_drag_regions_impl(tv, parent_hwnd);
+            });
+            log_init();
+            if (g_log) { fprintf(g_log, "setup_drag_regions: hooked TabItems VectorChanged\n"); fflush(g_log); }
+        }
+
+        // Do initial update.
+        update_drag_regions_impl(tv, parent_hwnd);
+
+        log_init();
+        if (g_log) { fprintf(g_log, "setup_drag_regions: setup complete\n"); fflush(g_log); }
+
+    } catch (winrt::hresult_error const& ex) {
+        log_init();
+        if (g_log) { fprintf(g_log, "setup_drag_regions: EXCEPTION 0x%08X\n", (unsigned)ex.code()); fflush(g_log); }
+    } catch (...) {
+        log_init();
+        if (g_log) { fprintf(g_log, "setup_drag_regions: UNKNOWN EXCEPTION\n"); fflush(g_log); }
+    }
+}
+
+GHOSTTY_WINUI_API void ghostty_tabview_update_drag_regions(
+    GhosttyTabView tv,
+    HWND parent_hwnd
+) {
+    update_drag_regions_impl(tv, parent_hwnd);
 }

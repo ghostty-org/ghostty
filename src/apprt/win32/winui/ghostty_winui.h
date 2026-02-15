@@ -219,12 +219,18 @@ GHOSTTY_WINUI_API void ghostty_title_dialog_show(
     GhosttyTitleResultCallback callback
 );
 
-/// Hit-test a point (in island client coordinates) against XAML controls.
-/// Returns nonzero if the point is over an interactive control (tab, button).
-/// Returns 0 if the point is over the background (draggable area).
-GHOSTTY_WINUI_API int32_t ghostty_tabview_hit_test(
+/// Set up drag regions for the tab bar using InputNonClientPointerSource.
+/// Call once after TabView creation. Sets ExtendsContentIntoTitleBar = true
+/// and hooks SizeChanged for automatic region updates.
+GHOSTTY_WINUI_API void ghostty_tabview_setup_drag_regions(
     GhosttyTabView tv,
-    int32_t x, int32_t y
+    HWND parent_hwnd
+);
+
+/// Manually trigger a drag region update (e.g. on window resize).
+GHOSTTY_WINUI_API void ghostty_tabview_update_drag_regions(
+    GhosttyTabView tv,
+    HWND parent_hwnd
 );
 
 #ifdef __cplusplus
