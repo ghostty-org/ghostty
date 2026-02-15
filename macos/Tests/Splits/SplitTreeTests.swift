@@ -61,4 +61,21 @@ struct SplitTreeTests {
         let tree = SplitTree<MockView>(view: view1)
         #expect((tree.find(id: view2.id) == nil))
     }
+
+    /// A tree with an inserted view contains that view.
+    @Test func treeContainsInsertedView() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        #expect(tree.contains(view2))
+    }
+
+    /// A tree that never inserts a view does not contain that view.
+    @Test func treeDoesNotContainUninsertedView() {
+        let view1 = MockView()
+        let view2 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+        #expect(!tree.contains(view2))
+    }
 }
