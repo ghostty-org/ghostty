@@ -28,6 +28,20 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
         }
     }
 
+    // gettext's LANGUAGE overrides LC_ALL/LC_MESSAGES/LANG. If it does not
+    // include an explicit UTF-8 locale, ignore it so gettext falls back to
+    // LC_ALL/LC_MESSAGES/LANG.
+    if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
+        defer language.deinit(alloc);
+        if (language.value.len > 0 and
+            !std.mem.endsWith(u8, language.value, ".UTF-8"))
+        {
+            _ = internal_os.setenv("LANGUAGE", "");
+            _ = internal_os.unsetenv("LANGUAGE");
+            log.info("ignoring LANGUAGE without UTF-8 locale entries value={s}", .{language.value});
+        }
+    }
+
     // Set the locale to whatever is set in env vars.
     if (setlocale(LC_ALL, "")) |v| {
         log.info("setlocale from env result={s}", .{v});
