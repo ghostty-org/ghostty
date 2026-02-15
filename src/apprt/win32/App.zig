@@ -174,9 +174,11 @@ pub fn run(self: *App) !void {
                 self.running = false;
                 break;
             }
-            // Let WinUI XAML process the message first.
+            // Let WinUI XAML process the message first — but skip our
+            // custom messages so they reach our wndproc.
             if (self.winui.winui_pre_translate_message) |ptm| {
-                if (ptm(&msg) != 0) continue;
+                const dominated = msg.message >= c.WM_USER and msg.message <= c.WM_USER + 10;
+                if (!dominated and ptm(&msg) != 0) continue;
             }
             _ = c.TranslateMessage(&msg);
             _ = c.DispatchMessageW(&msg);

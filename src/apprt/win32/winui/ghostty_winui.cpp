@@ -128,6 +128,8 @@ struct GhosttyTabViewImpl {
     winrt::Canvas overlay_canvas{ nullptr };
     winrt::TabView tab_view{ nullptr };
     GhosttyTabViewCallbacks callbacks{};
+    HWND drag_region_parent_hwnd = nullptr;  // Set by setup_drag_regions
+    bool updating_drag_regions = false;  // Re-entrancy guard
 
     // Event tokens for cleanup.
     winrt::event_token selection_changed_token{};
@@ -451,61 +453,8 @@ GHOSTTY_WINUI_API GhosttyTabView ghostty_tabview_create(
             }
         );
 
-        // Window dragging and resize are handled by the Zig side:
-        // the XAML Island is offset down so the parent window has a
-        // drag/resize strip at the top that handles WM_NCHITTEST.
-
-        // Caption buttons (minimize, maximize, close) in the tab strip footer.
-        {
-            auto caption_panel = winrt::StackPanel();
-            caption_panel.Orientation(winrt::Controls::Orientation::Horizontal);
-            caption_panel.HorizontalAlignment(winrt::HorizontalAlignment::Right);
-            caption_panel.VerticalAlignment(winrt::VerticalAlignment::Stretch);
-
-            auto make_caption_btn = [](const wchar_t* glyph, double font_size = 10.0) {
-                winrt::Button btn;
-                winrt::FontIcon icon;
-                icon.Glyph(glyph);
-                icon.FontFamily(winrt::FontFamily(L"Segoe Fluent Icons"));
-                icon.FontSize(font_size);
-                btn.Content(icon);
-                btn.Width(46);
-                btn.VerticalAlignment(winrt::VerticalAlignment::Stretch);
-                btn.Padding(winrt::ThicknessHelper::FromLengths(0, 0, 0, 0));
-                // Transparent background, no border — like Windows Terminal.
-                winrt::Windows::UI::Color transparent;
-                transparent.A = 0; transparent.R = 0; transparent.G = 0; transparent.B = 0;
-                btn.Background(winrt::SolidColorBrush(transparent));
-                btn.BorderThickness(winrt::ThicknessHelper::FromUniformLength(0));
-                return btn;
-            };
-
-            // Minimize button (ChromeMinimize U+E921)
-            auto min_btn = make_caption_btn(L"\xE921");
-            min_btn.Click([impl](auto const&, auto const&) {
-                if (impl->callbacks.on_minimize)
-                    impl->callbacks.on_minimize(impl->callbacks.ctx);
-            });
-            caption_panel.Children().Append(min_btn);
-
-            // Maximize/restore button (ChromeMaximize U+E922)
-            auto max_btn = make_caption_btn(L"\xE922");
-            max_btn.Click([impl](auto const&, auto const&) {
-                if (impl->callbacks.on_maximize)
-                    impl->callbacks.on_maximize(impl->callbacks.ctx);
-            });
-            caption_panel.Children().Append(max_btn);
-
-            // Close button (ChromeClose U+E8BB) — red hover
-            auto close_btn = make_caption_btn(L"\xE8BB");
-            close_btn.Click([impl](auto const&, auto const&) {
-                if (impl->callbacks.on_close)
-                    impl->callbacks.on_close(impl->callbacks.ctx);
-            });
-            caption_panel.Children().Append(close_btn);
-
-            impl->tab_view.TabStripFooter(caption_panel);
-        }
+        // System caption buttons (min/max/close) are provided by DWM when
+        // ExtendsContentIntoTitleBar is true. No need for custom XAML buttons.
 
         // Wrap TabView in a Grid with an overlay Canvas for search panel.
         impl->root_grid = winrt::Grid();
@@ -646,6 +595,10 @@ GHOSTTY_WINUI_API void ghostty_tabview_select_tab(
     } catch (...) {}
 }
 
+// Forward declarations — defined in the drag region section below.
+static void update_drag_regions_impl(GhosttyTabViewImpl* tv, HWND parent_hwnd);
+static void schedule_drag_region_update_round(GhosttyTabViewImpl* tv, HWND hwnd, int round);
+
 GHOSTTY_WINUI_API void ghostty_tabview_set_tab_title(
     GhosttyTabView tv,
     uint32_t index,
@@ -657,6 +610,13 @@ GHOSTTY_WINUI_API void ghostty_tabview_set_tab_title(
         if (index < items.Size()) {
             auto item = items.GetAt(index).as<winrt::TabViewItem>();
             item.Header(winrt::box_value(to_hstring(title)));
+
+            // Title change causes tab width to change — update drag
+            // regions immediately. UpdateLayout() inside the impl
+            // forces XAML to recalculate before reading dimensions.
+            if (tv->drag_region_parent_hwnd) {
+                update_drag_regions_impl(tv, tv->drag_region_parent_hwnd);
+            }
         }
     } catch (...) {}
 }
@@ -1026,6 +986,30 @@ GHOSTTY_WINUI_API void ghostty_title_dialog_show(
 // Drag region management (InputNonClientPointerSource)
 // ---------------------------------------------------------------
 
+/// Maximum rounds of deferred drag-region updates.
+/// Each round goes through the XAML DispatcherQueue, giving XAML
+/// a chance to process layout between rounds. By round 3, tab
+/// dimensions should be fully up to date after a title change.
+static constexpr int DRAG_REGION_MAX_ROUNDS = 4;
+
+/// Schedule a multi-round drag region update via DispatcherQueue.
+/// Each round calls update_drag_regions_impl then enqueues the next
+/// round. XAML processes layout between rounds (unlike PostMessage
+/// which gets drained in the same PeekMessageW loop).
+static void schedule_drag_region_update_round(GhosttyTabViewImpl* tv, HWND hwnd, int round) {
+    if (round >= DRAG_REGION_MAX_ROUNDS) return;
+    if (!g_dispatcher_controller) return;
+
+    auto dq = g_dispatcher_controller.DispatcherQueue();
+    if (!dq) return;
+
+    dq.TryEnqueue([tv, hwnd, round]() {
+        update_drag_regions_impl(tv, hwnd);
+        // Enqueue next round — XAML will process layout before it runs.
+        schedule_drag_region_update_round(tv, hwnd, round + 1);
+    });
+}
+
 static void update_drag_regions_impl(GhosttyTabViewImpl* tv, HWND parent_hwnd) {
     if (!tv || !tv->tab_view || !tv->root_grid) {
         log_init();
@@ -1033,13 +1017,23 @@ static void update_drag_regions_impl(GhosttyTabViewImpl* tv, HWND parent_hwnd) {
         return;
     }
 
+    // Guard against re-entrancy (SetRegionRects can trigger LayoutUpdated).
+    if (tv->updating_drag_regions) return;
+    tv->updating_drag_regions = true;
+
     try {
         auto xaml_root = tv->root_grid.XamlRoot();
         if (!xaml_root) {
             log_init();
             if (g_log) { fprintf(g_log, "update_drag_regions: no XamlRoot yet\n"); fflush(g_log); }
+            tv->updating_drag_regions = false;
             return;
         }
+
+        // Force XAML to synchronously recalculate layout so that
+        // ActualWidth/ActualHeight reflect any pending changes
+        // (e.g. tab title text changes that resize TabViewItems).
+        tv->tab_view.UpdateLayout();
 
         double scale = xaml_root.RasterizationScale();
         log_init();
@@ -1131,16 +1125,22 @@ static void update_drag_regions_impl(GhosttyTabViewImpl* tv, HWND parent_hwnd) {
                 passthrough_rects.data(),
                 static_cast<uint32_t>(passthrough_rects.size()));
             nonClientSrc.SetRegionRects(winrt::NonClientRegionKind::Passthrough, arr);
+        } else {
+            // Clear passthrough if empty.
+            nonClientSrc.ClearRegionRects(winrt::NonClientRegionKind::Passthrough);
         }
 
         log_init();
         if (g_log) { fprintf(g_log, "update_drag_regions: SetRegionRects called with %d passthrough rects\n",
             (int)passthrough_rects.size()); fflush(g_log); }
 
+        tv->updating_drag_regions = false;
     } catch (winrt::hresult_error const& ex) {
+        tv->updating_drag_regions = false;
         log_init();
         if (g_log) { fprintf(g_log, "update_drag_regions: EXCEPTION 0x%08X\n", (unsigned)ex.code()); fflush(g_log); }
     } catch (...) {
+        tv->updating_drag_regions = false;
         log_init();
         if (g_log) { fprintf(g_log, "update_drag_regions: UNKNOWN EXCEPTION\n"); fflush(g_log); }
     }
@@ -1160,6 +1160,9 @@ GHOSTTY_WINUI_API void ghostty_tabview_setup_drag_regions(
         log_init();
         if (g_log) { fprintf(g_log, "setup_drag_regions: parent_hwnd=%p\n", (void*)parent_hwnd); fflush(g_log); }
 
+        // Store parent HWND so we can auto-update regions on title change.
+        tv->drag_region_parent_hwnd = parent_hwnd;
+
         // Set ExtendsContentIntoTitleBar = true via AppWindow.
         auto windowId = winrt::Microsoft::UI::GetWindowIdFromWindow(parent_hwnd);
         auto appWindow = winrt::AppWindow::GetFromWindowId(windowId);
@@ -1171,27 +1174,29 @@ GHOSTTY_WINUI_API void ghostty_tabview_setup_drag_regions(
         if (g_log) { fprintf(g_log, "setup_drag_regions: ExtendsContentIntoTitleBar=true, PreferredHeightOption=Tall\n"); fflush(g_log); }
 
         // Hook SizeChanged on the root grid to auto-update regions.
+        // Deferred via timer so TabViewItems have correct layout.
         tv->root_grid.SizeChanged([tv, parent_hwnd](auto&&, auto&&) {
             log_init();
-            if (g_log) { fprintf(g_log, "setup_drag_regions: SizeChanged fired -> updating regions\n"); fflush(g_log); }
-            update_drag_regions_impl(tv, parent_hwnd);
+            if (g_log) { fprintf(g_log, "setup_drag_regions: SizeChanged fired -> scheduling deferred update\n"); fflush(g_log); }
+            schedule_drag_region_update_round(tv, parent_hwnd, 0);
         });
 
         // Hook TabItems vector changed to update on tab add/remove.
+        // Deferred via timer since new items won't have layout yet.
         auto items = tv->tab_view.TabItems();
         auto observable = items.try_as<winrt::Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable>>();
         if (observable) {
             observable.VectorChanged([tv, parent_hwnd](auto&&, auto&&) {
                 log_init();
-                if (g_log) { fprintf(g_log, "setup_drag_regions: TabItems VectorChanged -> updating regions\n"); fflush(g_log); }
-                update_drag_regions_impl(tv, parent_hwnd);
+                if (g_log) { fprintf(g_log, "setup_drag_regions: TabItems VectorChanged -> scheduling deferred update\n"); fflush(g_log); }
+                schedule_drag_region_update_round(tv, parent_hwnd, 0);
             });
             log_init();
             if (g_log) { fprintf(g_log, "setup_drag_regions: hooked TabItems VectorChanged\n"); fflush(g_log); }
         }
 
-        // Do initial update.
-        update_drag_regions_impl(tv, parent_hwnd);
+        // Defer initial update — TabViewItems won't have layout yet.
+        schedule_drag_region_update_round(tv, parent_hwnd, 0);
 
         log_init();
         if (g_log) { fprintf(g_log, "setup_drag_regions: setup complete\n"); fflush(g_log); }
