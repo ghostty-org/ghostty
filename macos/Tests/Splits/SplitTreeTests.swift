@@ -78,4 +78,14 @@ struct SplitTreeTests {
         let tree = SplitTree<MockView>(view: view1)
         #expect(!tree.contains(view2))
     }
+
+    /// A tree with a removed view does not contain that view.
+    @Test func treeDoesNotContainRemovedView() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.removing(.leaf(view: view1))
+        #expect(!tree.contains(view1))
+    }
 }
