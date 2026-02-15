@@ -10,7 +10,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2025-08-05 16:27+0200\n"
+"PO-Revision-Date: 2026-02-11 14:12+0100\n"
 "Last-Translator: trag1c <dev@jakubr.me>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
 "Language: pl\n"
@@ -100,7 +100,7 @@ msgid "Next Match"
 msgstr "Następne dopasowanie"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
-msgid "Oh, no." 
+msgid "Oh, no."
 msgstr "O nie!"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
@@ -113,8 +113,9 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Terminal znajduje się w trybie tylko do odczytu. Wciąż możesz przeglądać, zaznaczać "
-"i przewijać zawartość, ale wprowadzane dane będą przesyłane do działającej aplikacji."
+"Ten terminal znajduje się w trybie tylko do odczytu. Wciąż możesz przeglądać, "
+"zaznaczać i przewijać zawartość, ale wprowadzane dane nie będą przesyłane do "
+"wykonywanej aplikacji."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
@@ -130,7 +131,7 @@ msgstr "Wklej"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Powiadom o ukończeniu kolejnej komendy"
+msgstr "Powiadom o ukończeniu następnej komendy"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
