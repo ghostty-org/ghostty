@@ -19,6 +19,7 @@
 # discussion by the author. Maintainers can denounce users by commenting
 # "!denounce" or "!denounce [username]" on a discussion.
 bernsno
+bkircher
 hqnna
 jcollie
 mitchellh
