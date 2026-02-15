@@ -81,7 +81,8 @@ const FnSearchHide = *const fn (SearchPanel) callconv(.c) void;
 const FnSearchSetMatchCount = *const fn (SearchPanel, i32, i32) callconv(.c) void;
 const FnSearchReposition = *const fn (SearchPanel, i32, i32, i32) callconv(.c) void;
 
-const FnTabViewHitTest = *const fn (TabView, i32, i32) callconv(.c) i32;
+const FnTabViewSetupDragRegions = *const fn (TabView, c.HWND) callconv(.c) void;
+const FnTabViewUpdateDragRegions = *const fn (TabView, c.HWND) callconv(.c) void;
 
 const FnTitleDialogShow = *const fn (TabView, [*:0]const u8, [*:0]const u8, ?*anyopaque, TitleResultCallback) callconv(.c) void;
 
@@ -114,7 +115,8 @@ tabview_set_tab_title: ?FnTabViewSetTabTitle = null,
 tabview_move_tab: ?FnTabViewMoveTab = null,
 tabview_get_height: ?FnTabViewGetHeight = null,
 tabview_set_theme: ?FnTabViewSetTheme = null,
-tabview_hit_test: ?FnTabViewHitTest = null,
+tabview_setup_drag_regions: ?FnTabViewSetupDragRegions = null,
+tabview_update_drag_regions: ?FnTabViewUpdateDragRegions = null,
 
 // Search panel
 search_create: ?FnSearchCreate = null,
@@ -194,7 +196,8 @@ pub fn load(self: *WinUI) void {
     self.tabview_move_tab = self.getProc(FnTabViewMoveTab, "ghostty_tabview_move_tab");
     self.tabview_get_height = self.getProc(FnTabViewGetHeight, "ghostty_tabview_get_height");
     self.tabview_set_theme = self.getProc(FnTabViewSetTheme, "ghostty_tabview_set_theme");
-    self.tabview_hit_test = self.getProc(FnTabViewHitTest, "ghostty_tabview_hit_test");
+    self.tabview_setup_drag_regions = self.getProc(FnTabViewSetupDragRegions, "ghostty_tabview_setup_drag_regions");
+    self.tabview_update_drag_regions = self.getProc(FnTabViewUpdateDragRegions, "ghostty_tabview_update_drag_regions");
 
     self.search_create = self.getProc(FnSearchCreate, "ghostty_search_create");
     self.search_destroy = self.getProc(FnSearchDestroy, "ghostty_search_destroy");
