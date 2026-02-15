@@ -12,10 +12,12 @@ const wayland = @import("wayland");
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
+const blur = @import("blur.zig");
 
 const wl = wayland.client.wl;
 const org = wayland.client.org;
 const xdg = wayland.client.xdg;
+const ext = wayland.client.ext;
 
 const log = std.log.scoped(.winproto_wayland);
 
@@ -25,7 +27,12 @@ pub const App = struct {
     context: *Context,
 
     const Context = struct {
+        compositor: ?*wl.Compositor = null,
+
         kde_blur_manager: ?*org.KdeKwinBlurManager = null,
+
+        ext_bg_effect_manager: ?*ext.BackgroundEffectManagerV1 = null,
+        ext_bg_capabilities: ext.BackgroundEffectManagerV1.Capability = .{},
 
         // FIXME: replace with `zxdg_decoration_v1` once GTK merges
         // https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
@@ -83,9 +90,19 @@ pub const App = struct {
         registry.setListener(*Context, registryListener, context);
         if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
-        // Do another round-trip to get the default decoration mode
+        // Sometimes we need to do another roundtrip
+        // to get all information we need.
+        var needs_roundtrip = false;
         if (context.kde_decoration_manager) |deco_manager| {
             deco_manager.setListener(*Context, decoManagerListener, context);
+            needs_roundtrip = true;
+        }
+        if (context.ext_bg_effect_manager) |mgr| {
+            mgr.setListener(*Context, effectManagerListener, context);
+            needs_roundtrip = true;
+        }
+
+        if (needs_roundtrip) {
             if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
         }
 
@@ -221,6 +238,18 @@ pub const App = struct {
             },
         }
     }
+
+    fn effectManagerListener(
+        _: *ext.BackgroundEffectManagerV1,
+        event: ext.BackgroundEffectManagerV1.Event,
+        context: *Context,
+    ) void {
+        switch (event) {
+            .capabilities => |cap| {
+                context.ext_bg_capabilities = cap.flags;
+            },
+        }
+    }
 };
 
 /// Per-window (wl_surface) state for the Wayland protocol.
@@ -235,6 +264,9 @@ pub const Window = struct {
 
     /// A token that, when present, indicates that the window is blurred.
     blur_token: ?*org.KdeKwinBlur = null,
+
+    /// Object that controls background effects like blur.
+    bg_effect: ?*ext.BackgroundEffectSurfaceV1 = null,
 
     /// Object that controls the decoration mode (client/server/auto)
     /// of the window.
@@ -305,7 +337,7 @@ pub const Window = struct {
 
     pub fn deinit(self: Window, alloc: Allocator) void {
         _ = alloc;
-        if (self.blur_token) |blur| blur.release();
+        if (self.blur_token) |token| token.release();
         if (self.decoration) |deco| deco.release();
         if (self.slide) |slide| slide.release();
     }
@@ -313,9 +345,6 @@ pub const Window = struct {
     pub fn resizeEvent(_: *Window) !void {}
 
     pub fn syncAppearance(self: *Window) !void {
-        self.syncBlur() catch |err| {
-            log.err("failed to sync blur={}", .{err});
-        };
         self.syncDecoration() catch |err| {
             log.err("failed to sync blur={}", .{err});
         };
@@ -360,27 +389,59 @@ pub const Window = struct {
     }
 
     /// Update the blur state of the window.
-    fn syncBlur(self: *Window) !void {
-        const manager = self.app_context.kde_blur_manager orelse return;
+    pub fn setBlur(self: *Window, region: blur.Region) !void {
+        const compositor = self.app_context.compositor orelse return;
+
         const config = if (self.apprt_window.getConfig()) |v|
             v.get()
         else
             return;
-        const blur = config.@"background-blur";
+        const blur_setting = config.@"background-blur";
 
-        if (self.blur_token) |tok| {
-            // Only release token when transitioning from blurred -> not blurred
-            if (!blur.enabled()) {
-                manager.unset(self.surface);
-                tok.release();
-                self.blur_token = null;
+        const wl_region = try compositor.createRegion();
+        errdefer wl_region.destroy();
+
+        for (region.slices.items) |slice| {
+            // X11 coming over to bite Wayland.
+            wl_region.add(
+                @intCast(slice.x),
+                @intCast(slice.y),
+                @intCast(slice.width),
+                @intCast(slice.height),
+            );
+        }
+
+        // Does the compositor support the `ext-background-effect-v1`
+        // protocol? If so, try that first, though it might not actually
+        // support the blur setting.
+        if (self.app_context.ext_bg_effect_manager) |mgr| fx: {
+            if (!self.app_context.ext_bg_capabilities.blur) break :fx;
+
+            if (blur_setting.enabled()) {
+                // Do we already have a blur token? If not, create one.
+                const effect = self.bg_effect orelse try mgr.getBackgroundEffect(self.surface);
+                defer self.bg_effect = effect;
+                effect.setBlurRegion(wl_region);
+            } else if (self.bg_effect) |effect| {
+                // Destroy the blur token if present.
+                effect.destroy();
+                self.bg_effect = null;
             }
-        } else {
-            // Only acquire token when transitioning from not blurred -> blurred
-            if (blur.enabled()) {
-                const tok = try manager.create(self.surface);
-                tok.commit();
-                self.blur_token = tok;
+            return;
+        }
+
+        if (self.app_context.kde_blur_manager) |mgr| {
+            if (blur_setting.enabled()) {
+                // Do we already have a blur token? If not, create one.
+                const token = self.blur_token orelse try mgr.create(self.surface);
+                defer self.blur_token = token;
+                token.setRegion(wl_region);
+                token.commit();
+            } else if (self.blur_token) |token| {
+                // Destroy the blur token if present.
+                mgr.unset(self.surface);
+                token.release();
+                self.blur_token = null;
             }
         }
     }

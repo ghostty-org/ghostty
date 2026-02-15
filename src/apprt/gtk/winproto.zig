@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 
+const gtk = @import("gtk");
 const gdk = @import("gdk");
 
 const Config = @import("../../config.zig").Config;
@@ -12,6 +13,7 @@ const ApprtWindow = @import("class/window.zig").Window;
 pub const noop = @import("winproto/noop.zig");
 pub const x11 = @import("winproto/x11.zig");
 pub const wayland = @import("winproto/wayland.zig");
+const blur = @import("winproto/blur.zig");
 
 pub const Protocol = enum {
     none,
@@ -86,69 +88,114 @@ pub const App = union(Protocol) {
 /// really "Surface"-specific state. But Ghostty uses the term "Surface"
 /// heavily to mean something completely different, so we use "Window" here
 /// to better match what it generally maps to in the Ghostty codebase.
-pub const Window = union(Protocol) {
-    none: noop.Window,
-    wayland: if (build_options.wayland) wayland.Window else noop.Window,
-    x11: if (build_options.x11) x11.Window else noop.Window,
+pub const Window = struct {
+    alloc: Allocator,
+
+    apprt_window: *ApprtWindow,
+
+    // Remember the current blur region to avoid redundant X11 property updates.
+    // Redundant property updates seem to cause some visual glitches
+    // with some window managers: https://github.com/ghostty-org/ghostty/pull/8075
+    blur_region: blur.Region = .empty,
+
+    inner: Inner,
+
+    const Inner = union(Protocol) {
+        none: noop.Window,
+        wayland: if (build_options.wayland) wayland.Window else noop.Window,
+        x11: if (build_options.x11) x11.Window else noop.Window,
+    };
 
     pub fn init(
         alloc: Allocator,
         app: *App,
         apprt_window: *ApprtWindow,
     ) !Window {
-        return switch (app.*) {
-            inline else => |*v, tag| {
-                inline for (@typeInfo(Window).@"union".fields) |field| {
-                    if (comptime std.mem.eql(
-                        u8,
-                        field.name,
-                        @tagName(tag),
-                    )) return @unionInit(
-                        Window,
-                        field.name,
-                        try field.type.init(
-                            alloc,
-                            v,
-                            apprt_window,
-                        ),
-                    );
-                }
-            },
+        const inner = inner: {
+            switch (app.*) {
+                inline else => |*v, tag| {
+                    inline for (@typeInfo(Inner).@"union".fields) |field| {
+                        if (comptime std.mem.eql(
+                            u8,
+                            field.name,
+                            @tagName(tag),
+                        )) break :inner @unionInit(
+                            Inner,
+                            field.name,
+                            try field.type.init(
+                                alloc,
+                                v,
+                                apprt_window,
+                            ),
+                        );
+                    }
+                },
+            }
+        };
+
+        return .{
+            .alloc = alloc,
+            .apprt_window = apprt_window,
+            .inner = inner,
         };
     }
 
     pub fn deinit(self: *Window, alloc: Allocator) void {
-        switch (self.*) {
+        self.blur_region.deinit(alloc);
+
+        switch (self.inner) {
             inline else => |*v| v.deinit(alloc),
         }
     }
 
-    pub fn resizeEvent(self: *Window) !void {
-        switch (self.*) {
-            inline else => |*v| try v.resizeEvent(),
+    pub fn updateBlur(self: *Window) !void {
+        // Update the blur region in response to the resize.
+        const config = if (self.apprt_window.getConfig()) |v| v.get() else return;
+
+        // When blur is disabled, remove the property if it was previously set
+        const blur_config = config.@"background-blur";
+
+        if (!blur_config.enabled()) {
+            self.blur_region.clear();
+        } else {
+            var new_region: blur.Region = try .calcForWindow(
+                self.alloc,
+                self.apprt_window.as(gtk.Window),
+            );
+            errdefer new_region.deinit(self.alloc);
+
+            if (!new_region.eql(self.blur_region)) {
+                self.blur_region.deinit(self.alloc);
+                self.blur_region = new_region;
+            }
+        }
+
+        switch (self.inner) {
+            inline else => |*v| try v.setBlur(self.blur_region),
         }
     }
 
     pub fn syncAppearance(self: *Window) !void {
-        switch (self.*) {
+        try self.updateBlur();
+        switch (self.inner) {
             inline else => |*v| try v.syncAppearance(),
         }
     }
 
     pub fn clientSideDecorationEnabled(self: Window) bool {
-        return switch (self) {
+        return switch (self.inner) {
             inline else => |v| v.clientSideDecorationEnabled(),
         };
     }
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
-        switch (self.*) {
+        switch (self.inner) {
             inline else => |*v| try v.addSubprocessEnv(env),
         }
     }
 
     pub fn setUrgent(self: *Window, urgent: bool) !void {
-        switch (self.*) {
+        switch (self.inner) {
             inline else => |*v| try v.setUrgent(urgent),
         }
     }

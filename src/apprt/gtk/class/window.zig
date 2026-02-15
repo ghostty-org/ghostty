@@ -281,7 +281,11 @@ pub const Window = extern struct {
 
         // We initialize our windowing protocol to none because we can't
         // actually initialize this until we get realized.
-        priv.winproto = .none;
+        priv.winproto = .{
+            .alloc = Application.default().allocator(),
+            .apprt_window = self,
+            .inner = .none,
+        };
 
         // Add our dev CSS class if we're in debug mode.
         if (comptime build_config.is_debug) {
@@ -1005,14 +1009,13 @@ pub const Window = extern struct {
         self.syncAppearance();
     }
 
-    fn propGdkSurfaceHeight(
+    fn propGdkSurfaceDims(
         _: *gdk.Surface,
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        // X11 needs to fix blurring on resize, but winproto implementations
-        // could do anything.
-        self.private().winproto.resizeEvent() catch |err| {
+        // Update the background blur
+        self.private().winproto.updateBlur() catch |err| {
             log.warn(
                 "winproto resize event failed error={}",
                 .{err},
@@ -1040,21 +1043,6 @@ pub const Window = extern struct {
         self.winproto().setUrgent(false) catch |err| {
             log.warn(
                 "winproto failed to reset urgency={}",
-                .{err},
-            );
-        };
-    }
-
-    fn propGdkSurfaceWidth(
-        _: *gdk.Surface,
-        _: *gobject.ParamSpec,
-        self: *Self,
-    ) callconv(.c) void {
-        // X11 needs to fix blurring on resize, but winproto implementations
-        // could do anything.
-        self.private().winproto.resizeEvent() catch |err| {
-            log.warn(
-                "winproto resize event failed error={}",
                 .{err},
             );
         };
@@ -1216,14 +1204,14 @@ pub const Window = extern struct {
             _ = gobject.Object.signals.notify.connect(
                 gdk_surface,
                 *Self,
-                propGdkSurfaceWidth,
+                propGdkSurfaceDims,
                 self,
                 .{ .detail = "width" },
             );
             _ = gobject.Object.signals.notify.connect(
                 gdk_surface,
                 *Self,
-                propGdkSurfaceHeight,
+                propGdkSurfaceDims,
                 self,
                 .{ .detail = "height" },
             );
