@@ -811,9 +811,17 @@ typedef struct {
 
 // apprt.action.CommandFinished.C
 typedef struct {
-  // -1 if no exit code was reported, otherwise 0-255
+  // The command line or null if the command line
+  // is unknown.
+  const char *command_line;
+  // The exit code of the command. The exit code will be a number between 0
+  // and 255 or -1 if no exit code was provided. 0 indicates that the command
+  // was successful. Any number from 1 to 255 indicates an application specific
+  // error code.
   int16_t exit_code;
-  // number of nanoseconds that command was running for
+  // How long the command took in nanoseconds. Despite the duration being
+  // reported in nanoseconds the accuracy is probably only within a few
+  // milliseconds.
   uint64_t duration;
 } ghostty_action_command_finished_s;
 
