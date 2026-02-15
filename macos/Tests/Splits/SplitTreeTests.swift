@@ -99,4 +99,30 @@ struct SplitTreeTests {
         #expect(result.contains(.leaf(view: view1)))
         #expect(!result.isEmpty)
     }
+
+    /// Replacing a view should effectively remove and insert a view
+    @Test func replacingViewShouldRemoveAndInsertView() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        #expect(tree.contains(.leaf(view: view2)))
+        let result = try tree.replacing(node: .leaf(view: view2), with: .leaf(view: view3))
+        #expect(result.contains(.leaf(view: view1)))
+        #expect(!result.contains(.leaf(view: view2)))
+        #expect(result.contains(.leaf(view: view3)))
+    }
+
+    /// Replacing a view with itself should work
+    @Test func replacingViewWithItselfShouldBeAValidOperation() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        #expect(tree.contains(.leaf(view: view2)))
+        let result = try tree.replacing(node: .leaf(view: view2), with: .leaf(view: view2))
+        #expect(result.contains(.leaf(view: view1)))
+        #expect(result.contains(.leaf(view: view2)))
+    }
 }
