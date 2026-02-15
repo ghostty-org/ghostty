@@ -62,15 +62,12 @@ pub const Region = struct {
         width = @max(0, width - x * 2);
         height = @max(0, height - y * 2);
 
-        // Transform surface coordinates to device coordinates.
-        const scale: f64 = @floatFromInt(surface.getScaleFactor());
-
         // TODO: Add more regions to mitigate the "korners bug".
         try slices.append(alloc, .{
-            .x = @intFromFloat(x * scale),
-            .y = @intFromFloat(y * scale),
-            .width = @intFromFloat(width * scale),
-            .height = @intFromFloat(height * scale),
+            .x = @intFromFloat(x),
+            .y = @intFromFloat(y),
+            .width = @intFromFloat(width),
+            .height = @intFromFloat(height),
         });
 
         return .{

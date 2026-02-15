@@ -34,3 +34,4 @@ https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90
 https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz
 https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz
 https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz
+https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.47/wayland-protocols-1.47.tar.gz
