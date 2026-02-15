@@ -126,8 +126,6 @@ pub fn init(
     try registerTabBarClass(hinstance);
     try registerSearchBarClass(hinstance);
     try registerDialogClass(hinstance);
-    try registerDragOverlayClass(hinstance);
-
     // Attempt to load the WinUI 3 shim DLL (non-fatal).
     self.winui.load();
     if (self.winui.isAvailable()) {
@@ -1470,34 +1468,4 @@ fn registerDialogClass(hinstance: HINSTANCE) !void {
     log.info("Registered dialog class", .{});
 }
 
-/// Register the window class for the WinUI drag overlay.
-/// This transparent child window sits on top of the XAML Island to
-/// intercept mouse messages for window dragging, resizing, and
-/// caption button hit-testing (like Windows Terminal's drag bar).
-fn registerDragOverlayClass(hinstance: HINSTANCE) !void {
-    const class_name_w = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyDragOverlay");
-
-    const wc = c.WNDCLASSEXW{
-        .cbSize = @sizeOf(c.WNDCLASSEXW),
-        .style = c.CS_HREDRAW | c.CS_VREDRAW | c.CS_DBLCLKS,
-        .lpfnWndProc = Window.dragOverlayProc,
-        .cbClsExtra = 0,
-        .cbWndExtra = 0,
-        .hInstance = hinstance,
-        .hIcon = null,
-        .hCursor = c.LoadCursorW(null, c.IDC_ARROW),
-        .hbrBackground = null,
-        .lpszMenuName = null,
-        .lpszClassName = class_name_w,
-        .hIconSm = null,
-    };
-
-    const atom = c.RegisterClassExW(&wc);
-    if (atom == 0) {
-        log.err("Failed to register drag overlay class", .{});
-        return error.RegisterClassFailed;
-    }
-
-    log.info("Registered drag overlay class", .{});
-}
 

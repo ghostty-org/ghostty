@@ -60,11 +60,6 @@ winui_tabview: WinUI.TabView = null,
 /// Whether this window is using WinUI controls.
 using_winui: bool = false,
 
-/// Drag overlay: transparent child window on top of the XAML Island.
-/// Intercepts mouse input for drag/resize/caption hit-testing while
-/// returning HTTRANSPARENT for XAML interactive controls (tabs, buttons).
-drag_overlay_hwnd: ?HWND = null,
-
 /// Window title (stored as UTF-8)
 title_buf: [256]u8 = undefined,
 title_len: u16 = 0,
@@ -1333,10 +1328,11 @@ fn initWinUITabView(self: *Window) void {
     // Position the XAML Island first so it has its final size/position.
     self.resizeWinUIHost();
 
-    // Create the drag overlay window on top of the XAML Island.
-    // Must be created AFTER the island so it's above it in Z-order,
-    // and AFTER resizeWinUIHost so the island has its final position.
-    self.createDragOverlay();
+    // Set up InputNonClientPointerSource for tab bar drag regions.
+    if (winui.tabview_setup_drag_regions) |setup_fn| {
+        log.info("initWinUITabView: setting up drag regions for HWND={?}", .{self.hwnd});
+        setup_fn(self.winui_tabview, self.hwnd);
+    }
 
     // Update DWM frame margins now that we know the tab bar height.
     // This is needed for DWM to render caption buttons in the right area.
@@ -1371,19 +1367,10 @@ pub fn resizeWinUIHost(self: *Window) void {
             resize_fn(self.winui_host, client_rect.left, 0, width, tab_height);
         }
 
-        // Position the drag overlay on top of the XAML Island, covering
-        // just the tab bar area. Use HWND_TOP to ensure it's above the island.
-        if (self.drag_overlay_hwnd) |overlay| {
-            log.info("updateDragOverlay: resizing to x={} w={} h={}", .{ client_rect.left, width, tab_height });
-            _ = c.SetWindowPos(
-                overlay,
-                c.HWND_TOP,
-                client_rect.left,
-                0,
-                width,
-                tab_height,
-                c.SWP_NOACTIVATE | c.SWP_SHOWWINDOW,
-            );
+        // Update drag regions after resize.
+        if (self.app.winui.tabview_update_drag_regions) |update_fn| {
+            log.info("resizeWinUIHost: updating drag regions", .{});
+            update_fn(self.winui_tabview, self.hwnd);
         }
     }
 }
@@ -1399,132 +1386,10 @@ fn hasVisibleWinUISearch(self: *const Window) bool {
     return false;
 }
 
-/// Create the drag overlay child window on top of the XAML Island.
-/// This must be called AFTER the island is created and shown, so that
-/// the overlay is created later in the Z-order (= on top).
-fn createDragOverlay(self: *Window) void {
-    const overlay_class = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyDragOverlay");
-    log.info("createDragOverlay: creating overlay for parent HWND={?}", .{self.hwnd});
-    const overlay_hwnd = c.CreateWindowExW(
-        0, // No extended styles needed — we handle transparency via WM_NCHITTEST returning HTTRANSPARENT
-        overlay_class,
-        std.unicode.utf8ToUtf16LeStringLiteral(""),
-        c.WS_CHILD | c.WS_VISIBLE | c.WS_CLIPSIBLINGS,
-        0,
-        0,
-        0,
-        0,
-        self.hwnd,
-        null,
-        self.app.hinstance,
-        null,
-    );
-    if (overlay_hwnd) |oh| {
-        log.info("createDragOverlay: overlay created HWND={?}", .{oh});
-        _ = c.SetWindowLongPtrW(oh, c.GWLP_USERDATA, @bitCast(@intFromPtr(self)));
-        self.drag_overlay_hwnd = oh;
-
-        // Get the island HWND and position the overlay above it.
-        const winui = &self.app.winui;
-        const island_hwnd: ?HWND = if (winui.xaml_host_get_hwnd) |get_fn| get_fn(self.winui_host) else null;
-        log.info("createDragOverlay: island_hwnd={?} winui_host={?}", .{ island_hwnd, self.winui_host });
-
-        // Position overlay to cover the tab bar area, on top of the island.
-        var client_rect: c.RECT = undefined;
-        if (c.GetClientRect(self.hwnd, &client_rect) != 0) {
-            const tab_height = self.getTabBarHeight();
-            const width = client_rect.right - client_rect.left;
-            log.info("createDragOverlay: positioning overlay size={}x{}", .{ width, tab_height });
-            _ = c.SetWindowPos(
-                oh,
-                c.HWND_TOP,
-                0,
-                0,
-                width,
-                tab_height,
-                c.SWP_NOACTIVATE | c.SWP_SHOWWINDOW,
-            );
-        }
-
-        // Verify Z-order — log ALL children so we can see what's on top.
-        var child = c.GetWindow(self.hwnd, c.GW_CHILD);
-        var z_idx: u32 = 0;
-        while (child) |ch| : (z_idx += 1) {
-            const is_overlay = ch == oh;
-            const is_island = if (island_hwnd) |ih| ch == ih else false;
-            var rect: c.RECT = undefined;
-            _ = c.GetWindowRect(ch, &rect);
-            const style = c.GetWindowLongPtrW(ch, c.GWL_STYLE);
-            const visible = (style & @as(isize, c.WS_VISIBLE)) != 0;
-            const parent_of_ch = c.GetParent(ch);
-            if (is_overlay) {
-                log.info("  Z[{d}]: OVERLAY HWND={?} parent={?} rect=({},{},{},{}) visible={}", .{ z_idx, ch, parent_of_ch, rect.left, rect.top, rect.right, rect.bottom, visible });
-            } else if (is_island) {
-                log.info("  Z[{d}]: ISLAND  HWND={?} parent={?} rect=({},{},{},{}) visible={}", .{ z_idx, ch, parent_of_ch, rect.left, rect.top, rect.right, rect.bottom, visible });
-            } else {
-                log.info("  Z[{d}]: OTHER   HWND={?} parent={?} rect=({},{},{},{}) visible={}", .{ z_idx, ch, parent_of_ch, rect.left, rect.top, rect.right, rect.bottom, visible });
-            }
-            // Also log children of this child (one level deep).
-            var subchild = c.GetWindow(ch, c.GW_CHILD);
-            var sub_idx: u32 = 0;
-            while (subchild) |sch| : (sub_idx += 1) {
-                var srect: c.RECT = undefined;
-                _ = c.GetWindowRect(sch, &srect);
-                const sstyle = c.GetWindowLongPtrW(sch, c.GWL_STYLE);
-                const svisible = (sstyle & @as(isize, c.WS_VISIBLE)) != 0;
-                log.info("    Z[{d}][{d}]: HWND={?} rect=({},{},{},{}) visible={}", .{ z_idx, sub_idx, sch, srect.left, srect.top, srect.right, srect.bottom, svisible });
-                subchild = c.GetWindow(sch, c.GW_HWNDNEXT);
-            }
-            child = c.GetWindow(ch, c.GW_HWNDNEXT);
-        }
-
-        // Also check island HWND directly — it might not be a direct child.
-        if (island_hwnd) |ih| {
-            const island_parent = c.GetParent(ih);
-            var irect: c.RECT = undefined;
-            _ = c.GetWindowRect(ih, &irect);
-            log.info("  ISLAND check: HWND={?} parent={?} (our parent={?}) rect=({},{},{},{}) is_direct_child={}", .{
-                ih, island_parent, self.hwnd, irect.left, irect.top, irect.right, irect.bottom,
-                if (island_parent) |ip| ip == self.hwnd else false,
-            });
-            // Log island's children.
-            var isc = c.GetWindow(ih, c.GW_CHILD);
-            var isc_idx: u32 = 0;
-            while (isc) |isch| : (isc_idx += 1) {
-                var isrect: c.RECT = undefined;
-                _ = c.GetWindowRect(isch, &isrect);
-                const istyle = c.GetWindowLongPtrW(isch, c.GWL_STYLE);
-                const ivisible = (istyle & @as(isize, c.WS_VISIBLE)) != 0;
-                log.info("    ISLAND child[{d}]: HWND={?} rect=({},{},{},{}) visible={}", .{ isc_idx, isch, isrect.left, isrect.top, isrect.right, isrect.bottom, ivisible });
-                var deep_child = c.GetWindow(isch, c.GW_CHILD);
-                var deep_idx: u32 = 0;
-                while (deep_child) |dch| : (deep_idx += 1) {
-                    var drect: c.RECT = undefined;
-                    _ = c.GetWindowRect(dch, &drect);
-                    log.info("      ISLAND grandchild[{d}]: HWND={?} rect=({},{},{},{})", .{ deep_idx, dch, drect.left, drect.top, drect.right, drect.bottom });
-                    deep_child = c.GetWindow(dch, c.GW_HWNDNEXT);
-                }
-                isc = c.GetWindow(isch, c.GW_HWNDNEXT);
-            }
-        }
-
-        log.info("Created drag overlay HWND: {?}", .{oh});
-    } else {
-        const err = c.GetLastError();
-        log.warn("Failed to create drag overlay window, error={}", .{err});
-    }
-}
-
 /// Destroy WinUI controls for this window.
 fn destroyWinUIControls(self: *Window) void {
     if (!self.using_winui) return;
     const winui = &self.app.winui;
-
-    // Destroy the drag overlay window.
-    if (self.drag_overlay_hwnd) |overlay| {
-        _ = c.DestroyWindow(overlay);
-        self.drag_overlay_hwnd = null;
-    }
 
     if (winui.tabview_destroy) |destroy_fn| {
         destroy_fn(self.winui_tabview);
@@ -1590,188 +1455,3 @@ fn winuiOnClose(ctx: ?*anyopaque) callconv(.c) void {
     _ = c.PostMessageW(self.hwnd, c.WM_CLOSE, 0, 0);
 }
 
-/// Window procedure for the drag overlay window.
-///
-/// This transparent child window sits on top of the XAML Island to solve
-/// the "island eats mouse input" problem (like Windows Terminal's drag bar).
-///
-/// For XAML interactive controls (tabs, buttons): returns HTTRANSPARENT
-/// from WM_NCHITTEST, so ChildWindowFromPointEx skips the overlay and
-/// the island gets the click.
-///
-/// For background areas: the overlay receives WM_LBUTTONDOWN (since it's
-/// a child window — child windows get client messages, not NC messages).
-/// It then forwards as WM_NCLBUTTONDOWN to the parent, triggering the
-/// native modal drag loop. This works without delay because we're in a
-/// plain Win32 WndProc, not a XAML event handler.
-pub fn dragOverlayProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(c.WINAPI) LRESULT {
-    const ptr = c.GetWindowLongPtrW(hwnd, c.GWLP_USERDATA);
-    const window: ?*Window = if (ptr != 0)
-        @ptrFromInt(@as(usize, @bitCast(ptr)))
-    else
-        null;
-
-    // Log all messages to the overlay to verify it receives input.
-    // WM_SETCURSOR (0x0020) and WM_MOUSEMOVE (0x0200) are too noisy.
-    if (msg != c.WM_SETCURSOR and msg != c.WM_MOUSEMOVE) {
-        log.info("dragOverlayProc: msg=0x{X:0>4} wparam={} lparam={}", .{ msg, wparam, lparam });
-    }
-
-    switch (msg) {
-        c.WM_NCHITTEST => {
-            const w = window orelse return c.HTTRANSPARENT;
-            const result = dragOverlayHitTest(w, hwnd, lparam);
-            log.info("DragOverlay WM_NCHITTEST: ({},{}) -> {}", .{ c.GET_X_LPARAM(lparam), c.GET_Y_LPARAM(lparam), result });
-            return result;
-        },
-
-        c.WM_LBUTTONDOWN => {
-            log.info("DragOverlay WM_LBUTTONDOWN", .{});
-            // The overlay received a click on the background area
-            // (WM_NCHITTEST didn't return HTTRANSPARENT, so we got this).
-            // Figure out what NC action to perform and forward to parent.
-            if (window) |w| {
-                // Get screen coordinates for the NC message.
-                var screen_pt: c.POINT = .{
-                    .x = c.GET_X_LPARAM(lparam),
-                    .y = c.GET_Y_LPARAM(lparam),
-                };
-                _ = c.ClientToScreen(hwnd, &screen_pt);
-                const nc_lparam = c.MAKELPARAM(screen_pt.x, screen_pt.y);
-
-                // Re-run hit test to determine the NC hit code.
-                const hit = dragOverlayHitTest(w, hwnd, nc_lparam);
-                // Release capture before initiating drag so the parent
-                // can take over mouse capture.
-                _ = c.ReleaseCapture();
-                _ = c.SendMessageW(w.hwnd, c.WM_NCLBUTTONDOWN, @as(WPARAM, @intCast(@as(u32, @truncate(@as(usize, @bitCast(hit)))))), nc_lparam);
-            }
-            return 0;
-        },
-
-        c.WM_LBUTTONDBLCLK => {
-            // Double-click on background → maximize/restore toggle.
-            if (window) |w| {
-                var screen_pt: c.POINT = .{
-                    .x = c.GET_X_LPARAM(lparam),
-                    .y = c.GET_Y_LPARAM(lparam),
-                };
-                _ = c.ClientToScreen(hwnd, &screen_pt);
-                const nc_lparam = c.MAKELPARAM(screen_pt.x, screen_pt.y);
-
-                const hit = dragOverlayHitTest(w, hwnd, nc_lparam);
-                _ = c.ReleaseCapture();
-                _ = c.SendMessageW(w.hwnd, c.WM_NCLBUTTONDBLCLK, @as(WPARAM, @intCast(@as(u32, @truncate(@as(usize, @bitCast(hit)))))), nc_lparam);
-            }
-            return 0;
-        },
-
-        c.WM_RBUTTONUP => {
-            // Right-click on background → system menu.
-            if (window) |w| {
-                var screen_pt: c.POINT = .{
-                    .x = c.GET_X_LPARAM(lparam),
-                    .y = c.GET_Y_LPARAM(lparam),
-                };
-                _ = c.ClientToScreen(hwnd, &screen_pt);
-                const nc_lparam = c.MAKELPARAM(screen_pt.x, screen_pt.y);
-                _ = c.SendMessageW(w.hwnd, c.WM_NCRBUTTONUP, c.HTCAPTION, nc_lparam);
-            }
-            return 0;
-        },
-
-        c.WM_ERASEBKGND => return 1, // Don't erase — overlay is transparent.
-
-        c.WM_PAINT => {
-            // Validate the paint region without drawing anything.
-            var ps: c.PAINTSTRUCT = undefined;
-            _ = c.BeginPaint(hwnd, &ps);
-            _ = c.EndPaint(hwnd, &ps);
-            return 0;
-        },
-
-        c.WM_SETCURSOR => {
-            // Set the resize cursor when hovering over the top border.
-            if (window) |w| {
-                var cursor_pos: c.POINT = undefined;
-                if (c.GetCursorPos(&cursor_pos) != 0) {
-                    const hit = dragOverlayHitTest(w, hwnd, c.MAKELPARAM(cursor_pos.x, cursor_pos.y));
-                    const ht: u32 = @bitCast(@as(i32, @truncate(hit)));
-                    const cursor_id: ?[*:0]align(1) const u16 = switch (ht) {
-                        c.HTTOP, c.HTBOTTOM => c.IDC_SIZENS,
-                        c.HTTOPLEFT, c.HTBOTTOMRIGHT => c.IDC_SIZENWSE,
-                        c.HTTOPRIGHT, c.HTBOTTOMLEFT => c.IDC_SIZENESW,
-                        else => null,
-                    };
-                    if (cursor_id) |cid| {
-                        _ = c.SetCursor(c.LoadCursorW(null, cid));
-                        return 1;
-                    }
-                }
-            }
-            _ = c.SetCursor(c.LoadCursorW(null, c.IDC_ARROW));
-            return 1;
-        },
-
-        else => {},
-    }
-    return c.DefWindowProcW(hwnd, msg, wparam, lparam);
-}
-
-/// Hit-test logic for the drag overlay. Uses screen coordinates in lparam.
-fn dragOverlayHitTest(w: *Window, overlay_hwnd: HWND, lparam: LPARAM) LRESULT {
-    _ = overlay_hwnd;
-    const parent_hwnd = w.hwnd;
-
-    // Get mouse position in screen coordinates.
-    const screen_x = c.GET_X_LPARAM(lparam);
-    const screen_y = c.GET_Y_LPARAM(lparam);
-
-    // Get parent window rect for resize border detection.
-    var win_rect: c.RECT = undefined;
-    if (c.GetWindowRect(parent_hwnd, &win_rect) == 0) {
-        log.info("dragOverlayHitTest: GetWindowRect failed -> HTTRANSPARENT", .{});
-        return c.HTTRANSPARENT;
-    }
-
-    // Check resize borders (only when not maximized/fullscreen).
-    if (c.IsZoomed(parent_hwnd) == 0 and !w.is_fullscreen) {
-        const border = w.getResizeBorderThickness();
-        if (screen_y < win_rect.top + border) {
-            if (screen_x < win_rect.left + border) {
-                log.info("dragOverlayHitTest: screen({},{}) winRect({},{},{},{}) border={} -> HTTOPLEFT", .{ screen_x, screen_y, win_rect.left, win_rect.top, win_rect.right, win_rect.bottom, border });
-                return c.HTTOPLEFT;
-            }
-            if (screen_x >= win_rect.right - border) {
-                log.info("dragOverlayHitTest: screen({},{}) winRect({},{},{},{}) border={} -> HTTOPRIGHT", .{ screen_x, screen_y, win_rect.left, win_rect.top, win_rect.right, win_rect.bottom, border });
-                return c.HTTOPRIGHT;
-            }
-            log.info("dragOverlayHitTest: screen({},{}) winRect({},{},{},{}) border={} -> HTTOP", .{ screen_x, screen_y, win_rect.left, win_rect.top, win_rect.right, win_rect.bottom, border });
-            return c.HTTOP;
-        }
-    }
-
-    // Convert to client coordinates of the parent (= island coordinates,
-    // since the island starts at (0,0) in the client area).
-    var client_pt: c.POINT = .{ .x = screen_x, .y = screen_y };
-    _ = c.ScreenToClient(parent_hwnd, &client_pt);
-
-    // Use the XAML hit-test to check if an interactive control is here.
-    if (w.app.winui.tabview_hit_test) |hit_test_fn| {
-        const xaml_result = hit_test_fn(w.winui_tabview, client_pt.x, client_pt.y);
-        log.info("dragOverlayHitTest: screen({},{}) client({},{}) xaml_hit_test={} -> {s}", .{
-            screen_x, screen_y, client_pt.x, client_pt.y, xaml_result,
-            if (xaml_result != 0) "HTTRANSPARENT" else "HTCAPTION",
-        });
-        if (xaml_result != 0) {
-            // Interactive control (tab, button, etc.) — let the
-            // XAML Island handle this click.
-            return c.HTTRANSPARENT;
-        }
-    } else {
-        log.info("dragOverlayHitTest: screen({},{}) client({},{}) no hit_test_fn -> HTCAPTION", .{ screen_x, screen_y, client_pt.x, client_pt.y });
-    }
-
-    // Background area — enable native window dragging.
-    return c.HTCAPTION;
-}
