@@ -126,6 +126,14 @@ struct SplitTreeTests {
     }
 
     /// focusTarget should find the next view to focus based on the current focused node and direction
+    @Test func focusTargetOnEmptyTreeReturnsNil() {
+        let tree = SplitTree<MockView>()
+        let view = MockView()
+        let target = tree.focusTarget(for: .next, from: .leaf(view: view))
+        #expect(target == nil)
+    }
+
+    /// focusTarget should find the next view to focus based on the current focused node and direction
     @Test func focusTargetShouldFindNextFocusedNode() throws {
         let view1 = MockView()
         let view2 = MockView()
