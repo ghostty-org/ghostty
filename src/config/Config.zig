@@ -1406,10 +1406,27 @@ maximize: bool = false,
 /// does not apply to tabs, splits, etc. However, this setting will apply to all
 /// new windows, not just the first one.
 ///
-/// On macOS, this setting does not work if window-decoration is set to
-/// "none", because native fullscreen on macOS requires window decorations
-/// to be set.
-fullscreen: bool = false,
+/// Allowable values are:
+///
+///   * `false` - Don't start in fullscreen (default)
+///   * `true` - Start in native fullscreen
+///   * `non-native` - (macOS only) Start in non-native fullscreen, hiding the
+///     menu bar. This is faster than native fullscreen since it doesn't use
+///     animations. On non-macOS platforms, this behaves the same as `true`.
+///   * `non-native-visible-menu` - (macOS only) Start in non-native fullscreen,
+///     keeping the menu bar visible. On non-macOS platforms, behaves like `true`.
+///   * `non-native-padded-notch` - (macOS only) Start in non-native fullscreen,
+///     hiding the menu bar but padding for the notch on applicable devices.
+///     On non-macOS platforms, behaves like `true`.
+///
+/// Important: tabs DO NOT WORK with non-native fullscreen modes. Non-native
+/// fullscreen removes the titlebar and macOS native tabs require the titlebar.
+/// If you use tabs, use `true` (native) instead.
+///
+/// On macOS, `true` (native fullscreen) does not work if `window-decoration`
+/// is set to `false`, because native fullscreen on macOS requires window
+/// decorations.
+fullscreen: Fullscreen = .false,
 
 /// The title Ghostty will use for the window. This will force the title of the
 /// window to be this title at all times and Ghostty will ignore any set title
@@ -5098,6 +5115,17 @@ pub const NonNativeFullscreen = enum(c_int) {
     true,
     @"visible-menu",
     @"padded-notch",
+};
+
+/// Valid values for fullscreen config option
+/// c_int because it needs to be extern compatible
+/// If this is changed, you must also update ghostty.h
+pub const Fullscreen = enum(c_int) {
+    false,
+    true,
+    @"non-native",
+    @"non-native-visible-menu",
+    @"non-native-padded-notch",
 };
 
 pub const WindowPaddingColor = enum {
