@@ -85,7 +85,18 @@ struct SplitTreeTests {
         let view2 = MockView()
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
-        tree = try tree.removing(.leaf(view: view1))
+        tree = tree.removing(.leaf(view: view1))
         #expect(!tree.contains(view1))
+        #expect(tree.contains(view2))
+    }
+
+    /// Attempting to remove a view from a tree that doesn't contain it has no effect
+    @Test func removingNonexistentNodeLeavesTreeUnchanged() {
+        let view1 = MockView()
+        let view2 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+        let result = tree.removing(.leaf(view: view2))
+        #expect(result.contains(view1))
+        #expect(!result.isEmpty)
     }
 }
