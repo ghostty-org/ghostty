@@ -5398,20 +5398,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return false;
         },
 
-        .copy_title_to_clipboard => {
-            const title = self.rt_surface.getTitle() orelse return false;
-            if (title.len == 0) return false;
-
-            self.rt_surface.setClipboard(.standard, &.{.{
-                .mime = "text/plain",
-                .data = title,
-            }}, false) catch |err| {
-                log.err("error copying title to clipboard err={}", .{err});
-                return true;
-            };
-
-            return true;
-        },
+        .copy_title_to_clipboard => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .copy_title_to_clipboard,
+            {},
+        ),
 
         .paste_from_clipboard => return try self.startClipboardRequest(
             .standard,

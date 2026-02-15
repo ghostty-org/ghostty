@@ -674,6 +674,8 @@ pub const Application = extern struct {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
+            .copy_title_to_clipboard => return Action.copyTitleToClipboard(target),
+
             .config_change => try Action.configChange(
                 self,
                 target,
@@ -1919,6 +1921,13 @@ const Action = struct {
                 return surface.as(gtk.Widget).activateAction("win.close", null) != 0;
             },
         }
+    }
+
+    pub fn copyTitleToClipboard(target: apprt.Target) bool {
+        return switch (target) {
+            .app => false,
+            .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
+        };
     }
 
     pub fn configChange(
