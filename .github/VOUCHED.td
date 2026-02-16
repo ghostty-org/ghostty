@@ -32,6 +32,7 @@ marrocco-simone
 mitchellh
 pluiedev
 pouwerkerk
+priyans-hu
 qwerasd205
 rmunn
 tweedbeetle
