@@ -131,11 +131,14 @@ extension Ghostty.Action {
     enum PromptTitle {
         case surface
         case tab
+        case window
 
         init(_ c: ghostty_action_prompt_title_e) {
             switch c {
             case GHOSTTY_PROMPT_TITLE_TAB:
                 self = .tab
+            case GHOSTTY_PROMPT_TITLE_WINDOW:
+                self = .window
             default:
                 self = .surface
             }

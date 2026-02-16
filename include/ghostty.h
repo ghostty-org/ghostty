@@ -630,6 +630,7 @@ typedef struct {
 typedef enum {
   GHOSTTY_PROMPT_TITLE_SURFACE,
   GHOSTTY_PROMPT_TITLE_TAB,
+  GHOSTTY_PROMPT_TITLE_WINDOW,
 } ghostty_action_prompt_title_e;
 
 // apprt.action.Pwd.C

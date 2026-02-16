@@ -575,10 +575,11 @@ pub const MouseVisibility = enum(c_int) {
     hidden,
 };
 
-/// Whether to prompt for the surface title or tab title.
+/// Whether to prompt for the surface title, tab title, or window title.
 pub const PromptTitle = enum(c_int) {
     surface,
     tab,
+    window,
 };
 
 pub const MouseOverLink = struct {
