@@ -144,6 +144,26 @@ struct SplitTreeTests {
         #expect(target === view2)
     }
 
+    /// focusTarget should find itself when it's the only view
+    @Test func focusTargetShouldFindItselfWhenOnlyView() throws {
+        let view1 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        
+        let target = tree.focusTarget(for: .next, from: .leaf(view: view1))
+        #expect(target === view1)
+    }
+
+    /// focusTarget should handle the case when there's no next view by wrapping
+    @Test func focusTargetShouldHandleWrappingForNextNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+    
+        let target = tree.focusTarget(for: .next, from: .leaf(view: view2))
+        #expect(target === view1)
+    }
+
     /// focusTarget should find the previous view to focus based on the current focused node and direction
     @Test func focusTargetShouldFindPreviousFocusedNode() throws {
         let view1 = MockView()
