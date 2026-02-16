@@ -479,4 +479,39 @@ struct SplitTreeTests {
         let tree = SplitTree<MockView>(view: view1)
         #expect(tree.root?.node(view: view2) == nil)
     }
+
+    /// node resizing updates a split node's ratio
+    @Test func resizingUpdatesRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        guard case .split(let s) = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+
+        // resizing a split node updates its ratio
+        let resized = SplitTree<MockView>.Node.split(s).resizing(to: 0.7)
+        guard case .split(let resizedSplit) = resized else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(abs(resizedSplit.ratio - 0.7) < 0.001)
+    }
+
+    /// resizing on a leaf returns it unchanged
+    @Test func resizingLeavesLeafUnchanged() {
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+
+        guard let root = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+        // leaf nodes have no ratio so resizing is a no-op
+        let resized = root.resizing(to: 0.7)
+        #expect(resized == root)
+    }
 }
