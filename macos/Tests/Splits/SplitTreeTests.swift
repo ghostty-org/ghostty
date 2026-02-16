@@ -289,4 +289,18 @@ struct SplitTreeTests {
         }
         #expect(abs(s.ratio - 0.45) < 0.001)
     }
+
+    /// trees can be encoding and decoded and preserve structure
+    @Test func encodingAndDecodingPreservesTree() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let data = try JSONEncoder().encode(tree)
+        let decoded = try JSONDecoder().decode(SplitTree<MockView>.self, from: data)
+        #expect(decoded.find(id: view1.id) != nil)
+        #expect(decoded.find(id: view2.id) != nil)
+        #expect(decoded.isSplit)
+    }
 }
