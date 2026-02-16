@@ -303,4 +303,31 @@ struct SplitTreeTests {
         #expect(decoded.find(id: view2.id) != nil)
         #expect(decoded.isSplit)
     }
+
+    /// trees should conform to Collection, meaning indexed access and iterations over leaves
+    @Test func treeIteratesLeavesInOrder() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view2, direction: .right)
+
+        // validate collection properties
+        #expect(tree.startIndex == 0)
+        #expect(tree.endIndex == 3)
+        #expect(tree.index(after: 0) == 1)
+
+        // validate access
+        #expect(tree[0] === view1)
+        #expect(tree[1] === view2)
+        #expect(tree[2] === view3)
+
+        // test makeIterator
+        var ids: [UUID] = []
+        for view in tree {
+            ids.append(view.id)
+        }
+        #expect(ids == [view1.id, view2.id, view3.id])
+    }
 }
