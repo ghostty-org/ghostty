@@ -49,6 +49,9 @@ pub const Region = struct {
             var x: f64 = 0;
             var y: f64 = 0;
             native.getSurfaceTransform(&x, &y);
+            // Slightly inset the corners
+            x += 2;
+            y += 2;
             break :off .{ @intFromFloat(x), @intFromFloat(y) };
         };
 
@@ -61,7 +64,7 @@ pub const Region = struct {
         if (width <= 0 or height <= 0) return .empty;
 
         // Empirically determined.
-        const radius: Pos = if (window.clientSideDecorationEnabled()) 12 else 0;
+        const radius: Pos = if (window.clientSideDecorationEnabled()) 15 else 0;
 
         return .{
             .slices = try approxRoundedRect(
@@ -116,7 +119,7 @@ pub const Region = struct {
             const dx = @sqrt(r_f * r_f - dy * dy);
 
             // How much each row should be offset, rounded to an integer
-            const row_x: Pos = @intFromFloat(r_f - dx + 0.5);
+            const row_x: Pos = @intFromFloat(r_f - @round(dx + 0.5));
 
             // Remove the offset from both ends
             const row_w = width - 2 * row_x;
