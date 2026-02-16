@@ -1989,6 +1989,11 @@ pub const Surface = extern struct {
         return self.private().title;
     }
 
+    /// Returns the title-override property without a copy.
+    pub fn getTitleOverride(self: *Self) ?[:0]const u8 {
+        return self.private().title_override;
+    }
+
     /// Set the title for this surface, copies the value. This should always
     /// be the title as set by the terminal program, not any manually set
     /// title. For manually set titles see `setTitleOverride`.
