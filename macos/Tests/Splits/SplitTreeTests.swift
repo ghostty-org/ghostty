@@ -632,4 +632,30 @@ struct SplitTreeTests {
         #expect(topBounds == CGRect(x: 0, y: 500, width: 500, height: 500))
         #expect(bottomBounds == CGRect(x: 0, y: 0, width: 500, height: 500))
     }
+
+    /// calculateViewBounds respects custom split ratio
+    @Test func calculateViewBoundsCustomRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        guard case .split(let s) = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+
+        // resize the root node to a custom ratio
+        let resizedRoot = SplitTree<MockView>.Node.split(s).resizing(to: 0.3)
+        let container = CGRect(x: 0, y: 0, width: 1000, height: 400)
+        let result = resizedRoot.calculateViewBounds(in: container)
+        #expect(result.count == 2)
+
+        // ratio 0.3: left from 0-300px, right from 300-1000px
+        let leftBounds = result.first { $0.view === view1 }!.bounds
+        let rightBounds = result.first { $0.view === view2 }!.bounds
+        #expect(leftBounds.width == 300)   // 0.3 * 1000
+        #expect(rightBounds.width == 700)   // 0.7 * 1000
+        #expect(rightBounds.minX == 300)
+    }
 }
