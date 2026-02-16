@@ -305,6 +305,25 @@ struct SplitTreeTests {
         #expect(decoded.isSplit)
     }
 
+    /// encoding and decoding preserves zoomed path
+    @Test func encodingAndDecodingPreservesZoomedPath() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        let treeWithZoomed = SplitTree<MockView>(root: tree.root, zoomed: .leaf(view: view2))
+
+        let data = try JSONEncoder().encode(treeWithZoomed)
+        let decoded = try JSONDecoder().decode(SplitTree<MockView>.self, from: data)
+
+        #expect(decoded.zoomed != nil)
+        if case .leaf(let zoomedView) = decoded.zoomed! {
+            #expect(zoomedView.id == view2.id)
+        } else {
+            #expect(Bool(false))
+        }
+    }
+
     /// trees should conform to Collection, meaning indexed access and iterations over leaves
     @Test func treeIteratesLeavesInOrder() throws {
         let view1 = MockView()
@@ -835,5 +854,38 @@ struct SplitTreeTests {
         var cache: [SplitTree<MockView>.StructuralIdentity: String] = [:]
         cache[tree.structuralIdentity] = "two-pane"
         #expect(cache[tree.structuralIdentity] == "two-pane")
+    }
+
+    /// Node.StructuralIdentity can be used in a Set
+    @Test func nodeStructuralIdentityInSet() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        guard case .split(let s) = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+        var nodeIds: Set<SplitTree<MockView>.Node.StructuralIdentity> = []
+        nodeIds.insert(tree.root!.structuralIdentity)
+        nodeIds.insert(s.left.structuralIdentity)
+        nodeIds.insert(s.right.structuralIdentity)
+        #expect(nodeIds.count == 3)
+    }
+
+    /// Node.StructuralIdentity distinguishes different leaf nodes
+    @Test func nodeStructuralIdentityDistinguishesLeaves() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        guard case .split(let s) = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+        var nodeIds: Set<SplitTree<MockView>.Node.StructuralIdentity> = []
+        nodeIds.insert(s.left.structuralIdentity)
+        nodeIds.insert(s.right.structuralIdentity)
+        #expect(nodeIds.count == 2)
     }
 }
