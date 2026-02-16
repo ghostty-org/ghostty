@@ -290,7 +290,7 @@ struct SplitTreeTests {
         #expect(abs(s.ratio - 0.45) < 0.001)
     }
 
-    /// trees can be encoding and decoded and preserve structure
+    /// trees can be encoded and decoded and preserve structure
     @Test func encodingAndDecodingPreservesTree() throws {
         let view1 = MockView()
         let view2 = MockView()
