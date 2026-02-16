@@ -3,6 +3,8 @@ import Testing
 @testable import Ghostty
 
 struct SplitTreeTests {
+    // MARK: - Empty and Non-Empty
+
     /// An empty tree is empty.
     @Test func emptyTreeIsEmpty() {
         let tree = SplitTree<MockView>()
@@ -31,6 +33,8 @@ struct SplitTreeTests {
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
         #expect(tree.isSplit)
     }
+
+    // MARK: - Contains and Find
 
     /// A tree with a view contains that view.
     @Test func treeContainsView() {
@@ -80,6 +84,8 @@ struct SplitTreeTests {
         #expect(!tree.contains(.leaf(view: view2)))
     }
 
+    // MARK: - Removing and Replacing
+
     /// A tree with a removed view does not contain that view.
     @Test func treeDoesNotContainRemovedView() throws {
         let view1 = MockView()
@@ -125,6 +131,8 @@ struct SplitTreeTests {
         #expect(result.contains(.leaf(view: view1)))
         #expect(result.contains(.leaf(view: view2)))
     }
+
+    // MARK: - Focus Target
 
     /// focusTarget should find the next view to focus based on the current focused node and direction
     @Test func focusTargetOnEmptyTreeReturnsNil() {
@@ -187,6 +195,8 @@ struct SplitTreeTests {
         #expect(target === view1)
     }
 
+    // MARK: - Equalized
+
     /// equalize an uneven tree (3 views where one side has 2 leaves and the other has 1)
     @Test func equalizedAdjustsRatioByLeafCount() throws {
         let view1 = MockView()
@@ -210,6 +220,8 @@ struct SplitTreeTests {
             #expect(abs(s.ratio - 1.0/3.0) < 0.001)
         }
     }
+
+    // MARK: - Resizing
 
     /// resizing a view will change its ratio appropriately
     @Test func resizingAdjustsRatio() throws {
@@ -291,6 +303,8 @@ struct SplitTreeTests {
         #expect(abs(s.ratio - 0.45) < 0.001)
     }
 
+    // MARK: - Codable
+
     /// trees can be encoded and decoded and preserve structure
     @Test func encodingAndDecodingPreservesTree() throws {
         let view1 = MockView()
@@ -323,6 +337,8 @@ struct SplitTreeTests {
             Issue.record("unexpected node type")
         }
     }
+
+    // MARK: - Collection Conformance
 
     /// trees should conform to Collection, meaning indexed access and iterations over leaves
     @Test func treeIteratesLeavesInOrder() throws {
@@ -364,6 +380,8 @@ struct SplitTreeTests {
         }
         #expect(count == 0)
     }
+
+    // MARK: - Structural Identity
 
     /// structuralIdentity of a tree should be equal to its own identity
     @Test func structuralIdentityIsReflexive() throws {
@@ -415,6 +433,8 @@ struct SplitTreeTests {
         otherTree = try otherTree.inserting(view: view4, at: view3, direction: .right)
         #expect(tree.structuralIdentity != otherTree.structuralIdentity)
     }
+
+    // MARK: - View Bounds
 
     /// viewBounds returns the size of a single leaf view's bounds
     @Test func viewBoundsReturnsLeafViewSize() {
@@ -468,6 +488,8 @@ struct SplitTreeTests {
         // height is the sum of the heights of the views (200 + 400)
         #expect(bounds.height == 600)
     }
+
+    // MARK: - Node
 
     /// node finds the node in a single-leaf tree
     @Test func nodeFindsLeaf() {
@@ -534,6 +556,8 @@ struct SplitTreeTests {
         #expect(resized == root)
     }
 
+    // MARK: - Spatial
+
     /// doesBorder returns true when a node touches the left edge
     @Test func doesBorderLeftEdge() throws {
         let view1 = MockView()
@@ -585,6 +609,8 @@ struct SplitTreeTests {
         #expect(spatial.doesBorder(side: .down, from: .leaf(view: view2)))
         #expect(!spatial.doesBorder(side: .down, from: .leaf(view: view1)))
     }
+
+    // MARK: - Calculate View Bounds
 
     /// calculateViewBounds returns the leaf's bounds for a single-view tree
     @Test func calculatesViewBoundsForSingleLeaf() {
@@ -678,20 +704,6 @@ struct SplitTreeTests {
         #expect(rightBounds.minX == 300)
     }
 
-    /// slots should return nodes to the right, sorted by distance
-    @Test func slotsRightFromNode() throws {
-        let view1 = MockView()
-        let view2 = MockView()
-        var tree = SplitTree<MockView>(view: view1)
-        tree = try tree.inserting(view: view2, at: view1, direction: .right)
-
-        // use a 1000x500 container to test the spatial representation
-        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
-        let slots = spatial.slots(in: .right, from: .leaf(view: view1))
-        #expect(slots.count == 1)
-        #expect(slots[0].node == .leaf(view: view2))
-    }
-
     /// calculateViewBounds for 2x2 grid
     @Test func calculateViewBoundsGrid() throws {
         let view1 = MockView()
@@ -718,6 +730,20 @@ struct SplitTreeTests {
         #expect(b2 == CGRect(x: 500, y: 400, width: 500, height: 400)) // top-right
         #expect(b3 == CGRect(x: 0, y: 0, width: 500, height: 400))     // bottom-left
         #expect(b4 == CGRect(x: 500, y: 0, width: 500, height: 400))   // bottom-right
+    }
+
+    /// slots should return nodes to the right, sorted by distance
+    @Test func slotsRightFromNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // use a 1000x500 container to test the spatial representation
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let slots = spatial.slots(in: .right, from: .leaf(view: view1))
+        #expect(slots.count == 1)
+        #expect(slots[0].node == .leaf(view: view2))
     }
 
     /// slots should return nodes to the left, sorted by distance
