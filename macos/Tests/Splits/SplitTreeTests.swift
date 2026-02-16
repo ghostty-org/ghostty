@@ -330,4 +330,18 @@ struct SplitTreeTests {
         }
         #expect(ids == [view1.id, view2.id, view3.id])
     }
+
+    /// Iterating over an empty tree yields no elements.
+    @Test func emptyTreeCollectionProperties() {
+        let tree = SplitTree<MockView>()
+
+        #expect(tree.startIndex == 0)
+        #expect(tree.endIndex == 0)
+
+        var count = 0
+        for _ in tree {
+            count += 1
+        }
+        #expect(count == 0)
+    }
 }
