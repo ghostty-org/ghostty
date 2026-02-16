@@ -449,4 +449,34 @@ struct SplitTreeTests {
         // height is the sum of the heights of the views (200 + 400)
         #expect(bounds.height == 600)
     }
+
+    /// node finds the node in a single-leaf tree
+    @Test func nodeFindsLeaf() {
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+
+        let node = tree.root?.node(view: view1)
+        #expect(node != nil)
+        #expect(node == .leaf(view: view1))
+    }
+
+    /// node finds both leaves in a split tree
+    @Test func nodeFindsLeavesInSplitTree() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        #expect(tree.root?.node(view: view1) == .leaf(view: view1))
+        #expect(tree.root?.node(view: view2) == .leaf(view: view2))
+    }
+
+    /// node does not find the node when the view is not in the tree
+    @Test func nodeReturnsNilForMissingView() {
+        let view1 = MockView()
+        let view2 = MockView()
+
+        let tree = SplitTree<MockView>(view: view1)
+        #expect(tree.root?.node(view: view2) == nil)
+    }
 }
