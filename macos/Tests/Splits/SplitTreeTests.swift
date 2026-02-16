@@ -344,4 +344,55 @@ struct SplitTreeTests {
         }
         #expect(count == 0)
     }
+
+    /// structuralIdentity of a tree should be equal to its own identity
+    @Test func structuralIdentityIsReflexive() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        #expect(tree.structuralIdentity == tree.structuralIdentity)
+    }
+
+    /// resizing a tree should not change structuralIdentity
+    @Test func structuralIdentityComparesShapeNotRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // resized trees have the same structure
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let resized = try tree.resizing(node: .leaf(view: view1), by: 100, in: .right, with: bounds)
+        #expect(tree.structuralIdentity == resized.structuralIdentity)
+    }
+
+    /// adding views change structuralIdentity
+    @Test func structuralIdentityForDifferentStructures() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // adding a view changes its structure
+        let expanded = try tree.inserting(view: view3, at: view2, direction: .down)
+        #expect(tree.structuralIdentity != expanded.structuralIdentity)
+    }
+
+    /// different views in the same shape have different structuralIdentity
+    @Test func structuralIdentityIdentifiesDifferentOrdersShapes() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // same organization of views, but different ones are not structurally equal
+        let view3 = MockView()
+        let view4 = MockView()
+        var otherTree = SplitTree<MockView>(view: view3)
+        otherTree = try otherTree.inserting(view: view4, at: view3, direction: .right)
+        #expect(tree.structuralIdentity != otherTree.structuralIdentity)
+    }
 }
