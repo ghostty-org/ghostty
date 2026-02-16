@@ -198,7 +198,7 @@ struct SplitTreeTests {
 
         // splitting always results in 0.5 ratio, and now left has 2 leaves, right has 1 leaf
         guard case .split(let before) = tree.root else {
-         #expect(Bool(false))
+         Issue.record("unexpected node type")
          return
         }
         #expect(abs(before.ratio - 0.5) < 0.001)
@@ -225,7 +225,7 @@ struct SplitTreeTests {
 
         // new ratio: (500px + 100px) / 1000px = 0.6
         guard case .split(let s) = resized.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         #expect(abs(s.ratio - 0.6) < 0.001)
@@ -245,7 +245,7 @@ struct SplitTreeTests {
 
         // new ratio: (500px - 50px) / 1000px = 0.45
         guard case .split(let s) = resized.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         #expect(abs(s.ratio - 0.45) < 0.001)
@@ -265,7 +265,7 @@ struct SplitTreeTests {
 
         // new ratio: (500px + 200px) / 1000px = 0.7
         guard case .split(let s) = resized.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         #expect(abs(s.ratio - 0.7) < 0.001)
@@ -285,7 +285,7 @@ struct SplitTreeTests {
 
         // new ratio: (500px - 50px) / 1000px = 0.45
         guard case .split(let s) = resized.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         #expect(abs(s.ratio - 0.45) < 0.001)
@@ -320,7 +320,7 @@ struct SplitTreeTests {
         if case .leaf(let zoomedView) = decoded.zoomed! {
             #expect(zoomedView.id == view2.id)
         } else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
         }
     }
 
@@ -507,14 +507,14 @@ struct SplitTreeTests {
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
 
         guard case .split(let s) = tree.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
 
         // resizing a split node updates its ratio
         let resized = SplitTree<MockView>.Node.split(s).resizing(to: 0.7)
         guard case .split(let resizedSplit) = resized else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         #expect(abs(resizedSplit.ratio - 0.7) < 0.001)
@@ -526,7 +526,7 @@ struct SplitTreeTests {
         let tree = SplitTree<MockView>(view: view1)
 
         guard let root = tree.root else {
-            #expect(Bool(false))
+            Issue.record("expected non-empty tree")
             return
         }
         // leaf nodes have no ratio so resizing is a no-op
@@ -592,7 +592,7 @@ struct SplitTreeTests {
         let tree = SplitTree<MockView>(view: view1)
 
         guard let root = tree.root else {
-            #expect(Bool(false))
+            Issue.record("expected non-empty tree")
             return
         }
 
@@ -612,7 +612,7 @@ struct SplitTreeTests {
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
 
         guard let root = tree.root else {
-            #expect(Bool(false))
+            Issue.record("expected non-empty tree")
             return
         }
 
@@ -636,7 +636,7 @@ struct SplitTreeTests {
         tree = try tree.inserting(view: view2, at: view1, direction: .down)
 
         guard let root = tree.root else {
-            #expect(Bool(false))
+            Issue.record("expected non-empty tree")
             return
         }
 
@@ -660,7 +660,7 @@ struct SplitTreeTests {
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
 
         guard case .split(let s) = tree.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
 
@@ -703,7 +703,7 @@ struct SplitTreeTests {
         tree = try tree.inserting(view: view3, at: view1, direction: .down)
         tree = try tree.inserting(view: view4, at: view2, direction: .down)
         guard let root = tree.root else {
-            #expect(Bool(false))
+            Issue.record("expected non-empty tree")
             return
         }
         let container = CGRect(x: 0, y: 0, width: 1000, height: 800)
@@ -863,7 +863,7 @@ struct SplitTreeTests {
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
         guard case .split(let s) = tree.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         var nodeIds: Set<SplitTree<MockView>.Node.StructuralIdentity> = []
@@ -880,7 +880,7 @@ struct SplitTreeTests {
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
         guard case .split(let s) = tree.root else {
-            #expect(Bool(false))
+            Issue.record("unexpected node type")
             return
         }
         var nodeIds: Set<SplitTree<MockView>.Node.StructuralIdentity> = []
