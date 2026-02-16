@@ -26,6 +26,7 @@ elias8
 hqnna
 jake-stewart
 jcollie
+juniqlim
 mitchellh
 pluiedev
 pouwerkerk
