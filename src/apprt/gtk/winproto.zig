@@ -158,10 +158,7 @@ pub const Window = struct {
         if (!blur_config.enabled()) {
             self.blur_region.clear();
         } else {
-            var new_region: blur.Region = try .calcForWindow(
-                self.alloc,
-                self.apprt_window.as(gtk.Window),
-            );
+            var new_region: blur.Region = try .calcForWindow(self);
             errdefer new_region.deinit(self.alloc);
 
             if (!new_region.eql(self.blur_region)) {

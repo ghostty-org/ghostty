@@ -3,20 +3,23 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const gtk = @import("gtk");
+const Window = @import("../winproto.zig").Window;
 
 pub const Region = struct {
     slices: std.ArrayList(Slice),
 
     /// A rectangular slice of the blur region.
     // Marked `extern` since we want to be able to use this in X11 directly,
-    // and we use `c_long`s as, while XLib *says* they should be 32 bit integers,
-    // in actuality they are architecture-dependent. I love legacy cruft
     pub const Slice = extern struct {
-        x: c_long,
-        y: c_long,
-        width: c_long,
-        height: c_long,
+        x: Pos,
+        y: Pos,
+        width: Pos,
+        height: Pos,
     };
+
+    // X11 compatibility. Ideally this should just be an `i32` like Wayland,
+    // but XLib sucks
+    const Pos = c_long;
 
     pub const empty: Region = .{
         .slices = .empty,
@@ -30,48 +33,45 @@ pub const Region = struct {
         self.slices.deinit(alloc);
     }
 
-    // Calculate the blur regions for a window.
+    // Calculate the blur region for a window.
     //
     // Since we have rounded corners by default, we need to carve out the
     // pixels on each corner to avoid the "korners bug".
-    // (cf. https://github.com/cutefishos/fishui/blob/41d4ba194063a3c7fff4675619b57e6ac0504f06/src/platforms/linux/blurhelper/windowblur.cpp#L134)
-    pub fn calcForWindow(alloc: Allocator, window: *gtk.Window) Allocator.Error!Region {
-        const native = window.as(gtk.Native);
+    pub fn calcForWindow(window: *Window) Allocator.Error!Region {
+        const native = window.apprt_window.as(gtk.Native);
         const surface = native.getSurface() orelse return .empty;
-
-        var slices: std.ArrayList(Slice) = .empty;
-        errdefer slices.deinit(alloc);
-
-        // Calculate the primary blur region
-        // (the one that covers most of the screen).
-        // It's easier to do this inside a vector since we have to scale
-        // everything by the scale factor anyways.
 
         // NOTE(pluiedev): CSDs are a f--king mistake.
         // Please, GNOME, stop this nonsense of making a window ~30% bigger
         // internally than how they really are just for your shadows and
         // rounded corners and all that fluff. Please. I beg of you.
-        var x: f64 = 0;
-        var y: f64 = 0;
-        native.getSurfaceTransform(&x, &y);
+        const x: Pos, const y: Pos = off: {
+            var x: f64 = 0;
+            var y: f64 = 0;
+            native.getSurfaceTransform(&x, &y);
+            break :off .{ @intFromFloat(x), @intFromFloat(y) };
+        };
 
-        var width: f64 = @floatFromInt(surface.getWidth());
-        var height: f64 = @floatFromInt(surface.getHeight());
+        var width = @as(Pos, surface.getWidth());
+        var height = @as(Pos, surface.getHeight());
 
         // Trim off the offsets. Be careful not to get negative.
-        width = @max(0, width - x * 2);
-        height = @max(0, height - y * 2);
+        width -= x * 2;
+        height -= y * 2;
+        if (width <= 0 or height <= 0) return .empty;
 
-        // TODO: Add more regions to mitigate the "korners bug".
-        try slices.append(alloc, .{
-            .x = @intFromFloat(x),
-            .y = @intFromFloat(y),
-            .width = @intFromFloat(width),
-            .height = @intFromFloat(height),
-        });
+        // Empirically determined.
+        const radius: Pos = if (window.clientSideDecorationEnabled()) 12 else 0;
 
         return .{
-            .slices = slices,
+            .slices = try approxRoundedRect(
+                window.alloc,
+                x,
+                y,
+                width,
+                height,
+                radius,
+            ),
         };
     }
 
@@ -82,5 +82,62 @@ pub const Region = struct {
             if (!std.meta.eql(this, that)) return false;
         }
         return true;
+    }
+
+    /// Approximate a rounded rectangle with many smaller rectangles.
+    fn approxRoundedRect(
+        alloc: Allocator,
+        x: Pos,
+        y: Pos,
+        width: Pos,
+        height: Pos,
+        radius: Pos,
+    ) Allocator.Error!std.ArrayList(Slice) {
+        const r_f: f32 = @floatFromInt(radius);
+
+        var slices: std.ArrayList(Slice) = .empty;
+        errdefer slices.deinit(alloc);
+
+        // Add the central rectangle
+        try slices.append(alloc, .{
+            .x = x,
+            .y = y + radius,
+            .width = width,
+            .height = height - 2 * radius,
+        });
+
+        // Add the corner rows. This is honestly quite cursed.
+        var row: Pos = 0;
+        while (row < radius) : (row += 1) {
+            // y distance from this row to the center corner circle
+            const dy = @as(f32, @floatFromInt(radius - row)) - 0.5;
+
+            // x distance - as given by the definition of a circle
+            const dx = @sqrt(r_f * r_f - dy * dy);
+
+            // How much each row should be offset, rounded to an integer
+            const row_x: Pos = @intFromFloat(r_f - dx + 0.5);
+
+            // Remove the offset from both ends
+            const row_w = width - 2 * row_x;
+
+            // Top slice
+            try slices.append(alloc, .{
+                .x = x + row_x,
+                .y = y + row,
+                .width = row_w,
+                .height = 1,
+            });
+
+            // Bottom slice
+            try slices.append(alloc, .{
+                .x = x + row_x,
+                .y = y + height - 1 - row,
+                .width = row_w,
+                .height = 1,
+            });
+        }
+
+        return slices;
     }
 };
