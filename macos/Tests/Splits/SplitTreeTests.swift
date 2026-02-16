@@ -147,8 +147,8 @@ struct SplitTreeTests {
     /// focusTarget should find itself when it's the only view
     @Test func focusTargetShouldFindItselfWhenOnlyView() throws {
         let view1 = MockView()
-        var tree = SplitTree<MockView>(view: view1)
-        
+        let tree = SplitTree<MockView>(view: view1)
+
         let target = tree.focusTarget(for: .next, from: .leaf(view: view1))
         #expect(target === view1)
     }
@@ -159,7 +159,7 @@ struct SplitTreeTests {
         let view2 = MockView()
         var tree = SplitTree<MockView>(view: view1)
         tree = try tree.inserting(view: view2, at: view1, direction: .right)
-    
+
         let target = tree.focusTarget(for: .next, from: .leaf(view: view2))
         #expect(target === view1)
     }
@@ -184,5 +184,29 @@ struct SplitTreeTests {
 
         let target = tree.focusTarget(for: .spatial(.left), from: .leaf(view: view2))
         #expect(target === view1)
+    }
+
+    /// equalize an uneven tree (3 views where one side has 2 leaves and the other has 1)
+    @Test func equalizedAdjustsRatioByLeafCount() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view2, direction: .right)
+
+        // splitting always results in 0.5 ratio, and now left has 2 leaves, right has 1 leaf
+        guard case .split(let before) = tree.root else {
+         #expect(Bool(false))
+         return
+        }
+        #expect(abs(before.ratio - 0.5) < 0.001)
+
+        // after equalized(), the ratio should be 0.33 between each leaf
+        let equalized = tree.equalized()
+
+        if case .split(let s) = equalized.root {
+            #expect(abs(s.ratio - 1.0/3.0) < 0.001)
+        }
     }
 }
