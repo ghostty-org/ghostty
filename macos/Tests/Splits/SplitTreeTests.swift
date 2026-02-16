@@ -658,4 +658,75 @@ struct SplitTreeTests {
         #expect(rightBounds.width == 700)   // 0.7 * 1000
         #expect(rightBounds.minX == 300)
     }
+
+    /// slots should return nodes to the right, sorted by distance
+    @Test func slotsRightFromNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // use a 1000x500 container to test the spatial representation
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let slots = spatial.slots(in: .right, from: .leaf(view: view1))
+        #expect(slots.count == 1)
+        #expect(slots[0].node == .leaf(view: view2))
+    }
+
+    /// slots should return nodes to the left, sorted by distance
+    @Test func slotsLeftFromNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // use a 1000x500 container to test the spatial representation
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let slots = spatial.slots(in: .left, from: .leaf(view: view2))
+        #expect(slots.count == 1)
+        #expect(slots[0].node == .leaf(view: view1))
+    }
+
+    /// slots should return nodes below, sorted by distance
+    @Test func slotsDownFromNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        // use a 1000x500 container to test the spatial representation
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let slots = spatial.slots(in: .down, from: .leaf(view: view1))
+        #expect(slots.count == 1)
+        #expect(slots[0].node == .leaf(view: view2))
+    }
+
+    /// slots should return nodes above, sorted by distance
+    @Test func slotsUpFromNode() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        // use a 1000x500 container to test the spatial representation
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let slots = spatial.slots(in: .up, from: .leaf(view: view2))
+        #expect(slots.count == 1)
+        #expect(slots[0].node == .leaf(view: view1))
+    }
+
+    /// slots should return empty when there are no nodes in that direction
+    @Test func slotsReturnsEmptyWhenNoNodesInDirection() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // use a 1000x500 container to test the spatial representation
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        #expect(spatial.slots(in: .left, from: .leaf(view: view1)).isEmpty)
+        #expect(spatial.slots(in: .right, from: .leaf(view: view2)).isEmpty)
+        #expect(spatial.slots(in: .up, from: .leaf(view: view1)).isEmpty)
+        #expect(spatial.slots(in: .down, from: .leaf(view: view2)).isEmpty)
+    }
 }
