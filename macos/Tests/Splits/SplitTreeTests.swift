@@ -514,4 +514,56 @@ struct SplitTreeTests {
         let resized = root.resizing(to: 0.7)
         #expect(resized == root)
     }
+
+    /// doesBorder returns true when a node touches the left edge
+    @Test func doesBorderLeftEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // view1 touches the left edge, view2 does not
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        #expect(spatial.doesBorder(side: .left, from: .leaf(view: view1)))
+        #expect(!spatial.doesBorder(side: .left, from: .leaf(view: view2)))
+    }
+
+    /// doesBorder returns true when a node touches the right edge
+    @Test func doesBorderRightEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // view1 touches the right edge, view2 does not
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        #expect(spatial.doesBorder(side: .right, from: .leaf(view: view2)))
+        #expect(!spatial.doesBorder(side: .right, from: .leaf(view: view1)))
+    }
+
+    /// doesBorder returns true when a node touches the top edge
+    @Test func doesBorderTopEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        // view1 touches the top edge, view2 does not
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        #expect(spatial.doesBorder(side: .up, from: .leaf(view: view1)))
+        #expect(!spatial.doesBorder(side: .up, from: .leaf(view: view2)))
+    }
+
+    /// doesBorder returns true when a node touches the bottom edge
+    @Test func doesBorderBottomEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        // view1 touches the bottom edge, view2 does not
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        #expect(spatial.doesBorder(side: .down, from: .leaf(view: view2)))
+        #expect(!spatial.doesBorder(side: .down, from: .leaf(view: view1)))
+    }
 }
