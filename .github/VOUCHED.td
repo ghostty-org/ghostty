@@ -33,5 +33,6 @@ mitchellh
 pluiedev
 pouwerkerk
 qwerasd205
+rmunn
 tweedbeetle
 yamshta
