@@ -209,4 +209,84 @@ struct SplitTreeTests {
             #expect(abs(s.ratio - 1.0/3.0) < 0.001)
         }
     }
+
+    /// resizing a view will change its ratio appropriately
+    @Test func resizingAdjustsRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // initial container is 1000px wide, each view is 1/2 width, or 0.5 * 1000
+        // resize view1's split boundary 100px to the right
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let resized = try tree.resizing(node: .leaf(view: view1), by: 100, in: .right, with: bounds)
+
+        // new ratio: (500px + 100px) / 1000px = 0.6
+        guard case .split(let s) = resized.root else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(abs(s.ratio - 0.6) < 0.001)
+    }
+
+    /// resizing left views will change its ratio appropriately
+    @Test func resizingLeftAdjustsRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // initial container is 1000px wide, each view is 1/2 width, or 0.5 * 1000
+        // resize view1's split boundary 50px to the left
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let resized = try tree.resizing(node: .leaf(view: view1), by: 50, in: .left, with: bounds)
+
+        // new ratio: (500px - 50px) / 1000px = 0.45
+        guard case .split(let s) = resized.root else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(abs(s.ratio - 0.45) < 0.001)
+    }
+
+    /// resizing vertical views will change its ratio appropriately
+    @Test func resizingVerticallyAdjustsRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        // initial container is 1000px tall, each view is 1/2 width, or 0.5 * 1000
+        // resize view1's split boundary 200px downward
+        let bounds = CGRect(x: 0, y: 0, width: 500, height: 1000)
+        let resized = try tree.resizing(node: .leaf(view: view1), by: 200, in: .down, with: bounds)
+
+        // new ratio: (500px + 200px) / 1000px = 0.7
+        guard case .split(let s) = resized.root else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(abs(s.ratio - 0.7) < 0.001)
+    }
+
+    /// resizing up views will change its ratio appropriately
+    @Test func resizingUpAdjustsRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        // initial container is 1000px tall, each view is 1/2 width, or 0.5 * 1000
+        // resize view1's split boundary 100px upward
+        let bounds = CGRect(x: 0, y: 0, width: 500, height: 1000)
+        let resized = try tree.resizing(node: .leaf(view: view1), by: 50, in: .up, with: bounds)
+
+        // new ratio: (500px - 50px) / 1000px = 0.45
+        guard case .split(let s) = resized.root else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(abs(s.ratio - 0.45) < 0.001)
+    }
 }
