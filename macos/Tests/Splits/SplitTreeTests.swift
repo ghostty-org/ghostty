@@ -673,6 +673,34 @@ struct SplitTreeTests {
         #expect(slots[0].node == .leaf(view: view2))
     }
 
+    /// calculateViewBounds for 2x2 grid
+    @Test func calculateViewBoundsGrid() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        let view4 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view1, direction: .down)
+        tree = try tree.inserting(view: view4, at: view2, direction: .down)
+        guard let root = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+        let container = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let result = root.calculateViewBounds(in: container)
+        #expect(result.count == 4)
+        // Horizontal 0.5, vertical 0.5 each: view1 top-left, view2 top-right, view3 bottom-left, view4 bottom-right
+        let b1 = result.first { $0.view === view1 }!.bounds
+        let b2 = result.first { $0.view === view2 }!.bounds
+        let b3 = result.first { $0.view === view3 }!.bounds
+        let b4 = result.first { $0.view === view4 }!.bounds
+        #expect(b1 == CGRect(x: 0, y: 400, width: 500, height: 400))   // top-left
+        #expect(b2 == CGRect(x: 500, y: 400, width: 500, height: 400)) // top-right
+        #expect(b3 == CGRect(x: 0, y: 0, width: 500, height: 400))     // bottom-left
+        #expect(b4 == CGRect(x: 500, y: 0, width: 500, height: 400))   // bottom-right
+    }
+
     /// slots should return nodes to the left, sorted by distance
     @Test func slotsLeftFromNode() throws {
         let view1 = MockView()
@@ -713,6 +741,41 @@ struct SplitTreeTests {
         let slots = spatial.slots(in: .up, from: .leaf(view: view2))
         #expect(slots.count == 1)
         #expect(slots[0].node == .leaf(view: view1))
+    }
+
+    /// slots in 2x2 grid: from top-left, right and down include the expected leaf nodes
+    @Test func slotsGridFromTopLeft() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        let view4 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view1, direction: .down)
+        tree = try tree.inserting(view: view4, at: view2, direction: .down)
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 800))
+        let rightSlots = spatial.slots(in: .right, from: .leaf(view: view1))
+        let downSlots = spatial.slots(in: .down, from: .leaf(view: view1))
+        // slots() returns both split nodes and leaves; split nodes can tie on distance
+        #expect(rightSlots.contains { $0.node == .leaf(view: view2) })
+        #expect(downSlots.contains { $0.node == .leaf(view: view3) })
+    }
+
+    /// slots in 2x2 grid: from bottom-right, left and up include the expected leaf nodes
+    @Test func slotsGridFromBottomRight() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        let view4 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view1, direction: .down)
+        tree = try tree.inserting(view: view4, at: view2, direction: .down)
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 800))
+        let leftSlots = spatial.slots(in: .left, from: .leaf(view: view4))
+        let upSlots = spatial.slots(in: .up, from: .leaf(view: view4))
+        #expect(leftSlots.contains { $0.node == .leaf(view: view3) })
+        #expect(upSlots.contains { $0.node == .leaf(view: view2) })
     }
 
     /// slots should return empty when there are no nodes in that direction
