@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 @testable import Ghostty
 
@@ -394,5 +395,58 @@ struct SplitTreeTests {
         var otherTree = SplitTree<MockView>(view: view3)
         otherTree = try otherTree.inserting(view: view4, at: view3, direction: .right)
         #expect(tree.structuralIdentity != otherTree.structuralIdentity)
+    }
+
+    /// viewBounds returns the size of a single leaf view's bounds
+    @Test func viewBoundsReturnsLeafViewSize() {
+        let view1 = MockView()
+        view1.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        let tree = SplitTree<MockView>(view: view1)
+
+        let bounds = tree.viewBounds()
+        #expect(bounds.width == 500)
+        #expect(bounds.height == 300)
+    }
+
+    /// viewBounds returns .zero for an empty tree
+    @Test func viewBoundsReturnsZeroForEmptyTree() {
+        let tree = SplitTree<MockView>()
+        let bounds = tree.viewBounds()
+
+        // empty tree has no height and width
+        #expect(bounds.width == 0)
+        #expect(bounds.height == 0)
+    }
+
+    /// viewBounds for horizontal split sums width and takes max height
+    @Test func viewBoundsHorizontalSplit() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        view1.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        view2.frame = NSRect(x: 0, y: 0, width: 200, height: 500)
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let bounds = tree.viewBounds()
+        // width is sum of the widths of the views (400 + 200)
+        #expect(bounds.width == 600)
+        // height is the max of the heights of the views (max(300, 500))
+        #expect(bounds.height == 500)
+    }
+
+    /// viewBounds for vertical split takes max width and sums height
+    @Test func viewBoundsVerticalSplit() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        view1.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+        view2.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        let bounds = tree.viewBounds()
+        // width is the max of the widths of the views (max(300, 500))
+        #expect(bounds.width == 500)
+        // height is the sum of the heights of the views (200 + 400)
+        #expect(bounds.height == 600)
     }
 }
