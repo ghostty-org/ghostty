@@ -566,4 +566,70 @@ struct SplitTreeTests {
         #expect(spatial.doesBorder(side: .down, from: .leaf(view: view2)))
         #expect(!spatial.doesBorder(side: .down, from: .leaf(view: view1)))
     }
+
+    /// calculateViewBounds returns the leaf's bounds for a single-view tree
+    @Test func calculatesViewBoundsForSingleLeaf() {
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+
+        guard let root = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+
+        // container is 1000px wide, 500px tall, contains the single leaf view
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let result = root.calculateViewBounds(in: bounds)
+        #expect(result.count == 1)
+        #expect(result[0].view === view1)
+        #expect(result[0].bounds == bounds)
+    }
+
+    /// calculateViewBounds splits horizontally by ratio
+    @Test func calculatesViewBoundsHorizontalSplit() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        guard let root = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+
+        // container is 1000px wide, 500px tall, horizontal split
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let result = root.calculateViewBounds(in: bounds)
+        #expect(result.count == 2)
+
+        // ratio 0.5: left from 0-500px, right from 500-1000px
+        let leftBounds = result.first { $0.view === view1 }!.bounds
+        let rightBounds = result.first { $0.view === view2 }!.bounds
+        #expect(leftBounds == CGRect(x: 0, y: 0, width: 500, height: 500))
+        #expect(rightBounds == CGRect(x: 500, y: 0, width: 500, height: 500))
+    }
+
+    /// calculateViewBounds splits vertically by ratio
+    @Test func calculatesViewBoundsVerticalSplit() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+
+        guard let root = tree.root else {
+            #expect(Bool(false))
+            return
+        }
+
+        // container is 500px wide, 1000px tall, vertical split
+        let bounds = CGRect(x: 0, y: 0, width: 500, height: 1000)
+        let result = root.calculateViewBounds(in: bounds)
+        #expect(result.count == 2)
+
+        // ratio 0.5: bottom from 0–500px, top from 500–1000px
+        let topBounds = result.first { $0.view === view1 }!.bounds
+        let bottomBounds = result.first { $0.view === view2 }!.bounds
+        #expect(topBounds == CGRect(x: 0, y: 500, width: 500, height: 500))
+        #expect(bottomBounds == CGRect(x: 0, y: 0, width: 500, height: 500))
+    }
 }
