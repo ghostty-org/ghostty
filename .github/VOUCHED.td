@@ -28,6 +28,7 @@ hqnna
 jake-stewart
 jcollie
 juniqlim
+marrocco-simone
 mitchellh
 pluiedev
 pouwerkerk
