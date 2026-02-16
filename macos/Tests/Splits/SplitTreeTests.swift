@@ -729,4 +729,48 @@ struct SplitTreeTests {
         #expect(spatial.slots(in: .up, from: .leaf(view: view1)).isEmpty)
         #expect(spatial.slots(in: .down, from: .leaf(view: view2)).isEmpty)
     }
+
+    /// a StructuralIdentity can be used in a Set
+    @Test func structuralIdentityInSet() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // create a set of structural identities and add the tree's identity to it
+        var seen: Set<SplitTree<MockView>.StructuralIdentity> = []
+        seen.insert(tree.structuralIdentity)
+        seen.insert(tree.structuralIdentity)
+        #expect(seen.count == 1)
+    }
+
+    /// StructuralIdentity distinguishes different trees in a Set
+    @Test func structuralIdentitySetDistinguishesTrees() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        var tree1 = SplitTree<MockView>(view: view1)
+        var tree2 = SplitTree<MockView>(view: view1)
+        tree1 = try tree1.inserting(view: view2, at: view1, direction: .right)
+        tree2 = try tree2.inserting(view: view3, at: view1, direction: .right)
+
+        // create a set of structural identities and add the trees' identities to it
+        var seen: Set<SplitTree<MockView>.StructuralIdentity> = []
+        seen.insert(tree1.structuralIdentity)
+        seen.insert(tree2.structuralIdentity)
+        #expect(seen.count == 2)
+    }
+
+    /// StructuralIdentity works as Dictionary key
+    @Test func structuralIdentityAsDictionaryKey() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        // create a dictionary of structural identities and add the tree's identity to it
+        var cache: [SplitTree<MockView>.StructuralIdentity: String] = [:]
+        cache[tree.structuralIdentity] = "two-pane"
+        #expect(cache[tree.structuralIdentity] == "two-pane")
+    }
 }
