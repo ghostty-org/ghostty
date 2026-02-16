@@ -440,19 +440,19 @@ fn actionCommands(action: Action.Key) []const Command {
 
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
-            .title = "Change Terminal Title...",
+            .title = "Change Terminal Title\u{2026}",
             .description = "Prompt for a new title for the current terminal.",
         }},
 
         .prompt_tab_title => comptime &.{.{
             .action = .prompt_tab_title,
-            .title = "Change Tab Title...",
+            .title = "Change Tab Title\u{2026}",
             .description = "Prompt for a new title for the current tab.",
         }},
 
         .prompt_window_title => comptime &.{.{
             .action = .prompt_window_title,
-            .title = "Change Window Title...",
+            .title = "Change Window Title\u{2026}",
             .description = "Prompt for a new title for the current window.",
         }},
 
