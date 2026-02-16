@@ -33,6 +33,7 @@ mitchellh
 pluiedev
 pouwerkerk
 priyans-hu
+prsweet
 qwerasd205
 rmunn
 tweedbeetle
