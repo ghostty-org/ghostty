@@ -29,6 +29,7 @@ hqnna
 jake-stewart
 jcollie
 juniqlim
+mahnokropotkinvich
 marrocco-simone
 mikailmm
 mitchellh
