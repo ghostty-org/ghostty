@@ -32,6 +32,7 @@ juniqlim
 marrocco-simone
 mikailmm
 mitchellh
+peilingjiang
 peterdavehello
 pluiedev
 pouwerkerk
