@@ -26,6 +26,7 @@ elias8
 hakonhagland
 hqnna
 jake-stewart
+jcollie
 juniqlim
 marrocco-simone
 mitchellh
