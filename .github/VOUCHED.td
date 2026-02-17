@@ -30,6 +30,7 @@ jcollie
 juniqlim
 marrocco-simone
 mitchellh
+peterdavehello
 pluiedev
 pouwerkerk
 priyans-hu
