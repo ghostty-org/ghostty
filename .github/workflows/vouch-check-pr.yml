@@ -4,17 +4,19 @@ on:
 
 name: "Vouch - Check PR"
 
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   check:
     runs-on: namespace-profile-ghostty-xsm
     steps:
+      - uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        id: app-token
+        with:
+          app-id: ${{ secrets.VOUCH_APP_ID }}
+          private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
+
       - uses: mitchellh/vouch/action/check-pr@6803dde571265e13489c3f118200f60b6ab59e4d # v1.3.1
         with:
           pr-number: ${{ github.event.pull_request.number }}
           auto-close: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
