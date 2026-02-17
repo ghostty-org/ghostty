@@ -30,6 +30,7 @@ jake-stewart
 jcollie
 juniqlim
 marrocco-simone
+mikailmm
 mitchellh
 peterdavehello
 pluiedev
