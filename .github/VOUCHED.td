@@ -23,6 +23,7 @@ bkircher
 daiimus
 doprz
 elias8
+filip7
 hakonhagland
 hqnna
 jake-stewart
