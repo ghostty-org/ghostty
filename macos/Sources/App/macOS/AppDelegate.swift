@@ -65,6 +65,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuReturnToDefaultSize: NSMenuItem?
     @IBOutlet private var menuFloatOnTop: NSMenuItem?
     @IBOutlet private var menuUseAsDefault: NSMenuItem?
+    @IBOutlet private var menuSetAsDefaultTerminal: NSMenuItem?
 
     @IBOutlet private var menuIncreaseFontSize: NSMenuItem?
     @IBOutlet private var menuDecreaseFontSize: NSMenuItem?
@@ -1292,6 +1293,21 @@ extension AppDelegate {
             ud.removeObject(forKey: key)
         }
     }
+    
+    @IBAction func setAsDefaultTerminal(_ sender: NSMenuItem) {
+        do {
+            try NSWorkspace.shared.setGhosttyAsDefaultTerminal()
+            // Success - menu state will automatically update via validateMenuItem
+        } catch {
+            // Show error dialog
+            let alert = NSAlert()
+            alert.messageText = "Failed to Set Default Terminal"
+            alert.informativeText = "Ghostty could not be set as the default terminal application.\n\nError: \(error.localizedDescription)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
 }
 
 // MARK: NSMenuItemValidation
@@ -1299,6 +1315,12 @@ extension AppDelegate {
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(setAsDefaultTerminal(_:)):
+            // Check if Ghostty is already the default terminal
+            let isDefault = NSWorkspace.shared.isGhosttyDefaultTerminal
+            // Disable menu item if already default (option A)
+            return !isDefault
+            
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
             // Float on top items only active if the key window is a primary

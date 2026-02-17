@@ -60,6 +60,7 @@
                 <outlet property="menuSelectSplitRight" destination="upj-mc-L7X" id="nLY-o1-lky"/>
                 <outlet property="menuSelectionForSearch" destination="TDN-42-Bu7" id="M04-1K-vze"/>
                 <outlet property="menuServices" destination="aQe-vS-j8Q" id="uWQ-Wo-T1L"/>
+                <outlet property="menuSetAsDefaultTerminal" destination="ZXY-ST-DTA" id="IJK-LM-NOP"/>
                 <outlet property="menuSplitDown" destination="UDZ-4y-6xL" id="ptr-mj-Azh"/>
                 <outlet property="menuSplitLeft" destination="Ppv-GP-lQU" id="Xd5-Cd-Jut"/>
                 <outlet property="menuSplitRight" destination="VUR-Ld-nLx" id="RxO-Zw-ovb"/>
@@ -107,6 +108,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="toggleSecureInput:" target="bbz-4X-AYv" id="vWx-z8-5Sy"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Set Ghostty as Default Terminal App" id="ZXY-ST-DTA">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="setAsDefaultTerminal:" target="bbz-4X-AYv" id="ABC-DE-FGH"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4je-JR-u6R"/>
