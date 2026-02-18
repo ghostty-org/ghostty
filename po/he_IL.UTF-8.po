@@ -247,8 +247,8 @@ msgid "Quit"
 msgstr "יציאה"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
-msgid "Execute a command"
-msgstr "הרץ/י פקודה"
+msgid "Execute a command…"
+msgstr "הרץ/י פקודה…"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
