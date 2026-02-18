@@ -78,7 +78,7 @@ msgstr "Игнорировать"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
 #: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
-msgstr "Обновить конфигурацию"
+msgstr "Перезагрузить конфигурацию"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
@@ -106,7 +106,7 @@ msgstr "Следующий результат"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr "Ой."
+msgstr "Ой!"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
@@ -214,7 +214,7 @@ msgstr "Открыть конфигурационный файл"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
-msgstr "Оставьте пустым, чтобы восстановить исходный заголовок."
+msgstr "Оставьте поле пустым, чтобы вернуть название по умолчанию."
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
