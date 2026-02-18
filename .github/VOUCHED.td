@@ -39,6 +39,7 @@ marrocco-simone
 mikailmm
 mitchellh
 pan93412
+pangoraw
 peilingjiang
 peterdavehello
 pluiedev
