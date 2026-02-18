@@ -2,6 +2,7 @@ const Self = @This();
 
 const std = @import("std");
 const apprt = @import("../../apprt.zig");
+const configpkg = @import("../../config.zig");
 const CoreSurface = @import("../../Surface.zig");
 const ApprtApp = @import("App.zig");
 const Application = @import("class/application.zig").Application;
@@ -100,4 +101,8 @@ pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
 /// Redraw the inspector for our surface.
 pub fn redrawInspector(self: *Self) void {
     self.surface.redrawInspector();
+}
+
+pub fn getConfigOverrides(self: *Self) ?*const configpkg.ConfigOverrides {
+    return self.gobj().getConfigOverrides();
 }

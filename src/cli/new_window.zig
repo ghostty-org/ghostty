@@ -5,6 +5,8 @@ const Action = @import("../cli.zig").ghostty.Action;
 const apprt = @import("../apprt.zig");
 const args = @import("args.zig");
 const diagnostics = @import("diagnostics.zig");
+const lib = @import("../lib/main.zig");
+const homedir = @import("../os/homedir.zig");
 
 pub const Options = struct {
     /// This is set by the CLI parser for deinit.
@@ -13,33 +15,64 @@ pub const Options = struct {
     /// If set, open up a new window in a custom instance of Ghostty.
     class: ?[:0]const u8 = null,
 
-    /// If `-e` is found in the arguments, this will contain all of the
-    /// arguments to pass to Ghostty as the command.
+    /// All of the arguments after `+new-window`. They will be sent to Ghosttty
+    /// for processing.
     _arguments: ?[][:0]const u8 = null,
 
     /// Enable arg parsing diagnostics so that we don't get an error if
     /// there is a "normal" config setting on the cli.
     _diagnostics: diagnostics.DiagnosticList = .{},
 
-    /// Manual parse hook, used to deal with `-e`
-    pub fn parseManuallyHook(self: *Options, alloc: Allocator, arg: []const u8, iter: anytype) Allocator.Error!bool {
-        // If it's not `-e` continue with the standard argument parsning.
-        if (!std.mem.eql(u8, arg, "-e")) return true;
-
+    /// Manual parse hook, collect all of the arguments after `+new-window`.
+    pub fn parseManuallyHook(self: *Options, alloc: Allocator, arg: []const u8, iter: anytype) (error{InvalidValue} || homedir.ExpandError || std.fs.Dir.RealPathAllocError || Allocator.Error)!bool {
         var arguments: std.ArrayList([:0]const u8) = .empty;
         errdefer {
             for (arguments.items) |argument| alloc.free(argument);
             arguments.deinit(alloc);
         }
 
-        // Otherwise gather up the rest of the arguments to use as the command.
+        var e_seen: bool = std.mem.eql(u8, arg, "-e");
+        // Include the argument that triggered the manual parse hook.
+        if (try self.checkArg(alloc, arg)) |a| try arguments.append(alloc, a);
+
+        // Gather up the rest of the arguments to use as the command.
         while (iter.next()) |param| {
-            try arguments.append(alloc, try alloc.dupeZ(u8, param));
+            if (e_seen) {
+                try arguments.append(alloc, try alloc.dupeZ(u8, param));
+                continue;
+            }
+            if (std.mem.eql(u8, param, "-e")) {
+                e_seen = true;
+                try arguments.append(alloc, try alloc.dupeZ(u8, param));
+                continue;
+            }
+            if (try self.checkArg(alloc, param)) |a| try arguments.append(alloc, a);
         }
 
         self._arguments = try arguments.toOwnedSlice(alloc);
 
         return false;
+    }
+
+    fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) (error{InvalidValue} || homedir.ExpandError || std.fs.Dir.RealPathAllocError || Allocator.Error)!?[:0]const u8 {
+        if (lib.cutPrefix(u8, arg, "--class=")) |rest| {
+            self.class = try alloc.dupeZ(u8, std.mem.trim(u8, rest, &std.ascii.whitespace));
+            return null;
+        }
+
+        if (lib.cutPrefix(u8, arg, "--working-directory=")) |rest| {
+            const stripped = std.mem.trim(u8, rest, &std.ascii.whitespace);
+            if (std.mem.eql(u8, stripped, "home")) return error.InvalidValue;
+            if (std.mem.eql(u8, stripped, "inherit")) return error.InvalidValue;
+            const cwd: std.fs.Dir = std.fs.cwd();
+            var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const expanded = try homedir.expandHome(stripped, &expandhome_buf);
+            var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const realpath = try cwd.realpath(expanded, &realpath_buf);
+            return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
+        }
+
+        return try alloc.dupeZ(u8, arg);
     }
 
     pub fn deinit(self: *Options) void {
@@ -63,11 +96,21 @@ pub const Options = struct {
 /// and contact a running Ghostty instance that was configured with the same
 /// `class` as was given on the command line.
 ///
-/// If the `-e` flag is included on the command line, any arguments that follow
-/// will be sent to the running Ghostty instance and used as the command to run
-/// in the new window rather than the default. If `-e` is not specified, Ghostty
-/// will use the default command (either specified with `command` in your config
-/// or your default shell as configured on your system).
+/// All of the arguments after the `+new-window` argument (except for the
+/// `--class` flag) will be sent to the remote Ghostty instance and will be
+/// parsed as command line flags. These flags will override certain settings
+/// when creating the first surface in the new window. Currently, only
+/// `--working-directory` and `--command` are supported. `-e` will also work
+/// as an alias for `--command`, except that if `-e` is found on the command
+/// line all following arguments will become part of the command and no more
+/// arguments will be parsed for configuration settings.
+///
+/// If `--working-directory` is found on the command line and is a relative
+/// path (i.e. doesn't start with `/`) it will be resolved to an absolute path
+/// relative to the current working directory that the `ghostty +new-window`
+/// command is run from. The special values `home` and `inherit` that are
+/// available as "normal" CLI flags or configuration entries do not work when
+/// used from the `+new-window` CLI action.
 ///
 /// GTK uses an application ID to identify instances of applications. If Ghostty
 /// is compiled with release optimizations, the default application ID will be

@@ -10,6 +10,7 @@ const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
 const build_config = @import("../../../build_config.zig");
+const configpkg = @import("../../../config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
@@ -25,6 +26,7 @@ const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
+const ConfigOverrides = @import("config_overrides.zig").ConfigOverrides;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
@@ -85,6 +87,18 @@ pub const Surface = extern struct {
                 ?*Config,
                 .{
                     .accessor = C.privateObjFieldAccessor("config"),
+                },
+            );
+        };
+
+        pub const @"config-overrides" = struct {
+            pub const name = "config-overrides";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ConfigOverrides,
+                .{
+                    .accessor = C.privateObjFieldAccessor("config_overrides"),
                 },
             );
         };
@@ -551,6 +565,9 @@ pub const Surface = extern struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
+        /// Any configuration overrides that might apply to this surface.
+        config_overrides: ?*ConfigOverrides = null,
+
         /// The default size for a window that embeds this surface.
         default_size: ?*Size = null,
 
@@ -703,8 +720,10 @@ pub const Surface = extern struct {
         pub var offset: c_int = 0;
     };
 
-    pub fn new() *Self {
-        return gobject.ext.newInstance(Self, .{});
+    pub fn new(config_overrides: ?*ConfigOverrides) *Self {
+        return gobject.ext.newInstance(Self, .{
+            .@"config-overrides" = config_overrides,
+        });
     }
 
     pub fn core(self: *Self) ?*CoreSurface {
@@ -1794,6 +1813,11 @@ pub const Surface = extern struct {
             priv.config = null;
         }
 
+        if (priv.config_overrides) |v| {
+            v.unref();
+            priv.config_overrides = null;
+        }
+
         if (priv.vadj_signal_group) |group| {
             group.setTarget(null);
             group.as(gobject.Object).unref();
@@ -2121,6 +2145,12 @@ pub const Surface = extern struct {
 
     pub fn setSearchSelected(self: *Self, selected: ?usize) void {
         self.private().search_overlay.setSearchSelected(selected);
+    }
+
+    pub fn getConfigOverrides(self: *Self) ?*const configpkg.ConfigOverrides {
+        const priv: *Private = self.private();
+        const config_overrides = priv.config_overrides orelse return null;
+        return config_overrides.get();
     }
 
     fn propConfig(
@@ -3512,6 +3542,7 @@ pub const Surface = extern struct {
             gobject.ext.registerProperties(class, &.{
                 properties.@"bell-ringing".impl,
                 properties.config.impl,
+                properties.@"config-overrides".impl,
                 properties.@"child-exited".impl,
                 properties.@"default-size".impl,
                 properties.@"error".impl,

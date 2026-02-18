@@ -21,6 +21,7 @@ const gresource = @import("../build/gresource.zig");
 const winprotopkg = @import("../winproto.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
+const ConfigOverrides = @import("config_overrides.zig").ConfigOverrides;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const SplitTree = @import("split_tree.zig").SplitTree;
@@ -367,21 +368,20 @@ pub const Window = extern struct {
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_, .tab);
+        _ = self.newTabPage(parent_, .tab, null);
     }
 
-    pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_, .window);
+    pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface, config_overrides: ?*ConfigOverrides) void {
+        _ = self.newTabPage(parent_, .window, config_overrides);
     }
 
-    fn newTabPage(self: *Self, parent_: ?*CoreSurface, context: apprt.surface.NewSurfaceContext) *adw.TabPage {
-        const priv = self.private();
+    fn newTabPage(self: *Self, parent_: ?*CoreSurface, context: apprt.surface.NewSurfaceContext, config_overrides: ?*ConfigOverrides) *adw.TabPage {
+        const priv: *Private = self.private();
         const tab_view = priv.tab_view;
 
         // Create our new tab object
-        const tab = gobject.ext.newInstance(Tab, .{
-            .config = priv.config,
-        });
+        const tab = Tab.new(priv.config, config_overrides);
+
         if (parent_) |p| {
             tab.setParentWithContext(p, context);
         }
@@ -1248,7 +1248,7 @@ pub const Window = extern struct {
         _: *adw.TabOverview,
         self: *Self,
     ) callconv(.c) *adw.TabPage {
-        return self.newTabPage(if (self.getActiveSurface()) |v| v.core() else null, .tab);
+        return self.newTabPage(if (self.getActiveSurface()) |v| v.core() else null, .tab, null);
     }
 
     fn tabOverviewOpen(

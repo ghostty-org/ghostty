@@ -11,6 +11,7 @@ const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
+const ConfigOverrides = @import("config_overrides.zig").ConfigOverrides;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
@@ -186,22 +187,24 @@ pub const Tab = extern struct {
         }
     }
 
-    fn init(self: *Self, _: *Class) callconv(.c) void {
-        gtk.Widget.initTemplate(self.as(gtk.Widget));
+    pub fn new(config: ?*Config, config_overrides: ?*ConfigOverrides) *Self {
+        const tab = gobject.ext.newInstance(Tab, .{});
 
-        // Init our actions
-        self.initActionMap();
+        const priv: *Private = tab.private();
+
+        if (config) |c| priv.config = c.ref();
 
         // If our configuration is null then we get the configuration
         // from the application.
-        const priv = self.private();
         if (priv.config == null) {
             const app = Application.default();
             priv.config = app.getConfig();
         }
 
+        tab.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
+
         // Create our initial surface in the split tree.
-        priv.split_tree.newSplit(.right, null) catch |err| switch (err) {
+        priv.split_tree.newSplit(.right, null, config_overrides) catch |err| switch (err) {
             error.OutOfMemory => {
                 // TODO: We should make our "no surfaces" state more aesthetically
                 // pleasing and show something like an "Oops, something went wrong"
@@ -209,6 +212,15 @@ pub const Tab = extern struct {
                 @panic("oom");
             },
         };
+
+        return tab;
+    }
+
+    fn init(self: *Self, _: *Class) callconv(.c) void {
+        gtk.Widget.initTemplate(self.as(gtk.Widget));
+
+        // Init our actions
+        self.initActionMap();
     }
 
     fn initActionMap(self: *Self) void {

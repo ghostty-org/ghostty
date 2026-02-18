@@ -32,6 +32,7 @@ const ApprtApp = @import("../App.zig");
 const Common = @import("../class.zig").Common;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Config = @import("config.zig").Config;
+const ConfigOverrides = @import("config_overrides.zig").ConfigOverrides;
 const Surface = @import("surface.zig").Surface;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Window = @import("window.zig").Window;
@@ -709,6 +710,7 @@ pub const Application = extern struct {
                     .app => null,
                     .surface => |v| v,
                 },
+                null,
             ),
 
             .open_config => return Action.openConfig(self),
@@ -1669,17 +1671,29 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         log.debug("received new window action", .{});
 
-        parameter: {
+        const config_overrides: ?*ConfigOverrides = config_overrides: {
             // were we given a parameter?
-            const parameter = parameter_ orelse break :parameter;
+            const parameter = parameter_ orelse break :config_overrides null;
+
+            const alloc = Application.default().allocator();
+            const config_overrides = ConfigOverrides.new(alloc) catch |err| {
+                log.warn("unable to create new config overrides: {t}", .{err});
+                break :config_overrides null;
+            };
+            errdefer config_overrides.unref();
+
+            const co = config_overrides.get();
 
             const as_variant_type = glib.VariantType.new("as");
             defer as_variant_type.free();
 
             // ensure that the supplied parameter is an array of strings
             if (glib.Variant.isOfType(parameter, as_variant_type) == 0) {
-                log.warn("parameter is of type {s}", .{parameter.getTypeString()});
-                break :parameter;
+                log.warn("parameter is of type '{s}', not '{s}'", .{
+                    parameter.getTypeString(),
+                    as_variant_type.peekString()[0..as_variant_type.getStringLength()],
+                });
+                break :config_overrides null;
             }
 
             const s_variant_type = glib.VariantType.new("s");
@@ -1688,7 +1702,16 @@ pub const Application = extern struct {
             var it: glib.VariantIter = undefined;
             _ = it.init(parameter);
 
-            while (it.nextValue()) |value| {
+            var args: std.ArrayList([:0]const u8) = .empty;
+            defer {
+                for (args.items) |arg| alloc.free(arg);
+                args.deinit(alloc);
+            }
+
+            var e_seen: bool = false;
+            var i: usize = 0;
+
+            while (it.nextValue()) |value| : (i += 1) {
                 defer value.unref();
 
                 // just to be sure
@@ -1698,13 +1721,45 @@ pub const Application = extern struct {
                 const buf = value.getString(&len);
                 const str = buf[0..len];
 
-                log.debug("new-window command argument: {s}", .{str});
-            }
-        }
+                if (e_seen) {
+                    const cpy = alloc.dupeZ(u8, str) catch |err| {
+                        log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
+                        break :config_overrides null;
+                    };
+                    errdefer alloc.free(cpy);
+                    args.append(alloc, cpy) catch |err| {
+                        log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
+                        break :config_overrides null;
+                    };
+                    continue;
+                }
 
-        _ = self.core().mailbox.push(.{
-            .new_window = .{},
-        }, .{ .forever = {} });
+                if (std.mem.eql(u8, str, "-e")) {
+                    e_seen = true;
+                    continue;
+                }
+
+                co.parseCLI(str) catch |err| {
+                    log.warn("unable to parse argument {d} {s}: {t}", .{ i, str, err });
+                    continue;
+                };
+
+                log.debug("new-window argument: {d} {s}", .{ i, str });
+            }
+
+            if (args.items.len > 0) {
+                co.set(.command, .{ .direct = args.items }) catch |err| {
+                    log.warn("unable to set command on config overrides: {t}", .{err});
+                    break :config_overrides null;
+                };
+            }
+
+            break :config_overrides config_overrides;
+        };
+
+        defer if (config_overrides) |v| v.unref();
+
+        Action.newWindow(self, null, config_overrides) catch {};
     }
 
     pub fn actionOpenConfig(
@@ -2151,6 +2206,7 @@ const Action = struct {
     pub fn newWindow(
         self: *Application,
         parent: ?*CoreSurface,
+        config_overrides: ?*ConfigOverrides,
     ) !void {
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
@@ -2160,13 +2216,14 @@ const Action = struct {
         self.private().requested_window = true;
 
         const win = Window.new(self);
-        initAndShowWindow(self, win, parent);
+        initAndShowWindow(self, win, parent, config_overrides);
     }
 
     fn initAndShowWindow(
         self: *Application,
         win: *Window,
         parent: ?*CoreSurface,
+        config_overrides: ?*ConfigOverrides,
     ) void {
         // Setup a binding so that whenever our config changes so does the
         // window. There's never a time when the window config should be out
@@ -2180,7 +2237,7 @@ const Action = struct {
         );
 
         // Create a new tab with window context (first tab in new window)
-        win.newTabForWindow(parent);
+        win.newTabForWindow(parent, config_overrides);
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2494,7 +2551,7 @@ const Action = struct {
             .@"quick-terminal" = true,
         });
         assert(win.isQuickTerminal());
-        initAndShowWindow(self, win, null);
+        initAndShowWindow(self, win, null, null);
         return true;
     }
 
