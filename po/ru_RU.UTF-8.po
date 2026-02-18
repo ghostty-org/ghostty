@@ -277,7 +277,7 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Этот текст может быть опасен: его вставка в терминал приведёт к запуску "
+"Этот текст может быть опасен: его вставка в терминал приведёт к выполнению "
 "команд."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
