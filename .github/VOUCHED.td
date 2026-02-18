@@ -20,6 +20,7 @@
 # "!denounce" or "!denounce [username]" on a discussion.
 bennettp123
 bernsno
+bitigchi
 bkircher
 daiimus
 doprz
