@@ -403,3 +403,60 @@ We welcome the contribution of new VM definitions, as long as they meet the foll
 2. VMs should not expose any services to the network, or run any remote access
    software like SSH daemons, VNC or RDP.
 3. VMs should auto-login using the "ghostty" user.
+
+## Nix VM Integration Tests
+
+Several Nix VM tests are provided by the project for testing Ghostty in a "live"
+environment rather than just unit tests.
+
+Running these requires a working Nix installation, either Nix on your
+favorite Linux distribution, NixOS, or macOS with nix-darwin installed. Further
+requirements for macOS are detailed below.
+
+### Linux
+
+1. Check out the Ghostty source and change to the directory.
+2. Run `nix run .#checks.<system>.<test-name>.driver`. `<system>` should be
+   `x86_64-linux` or `aarch64-linux` (even on macOS, this launches a Linux
+   VM, not a macOS one). `<test-name>` should be one of the tests defined in
+   `nix/tests.nix`. The test will build and then launch. Depending on the speed
+   of your system, this can take a while. Eventually though the test should
+   complete. Hopefully successfully, but if not error messages should be printed
+   out that can be used to diagnose the issue.
+3. To run _all_ of the tests, run `nix flake check`.
+
+### macOS
+
+1. To run the VMs on macOS you will need to enable the Linux builder in your `nix-darwin`
+   config. This _should_ be as simple as adding `nix.linux-builder.enable=true` to your
+   configuration and then rebuilding. See [this](https://nixcademy.com/posts/macos-linux-builder/)
+   blog post for more information about the Linux builder and how to tune the performance.
+2. Once the Linux builder has been enabled, you should be able to follow the Linux instructions
+   above to launch a test.
+
+### Interactively Running Test VMs
+
+To run a test interactively, run `nix run
+.#check.<system>.<test-name>.driverInteractive`. This will load a Python console
+that can be used to manage the test VMs. In this console run `start_all()` to
+start the VM(s). The VMs should boot up and a window should appear showing the
+VM's console.
+
+For more information about the Nix test console, see [the NixOS manual](https://nixos.org/manual/nixos/stable/index.html#sec-call-nixos-test-outside-nixos)
+
+### SSH Access to Test VMs
+
+Some test VMs are configured to allow outside SSH access for debugging. To
+access the VM, use a command like the following:
+
+```
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 root@192.168.122.1
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 ghostty@192.168.122.1
+```
+
+The SSH options are important because the SSH host keys will be regenerated
+every time the test is started. Without them, your personal SSH known hosts file
+will become difficult to manage. The port that is needed to access the VM may
+change depending on the test.
+
+None of the users in the VM have passwords so do not expose these VMs to the Internet.

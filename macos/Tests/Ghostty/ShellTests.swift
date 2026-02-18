@@ -1,7 +1,7 @@
 import Testing
 @testable import Ghostty
 
-struct StringExtensionTests {
+struct ShellTests {
     @Test(arguments: [
         ("", "''"),
         ("filename", "filename"),
@@ -13,7 +13,7 @@ struct StringExtensionTests {
         ("it's", "'it'\"'\"'s'"),
         ("file$'name'", "'file$'\"'\"'name'\"'\"''"),
     ])
-    func shellQuoted(input: String, expected: String) {
-        #expect(input.shellQuoted() == expected)
+    func quote(input: String, expected: String) {
+        #expect(Ghostty.Shell.quote(input) == expected)
     }
 }

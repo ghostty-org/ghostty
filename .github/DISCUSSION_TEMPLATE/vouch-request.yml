@@ -1,0 +1,42 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > This form is for **first-time contributors** who need to be vouched before submitting pull requests. Please read the [Contributing Guide](https://github.com/ghostty-org/ghostty/blob/main/CONTRIBUTING.md) and [AI Usage Policy](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md) before submitting.
+        >
+        > Keep your request **concise** and write it **in your own voice** — do not have an AI write this for you. A maintainer will comment `!vouch` if your request is approved, after which you can submit PRs.
+  - type: textarea
+    attributes:
+      label: What do you want to change?
+      description: |
+        Describe the change you'd like to make to Ghostty. If there is an existing issue or discussion, link to it.
+      placeholder: |
+        I'd like to fix the rendering issue described in #1234 where...
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Why do you want to make this change?
+      description: |
+        Explain your motivation. Why is this change important or useful?
+      placeholder: |
+        This bug affects users who...
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: "I acknowledge that:"
+      options:
+        - label: >-
+            I have read the [Contributing Guide](https://github.com/ghostty-org/ghostty/blob/main/CONTRIBUTING.md)
+            and understand the contribution process.
+          required: true
+        - label: >-
+            I have read and agree to follow the
+            [AI Usage Policy](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md).
+          required: true
+        - label: >-
+            I wrote this vouch request myself, in my
+            own voice, without AI generating it.
+          required: true

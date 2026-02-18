@@ -6,17 +6,10 @@ The Ghostty project has strict rules for AI usage:
   the tool you used (e.g. Claude Code, Cursor, Amp) along with
   the extent that the work was AI-assisted.
 
-- **Pull requests created in any way by AI can only be for accepted issues.**
-  Drive-by pull requests that do not reference an accepted issue will be
-  closed. If AI isn't disclosed but a maintainer suspects its use, the
-  PR will be closed. If you want to share code for a non-accepted issue,
-  open a discussion or attach it to an existing discussion.
-
-- **Pull requests created by AI must have been fully verified with
-  human use.** AI must not create hypothetically correct code that
-  hasn't been tested. Importantly, you must not allow AI to write
-  code for platforms or environments you don't have access to manually
-  test on.
+- **The human-in-the-loop must fully understand all code.** If you
+  can't explain what your changes do and how they interact with the
+  greater system without the aid of AI tools, do not contribute
+  to this project.
 
 - **Issues and discussions can use AI assistance but must have a full
   human-in-the-loop.** This means that any content generated with AI
@@ -29,8 +22,11 @@ The Ghostty project has strict rules for AI usage:
   Text and code are the only acceptable AI-generated content, per the
   other rules in this policy.
 
-- **Bad AI drivers will be banned and ridiculed in public.** You've
-  been warned. We love to help junior developers learn and grow, but
+- **Bad AI drivers will be denounced** People who produce bad contributions
+  that are clearly AI (slop) will be added to our public denouncement list.
+  This list will block all future contributions. Additionally, the list
+  is public and may be used by other projects to be aware of bad actors.
+  We love to help junior developers learn and grow, but
   if you're interested in that then don't use AI, and we'll help you.
   I'm sorry that bad AI drivers have ruined this for you.
 

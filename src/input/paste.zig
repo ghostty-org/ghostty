@@ -39,9 +39,56 @@ pub fn encode(
     []const u8 => Error![3][]const u8,
     else => unreachable,
 } {
+    // These are the set of byte values that are always replaced by
+    // a space (per xterm's behavior) for any text insertion method e.g.
+    // a paste, drag and drop, etc. These are copied directly from xterm's
+    // source.
+    const strip: []const u8 = &.{
+        0x00, // NUL
+        0x08, // BS
+        0x05, // ENQ
+        0x04, // EOT
+        0x1B, // ESC
+        0x7F, // DEL
+
+        // These can be overridden by the running terminal program
+        // via tcsetattr, so they aren't totally safe to hardcode like
+        // this. In practice, I haven't seen modern programs change these
+        // and its a much bigger architectural change to pass these through
+        // so for now they're hardcoded.
+        0x03, // VINTR (Ctrl+C)
+        0x1C, // VQUIT (Ctrl+\)
+        0x15, // VKILL (Ctrl+U)
+        0x1A, // VSUSP (Ctrl+Z)
+        0x11, // VSTART (Ctrl+Q)
+        0x13, // VSTOP (Ctrl+S)
+        0x17, // VWERASE (Ctrl+W)
+        0x16, // VLNEXT (Ctrl+V)
+        0x12, // VREPRINT (Ctrl+R)
+        0x0F, // VDISCARD (Ctrl+O)
+    };
+
     const mutable = @TypeOf(data) == []u8;
 
     var result: [3][]const u8 = .{ "", data, "" };
+
+    // If we have any of the strip values, then we need to replace them
+    // with spaces. This is what xterm does and it does it regardless
+    // of bracketed paste mode. This is a security measure to prevent pastes
+    // from containing bytes that could be used to inject commands.
+    if (std.mem.indexOfAny(u8, data, strip) != null) {
+        if (comptime !mutable) return Error.MutableRequired;
+        var offset: usize = 0;
+        while (std.mem.indexOfAny(
+            u8,
+            data[offset..],
+            strip,
+        )) |idx| {
+            offset += idx;
+            data[offset] = ' ';
+            offset += 1;
+        }
+    }
 
     // Bracketed paste mode (mode 2004) wraps pasted data in
     // fenceposts so that the terminal can ignore things like newlines.
@@ -142,4 +189,40 @@ test "encode unbracketed windows-stye newline" {
     try testing.expectEqualStrings("", result[0]);
     try testing.expectEqualStrings("hello\r\rworld", result[1]);
     try testing.expectEqualStrings("", result[2]);
+}
+
+test "encode strip unsafe bytes const" {
+    const testing = std.testing;
+    try testing.expectError(Error.MutableRequired, encode(
+        @as([]const u8, "hello\x00world"),
+        .{ .bracketed = true },
+    ));
+}
+
+test "encode strip unsafe bytes mutable bracketed" {
+    const testing = std.testing;
+    const data: []u8 = try testing.allocator.dupe(u8, "hel\x1blo\x00world");
+    defer testing.allocator.free(data);
+    const result = encode(data, .{ .bracketed = true });
+    try testing.expectEqualStrings("\x1b[200~", result[0]);
+    try testing.expectEqualStrings("hel lo world", result[1]);
+    try testing.expectEqualStrings("\x1b[201~", result[2]);
+}
+
+test "encode strip unsafe bytes mutable unbracketed" {
+    const testing = std.testing;
+    const data: []u8 = try testing.allocator.dupe(u8, "hel\x03lo");
+    defer testing.allocator.free(data);
+    const result = encode(data, .{ .bracketed = false });
+    try testing.expectEqualStrings("", result[0]);
+    try testing.expectEqualStrings("hel lo", result[1]);
+    try testing.expectEqualStrings("", result[2]);
+}
+
+test "encode strip multiple unsafe bytes" {
+    const testing = std.testing;
+    const data: []u8 = try testing.allocator.dupe(u8, "\x00\x08\x7f");
+    defer testing.allocator.free(data);
+    const result = encode(data, .{ .bracketed = true });
+    try testing.expectEqualStrings("   ", result[1]);
 }

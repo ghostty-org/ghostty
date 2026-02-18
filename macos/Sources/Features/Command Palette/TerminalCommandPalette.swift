@@ -123,9 +123,11 @@ struct TerminalCommandPaletteView: View {
         return appDelegate.ghostty.config.commandPaletteEntries
             .filter(\.isSupported)
             .map { c in
-                CommandOption(
+                let symbols = appDelegate.ghostty.config.keyboardShortcut(for: c.action)?.keyList
+                return CommandOption(
                     title: c.title,
-                    description: c.description
+                    description: c.description,
+                    symbols: symbols
                 ) {
                     onAction(c.action)
                 }

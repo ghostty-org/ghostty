@@ -30,7 +30,7 @@ const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
-const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
@@ -550,10 +550,6 @@ pub const Surface = extern struct {
     const Private = struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
-
-        /// The cgroup created for this surface. This will be created
-        /// if `Application.transient_cgroup_base` is set.
-        cgroup_path: ?[]const u8 = null,
 
         /// The default size for a window that embeds this surface.
         default_size: ?*Size = null,
@@ -1404,12 +1400,7 @@ pub const Surface = extern struct {
     /// Prompt for a manual title change for the surface.
     pub fn promptTitle(self: *Self) void {
         const priv = self.private();
-        const dialog = gobject.ext.newInstance(
-            TitleDialog,
-            .{
-                .@"initial-value" = priv.title_override orelse priv.title,
-            },
-        );
+        const dialog = TitleDialog.new(.surface, priv.title_override orelse priv.title);
         _ = TitleDialog.signals.set.connect(
             dialog,
             *Self,
@@ -1436,63 +1427,6 @@ pub const Surface = extern struct {
             .x = x * scale_factor,
             .y = y * scale_factor,
         };
-    }
-
-    /// Initialize the cgroup for this surface if it hasn't been
-    /// already. While this is `init`-prefixed, we prefer to call this
-    /// in the realize function because we don't need to create a cgroup
-    /// if we don't init a surface.
-    fn initCgroup(self: *Self) void {
-        const priv = self.private();
-
-        // If we already have a cgroup path then we don't do it again.
-        if (priv.cgroup_path != null) return;
-
-        const app = Application.default();
-        const alloc = app.allocator();
-        const base = app.cgroupBase() orelse return;
-
-        // For the unique group name we use the self pointer. This may
-        // not be a good idea for security reasons but not sure yet. We
-        // may want to change this to something else eventually to be safe.
-        var buf: [256]u8 = undefined;
-        const name = std.fmt.bufPrint(
-            &buf,
-            "surfaces/{X}.scope",
-            .{@intFromPtr(self)},
-        ) catch unreachable;
-
-        // Create the cgroup. If it fails, no big deal... just ignore.
-        internal_os.cgroup.create(base, name, null) catch |err| {
-            log.warn("failed to create surface cgroup err={}", .{err});
-            return;
-        };
-
-        // Success, save the cgroup path.
-        priv.cgroup_path = std.fmt.allocPrint(
-            alloc,
-            "{s}/{s}",
-            .{ base, name },
-        ) catch null;
-    }
-
-    /// Deletes the cgroup if set.
-    fn clearCgroup(self: *Self) void {
-        const priv = self.private();
-        const path = priv.cgroup_path orelse return;
-
-        internal_os.cgroup.remove(path) catch |err| {
-            // We don't want this to be fatal in any way so we just log
-            // and continue. A dangling empty cgroup is not a big deal
-            // and this should be rare.
-            log.warn(
-                "failed to remove cgroup for surface path={s} err={}",
-                .{ path, err },
-            );
-        };
-
-        Application.default().allocator().free(path);
-        priv.cgroup_path = null;
     }
 
     //---------------------------------------------------------------
@@ -1528,10 +1462,6 @@ pub const Surface = extern struct {
 
         priv.child_exited_overlay.setData(&data);
         return true;
-    }
-
-    pub fn cgroupPath(self: *Self) ?[]const u8 {
-        return self.private().cgroup_path;
     }
 
     pub fn getContentScale(self: *Self) apprt.ContentScale {
@@ -1595,9 +1525,16 @@ pub const Surface = extern struct {
     }
 
     pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
-        const alloc = Application.default().allocator();
+        const app = Application.default();
+        const alloc = app.allocator();
         var env = try internal_os.getEnvMap(alloc);
         errdefer env.deinit();
+
+        if (app.savedLanguage()) |language| {
+            try env.put("LANG", language);
+        } else {
+            env.remove("LANG");
+        }
 
         // Don't leak these GTK environment variables to child processes.
         env.remove("GDK_DEBUG");
@@ -1966,8 +1903,6 @@ pub const Surface = extern struct {
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
 
-        self.clearCgroup();
-
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
             self.as(Parent),
@@ -1980,6 +1915,24 @@ pub const Surface = extern struct {
     /// Returns the title property without a copy.
     pub fn getTitle(self: *Self) ?[:0]const u8 {
         return self.private().title;
+    }
+
+    /// Returns the effective title: the user-overridden title if set,
+    /// otherwise the terminal-set title.
+    pub fn getEffectiveTitle(self: *Self) ?[:0]const u8 {
+        const priv = self.private();
+        return priv.title_override orelse priv.title;
+    }
+
+    /// Copies the effective title to the clipboard.
+    pub fn copyTitleToClipboard(self: *Self) bool {
+        const title = self.getEffectiveTitle() orelse return false;
+        if (title.len == 0) return false;
+        self.setClipboard(.standard, &.{.{
+            .mime = "text/plain",
+            .data = title,
+        }}, false);
+        return true;
     }
 
     /// Set the title for this surface, copies the value. This should always
@@ -3310,10 +3263,6 @@ pub const Surface = extern struct {
 
         const app = Application.default();
         const alloc = app.allocator();
-
-        // Initialize our cgroup if we can.
-        self.initCgroup();
-        errdefer self.clearCgroup();
 
         // Make our pointer to store our surface
         const surface = try alloc.create(CoreSurface);

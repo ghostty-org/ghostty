@@ -322,6 +322,11 @@ menu context_menu_model {
       label: _("Tab");
 
       item {
+        label: _("Change Tab Title…");
+        action: "tab.prompt-tab-title";
+      }
+
+      item {
         label: _("New Tab");
         action: "win.new-tab";
       }

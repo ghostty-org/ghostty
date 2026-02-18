@@ -27,11 +27,5 @@ extension String {
     }
 #endif
 
-    private static let shellUnsafe = /[^\w@%+=:,.\/-]/
 
-    /// Returns a shell-escaped version of the string, like Python's shlex.quote.
-    func shellQuoted() -> String {
-        guard self.isEmpty || self.contains(Self.shellUnsafe) else { return self };
-        return "'" + self.replacingOccurrences(of: "'", with: #"'"'"'"#) + "'"
-    }
 }

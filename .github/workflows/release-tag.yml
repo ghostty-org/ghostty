@@ -83,13 +83,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@d985186ac29417ddff1a6e05044f69a27067b3a8 # v1.4.0
+        uses: namespacelabs/nscloud-cache-action@4d61c33d0b4333a518e975a0c4de7633d28713bb # v1.4.1
         with:
           path: |
             /nix
             /zig
 
-      - uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31.9.0
+      - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 

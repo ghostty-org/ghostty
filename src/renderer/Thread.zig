@@ -295,21 +295,19 @@ fn setQosClass(self: *const Thread) void {
 fn syncDrawTimer(self: *Thread) void {
     skip: {
         // If our renderer supports animations and has them, then we
-        // always have a draw timer.
+        // can apply draw timer based on custom shader animation configuration.
         if (@hasDecl(rendererpkg.Renderer, "hasAnimations") and
             self.renderer.hasAnimations())
         {
-            break :skip;
-        }
-
-        // If our config says to always animate, we do so.
-        switch (self.config.custom_shader_animation) {
-            // Always animate
-            .always => break :skip,
-            // Only when focused
-            .true => if (self.flags.focused) break :skip,
-            // Never animate
-            .false => {},
+            // If our config says to always animate, we do so.
+            switch (self.config.custom_shader_animation) {
+                // Always animate
+                .always => break :skip,
+                // Only when focused
+                .true => if (self.flags.focused) break :skip,
+                // Never animate
+                .false => {},
+            }
         }
 
         // We're skipping the draw timer. Stop it on the next iteration.

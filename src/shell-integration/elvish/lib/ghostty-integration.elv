@@ -50,16 +50,19 @@
   fn sudo-with-terminfo {|@args|
     var sudoedit = $false
     for arg $args {
-      use str
-      if (str:has-prefix $arg -) {
-        if (has-value [e -edit] $arg[1..]) {
+      if (str:has-prefix $arg --) {
+        if (eq $arg --edit) {
           set sudoedit = $true
           break
         }
-        continue
+      } elif (str:has-prefix $arg -) {
+        if (str:contains (str:trim-prefix $arg -) e) {
+          set sudoedit = $true
+          break
+        }
+      } elif (not (str:contains $arg =)) {
+        break
       }
-
-      if (not (has-value $arg =)) { break }
     }
 
     if (not $sudoedit) { set args = [ --preserve-env=TERMINFO $@args ] }
@@ -151,11 +154,16 @@
   set edit:after-readline  = (conj $edit:after-readline $mark-output-start~)
   set edit:after-command   = (conj $edit:after-command $mark-output-end~)
 
-  if (has-value $features cursor) {
-    fn beam  { printf "\e[5 q" }
-    fn block { printf "\e[0 q" }
+  if (str:contains $E:GHOSTTY_SHELL_FEATURES "cursor") {
+    var cursor = "5"    # blinking bar
+    if (has-value $features cursor:steady) {
+      set cursor = "6"  # steady bar
+    }
+
+    fn beam  { printf "\e["$cursor" q" }
+    fn reset { printf "\e[0 q" }
     set edit:before-readline = (conj $edit:before-readline $beam~)
-    set edit:after-readline  = (conj $edit:after-readline {|_| block })
+    set edit:after-readline  = (conj $edit:after-readline {|_| reset })
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
     if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {

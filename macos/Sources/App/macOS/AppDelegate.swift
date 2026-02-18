@@ -65,6 +65,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuReturnToDefaultSize: NSMenuItem?
     @IBOutlet private var menuFloatOnTop: NSMenuItem?
     @IBOutlet private var menuUseAsDefault: NSMenuItem?
+    @IBOutlet private var menuSetAsDefaultTerminal: NSMenuItem?
 
     @IBOutlet private var menuIncreaseFontSize: NSMenuItem?
     @IBOutlet private var menuDecreaseFontSize: NSMenuItem?
@@ -476,7 +477,7 @@ class AppDelegate: NSObject,
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
-            config.initialInput = "\(filename.shellQuoted()); exit\n"
+            config.initialInput = "\(Ghostty.Shell.quote(filename)); exit\n"
             
             // For commands executed directly, we want to ensure we wait after exit
             // because in most cases scripts don't block on exit and we don't want
@@ -577,6 +578,7 @@ class AppDelegate: NSObject,
         self.menuChangeTabTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
         self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
         self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
+        self.menuSetAsDefaultTerminal?.setImageIfDesired(systemSymbolName: "star.fill")
         self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
         self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
         self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
@@ -1292,6 +1294,21 @@ extension AppDelegate {
             ud.removeObject(forKey: key)
         }
     }
+    
+    @IBAction func setAsDefaultTerminal(_ sender: NSMenuItem) {
+        do {
+            try NSWorkspace.shared.setGhosttyAsDefaultTerminal()
+            // Success - menu state will automatically update via validateMenuItem
+        } catch {
+            // Show error dialog
+            let alert = NSAlert()
+            alert.messageText = "Failed to Set Default Terminal"
+            alert.informativeText = "Ghostty could not be set as the default terminal application.\n\nError: \(error.localizedDescription)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
 }
 
 // MARK: NSMenuItemValidation
@@ -1299,6 +1316,12 @@ extension AppDelegate {
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(setAsDefaultTerminal(_:)):
+            // Check if Ghostty is already the default terminal
+            let isDefault = NSWorkspace.shared.isGhosttyDefaultTerminal
+            // Disable menu item if already default (option A)
+            return !isDefault
+            
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
             // Float on top items only active if the key window is a primary

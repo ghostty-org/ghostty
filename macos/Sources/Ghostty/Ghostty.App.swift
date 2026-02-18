@@ -647,6 +647,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
                 Ghostty.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
                 return false
+            case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
+                return copyTitleToClipboard(app, target: target)
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
@@ -1503,6 +1505,25 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func copyTitleToClipboard(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                let title = surfaceView.title
+                if title.isEmpty { return false }
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(title, forType: .string)
+                return true
+
+            default:
+                return false
             }
         }
 

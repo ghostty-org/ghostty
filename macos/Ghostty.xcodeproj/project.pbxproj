@@ -147,6 +147,7 @@
 				Features/Update/UpdatePopoverView.swift,
 				Features/Update/UpdateSimulator.swift,
 				Features/Update/UpdateViewModel.swift,
+				"Ghostty/Extensions/NSWorkspace+Ghostty.swift",
 				"Ghostty/FullscreenMode+Extension.swift",
 				Ghostty/Ghostty.Error.swift,
 				Ghostty/Ghostty.Event.swift,
@@ -613,6 +614,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Ghostty;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "A program running within Ghostty would like to use AppleScript.";
+				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "A program running within Ghostty would like to access your system's audio.";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "A program running within Ghostty would like to use Bluetooth.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "A program running within Ghostty would like to access your Calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "A program running within Ghostty would like to use the camera.";
@@ -623,7 +625,6 @@
 				INFOPLIST_KEY_NSLocationUsageDescription = "A program running within Ghostty would like to access your location information.";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "A program running within Ghostty would like to use your microphone.";
-				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "A program running within Ghostty would like to access your system's audio.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "A program running within Ghostty would like to access motion data.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "A program running within Ghostty would like to access your Photo Library.";
 				INFOPLIST_KEY_NSRemindersUsageDescription = "A program running within Ghostty would like to access your reminders.";

@@ -1,0 +1,36 @@
+on:
+  issue_comment:
+    types: [created]
+
+name: "Vouch - Manage by Issue"
+
+concurrency:
+  group: vouch-manage
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    runs-on: namespace-profile-ghostty-xsm
+    steps:
+      - uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        id: app-token
+        with:
+          app-id: ${{ secrets.VOUCH_APP_ID }}
+          private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: mitchellh/vouch/action/manage-by-issue@6803dde571265e13489c3f118200f60b6ab59e4d # v1.3.1
+        with:
+          repo: ${{ github.repository }}
+          issue-id: ${{ github.event.issue.number }}
+          comment-id: ${{ github.event.comment.id }}
+          vouch-keyword: "!vouch"
+          denounce-keyword: "!denounce"
+          unvouch-keyword: "!unvouch"
+          pull-request: "true"
+          merge-immediately: "true"
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

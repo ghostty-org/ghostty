@@ -40,6 +40,8 @@ extend-ignore-re = [
   "kHOM\\d*",
   # Ignore "typos" in sprite font draw fn names
   "draw[0-9A-F]+(_[0-9A-F]+)?\\(",
+  # Ignore test data in src/input/paste.zig
+  "\"hel\\\\x",
 ]
 
 [default.extend-words]

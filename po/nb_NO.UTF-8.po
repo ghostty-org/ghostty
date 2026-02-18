@@ -10,8 +10,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2025-08-23 12:52+0000\n"
+"POT-Creation-Date: 2026-02-17 23:16+0100\n"
+"PO-Revision-Date: 2026-02-12 15:50+0000\n"
 "Last-Translator: Hanna Rose <me@hanna.lol>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
 "Language: nb\n"
@@ -19,6 +19,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr ""
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -46,7 +50,7 @@ msgid "Reload configuration to show this prompt again"
 msgstr "Last inn konfigurasjonen på nytt for å vise denne meldingen igjen"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
-#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:9
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
 msgid "Cancel"
 msgstr "Avbryt"
 
@@ -73,7 +77,7 @@ msgid "Ignore"
 msgstr "Ignorer"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:293
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
 msgstr "Last konfigurasjon på nytt"
 
@@ -89,23 +93,23 @@ msgstr "Ghostty: Terminalinspektør"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "Finn…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "Forrige treff"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "Neste treff"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "Å, nei."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "Kan ikke hente en OpenGL-kontekst for rendering."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -113,56 +117,59 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"Denne terminalen er i skrivebeskyttet modus. Du kan fortsatt se, markere og "
+"bla gjennom innholdet, men ingen inndatahendelser vil bli sendt til den "
+"kjørende applikasjonen."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "Skrivebeskyttet"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
+#: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:200
 msgid "Copy"
 msgstr "Kopier"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:265 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.2/surface.blp:265 src/apprt/gtk/ui/1.5/window.blp:205
 msgid "Paste"
 msgstr "Lim inn"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "Varsle når neste kommandoen fullføres"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
+#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
 msgid "Clear"
 msgstr "Fjern"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:271
+#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:278
 msgid "Reset"
 msgstr "Nullstill"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:235
+#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
 msgid "Split"
 msgstr "Del vindu"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:238
+#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
 msgid "Change Title…"
 msgstr "Endre tittel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:175
-#: src/apprt/gtk/ui/1.5/window.blp:243
+#: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
+#: src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split Up"
 msgstr "Del oppover"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:180
-#: src/apprt/gtk/ui/1.5/window.blp:248
+#: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
+#: src/apprt/gtk/ui/1.5/window.blp:255
 msgid "Split Down"
 msgstr "Del nedover"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:185
-#: src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
+#: src/apprt/gtk/ui/1.5/window.blp:260
 msgid "Split Left"
 msgstr "Del til venstre"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:190
-#: src/apprt/gtk/ui/1.5/window.blp:258
+#: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
+#: src/apprt/gtk/ui/1.5/window.blp:265
 msgid "Split Right"
 msgstr "Del til høyre"
 
@@ -170,44 +177,45 @@ msgstr "Del til høyre"
 msgid "Tab"
 msgstr "Fane"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:57
-#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:222
+#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
+#: src/apprt/gtk/ui/1.5/window.blp:320
+msgid "Change Tab Title…"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
+#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
 msgid "New Tab"
 msgstr "Ny fane"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:227
+#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "Close Tab"
 msgstr "Lukk fane"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:337
+#: src/apprt/gtk/ui/1.2/surface.blp:342
 msgid "Window"
 msgstr "Vindu"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:340 src/apprt/gtk/ui/1.5/window.blp:210
+#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
 msgid "New Window"
 msgstr "Nytt vindu"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "Close Window"
 msgstr "Lukk vindu"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353
+#: src/apprt/gtk/ui/1.2/surface.blp:358
 msgid "Config"
 msgstr "Konfigurasjon"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:356 src/apprt/gtk/ui/1.5/window.blp:288
+#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Open Configuration"
 msgstr "Åpne konfigurasjon"
 
-#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:5
-msgid "Change Terminal Title"
-msgstr "Endre terminaltittel"
-
-#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:6
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
 msgstr "Blank verdi gjenoppretter standardtittelen."
 
-#: src/apprt/gtk/ui/1.5/surface-title-dialog.blp:10
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
 msgstr "OK"
 
@@ -223,19 +231,19 @@ msgstr "Se åpne faner"
 msgid "Main Menu"
 msgstr "Hovedmeny"
 
-#: src/apprt/gtk/ui/1.5/window.blp:278
+#: src/apprt/gtk/ui/1.5/window.blp:285
 msgid "Command Palette"
 msgstr "Kommandopalett"
 
-#: src/apprt/gtk/ui/1.5/window.blp:283
+#: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Terminal Inspector"
 msgstr "Terminalinspektør"
 
-#: src/apprt/gtk/ui/1.5/window.blp:300 src/apprt/gtk/class/window.zig:1714
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:305
+#: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
 msgstr "Avslutt"
 
@@ -305,15 +313,15 @@ msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr ""
+msgstr "Kommandoen fullført"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "Kommandoen lyktes"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr ""
+msgstr "Kommandoen mislyktes"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
@@ -323,18 +331,26 @@ msgstr "Kommando lyktes"
 msgid "Command failed"
 msgstr "Kommando mislyktes"
 
-#: src/apprt/gtk/class/window.zig:1001
+#: src/apprt/gtk/class/title_dialog.zig:225
+msgid "Change Terminal Title"
+msgstr "Endre terminaltittel"
+
+#: src/apprt/gtk/class/title_dialog.zig:226
+msgid "Change Tab Title"
+msgstr ""
+
+#: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
 msgstr "Konfigurasjonen ble lastet på nytt"
 
-#: src/apprt/gtk/class/window.zig:1553
+#: src/apprt/gtk/class/window.zig:1566
 msgid "Copied to clipboard"
 msgstr "Kopiert til utklippstavlen"
 
-#: src/apprt/gtk/class/window.zig:1555
+#: src/apprt/gtk/class/window.zig:1568
 msgid "Cleared clipboard"
 msgstr "Utklippstavle tømt"
 
-#: src/apprt/gtk/class/window.zig:1695
+#: src/apprt/gtk/class/window.zig:1708
 msgid "Ghostty Developers"
 msgstr "Ghostty-utviklere"

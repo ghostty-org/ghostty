@@ -632,19 +632,12 @@ pub fn init(
             .env_override = config.env,
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
+            .cursor_blink = config.@"cursor-style-blink",
             .working_directory = config.@"working-directory",
             .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
-
-            // Get the cgroup if we're on linux and have the decl. I'd love
-            // to change this from a decl to a surface options struct because
-            // then we can do memory management better (don't need to retain
-            // the string around).
-            .linux_cgroup = if (comptime builtin.os.tag == .linux and
-                @hasDecl(apprt.runtime.Surface, "cgroup"))
-                rt_surface.cgroup()
-            else
-                Command.linux_cgroup_default,
+            .rt_pre_exec_info = .init(config),
+            .rt_post_fork_info = .init(config),
         });
         errdefer io_exec.deinit();
 
@@ -5398,20 +5391,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return false;
         },
 
-        .copy_title_to_clipboard => {
-            const title = self.rt_surface.getTitle() orelse return false;
-            if (title.len == 0) return false;
-
-            self.rt_surface.setClipboard(.standard, &.{.{
-                .mime = "text/plain",
-                .data = title,
-            }}, false) catch |err| {
-                log.err("error copying title to clipboard err={}", .{err});
-                return true;
-            };
-
-            return true;
-        },
+        .copy_title_to_clipboard => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .copy_title_to_clipboard,
+            {},
+        ),
 
         .paste_from_clipboard => return try self.startClipboardRequest(
             .standard,

@@ -65,15 +65,13 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "xgettext",
         "--language=C", // Silence the "unknown extension" errors
         "--from-code=UTF-8",
-        "--add-comments=Translators",
         "--keyword=_",
         "--keyword=C_:1c,2",
-        "--package-name=" ++ domain,
-        "--msgid-bugs-address=m@mitchellh.com",
-        "--copyright-holder=\"Mitchell Hashimoto, Ghostty contributors\"",
-        "-o",
-        "-",
     });
+
+    // Collect to intermediate .pot file
+    xgettext.addArg("-o");
+    const gtk_pot = xgettext.addOutputFileArg("gtk.pot");
 
     // Not cacheable due to the gresource files
     xgettext.has_side_effects = true;
@@ -149,16 +147,45 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         }
     }
 
+    // Add support for localizing our `nautilus` integration
+    const xgettext_py = b.addSystemCommand(&.{
+        "xgettext",
+        "--language=Python",
+        "--from-code=UTF-8",
+    });
+
+    // Collect to intermediate .pot file
+    xgettext_py.addArg("-o");
+    const py_pot = xgettext_py.addOutputFileArg("py.pot");
+
+    const nautilus_script_path = "dist/linux/ghostty_nautilus.py";
+    xgettext_py.addArg(nautilus_script_path);
+    xgettext_py.addFileInput(b.path(nautilus_script_path));
+
+    // Merge pot files
+    const xgettext_merge = b.addSystemCommand(&.{
+        "xgettext",
+        "--add-comments=Translators",
+        "--package-name=" ++ domain,
+        "--msgid-bugs-address=m@mitchellh.com",
+        "--copyright-holder=\"Mitchell Hashimoto, Ghostty contributors\"",
+        "-o",
+        "-",
+    });
+    // py_pot needs to be first on merge order because of `xgettext` behavior around
+    // charset when merging the two `.pot` files
+    xgettext_merge.addFileArg(py_pot);
+    xgettext_merge.addFileArg(gtk_pot);
     const usf = b.addUpdateSourceFiles();
     usf.addCopyFileToSource(
-        xgettext.captureStdOut(),
+        xgettext_merge.captureStdOut(),
         "po/" ++ domain ++ ".pot",
     );
 
     inline for (locales) |locale| {
         const msgmerge = b.addSystemCommand(&.{ "msgmerge", "--quiet", "--no-fuzzy-matching" });
         msgmerge.addFileArg(b.path("po/" ++ locale ++ ".po"));
-        msgmerge.addFileArg(xgettext.captureStdOut());
+        msgmerge.addFileArg(xgettext_merge.captureStdOut());
         usf.addCopyFileToSource(msgmerge.captureStdOut(), "po/" ++ locale ++ ".po");
     }
 

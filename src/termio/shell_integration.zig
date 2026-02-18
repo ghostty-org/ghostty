@@ -188,11 +188,13 @@ test detectShell {
 pub fn setupFeatures(
     env: *EnvMap,
     features: config.ShellIntegrationFeatures,
+    cursor_blink: bool,
 ) !void {
     const fields = @typeInfo(@TypeOf(features)).@"struct".fields;
     const capacity: usize = capacity: {
         comptime var n: usize = fields.len - 1; // commas
         inline for (fields) |field| n += field.name.len;
+        n += ":steady".len; // cursor value
         break :capacity n;
     };
 
@@ -221,6 +223,10 @@ pub fn setupFeatures(
         if (@field(features, name)) {
             if (writer.end > 0) try writer.writeByte(',');
             try writer.writeAll(name);
+
+            if (std.mem.eql(u8, name, "cursor")) {
+                try writer.writeAll(if (cursor_blink) ":blink" else ":steady");
+            }
         }
     }
 
@@ -241,8 +247,8 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true });
-        try testing.expectEqualStrings("cursor,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true }, true);
+        try testing.expectEqualStrings("cursor:blink,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
     // Test: all features disabled
@@ -250,7 +256,7 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, std.mem.zeroes(config.ShellIntegrationFeatures));
+        try setupFeatures(&env, std.mem.zeroes(config.ShellIntegrationFeatures), true);
         try testing.expect(env.get("GHOSTTY_SHELL_FEATURES") == null);
     }
 
@@ -259,8 +265,24 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false });
+        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false }, true);
         try testing.expectEqualStrings("ssh-env,sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
+    }
+
+    // Test: blinking cursor
+    {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+        try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, true);
+        try testing.expectEqualStrings("cursor:blink", env.get("GHOSTTY_SHELL_FEATURES").?);
+    }
+
+    // Test: steady cursor
+    {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+        try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, false);
+        try testing.expectEqualStrings("cursor:steady", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 }
 
