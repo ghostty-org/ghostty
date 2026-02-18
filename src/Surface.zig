@@ -636,16 +636,8 @@ pub fn init(
             .working_directory = config.@"working-directory",
             .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
-
-            // Get the cgroup if we're on linux and have the decl. I'd love
-            // to change this from a decl to a surface options struct because
-            // then we can do memory management better (don't need to retain
-            // the string around).
-            .linux_cgroup = if (comptime builtin.os.tag == .linux and
-                @hasDecl(apprt.runtime.Surface, "cgroup"))
-                rt_surface.cgroup()
-            else
-                Command.linux_cgroup_default,
+            .rt_pre_exec_info = .init(config),
+            .rt_post_fork_info = .init(config),
         });
         errdefer io_exec.deinit();
 

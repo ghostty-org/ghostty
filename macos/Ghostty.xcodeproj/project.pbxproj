@@ -147,6 +147,7 @@
 				Features/Update/UpdatePopoverView.swift,
 				Features/Update/UpdateSimulator.swift,
 				Features/Update/UpdateViewModel.swift,
+				"Ghostty/Extensions/NSWorkspace+Ghostty.swift",
 				"Ghostty/FullscreenMode+Extension.swift",
 				Ghostty/Ghostty.Error.swift,
 				Ghostty/Ghostty.Event.swift,

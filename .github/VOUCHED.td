@@ -18,23 +18,40 @@
 # Maintainers can vouch for new contributors by commenting "!vouch" on a
 # discussion by the author. Maintainers can denounce users by commenting
 # "!denounce" or "!denounce [username]" on a discussion.
+bennettp123
 bernsno
+bitigchi
 bkircher
+chernetskyi
 daiimus
 doprz
 elias8
+ephemera
+eriksremess
+filip7
 hakonhagland
 hqnna
 jake-stewart
 jcollie
 juniqlim
+kawarimidoll
+mahnokropotkinvich
 marrocco-simone
+mikailmm
 mitchellh
+nwehg
+pan93412
+pangoraw
+peilingjiang
+peterdavehello
+phush0
 pluiedev
 pouwerkerk
 priyans-hu
 prsweet
 qwerasd205
 rmunn
+secrus
 tweedbeetle
+vlsi
 yamshta

@@ -175,8 +175,28 @@ pub const DerivedConfig = struct {
         errdefer arena.deinit();
         const alloc = arena.allocator();
 
+        const palette: terminalpkg.color.Palette = palette: {
+            if (config.@"palette-generate") generate: {
+                if (config.palette.mask.findFirstSet() == null) {
+                    // If the user didn't set any values manually, then
+                    // we're using the default palette and we don't need
+                    // to apply the generation code to it.
+                    break :generate;
+                }
+
+                break :palette terminalpkg.color.generate256Color(
+                    config.palette.value,
+                    config.palette.mask,
+                    config.background.toTerminalRGB(),
+                    config.foreground.toTerminalRGB(),
+                );
+            }
+
+            break :palette config.palette.value;
+        };
+
         return .{
-            .palette = config.palette.value,
+            .palette = palette,
             .image_storage_limit = config.@"image-storage-limit",
             .cursor_style = config.@"cursor-style",
             .cursor_blink = config.@"cursor-style-blink",

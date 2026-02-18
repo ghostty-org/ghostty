@@ -12,7 +12,6 @@ const build_config = @import("../../../build_config.zig");
 const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
-const cgroup = @import("../cgroup.zig");
 const CoreApp = @import("../../../App.zig");
 const configpkg = @import("../../../config.zig");
 const input = @import("../../../input.zig");
@@ -175,11 +174,6 @@ pub const Application = extern struct {
 
         /// The global shortcut logic.
         global_shortcuts: *GlobalShortcuts,
-
-        /// The base path of the transient cgroup used to put all surfaces
-        /// into their own cgroup. This is only set if cgroups are enabled
-        /// and initialization was successful.
-        transient_cgroup_base: ?[]const u8 = null,
 
         /// This is set to true so long as we request a window exactly
         /// once. This prevents quitting the app before we've shown one
@@ -438,7 +432,6 @@ pub const Application = extern struct {
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
-        if (priv.transient_cgroup_base) |base| alloc.free(base);
         if (priv.saved_language) |language| alloc.free(language);
         if (gdk.Display.getDefault()) |display| {
             gtk.StyleContext.removeProviderForDisplay(
@@ -807,11 +800,6 @@ pub const Application = extern struct {
     /// Returns the app winproto implementation.
     pub fn winproto(self: *Self) *winprotopkg.App {
         return &self.private().winproto;
-    }
-
-    /// Returns the cgroup base (if any).
-    pub fn cgroupBase(self: *Self) ?[]const u8 {
-        return self.private().transient_cgroup_base;
     }
 
     /// This will get called when there are no more open surfaces.
@@ -1312,22 +1300,6 @@ pub const Application = extern struct {
         // Setup our global shortcuts
         self.startupGlobalShortcuts();
 
-        // Setup our cgroup for the application.
-        self.startupCgroup() catch |err| {
-            log.warn("cgroup initialization failed err={}", .{err});
-
-            // Add it to our config diagnostics so it shows up in a GUI dialog.
-            // Admittedly this has two issues: (1) we shuldn't be using the
-            // config errors dialog for this long term and (2) using a mut
-            // ref to the config wouldn't propagate changes to UI properly,
-            // but we're in startup mode so its okay.
-            const config = self.private().config.getMut();
-            config.addDiagnosticFmt(
-                "cgroup initialization failed: {}",
-                .{err},
-            ) catch {};
-        };
-
         // If we have any config diagnostics from loading, then we
         // show the diagnostics dialog. We show this one as a general
         // modal (not to any specific window) because we don't even
@@ -1459,72 +1431,6 @@ pub const Application = extern struct {
             self,
             .{},
         );
-    }
-
-    const CgroupError = error{
-        DbusConnectionFailed,
-        CgroupInitFailed,
-    };
-
-    /// Setup our cgroup for the application, if enabled.
-    ///
-    /// The setup for cgroups involves creating the cgroup for our
-    /// application, moving ourselves into it, and storing the base path
-    /// so that created surfaces can also have their own cgroups.
-    fn startupCgroup(self: *Self) CgroupError!void {
-        const priv = self.private();
-        const config = priv.config.get();
-
-        // If cgroup isolation isn't enabled then we don't do this.
-        if (!switch (config.@"linux-cgroup") {
-            .never => false,
-            .always => true,
-            .@"single-instance" => single: {
-                const flags = self.as(gio.Application).getFlags();
-                break :single !flags.non_unique;
-            },
-        }) {
-            log.info(
-                "cgroup isolation disabled via config={}",
-                .{config.@"linux-cgroup"},
-            );
-            return;
-        }
-
-        // We need a dbus connection to do anything else
-        const dbus = self.as(gio.Application).getDbusConnection() orelse {
-            if (config.@"linux-cgroup-hard-fail") {
-                log.err("dbus connection required for cgroup isolation, exiting", .{});
-                return error.DbusConnectionFailed;
-            }
-
-            return;
-        };
-
-        const alloc = priv.core_app.alloc;
-        const path = cgroup.init(alloc, dbus, .{
-            .memory_high = config.@"linux-cgroup-memory-limit",
-            .pids_max = config.@"linux-cgroup-processes-limit",
-        }) catch |err| {
-            // If we can't initialize cgroups then that's okay. We
-            // want to continue to run so we just won't isolate surfaces.
-            // NOTE(mitchellh): do we want a config to force it?
-            log.warn(
-                "failed to initialize cgroups, terminals will not be isolated err={}",
-                .{err},
-            );
-
-            // If we have hard fail enabled then we exit now.
-            if (config.@"linux-cgroup-hard-fail") {
-                log.err("linux-cgroup-hard-fail enabled, exiting", .{});
-                return error.CgroupInitFailed;
-            }
-
-            return;
-        };
-
-        log.info("cgroup isolation enabled base={s}", .{path});
-        priv.transient_cgroup_base = path;
     }
 
     fn activate(self: *Self) callconv(.c) void {

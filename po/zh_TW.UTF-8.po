@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-16 23:06+0100\n"
+"POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-10 15:32+0800\n"
 "Last-Translator: Yi-Jyun Pan <me@pan93.com>\n"
 "Language-Team: Chinese (traditional)\n"
@@ -15,6 +15,10 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr ""
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -169,7 +173,7 @@ msgstr "分頁"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "變更分頁標題…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -320,7 +324,7 @@ msgstr "變更終端機標題"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr ""
+msgstr "變更分頁標題"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"

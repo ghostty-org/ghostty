@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-16 23:06+0100\n"
+"POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-09 22:18+0300\n"
 "Last-Translator: Emir SARI <emir_sari@icloud.com>\n"
 "Language-Team: Turkish\n"
@@ -16,6 +16,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr "Ghostty’de Aç"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -176,7 +180,7 @@ msgstr "Sekme"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "Sekme Başlığını Değiştir…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -333,7 +337,7 @@ msgstr "Uçbirim Başlığını Değiştir"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr ""
+msgstr "Sekme Başlığını Değiştir"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"

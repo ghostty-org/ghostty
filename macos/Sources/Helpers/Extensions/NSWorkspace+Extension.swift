@@ -26,4 +26,5 @@ extension NSWorkspace {
         guard let uti = UTType(filenameExtension: ext) else { return nil}
         return defaultApplicationURL(forContentType: uti.identifier)
     }
+    
 }

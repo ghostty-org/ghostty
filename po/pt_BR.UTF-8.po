@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-16 23:06+0100\n"
+"POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2025-09-15 13:57-0300\n"
 "Last-Translator: Nilton Perim Neto <niltonperimneto@gmail.com>\n"
 "Language-Team: Brazilian Portuguese <ldpbr-"
@@ -20,6 +20,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr ""
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
