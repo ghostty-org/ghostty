@@ -21,7 +21,7 @@ msgstr ""
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
-msgstr ""
+msgstr "Открыть в Ghostty"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
