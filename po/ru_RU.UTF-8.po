@@ -136,7 +136,7 @@ msgstr "Вставить"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Сообщать, когда следующая команда завершится"
+msgstr "Сообщить о завершении следующей команды"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
 msgid "Clear"
