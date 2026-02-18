@@ -181,7 +181,7 @@ msgstr "Вкладка"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "Переименовать вкладку…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -338,7 +338,7 @@ msgstr "Переименовать терминал"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr ""
+msgstr "Переименовать вкладку"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
