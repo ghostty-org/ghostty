@@ -39,6 +39,7 @@ khipp
 kristofersoler
 mahnokropotkinvich
 marrocco-simone
+miguelelgallo
 mikailmm
 mitchellh
 nwehg
