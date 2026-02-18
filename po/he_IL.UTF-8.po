@@ -179,7 +179,7 @@ msgstr "כרטיסייה"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr "שנה/י את כותרת הכרטיסיה…"
+msgstr "שנה/י את כותרת הכרטיסייה…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -333,7 +333,7 @@ msgstr "שינוי כותרת המסוף"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr "שינוי כותרת הכרטיסיה"
+msgstr "שינוי כותרת הכרטיסייה"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
