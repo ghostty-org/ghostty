@@ -35,6 +35,7 @@ mahnokropotkinvich
 marrocco-simone
 mikailmm
 mitchellh
+pan93412
 peilingjiang
 peterdavehello
 pluiedev
