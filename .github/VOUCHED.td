@@ -52,6 +52,7 @@ prsweet
 qwerasd205
 rmunn
 secrus
+slsrepo
 tweedbeetle
 vlsi
 yamshta
