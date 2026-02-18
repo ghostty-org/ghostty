@@ -35,6 +35,7 @@ jake-stewart
 jcollie
 juniqlim
 kawarimidoll
+kristofersoler
 mahnokropotkinvich
 marrocco-simone
 mikailmm
