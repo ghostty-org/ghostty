@@ -118,12 +118,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Терминал работает в режиме чтения: его содержимое можно прокручивать и "
-"выделять, но запущенное приложение не будет получать никаких сигналов."
+"Терминал работает в режиме только для чтения: его содержимое можно "
+"прокручивать и выделять, но запущенное приложение не будет получать события "
+"ввода."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr "Режим чтения"
+msgstr "Режим только для чтения"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:200
 msgid "Copy"
@@ -151,7 +152,7 @@ msgstr "Сплит"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
 msgid "Change Title…"
-msgstr "Изменить заголовок…"
+msgstr "Переименовать…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
 #: src/apprt/gtk/ui/1.5/window.blp:250
@@ -264,8 +265,8 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Приложение пытается прочитать данные из буфера обмена. Эти данные отображены "
-"ниже."
+"Приложение пытается прочитать данные из буфера обмена. Его содержимое "
+"показано ниже."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
@@ -333,7 +334,7 @@ msgstr "Команда завершилась с ошибкой"
 
 #: src/apprt/gtk/class/title_dialog.zig:225
 msgid "Change Terminal Title"
-msgstr "Изменить заголовок терминала"
+msgstr "Переименовать терминал"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
