@@ -317,6 +317,16 @@ pub const Window = struct {
             break :deco deco;
         };
 
+        const bg_effect: ?*ext.BackgroundEffectSurfaceV1 = bg: {
+            const mgr = app.context.ext_bg_effect_manager orelse
+                break :bg null;
+
+            break :bg mgr.getBackgroundEffect(wl_surface) catch |err| {
+                log.warn("could not create background effect object={}", .{err});
+                break :bg null;
+            };
+        };
+
         if (apprt_window.isQuickTerminal()) {
             _ = gdk.Surface.signals.enter_monitor.connect(
                 gdk_surface,
@@ -332,6 +342,7 @@ pub const Window = struct {
             .surface = wl_surface,
             .app_context = app.context,
             .decoration = deco,
+            .bg_effect = bg_effect,
         };
     }
 
@@ -390,60 +401,53 @@ pub const Window = struct {
 
     /// Update the blur state of the window.
     pub fn setBlur(self: *Window, region: blur.Region) !void {
-        const compositor = self.app_context.compositor orelse return;
+        if (region.slices.items.len > 0) {
+            const compositor = self.app_context.compositor orelse return;
 
-        const config = if (self.apprt_window.getConfig()) |v|
-            v.get()
-        else
-            return;
-        const blur_setting = config.@"background-blur";
+            const wl_region = try compositor.createRegion();
+            errdefer wl_region.destroy();
 
-        const wl_region = try compositor.createRegion();
-        errdefer wl_region.destroy();
-
-        for (region.slices.items) |slice| {
-            // X11 coming over to bite Wayland.
-            wl_region.add(
-                @intCast(slice.x),
-                @intCast(slice.y),
-                @intCast(slice.width),
-                @intCast(slice.height),
-            );
-        }
-
-        // Does the compositor support the `ext-background-effect-v1`
-        // protocol? If so, try that first, though it might not actually
-        // support the blur setting.
-        if (self.app_context.ext_bg_effect_manager) |mgr| fx: {
-            if (!self.app_context.ext_bg_capabilities.blur) break :fx;
-
-            if (blur_setting.enabled()) {
-                // Do we already have a blur token? If not, create one.
-                const effect = self.bg_effect orelse try mgr.getBackgroundEffect(self.surface);
-                defer self.bg_effect = effect;
-                effect.setBlurRegion(wl_region);
-            } else if (self.bg_effect) |effect| {
-                // Destroy the blur token if present.
-                effect.destroy();
-                self.bg_effect = null;
+            for (region.slices.items) |slice| {
+                // X11 coming over to bite Wayland.
+                wl_region.add(
+                    @intCast(slice.x),
+                    @intCast(slice.y),
+                    @intCast(slice.width),
+                    @intCast(slice.height),
+                );
             }
-            return;
-        }
 
-        if (self.app_context.kde_blur_manager) |mgr| {
-            if (blur_setting.enabled()) {
+            // Does the compositor support the `ext-background-effect-v1`
+            // protocol? If so, try that first, though it might not actually
+            // support the blur setting.
+            if (self.bg_effect) |fx| fx: {
+                if (!self.app_context.ext_bg_capabilities.blur) break :fx;
+                fx.setBlurRegion(wl_region);
+            } else if (self.app_context.kde_blur_manager) |mgr| {
                 // Do we already have a blur token? If not, create one.
                 const token = self.blur_token orelse try mgr.create(self.surface);
                 defer self.blur_token = token;
                 token.setRegion(wl_region);
                 token.commit();
-            } else if (self.blur_token) |token| {
+            }
+        } else {
+            if (self.bg_effect) |fx| fx: {
+                if (!self.app_context.ext_bg_capabilities.blur) break :fx;
+                fx.setBlurRegion(null);
+            } else if (self.app_context.kde_blur_manager) |mgr| fx: {
                 // Destroy the blur token if present.
+                const token = self.blur_token orelse break :fx;
                 mgr.unset(self.surface);
                 token.release();
                 self.blur_token = null;
             }
         }
+    }
+
+    /// On certain winprotos, the blur region is specified in device
+    /// coordinates and have to be scaled by the GDK scale factor.
+    pub fn blurRegionInDeviceCoords(_: Window) bool {
+        return false;
     }
 
     fn syncDecoration(self: *Window) !void {

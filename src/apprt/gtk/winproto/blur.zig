@@ -78,18 +78,29 @@ pub const Region = struct {
             break :rounded window.clientSideDecorationEnabled();
         };
 
-        return .{
-            .slices = try approxRoundedRect(
-                window.alloc,
-                x,
-                y,
-                width,
-                height,
+        const slices = try approxRoundedRect(
+            window.alloc,
+            x,
+            y,
+            width,
+            height,
+            // See https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/css-variables.html#window-radius
+            if (are_corners_rounded) 15 else 0,
+        );
 
-                // See https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/css-variables.html#window-radius
-                if (are_corners_rounded) 15 else 0,
-            ),
-        };
+        // We have to convert surface/logical coordinates to
+        // device/physical coordinates on X11. More reasons to hate it.
+        if (window.blurRegionInDeviceCoords()) {
+            const sf = surface.getScaleFactor();
+            for (slices.items) |*s| {
+                s.x *= sf;
+                s.y *= sf;
+                s.width *= sf;
+                s.height *= sf;
+            }
+        }
+
+        return .{ .slices = slices };
     }
 
     /// Whether two sets of blur regions are equal.

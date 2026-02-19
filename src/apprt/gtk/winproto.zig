@@ -173,6 +173,12 @@ pub const Window = struct {
         }
     }
 
+    pub fn blurRegionInDeviceCoords(self: Window) bool {
+        return switch (self.inner) {
+            inline else => |v| v.blurRegionInDeviceCoords(),
+        };
+    }
+
     pub fn syncAppearance(self: *Window) !void {
         try self.updateBlur();
         switch (self.inner) {

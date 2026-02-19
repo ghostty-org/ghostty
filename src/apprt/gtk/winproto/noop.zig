@@ -60,6 +60,10 @@ pub const Window = struct {
 
     pub fn setBlur(_: *Window, _: blur.Region) !void {}
 
+    pub fn blurRegionInDeviceCoords(_: Window) bool {
+        return false;
+    }
+
     pub fn syncAppearance(_: *Window) !void {}
 
     /// This returns true if CSD is enabled for this window. This

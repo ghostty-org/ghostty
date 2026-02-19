@@ -228,6 +228,12 @@ pub const Window = struct {
         }
     }
 
+    /// On certain winprotos, the blur region is specified in device
+    /// coordinates and have to be scaled by the GDK scale factor.
+    pub fn blurRegionInDeviceCoords(_: Window) bool {
+        return true;
+    }
+
     fn syncDecorations(self: *Window) !void {
         var hints: MotifWMHints = .{};
 
