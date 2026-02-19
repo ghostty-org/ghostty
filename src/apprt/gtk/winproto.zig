@@ -155,20 +155,21 @@ pub const Window = struct {
         // When blur is disabled, remove the property if it was previously set
         const blur_config = config.@"background-blur";
 
-        if (!blur_config.enabled()) {
-            self.blur_region.clear();
-        } else {
-            var new_region: blur.Region = try .calcForWindow(self);
-            errdefer new_region.deinit(self.alloc);
+        var new_region: blur.Region = if (blur_config.enabled())
+            try .calcForWindow(self)
+        else
+            .empty;
+        errdefer new_region.deinit(self.alloc);
 
-            if (!new_region.eql(self.blur_region)) {
-                self.blur_region.deinit(self.alloc);
-                self.blur_region = new_region;
+        if (!new_region.eql(self.blur_region)) {
+            self.blur_region.deinit(self.alloc);
+            self.blur_region = new_region;
+
+            switch (self.inner) {
+                inline else => |*v| try v.setBlur(self.blur_region),
             }
-        }
-
-        switch (self.inner) {
-            inline else => |*v| try v.setBlur(self.blur_region),
+        } else {
+            new_region.deinit(self.alloc);
         }
     }
 

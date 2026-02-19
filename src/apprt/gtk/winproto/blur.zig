@@ -25,10 +25,6 @@ pub const Region = struct {
         .slices = .empty,
     };
 
-    pub fn clear(self: *Region) void {
-        self.slices.clearRetainingCapacity();
-    }
-
     pub fn deinit(self: *Region, alloc: std.mem.Allocator) void {
         self.slices.deinit(alloc);
     }
