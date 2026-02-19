@@ -3,6 +3,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const gtk = @import("gtk");
+const gdk = @import("gdk");
+const gobject = @import("gobject");
 const Window = @import("../winproto.zig").Window;
 
 pub const Region = struct {
@@ -46,8 +48,8 @@ pub const Region = struct {
             var y: f64 = 0;
             native.getSurfaceTransform(&x, &y);
             // Slightly inset the corners
-            x += 2;
-            y += 2;
+            x += 1;
+            y += 1;
             break :off .{ @intFromFloat(x), @intFromFloat(y) };
         };
 
@@ -60,7 +62,21 @@ pub const Region = struct {
         if (width <= 0 or height <= 0) return .empty;
 
         // Empirically determined.
-        const radius: Pos = if (window.clientSideDecorationEnabled()) 15 else 0;
+        const are_corners_rounded = rounded: {
+            // This cast should always succeed as all of our windows
+            // should be toplevel. If this fails, something very strange
+            // is going on.
+            const toplevel = gobject.ext.cast(
+                gdk.Toplevel,
+                surface,
+            ) orelse break :rounded false;
+
+            const state = toplevel.getState();
+            if (state.fullscreen or state.maximized or state.tiled)
+                break :rounded false;
+
+            break :rounded window.clientSideDecorationEnabled();
+        };
 
         return .{
             .slices = try approxRoundedRect(
@@ -69,7 +85,9 @@ pub const Region = struct {
                 y,
                 width,
                 height,
-                radius,
+
+                // See https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/css-variables.html#window-radius
+                if (are_corners_rounded) 15 else 0,
             ),
         };
     }
