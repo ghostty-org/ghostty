@@ -397,9 +397,10 @@ fn repositionWinUISearch(self: *Surface) void {
         if (c.GetClientRect(self.hwnd, &surface_client) == 0) return;
         const surface_width = surface_client.right - surface_client.left;
         const search_width: i32 = 380;
-        const margin: i32 = 8;
-        const x = @max(0, surface_width - search_width - margin);
-        reposition_fn(self.winui_search, x, 8, search_width);
+        const margin_right: i32 = 4;
+        const margin_top: i32 = 12;
+        const x = @max(0, surface_width - search_width - margin_right);
+        reposition_fn(self.winui_search, x, margin_top, search_width);
     }
 }
 
@@ -677,7 +678,6 @@ fn positionImeWindow(self: *Surface) void {
 
     _ = c.ImmSetCompositionWindow(himc.?, &cf);
 }
-
 
 fn createChildWindow(self: *Surface) !void {
     const class_name_w = std.unicode.utf8ToUtf16LeStringLiteral("GhosttySurface");

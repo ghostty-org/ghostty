@@ -59,6 +59,8 @@ winui_tabview: WinUI.TabView = null,
 
 /// Whether this window is using WinUI controls.
 using_winui: bool = false,
+/// Suppress WinUI SelectionChanged callback during programmatic tab operations.
+suppress_tab_selection: bool = false,
 
 /// Window title (stored as UTF-8)
 title_buf: [256]u8 = undefined,
@@ -476,7 +478,6 @@ pub fn layout(self: *Window) void {
             @max(1, h),
             c.SWP_NOZORDER | c.SWP_NOACTIVATE,
         );
-
     }
 
     // Repaint the window background so the divider color shows through gaps.
@@ -567,22 +568,39 @@ fn closeTabAt(self: *Window, idx: usize) void {
         return;
     }
 
-    // Remove from WinUI TabView.
+    // Suppress WinUI SelectionChanged during removal — it fires
+    // synchronously and would call switchToTab with stale indices.
+    self.suppress_tab_selection = true;
+
+    // Compute new active index BEFORE removing, so the render loop
+    // never sees active_tab_idx pointing past the end of tabs.
+    const new_len = self.tabs.items.len - 1;
+    const new_active = if (self.active_tab_idx > idx)
+        self.active_tab_idx - 1
+    else if (self.active_tab_idx >= new_len)
+        new_len - 1
+    else
+        self.active_tab_idx;
+    self.active_tab_idx = new_active;
+
+    // Deinit and remove the Zig tab.
+    var tab = self.tabs.orderedRemove(idx);
+    tab.deinit();
+
+    // Now remove from WinUI TabView (may trigger SelectionChanged, but suppressed).
     if (self.using_winui) {
         if (self.app.winui.tabview_remove_tab) |rm_fn| {
             rm_fn(self.winui_tabview, @intCast(idx));
         }
     }
 
-    // Deinit the tab (unrefs all surfaces in its tree).
-    var tab = self.tabs.orderedRemove(idx);
-    tab.deinit();
+    self.suppress_tab_selection = false;
 
-    // Adjust active_tab_idx.
-    if (self.active_tab_idx >= self.tabs.items.len) {
-        self.active_tab_idx = self.tabs.items.len - 1;
-    } else if (self.active_tab_idx > idx) {
-        self.active_tab_idx -= 1;
+    // Sync WinUI selected index with our active tab.
+    if (self.using_winui) {
+        if (self.app.winui.tabview_select_tab) |sel_fn| {
+            sel_fn(self.winui_tabview, @intCast(self.active_tab_idx));
+        }
     }
 
     // Show the active tab's surfaces and layout.
@@ -884,7 +902,7 @@ fn updateDwmFrameMargins(self: *Window) void {
     const margins = c.MARGINS{
         .cxLeftWidth = 0,
         .cxRightWidth = 0,
-        .cyTopHeight = 1,
+        .cyTopHeight = 0,
         .cyBottomHeight = 0,
     };
     const hr = c.DwmExtendFrameIntoClientArea(self.hwnd, &margins);
@@ -946,7 +964,6 @@ pub fn windowProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callcon
 
         c.WM_NCHITTEST => {
             if (window) |w| {
-                log.info("Window WM_NCHITTEST: screen({},{}) using_winui={}", .{ c.GET_X_LPARAM(lparam), c.GET_Y_LPARAM(lparam), w.using_winui });
                 // Do NOT call DwmDefWindowProc when using WinUI — we provide
                 // our own caption buttons via XAML. DwmDefWindowProc would
                 // create invisible hit targets for DWM's built-in buttons.
@@ -1320,6 +1337,12 @@ fn initWinUITabView(self: *Window) void {
         set_theme_fn(self.winui_tabview, theme);
     }
 
+    // Set initial tab bar background color from config.
+    if (winui.tabview_set_background_color) |set_bg| {
+        const bg = self.app.config.background;
+        set_bg(self.winui_tabview, bg.r, bg.g, bg.b);
+    }
+
     // Add the initial tab.
     if (winui.tabview_add_tab) |add_fn| {
         _ = add_fn(self.winui_tabview, "Ghostty");
@@ -1366,10 +1389,8 @@ pub fn resizeWinUIHost(self: *Window) void {
         } else {
             resize_fn(self.winui_host, client_rect.left, 0, width, tab_height);
         }
-
         // Update drag regions after resize.
-        if (self.app.winui.tabview_update_drag_regions) |update_fn| {
-            log.info("resizeWinUIHost: updating drag regions", .{});
+        if (winui.tabview_update_drag_regions) |update_fn| {
             update_fn(self.winui_tabview, self.hwnd);
         }
     }
@@ -1408,6 +1429,7 @@ fn destroyWinUIControls(self: *Window) void {
 
 fn winuiOnTabSelected(ctx: ?*anyopaque, index: u32) callconv(.c) void {
     const self: *Window = @ptrCast(@alignCast(ctx));
+    if (self.suppress_tab_selection) return;
     self.switchToTab(@intCast(index));
 }
 
@@ -1454,4 +1476,3 @@ fn winuiOnClose(ctx: ?*anyopaque) callconv(.c) void {
     const self: *Window = @ptrCast(@alignCast(ctx));
     _ = c.PostMessageW(self.hwnd, c.WM_CLOSE, 0, 0);
 }
-

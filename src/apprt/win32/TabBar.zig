@@ -24,7 +24,7 @@ const LRESULT = c.LRESULT;
 // ---------------------------------------------------------------
 
 /// Height of the tab bar in pixels.
-pub const HEIGHT: i32 = 40;
+pub const HEIGHT: i32 = 34;
 
 /// Radius for rounded top corners on tabs.
 const TAB_CORNER_RADIUS: i32 = 8;

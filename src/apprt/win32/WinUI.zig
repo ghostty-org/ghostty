@@ -73,6 +73,7 @@ const FnTabViewSetTabTitle = *const fn (TabView, u32, [*:0]const u8) callconv(.c
 const FnTabViewMoveTab = *const fn (TabView, u32, u32) callconv(.c) void;
 const FnTabViewGetHeight = *const fn (TabView) callconv(.c) i32;
 const FnTabViewSetTheme = *const fn (TabView, i32) callconv(.c) void;
+const FnTabViewSetBackgroundColor = *const fn (TabView, u8, u8, u8) callconv(.c) void;
 
 const FnSearchCreate = *const fn (TabView, SearchCallbacks) callconv(.c) SearchPanel;
 const FnSearchDestroy = *const fn (SearchPanel) callconv(.c) void;
@@ -115,6 +116,7 @@ tabview_set_tab_title: ?FnTabViewSetTabTitle = null,
 tabview_move_tab: ?FnTabViewMoveTab = null,
 tabview_get_height: ?FnTabViewGetHeight = null,
 tabview_set_theme: ?FnTabViewSetTheme = null,
+tabview_set_background_color: ?FnTabViewSetBackgroundColor = null,
 tabview_setup_drag_regions: ?FnTabViewSetupDragRegions = null,
 tabview_update_drag_regions: ?FnTabViewUpdateDragRegions = null,
 
@@ -196,6 +198,7 @@ pub fn load(self: *WinUI) void {
     self.tabview_move_tab = self.getProc(FnTabViewMoveTab, "ghostty_tabview_move_tab");
     self.tabview_get_height = self.getProc(FnTabViewGetHeight, "ghostty_tabview_get_height");
     self.tabview_set_theme = self.getProc(FnTabViewSetTheme, "ghostty_tabview_set_theme");
+    self.tabview_set_background_color = self.getProc(FnTabViewSetBackgroundColor, "ghostty_tabview_set_background_color");
     self.tabview_setup_drag_regions = self.getProc(FnTabViewSetupDragRegions, "ghostty_tabview_setup_drag_regions");
     self.tabview_update_drag_regions = self.getProc(FnTabViewUpdateDragRegions, "ghostty_tabview_update_drag_regions");
 

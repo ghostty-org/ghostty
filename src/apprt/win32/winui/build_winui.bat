@@ -44,7 +44,7 @@ REM Get the source directory (strip trailing backslash from %~dp0)
 set "SRC_DIR=%~dp0"
 if "%SRC_DIR:~-1%"=="\" set "SRC_DIR=%SRC_DIR:~0,-1%"
 
-set "BUILD_DIR=%TEMP%\ghostty_winui_build"
+set "BUILD_DIR=C:\Users\adil\ghostty\win32-out"
 
 echo [WinUI] Source: %SRC_DIR%
 echo [WinUI] Build:  %BUILD_DIR%

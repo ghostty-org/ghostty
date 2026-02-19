@@ -170,6 +170,12 @@ GHOSTTY_WINUI_API void ghostty_tabview_set_theme(
     int32_t theme
 );
 
+/// Set the active tab's background color (RGB). Inactive tabs use the tab bar default.
+GHOSTTY_WINUI_API void ghostty_tabview_set_background_color(
+    GhosttyTabView tv,
+    uint8_t r, uint8_t g, uint8_t b
+);
+
 // ---------------------------------------------------------------
 // Search panel
 // ---------------------------------------------------------------

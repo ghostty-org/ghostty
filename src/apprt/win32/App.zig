@@ -326,6 +326,17 @@ pub fn performAction(
         .color_change => {
             const surface = self.surfaceFromTarget(target) orelse return false;
             _ = c.InvalidateRect(surface.hwnd, null, 0);
+
+            // Update the WinUI tab bar background when the terminal background changes.
+            const cc = value;
+            if (cc.kind == .background) {
+                const window = surface.window;
+                if (window.using_winui) {
+                    if (self.winui.tabview_set_background_color) |set_bg| {
+                        set_bg(window.winui_tabview, cc.r, cc.g, cc.b);
+                    }
+                }
+            }
             return true;
         },
 
@@ -1469,5 +1480,3 @@ fn registerDialogClass(hinstance: HINSTANCE) !void {
 
     log.info("Registered dialog class", .{});
 }
-
-

@@ -6,6 +6,10 @@
 ///
 /// This DLL is loaded at runtime by Ghostty's Zig code via LoadLibraryW.
 
+#include "Microsoft.UI.Xaml.Controls.h"
+#include "impl/Microsoft.UI.Xaml.0.h"
+#include "impl/Microsoft.UI.Xaml.2.h"
+#include "impl/Microsoft.UI.Xaml.Controls.0.h"
 #include "pch.h"
 
 #include "ghostty_winui.h"
@@ -127,9 +131,12 @@ struct GhosttyTabViewImpl {
     winrt::Grid root_grid{ nullptr };
     winrt::Canvas overlay_canvas{ nullptr };
     winrt::TabView tab_view{ nullptr };
+    winrt::Border tab_bar_bg{ nullptr };
     GhosttyTabViewCallbacks callbacks{};
     HWND drag_region_parent_hwnd = nullptr;  // Set by setup_drag_regions
     bool updating_drag_regions = false;  // Re-entrancy guard
+    bool has_tab_bg_color = false;
+    uint8_t tab_bg_r = 0, tab_bg_g = 0, tab_bg_b = 0;
 
     // Event tokens for cleanup.
     winrt::event_token selection_changed_token{};
@@ -409,9 +416,26 @@ GHOSTTY_WINUI_API GhosttyTabView ghostty_tabview_create(
         // Create TabView control.
         impl->tab_view = winrt::TabView();
         impl->tab_view.IsAddTabButtonVisible(true);
-        impl->tab_view.TabWidthMode(winrt::TabViewWidthMode::Equal);
+        impl->tab_view.TabWidthMode(winrt::TabViewWidthMode::SizeToContent);
+        
         impl->tab_view.CanReorderTabs(true);
         impl->tab_view.CanDragTabs(true);
+
+        // Remove the bottom border/separator below the tab strip so tabs
+        // extend seamlessly to the content area.
+        {
+            auto resources = impl->tab_view.Resources();
+            auto transparent = winrt::SolidColorBrush(winrt::Windows::UI::ColorHelper::FromArgb(0, 0, 0, 0));
+            resources.Insert(winrt::box_value(winrt::hstring(L"TabViewBorderBrush")), transparent);
+            // Move padding from individual TabViewItems to the tab strip header.
+            resources.Insert(
+                winrt::box_value(winrt::hstring(L"TabViewHeaderPadding")),
+                winrt::box_value(winrt::ThicknessHelper::FromLengths(0, 0, 0,0))
+            );
+
+            impl->tab_view.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Bottom);
+            
+        }
 
         // Wire up events.
         impl->selection_changed_token = impl->tab_view.SelectionChanged(
@@ -458,23 +482,34 @@ GHOSTTY_WINUI_API GhosttyTabView ghostty_tabview_create(
 
         // Wrap TabView in a Grid with an overlay Canvas for search panel.
         impl->root_grid = winrt::Grid();
-        // Default to dark theme for the grid and all children.
-        impl->root_grid.RequestedTheme(winrt::ElementTheme::Dark);
-        // Opaque background so the DWM glass/frame doesn't show through.
-        // Use the WinUI theme's standard tab background color.
+        impl->root_grid.Margin(winrt::ThicknessHelper::FromLengths(0, 0, 0, 0));
+            // Default to dark theme for the grid and all children.
+            impl->root_grid.RequestedTheme(winrt::ElementTheme::Dark);
+        // Transparent background so the terminal surface shows through
+        // when the XAML island is expanded for the search overlay.
+        // impl->root_grid.Background(nullptr);
+
+        // Row 0: TabView (Auto height) — opaque background for the tab bar.
+        winrt::RowDefinition row0;
+        row0.Height(winrt::GridLengthHelper::FromValueAndType(0, winrt::GridUnitType::Auto));
+        row0.MinHeight(32);
+
+        impl->root_grid.RowDefinitions().Append(row0);
+
+        // Tab bar background border — sits behind TabView in row 0.
+        impl->tab_bar_bg = winrt::Border();
         {
             winrt::Windows::UI::Color bg;
             bg.A = 255; bg.R = 32; bg.G = 32; bg.B = 32;
-            impl->root_grid.Background(winrt::SolidColorBrush(bg));
+            impl->tab_bar_bg.Background(winrt::SolidColorBrush(bg));
+            impl->tab_bar_bg.BorderThickness(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromUniformLength(0));
         }
-
-        // Row 0: TabView (Auto height)
-        winrt::RowDefinition row0;
-        row0.Height(winrt::GridLengthHelper::FromValueAndType(0, winrt::GridUnitType::Auto));
-        impl->root_grid.RowDefinitions().Append(row0);
+        winrt::Grid::SetRow(impl->tab_bar_bg, 0);
+        impl->root_grid.Children().Append(impl->tab_bar_bg);
 
         // Row 1: Overlay canvas (Star, fills remaining space)
         winrt::RowDefinition row1;
+
         row1.Height(winrt::GridLengthHelper::FromValueAndType(1, winrt::GridUnitType::Star));
         impl->root_grid.RowDefinitions().Append(row1);
 
@@ -482,8 +517,8 @@ GHOSTTY_WINUI_API GhosttyTabView ghostty_tabview_create(
         impl->root_grid.Children().Append(impl->tab_view);
 
         impl->overlay_canvas = winrt::Canvas();
-        impl->overlay_canvas.IsHitTestVisible(true);
-        impl->overlay_canvas.Background(nullptr);  // Transparent, doesn't block input
+        impl->overlay_canvas.IsHitTestVisible(false);  // Disabled until search is shown
+        impl->overlay_canvas.Background(nullptr);
         winrt::Grid::SetRow(impl->overlay_canvas, 1);
         impl->root_grid.Children().Append(impl->overlay_canvas);
 
@@ -550,6 +585,14 @@ GHOSTTY_WINUI_API void ghostty_tabview_destroy(GhosttyTabView tv) {
     delete tv;
 }
 
+// Apply background color to a TabViewItem's selected visual state only.
+static void apply_selected_tab_bg(winrt::TabViewItem const& tvi, winrt::SolidColorBrush const& brush) {
+    auto resources = tvi.Resources();
+    resources.Insert(winrt::box_value(winrt::hstring(L"TabViewItemHeaderBackgroundSelected")), brush);
+    resources.Insert(winrt::box_value(winrt::hstring(L"TabViewItemHeaderBackgroundPointerOver")), brush);
+    resources.Insert(winrt::box_value(winrt::hstring(L"TabViewItemHeaderBackgroundPressed")), brush);
+}
+
 GHOSTTY_WINUI_API uint32_t ghostty_tabview_add_tab(
     GhosttyTabView tv,
     const char* title
@@ -560,6 +603,13 @@ GHOSTTY_WINUI_API uint32_t ghostty_tabview_add_tab(
         winrt::TabViewItem item;
         item.Header(winrt::box_value(to_hstring(title)));
         item.IsClosable(true);
+        item.Padding(winrt::ThicknessHelper::FromLengths(0, 0, 0, 0));
+        // Override selected-state background so active tab matches terminal bg.
+        if (tv->has_tab_bg_color) {
+            winrt::Windows::UI::Color bg;
+            bg.A = 255; bg.R = tv->tab_bg_r; bg.G = tv->tab_bg_g; bg.B = tv->tab_bg_b;
+            apply_selected_tab_bg(item, winrt::SolidColorBrush(bg));
+        }
 
         auto items = tv->tab_view.TabItems();
         items.Append(item);
@@ -640,19 +690,21 @@ GHOSTTY_WINUI_API void ghostty_tabview_move_tab(
 }
 
 GHOSTTY_WINUI_API int32_t ghostty_tabview_get_height(GhosttyTabView tv) {
-    if (!tv || !tv->tab_view) return 40;
-    try {
-        // Measure the TabView to get its desired height.
-        tv->tab_view.Measure({ std::numeric_limits<float>::infinity(),
-                               std::numeric_limits<float>::infinity() });
-        auto height = tv->tab_view.DesiredSize().Height;
-        // Fluent TabView with content is ~40px. Use minimum to ensure
-        // the tab bar is always visible even before first layout.
-        if (height < 36) height = 40;
-        return static_cast<int32_t>(std::ceil(height));
-    } catch (...) {
-        return 40;
-    }
+    // Measure the root grid (which has MinHeight on row 0) rather than just
+    // the TabView, so we get the actual rendered tab bar height.
+    tv->root_grid.Measure({ std::numeric_limits<float>::infinity(),
+                            std::numeric_limits<float>::infinity() });
+    // The root grid has two rows: row 0 (Auto, tab bar) and row 1 (Star, overlay).
+    // When measured with infinite space, DesiredSize includes both rows.
+    // We only want row 0, so measure the tab_view directly but also respect MinHeight.
+    tv->tab_view.Measure({ std::numeric_limits<float>::infinity(),
+                           std::numeric_limits<float>::infinity() });
+    auto height = tv->tab_view.DesiredSize().Height;
+    // Respect row 0's MinHeight(50).
+    if (height < 31.0f) height = 31.0f;
+
+    // Round up to avoid sub-pixel gap between tab bar and content area.
+    return static_cast<int32_t>(std::ceil(height));
 }
 
 GHOSTTY_WINUI_API void ghostty_tabview_set_theme(
@@ -670,6 +722,40 @@ GHOSTTY_WINUI_API void ghostty_tabview_set_theme(
         // Apply theme to root grid — this cascades to all children
         // including TabView, search panel, and any dialogs.
         tv->root_grid.RequestedTheme(xaml_theme);
+    } catch (...) {}
+}
+
+GHOSTTY_WINUI_API void ghostty_tabview_set_background_color(
+    GhosttyTabView tv,
+    uint8_t r, uint8_t g, uint8_t b
+) {
+    if (!tv) return;
+    try {
+        // Store for newly added tabs.
+        tv->has_tab_bg_color = true;
+        tv->tab_bg_r = r;
+        tv->tab_bg_g = g;
+        tv->tab_bg_b = b;
+
+        winrt::Windows::UI::Color bg;
+        bg.A = 255; bg.R = r; bg.G = g; bg.B = b;
+        auto brush = winrt::SolidColorBrush(bg);
+
+        // Set the tab bar background behind the TabView to the terminal bg color.
+        if (tv->tab_bar_bg) {
+
+            tv->tab_bar_bg.BorderBrush(brush);
+        }
+
+        // Apply selected-state override to all existing TabViewItems.
+        // Inactive tabs keep the default tab bar appearance.
+        auto items = tv->tab_view.TabItems();
+        for (uint32_t i = 0; i < items.Size(); i++) {
+            auto tvi = items.GetAt(i).try_as<winrt::TabViewItem>();
+            if (tvi) {
+                apply_selected_tab_bg(tvi, brush);
+            }
+        }
     } catch (...) {}
 }
 
@@ -888,6 +974,9 @@ GHOSTTY_WINUI_API void ghostty_search_show(
         }
         panel->border.Visibility(winrt::Visibility::Visible);
         panel->visible = true;
+        if (panel->tv && panel->tv->overlay_canvas) {
+            panel->tv->overlay_canvas.IsHitTestVisible(true);
+        }
         panel->search_box.Focus(winrt::FocusState::Programmatic);
     } catch (...) {}
 }
@@ -897,6 +986,9 @@ GHOSTTY_WINUI_API void ghostty_search_hide(GhosttySearchPanel panel) {
     try {
         panel->border.Visibility(winrt::Visibility::Collapsed);
         panel->visible = false;
+        if (panel->tv && panel->tv->overlay_canvas) {
+            panel->tv->overlay_canvas.IsHitTestVisible(false);
+        }
     } catch (...) {}
 }
 
@@ -1168,10 +1260,23 @@ GHOSTTY_WINUI_API void ghostty_tabview_setup_drag_regions(
         auto appWindow = winrt::AppWindow::GetFromWindowId(windowId);
         auto titleBar = appWindow.TitleBar();
         titleBar.ExtendsContentIntoTitleBar(true);
-        titleBar.PreferredHeightOption(winrt::TitleBarHeightOption::Tall);
+        titleBar.PreferredHeightOption(winrt::TitleBarHeightOption::Standard);
+
+        // Make caption button backgrounds transparent so the 8px overflow
+        // below the tab bar blends with the terminal surface.
+        winrt::Windows::UI::Color transparent{};
+        winrt::Windows::UI::Color semi_transparent{};
+
+        transparent.A = 0; transparent.R = 0; transparent.G = 0; transparent.B = 0;
+        semi_transparent.A = 50; semi_transparent.R = 0; semi_transparent.G = 0; semi_transparent.B = 0;
+        titleBar.ButtonBackgroundColor(transparent);
+        titleBar.ButtonInactiveBackgroundColor(transparent);
+        titleBar.ButtonHoverBackgroundColor(semi_transparent);
+        titleBar.ButtonPressedBackgroundColor(transparent);
+
 
         log_init();
-        if (g_log) { fprintf(g_log, "setup_drag_regions: ExtendsContentIntoTitleBar=true, PreferredHeightOption=Tall\n"); fflush(g_log); }
+        if (g_log) { fprintf(g_log, "setup_drag_regions: ExtendsContentIntoTitleBar=true, PreferredHeightOption=Standard\n"); fflush(g_log); }
 
         // Hook SizeChanged on the root grid to auto-update regions.
         // Deferred via timer so TabViewItems have correct layout.
