@@ -1090,8 +1090,12 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
-                    // See gotoTab for notes on this check.
-                    guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    // Check if we have multiple tabs. For regular terminals, check native tab group.
+                    // For QuickTerminal, always allow the notification (QuickTerminal manages its own tabs).
+                    let isQuickTerminal = surfaceView.window?.windowController is QuickTerminalController
+                    if !isQuickTerminal {
+                        guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    }
 
                     NotificationCenter.default.post(
                         name: .ghosttyMoveTab,
@@ -1121,9 +1125,12 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
-                    // Similar to goto_split (see comment there) about our performability,
-                    // we should make this more accurate later.
-                    guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    // Check if we have multiple tabs. For regular terminals, check native tab group.
+                    // For QuickTerminal, always allow the notification (QuickTerminal manages its own tabs).
+                    let isQuickTerminal = surfaceView.window?.windowController is QuickTerminalController
+                    if !isQuickTerminal {
+                        guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    }
 
                     NotificationCenter.default.post(
                         name: Notification.ghosttyGotoTab,

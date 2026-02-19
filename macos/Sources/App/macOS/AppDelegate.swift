@@ -55,6 +55,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
     @IBOutlet private var menuBringAllToFront: NSMenuItem?
+    @IBOutlet private var menuMoveTabToQuickTerminal: NSMenuItem?
     @IBOutlet private var menuZoomSplit: NSMenuItem?
     @IBOutlet private var menuPreviousSplit: NSMenuItem?
     @IBOutlet private var menuNextSplit: NSMenuItem?
@@ -440,8 +441,18 @@ class AppDelegate: NSObject,
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
 
-        // No visible windows, open a new one.
-        _ = TerminalController.newWindow(ghostty)
+        // If the quick terminal is currently active (initialized), show it instead of
+        // opening a new window. Otherwise, open a new regular window.
+        switch quickTerminalControllerState {
+        case .uninitialized, .pendingRestore:
+            // Quick terminal not active, open a new regular window
+            _ = TerminalController.newWindow(ghostty)
+        case .initialized:
+            // Quick terminal is active, show it
+            if !quickController.visible {
+                quickController.animateIn()
+            }
+        }
         return false
     }
 
@@ -595,6 +606,11 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+        if #available(macOS 26.0, *) {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
+        } else {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        }
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
