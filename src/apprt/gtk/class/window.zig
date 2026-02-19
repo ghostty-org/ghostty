@@ -80,6 +80,18 @@ pub const Window = extern struct {
             );
         };
 
+        pub const @"config-overrides" = struct {
+            pub const name = "config-overrides";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ConfigOverrides,
+                .{
+                    .accessor = C.privateObjFieldAccessor("config_overrides"),
+                },
+            );
+        };
+
         pub const debug = struct {
             pub const name = "debug";
             const impl = gobject.ext.defineProperty(
@@ -232,6 +244,9 @@ pub const Window = extern struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
+        /// Configuration overrides.
+        config_overrides: ?*ConfigOverrides = null,
+
         /// State and logic for windowing protocol for a window.
         winproto: winprotopkg.Window,
 
@@ -267,10 +282,30 @@ pub const Window = extern struct {
         pub var offset: c_int = 0;
     };
 
-    pub fn new(app: *Application) *Self {
-        return gobject.ext.newInstance(Self, .{
+    pub fn new(app: *Application, config_overrides_: ?*ConfigOverrides) *Self {
+        const win = gobject.ext.newInstance(Self, .{
             .application = app,
         });
+
+        const priv: *Private = win.private();
+
+        if (config_overrides_) |v| {
+            priv.config_overrides = v.ref();
+            const config_overrides = v.get();
+            // If the config overrides have a title set, we set that immediately
+            // so that any applications inspecting the window states see an
+            // immediate title set when the window appears, rather than waiting
+            // possibly a few event loop ticks for it to sync from the surface.
+            if (config_overrides.isSet(.title)) {
+                const title_ = config_overrides.get(.title);
+                if (title_) |title| {
+                    win.as(gtk.Window).setTitle(title);
+                }
+            }
+            win.as(gobject.Object).notifyByPspec(properties.@"config-overrides".impl.param_spec);
+        }
+
+        return win;
     }
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
@@ -279,10 +314,14 @@ pub const Window = extern struct {
         // If our configuration is null then we get the configuration
         // from the application.
         const priv = self.private();
-        if (priv.config == null) {
+
+        const config = config: {
+            if (priv.config) |config| break :config config.get();
             const app = Application.default();
-            priv.config = app.getConfig();
-        }
+            const config = app.getConfig();
+            priv.config = config;
+            break :config config.get();
+        };
 
         // We initialize our windowing protocol to none because we can't
         // actually initialize this until we get realized.
@@ -306,17 +345,25 @@ pub const Window = extern struct {
         self.initActionMap();
 
         // Start states based on config.
-        if (priv.config) |config_obj| {
-            const config = config_obj.get();
-            if (config.maximize) self.as(gtk.Window).maximize();
-            if (config.fullscreen != .false) self.as(gtk.Window).fullscreen();
+        if (config.maximize) self.as(gtk.Window).maximize();
+        if (config.fullscreen != .false) self.as(gtk.Window).fullscreen();
 
-            // If we have an explicit title set, we set that immediately
-            // so that any applications inspecting the window states see
-            // an immediate title set when the window appears, rather than
-            // waiting possibly a few event loop ticks for it to sync from
-            // the surface.
-            if (config.title) |v| self.as(gtk.Window).setTitle(v);
+        // If we have an explicit title set, we set that immediately
+        // so that any applications inspecting the window states see
+        // an immediate title set when the window appears, rather than
+        // waiting possibly a few event loop ticks for it to sync from
+        // the surface.
+        const title_ = title: {
+            if (priv.config_overrides) |co| {
+                const config_overrides = co.get();
+                if (config_overrides.isSet(.title)) {
+                    break :title config_overrides.get(.title);
+                }
+            }
+            break :title config.title;
+        };
+        if (title_) |title| {
+            self.as(gtk.Window).setTitle(title);
         }
 
         // We always sync our appearance at the end because loading our
@@ -1146,6 +1193,37 @@ pub const Window = extern struct {
         });
     }
 
+    fn closureTitle(
+        _: *Self,
+        config_: ?*Config,
+        config_overrides_: ?*ConfigOverrides,
+        title_: ?[*:0]const u8,
+    ) callconv(.c) ?[*:0]const u8 {
+        config: {
+            if (config_overrides_) |v| {
+                const config_overrides = v.get();
+                if (config_overrides.isSet(.title)) {
+                    if (config_overrides.get(.title)) |title| {
+                        return glib.ext.dupeZ(u8, title);
+                    }
+                    // The `title` has explicitly been set to `null`, skip
+                    // checking the normal config for it's title setting.
+                    break :config;
+                }
+            }
+            if (config_) |v| {
+                const config = v.get();
+                if (config.title) |title| {
+                    return glib.ext.dupeZ(u8, title);
+                }
+            }
+        }
+        if (title_) |title| {
+            return glib.ext.dupeZ(u8, std.mem.span(title));
+        }
+        return null;
+    }
+
     fn closureSubtitle(
         _: *Self,
         config_: ?*Config,
@@ -1172,6 +1250,11 @@ pub const Window = extern struct {
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
+        }
+
+        if (priv.config_overrides) |v| {
+            v.unref();
+            priv.config_overrides = null;
         }
 
         priv.tab_bindings.setSource(null);
@@ -2006,6 +2089,7 @@ pub const Window = extern struct {
             gobject.ext.registerProperties(class, &.{
                 properties.@"active-surface".impl,
                 properties.config.impl,
+                properties.@"config-overrides".impl,
                 properties.debug.impl,
                 properties.@"headerbar-visible".impl,
                 properties.@"quick-terminal".impl,
@@ -2044,6 +2128,7 @@ pub const Window = extern struct {
             class.bindTemplateCallback("notify_quick_terminal", &propQuickTerminal);
             class.bindTemplateCallback("notify_scale_factor", &propScaleFactor);
             class.bindTemplateCallback("titlebar_style_is_tabs", &closureTitlebarStyleIsTab);
+            class.bindTemplateCallback("computed_title", &closureTitle);
             class.bindTemplateCallback("computed_subtitle", &closureSubtitle);
 
             // Virtual methods

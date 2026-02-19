@@ -2215,7 +2215,7 @@ const Action = struct {
         // was a delay in the event loop before we created a Window.
         self.private().requested_window = true;
 
-        const win = Window.new(self);
+        const win = Window.new(self, config_overrides);
         initAndShowWindow(self, win, parent, config_overrides);
     }
 
