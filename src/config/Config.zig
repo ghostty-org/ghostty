@@ -6299,6 +6299,16 @@ pub const Keybinds = struct {
             .{ .key = .{ .physical = .tab }, .mods = .{ .ctrl = true } },
             .{ .next_tab = {} },
         );
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true } },
+            .{ .previous_tab = {} },
+        );
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true } },
+            .{ .next_tab = {} },
+        );
 
         // Windowing
         if (comptime !builtin.target.os.tag.isDarwin()) {
