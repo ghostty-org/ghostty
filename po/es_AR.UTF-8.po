@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
-"PO-Revision-Date: 2026-02-09 17:50-0300\n"
+"PO-Revision-Date: 2026-02-19 13:34-0300\n"
 "Last-Translator: Alan Moyano <alanmoyano203@gmail.com>\n"
 "Language-Team: Argentinian <es@tp.org.es>\n"
 "Language: es_AR\n"
@@ -332,11 +332,11 @@ msgstr "Comando fallido"
 
 #: src/apprt/gtk/class/title_dialog.zig:225
 msgid "Change Terminal Title"
-msgstr "Cambiar el título de la terminal"
+msgstr "Cambiar título de la terminal"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr "Cambiar el título de la ventana"
+msgstr "Cambiar título de la ventana"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
