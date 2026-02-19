@@ -565,7 +565,10 @@ extension Ghostty {
                 rendererHealth(app, target: target, v: action.action.renderer_health)
 
             case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
-                toggleCommandPalette(app, target: target)
+                toggleCommandOrJumpPalette(app, target: target, jumpPalette: false)
+
+            case GHOSTTY_ACTION_TOGGLE_JUMP_PALETTE:
+                toggleCommandOrJumpPalette(app, target: target, jumpPalette: true)
 
             case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
                 toggleMaximize(app, target: target)
@@ -975,9 +978,10 @@ extension Ghostty {
             }
         }
 
-        private static func toggleCommandPalette(
+        private static func toggleCommandOrJumpPalette(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
+            target: ghostty_target_s,
+            jumpPalette: Bool) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle command palette does nothing with an app target")
@@ -987,7 +991,7 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 NotificationCenter.default.post(
-                    name: .ghosttyCommandPaletteDidToggle,
+                    name: jumpPalette ? .ghosttyJumpPaletteDidToggle : .ghosttyCommandPaletteDidToggle,
                     object: surfaceView
                 )
 
