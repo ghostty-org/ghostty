@@ -100,10 +100,10 @@ pub const Options = struct {
 /// `--class` flag) will be sent to the remote Ghostty instance and will be
 /// parsed as command line flags. These flags will override certain settings
 /// when creating the first surface in the new window. Currently, only
-/// `--working-directory` and `--command` are supported. `-e` will also work
-/// as an alias for `--command`, except that if `-e` is found on the command
-/// line all following arguments will become part of the command and no more
-/// arguments will be parsed for configuration settings.
+/// `--working-directory`, `--command`, and `--title` are supported. `-e` will
+/// also work as an alias for `--command`, except that if `-e` is found on the
+/// command line all following arguments will become part of the command and no
+/// more arguments will be parsed for configuration settings.
 ///
 /// If `--working-directory` is found on the command line and is a relative
 /// path (i.e. doesn't start with `/`) it will be resolved to an absolute path
