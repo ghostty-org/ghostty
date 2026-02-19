@@ -274,6 +274,7 @@ pub const CellText = extern struct {
         is_cursor_glyph: bool = false,
         _padding: u6 = 0,
     } align(1) = .{},
+    bg_color: [4]u8 align(1) = .{ 0, 0, 0, 0 },
 
     pub const Atlas = enum(u8) {
         grayscale = 0,
@@ -283,7 +284,7 @@ pub const CellText = extern struct {
     test {
         // Minimizing the size of this struct is important,
         // so we test it in order to be aware of any changes.
-        try std.testing.expectEqual(32, @sizeOf(CellText));
+        try std.testing.expectEqual(40, @sizeOf(CellText));
     }
 };
 

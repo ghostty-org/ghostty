@@ -21,6 +21,9 @@ layout(location = 5) in uint atlas;
 // Misc glyph properties.
 layout(location = 6) in uint glyph_bools;
 
+// The per-cell background color (RGBA), used for min-contrast and blending.
+layout(location = 7) in uvec4 bg_color_in;
+
 // Values `atlas` can take.
 const uint ATLAS_GRAYSCALE = 0u;
 const uint ATLAS_COLOR = 1u;
@@ -35,10 +38,6 @@ out CellTextVertexOut {
     flat vec4 bg_color;
     vec2 tex_coord;
 } out_data;
-
-layout(binding = 1, std430) readonly buffer bg_cells {
-    uint bg_colors[];
-};
 
 void main() {
     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
@@ -115,11 +114,8 @@ void main() {
     // Get our color. We always fetch a linearized version to
     // make it easier to handle minimum contrast calculations.
     out_data.color = load_color(color, true);
-    // Get the BG color
-    out_data.bg_color = load_color(
-            unpack4u8(bg_colors[grid_pos.y * grid_size.x + grid_pos.x]),
-            true
-        );
+    // Get the BG color from the vertex attribute
+    out_data.bg_color = load_color(bg_color_in, true);
     // Blend it with the global bg color
     vec4 global_bg = load_color(
             unpack4u8(bg_color_packed_4u8),

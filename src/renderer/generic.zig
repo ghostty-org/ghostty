@@ -1655,7 +1655,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .uniforms = frame.uniforms.buffer,
                     .buffers = &.{
                         frame.cells.buffer,
-                        frame.cells_bg.buffer,
                     },
                     .textures = &.{
                         frame.grayscale,
@@ -3076,6 +3075,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .atlas = .grayscale,
                 .grid_pos = .{ @intCast(x), @intCast(y) },
                 .color = .{ color.r, color.g, color.b, alpha },
+                .bg_color = self.cells.bgCell(y, x).*,
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3107,6 +3107,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .atlas = .grayscale,
                 .grid_pos = .{ @intCast(x), @intCast(y) },
                 .color = .{ color.r, color.g, color.b, alpha },
+                .bg_color = self.cells.bgCell(y, x).*,
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3138,6 +3139,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .atlas = .grayscale,
                 .grid_pos = .{ @intCast(x), @intCast(y) },
                 .color = .{ color.r, color.g, color.b, alpha },
+                .bg_color = self.cells.bgCell(y, x).*,
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3201,6 +3203,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .bools = .{ .no_min_contrast = noMinContrast(cp) },
                 .grid_pos = .{ @intCast(x), @intCast(y) },
                 .color = .{ color.r, color.g, color.b, alpha },
+                .bg_color = self.cells.bgCell(y, x).*,
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3290,6 +3293,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .bools = .{ .is_cursor_glyph = true },
                 .grid_pos = .{ x, cursor_vp.y },
                 .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
+                .bg_color = self.cells.bgCell(cursor_vp.y, x).*,
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3326,6 +3330,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .atlas = .grayscale,
                 .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
                 .color = .{ screen_fg.r, screen_fg.g, screen_fg.b, 255 },
+                .bg_color = self.cells.bgCell(coord.y, coord.x).*,
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
