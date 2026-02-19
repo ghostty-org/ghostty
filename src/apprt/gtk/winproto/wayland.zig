@@ -404,30 +404,35 @@ pub const Window = struct {
         if (region.slices.items.len > 0) {
             const compositor = self.app_context.compositor orelse return;
 
-            const wl_region = try compositor.createRegion();
-            errdefer wl_region.destroy();
-
-            for (region.slices.items) |slice| {
-                // X11 coming over to bite Wayland.
-                wl_region.add(
-                    @intCast(slice.x),
-                    @intCast(slice.y),
-                    @intCast(slice.width),
-                    @intCast(slice.height),
-                );
-            }
-
             // Does the compositor support the `ext-background-effect-v1`
             // protocol? If so, try that first, though it might not actually
             // support the blur setting.
             if (self.bg_effect) |fx| fx: {
                 if (!self.app_context.ext_bg_capabilities.blur) break :fx;
+
+                const wl_region = try compositor.createRegion();
+                errdefer wl_region.destroy();
+
+                for (region.slices.items) |slice| {
+                    // X11 coming over to bite Wayland.
+                    wl_region.add(
+                        @intCast(slice.x),
+                        @intCast(slice.y),
+                        @intCast(slice.width),
+                        @intCast(slice.height),
+                    );
+                }
+
                 fx.setBlurRegion(wl_region);
             } else if (self.app_context.kde_blur_manager) |mgr| {
                 // Do we already have a blur token? If not, create one.
                 const token = self.blur_token orelse try mgr.create(self.surface);
                 defer self.blur_token = token;
-                token.setRegion(wl_region);
+
+                // Don't set the region here as it causes strange offset
+                // artifacts with the old blur protocol. Plasma should
+                // support the new protocol in 6.7 anyways, and we can
+                // always fall back to this old behavior if we need to.
                 token.commit();
             }
         } else {
