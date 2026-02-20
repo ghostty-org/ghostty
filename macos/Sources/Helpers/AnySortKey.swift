@@ -4,7 +4,7 @@ import Foundation
 struct AnySortKey: Comparable {
     private let value: Any
     private let comparator: (Any, Any) -> ComparisonResult
-    
+
     init<T: Comparable>(_ value: T) {
         self.value = value
         self.comparator = { lhs, rhs in
@@ -14,11 +14,11 @@ struct AnySortKey: Comparable {
             return .orderedSame
         }
     }
-    
+
     static func < (lhs: AnySortKey, rhs: AnySortKey) -> Bool {
         lhs.comparator(lhs.value, rhs.value) == .orderedAscending
     }
-    
+
     static func == (lhs: AnySortKey, rhs: AnySortKey) -> Bool {
         lhs.comparator(lhs.value, rhs.value) == .orderedSame
     }

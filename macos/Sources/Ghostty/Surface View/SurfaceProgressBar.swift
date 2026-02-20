@@ -5,7 +5,7 @@ import SwiftUI
 /// control.
 struct SurfaceProgressBar: View {
     let report: Ghostty.Action.ProgressReport
-    
+
     private var color: Color {
         switch report.state {
         case .error: return .red
@@ -13,17 +13,17 @@ struct SurfaceProgressBar: View {
         default: return .accentColor
         }
     }
-    
+
     private var progress: UInt8? {
         // If we have an explicit progress use that.
         if let v = report.progress { return v }
-        
+
         // Otherwise, if we're in the pause state, we act as if we're at 100%.
         if report.state == .pause { return 100 }
-        
+
         return nil
     }
-    
+
     private var accessibilityLabel: String {
         switch report.state {
         case .error: return "Terminal progress - Error"
@@ -32,7 +32,7 @@ struct SurfaceProgressBar: View {
         default: return "Terminal progress"
         }
     }
-    
+
     private var accessibilityValue: String {
         if let progress {
             return "\(progress) percent complete"
@@ -45,7 +45,7 @@ struct SurfaceProgressBar: View {
             }
         }
     }
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
@@ -78,15 +78,15 @@ struct SurfaceProgressBar: View {
 private struct BouncingProgressBar: View {
     let color: Color
     @State private var position: CGFloat = 0
-    
+
     private let barWidthRatio: CGFloat = 0.25
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Rectangle()
                     .fill(color.opacity(0.3))
-                
+
                 Rectangle()
                     .fill(color)
                     .frame(
@@ -109,5 +109,4 @@ private struct BouncingProgressBar: View {
         }
     }
 }
-
 

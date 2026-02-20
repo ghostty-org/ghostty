@@ -18,7 +18,7 @@ extension NSApplication {
     func releasePresentationOption(_ option: NSApplication.PresentationOptions.Element) {
         guard let value = Self.presentationOptionCounts[option] else { return }
         guard value > 0 else { return }
-        if (value == 1) {
+        if value == 1 {
             presentationOptions.remove(option)
             Self.presentationOptionCounts.removeValue(forKey: option)
         } else {

@@ -63,9 +63,14 @@
 
     forAllPlatforms = f: lib.genAttrs platforms (s: f legacyPackages.${s});
     forBuildablePlatforms = f: lib.genAttrs buildablePlatforms (s: f legacyPackages.${s});
+
+    mkPkgArgs = optimize: {
+      inherit optimize;
+      revision = self.shortRev or self.dirtyShortRev or "dirty";
+    };
   in {
-    devShell = forAllPlatforms (pkgs:
-      pkgs.callPackage ./nix/devShell.nix {
+    devShells = forAllPlatforms (pkgs: {
+      default = pkgs.callPackage ./nix/devShell.nix {
         zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.15.2";
         wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
         zon2nix = zon2nix;
@@ -77,22 +82,18 @@
             ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
           };
         };
-      });
+      };
+    });
 
     packages =
       forAllPlatforms (pkgs: {
         # Deps are needed for environmental setup on macOS
         deps = pkgs.callPackage ./build.zig.zon.nix {};
       })
-      // forBuildablePlatforms (pkgs: let
-        mkArgs = optimize: {
-          inherit optimize;
-          revision = self.shortRev or self.dirtyShortRev or "dirty";
-        };
-      in rec {
-        ghostty-debug = pkgs.callPackage ./nix/package.nix (mkArgs "Debug");
-        ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkArgs "ReleaseSafe");
-        ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkArgs "ReleaseFast");
+      // forBuildablePlatforms (pkgs: rec {
+        ghostty-debug = pkgs.callPackage ./nix/package.nix (mkPkgArgs "Debug");
+        ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseSafe");
+        ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
 
         ghostty = ghostty-releasefast;
         default = ghostty;
@@ -136,10 +137,10 @@
     overlays = {
       default = self.overlays.releasefast;
       releasefast = final: prev: {
-        ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-releasefast;
+        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
       };
       debug = final: prev: {
-        ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
+        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "Debug");
       };
     };
   };

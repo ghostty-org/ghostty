@@ -50,7 +50,7 @@ class ServiceProvider: NSObject {
             var config = Ghostty.SurfaceConfiguration()
             config.workingDirectory = url.path(percentEncoded: false)
 
-            switch (target) {
+            switch target {
             case .window:
                 _ = TerminalController.newWindow(delegate.ghostty, withBaseConfig: config)
 

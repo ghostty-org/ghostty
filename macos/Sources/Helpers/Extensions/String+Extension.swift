@@ -31,4 +31,5 @@ extension String {
         "'" + self.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 #endif
+
 }

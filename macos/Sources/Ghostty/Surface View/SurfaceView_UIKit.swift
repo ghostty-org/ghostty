@@ -15,7 +15,7 @@ extension Ghostty {
         @Published var title: String = "👻"
 
         // The current pwd of the surface.
-        @Published var pwd: String? = nil
+        @Published var pwd: String?
 
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
@@ -28,30 +28,30 @@ extension Ghostty {
         @Published var healthy: Bool = true
 
         // Any error while initializing the surface.
-        @Published var error: Error? = nil
+        @Published var error: Error?
 
         // The hovered URL
-        @Published var hoverUrl: String? = nil
-        
+        @Published var hoverUrl: String?
+
         // The progress report (if any)
-        @Published var progressReport: Action.ProgressReport? = nil
+        @Published var progressReport: Action.ProgressReport?
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
-        @Published var focusInstant: ContinuousClock.Instant? = nil
+        @Published var focusInstant: ContinuousClock.Instant?
 
         /// True when the bell is active. This is set inactive on focus or event.
         @Published var bell: Bool = false
-        
+
         // The current search state. When non-nil, the search overlay should be shown.
-        @Published var searchState: SearchState? = nil
+        @Published var searchState: SearchState?
 
         // The currently active key tables. Empty if no tables are active.
         @Published var keyTables: [String] = []
 
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
-        
+
         /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
         @Published private(set) var highlighted: Bool = false
 
@@ -81,7 +81,7 @@ extension Ghostty {
                 // TODO
                 return
             }
-            self.surface = surface;
+            self.surface = surface
         }
 
         required init?(coder: NSCoder) {
@@ -98,7 +98,7 @@ extension Ghostty {
             ghostty_surface_set_focus(surface, focused)
 
             // On macOS 13+ we can store our continuous clock...
-            if (focused) {
+            if focused {
                 focusInstant = ContinuousClock.now
             }
         }
@@ -122,9 +122,7 @@ extension Ghostty {
         // MARK: UIView
 
         override class var layerClass: AnyClass {
-            get {
-                return CAMetalLayer.self
-            }
+            return CAMetalLayer.self
         }
 
         override func didMoveToWindow() {

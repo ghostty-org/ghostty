@@ -373,6 +373,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A5B30540299BEAAB0047F10C /* Build configuration list for PBXNativeTarget "Ghostty" */;
 			buildPhases = (
+				FC501E0B2F46B410007AE49D /* Run SwiftLint */,
 				A5B3052D299BEAAA0047F10C /* Sources */,
 				A5B3052E299BEAAA0047F10C /* Frameworks */,
 				A5B3052F299BEAAA0047F10C /* Resources */,
@@ -506,6 +507,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		FC501E0B2F46B410007AE49D /* Run SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Run SwiftLint";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "[[ -z \"$GITHUB_ACTIONS\" ]] || exit 0;\n\nSWIFTLINT=\"\"\nif command -v swiftlint >/dev/null 2>&1; then\n    SWIFTLINT=\"$(command -v swiftlint)\"\nelif [[ -f \"/opt/homebrew/bin/swiftlint\" ]]; then\n    SWIFTLINT=\"/opt/homebrew/bin/swiftlint\"\nfi\n\nif [[ -n \"$SWIFTLINT\" ]]; then\n    \"$SWIFTLINT\" lint --quiet \"$SRCROOT\"\nfi\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		810ACC9B2E9D3301004F8F92 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -630,6 +654,7 @@
 				INFOPLIST_KEY_CFBundleName = Ghostree;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "A program running within Ghostty would like to use AppleScript.";
+				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "A program running within Ghostty would like to access your system's audio.";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "A program running within Ghostty would like to use Bluetooth.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "A program running within Ghostty would like to access your Calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "A program running within Ghostty would like to use the camera.";

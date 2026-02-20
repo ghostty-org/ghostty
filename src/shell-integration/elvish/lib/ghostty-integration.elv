@@ -1,42 +1,12 @@
 {
-  fn restore-xdg-dirs {
-    use str
-    var integration-dir = $E:GHOSTTY_SHELL_INTEGRATION_XDG_DIR
-    var xdg-dirs = [(str:split ':' $E:XDG_DATA_DIRS)]
-    var len = (count $xdg-dirs)
+  use platform
+  use str
 
-    var index = $nil
-    range $len | each {|dir-index|
-      if (eq $xdg-dirs[$dir-index] $integration-dir) {
-        set index = $dir-index
-        break
-      }
-    }
-    if (eq $nil $index) { return } # will appear as an error
-
-    if (== 0 $index) {
-      set xdg-dirs = $xdg-dirs[1..]
-    } elif (== (- $len 1) $index) {
-      set xdg-dirs = $xdg-dirs[0..(- $len 1)]
-    } else {
-      # no builtin function for this : )
-      set xdg-dirs = [ (take $index $xdg-dirs) (drop (+ 1 $index) $xdg-dirs) ]
-    }
-
-    if (== 0 (count $xdg-dirs)) {
-      unset-env XDG_DATA_DIRS
-    } else {
-      set-env XDG_DATA_DIRS (str:join ':' $xdg-dirs)
-    }
+  # Clean up XDG_DATA_DIRS by removing GHOSTTY_SHELL_INTEGRATION_XDG_DIR
+  if (and (has-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR) (has-env XDG_DATA_DIRS)) {
+    set-env XDG_DATA_DIRS (str:replace $E:GHOSTTY_SHELL_INTEGRATION_XDG_DIR":" "" $E:XDG_DATA_DIRS)
     unset-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR
   }
-  if (and (has-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR) (has-env XDG_DATA_DIRS)) {
-    restore-xdg-dirs
-  }
-}
-
-{
-  use str
 
   # List of enabled shell integration features
   var features = [(str:split ',' $E:GHOSTTY_SHELL_FEATURES)]
@@ -77,24 +47,22 @@
     printf "\e]133;D;"$exit-status"\a"
   }
 
-  fn report-pwd {
-    use platform
-    printf "\e]7;kitty-shell-cwd://%s%s\a" (platform:hostname) $pwd
-  }
-
   fn sudo-with-terminfo {|@args|
     var sudoedit = $false
     for arg $args {
-      use str
-      if (str:has-prefix $arg -) {
-        if (has-value [e -edit] $arg[1..]) {
+      if (str:has-prefix $arg --) {
+        if (eq $arg --edit) {
           set sudoedit = $true
           break
         }
-        continue
+      } elif (str:has-prefix $arg -) {
+        if (str:contains (str:trim-prefix $arg -) e) {
+          set sudoedit = $true
+          break
+        }
+      } elif (not (str:contains $arg =)) {
+        break
       }
-
-      if (not (has-value $arg =)) { break }
     }
 
     if (not $sudoedit) { set args = [ --preserve-env=TERMINFO $@args ] }
@@ -180,21 +148,22 @@
 
   defer {
     mark-prompt-start
-    report-pwd
   }
 
   set edit:before-readline = (conj $edit:before-readline $mark-prompt-start~)
   set edit:after-readline  = (conj $edit:after-readline $mark-output-start~)
   set edit:after-command   = (conj $edit:after-command $mark-output-end~)
 
-  if (has-value $features title) {
-    set after-chdir = (conj $after-chdir {|_| report-pwd })
-  }
-  if (has-value $features cursor) {
-    fn beam  { printf "\e[5 q" }
-    fn block { printf "\e[0 q" }
+  if (str:contains $E:GHOSTTY_SHELL_FEATURES "cursor") {
+    var cursor = "5"    # blinking bar
+    if (has-value $features cursor:steady) {
+      set cursor = "6"  # steady bar
+    }
+
+    fn beam  { printf "\e["$cursor" q" }
+    fn reset { printf "\e[0 q" }
     set edit:before-readline = (conj $edit:before-readline $beam~)
-    set edit:after-readline  = (conj $edit:after-readline {|_| block })
+    set edit:after-readline  = (conj $edit:after-readline {|_| reset })
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
     if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {
@@ -207,4 +176,9 @@
   if (and (str:contains $E:GHOSTTY_SHELL_FEATURES ssh-) (has-external ssh)) {
     edit:add-var ssh~ $ssh-integration~
   }
+
+  # Report changes to the current directory.
+  fn report-pwd { printf "\e]7;kitty-shell-cwd://%s%s\a" (platform:hostname) $pwd }
+  set after-chdir = (conj $after-chdir {|_| report-pwd })
+  report-pwd
 }

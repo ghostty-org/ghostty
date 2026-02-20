@@ -40,7 +40,7 @@ class PermissionRequest {
             completion(storedResult)
             return
         }
-        
+
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = informative
@@ -59,7 +59,7 @@ class PermissionRequest {
                 target: nil,
                 action: nil)
             checkbox!.state = .off
-            
+
             // Set checkbox as accessory view
             alert.accessoryView = checkbox
         }
@@ -74,7 +74,7 @@ class PermissionRequest {
             handleResponse(response, rememberDecision: checkbox?.state == .on, key: key, allowDuration: allowDuration, rememberDuration: rememberDuration, completion: completion)
         }
     }
-    
+
     /// Handles the alert response and processes caching logic
     /// - Parameters:
     ///   - response: The alert response from the user
@@ -90,7 +90,7 @@ class PermissionRequest {
         allowDuration: AllowDuration,
         rememberDuration: Duration?,
         completion: @escaping (Bool) -> Void) {
-        
+
         let result: Bool
         switch response {
         case .alertFirstButtonReturn: // Allow
@@ -100,7 +100,7 @@ class PermissionRequest {
         default:
             result = false
         }
-        
+
         // Store the result if checkbox is checked or if "Allow" was selected and allowDuration is set
         if rememberDecision, let rememberDuration = rememberDuration {
             storeResult(result, for: key, duration: rememberDuration)
@@ -118,10 +118,10 @@ class PermissionRequest {
                 storeResult(result, for: key, duration: duration)
             }
         }
-        
+
         completion(result)
     }
-    
+
     /// Retrieves a cached permission decision if it hasn't expired
     /// - Parameter key: The UserDefaults key to check
     /// - Returns: The cached decision, or nil if no valid cached decision exists
@@ -132,16 +132,16 @@ class PermissionRequest {
                 ofClass: StoredPermission.self, from: data) else {
             return nil
         }
-        
+
         if Date() > storedPermission.expiry {
             // Decision has expired, remove stored value
             userDefaults.removeObject(forKey: key)
             return nil
         }
-        
+
         return storedPermission.result
     }
-    
+
     /// Stores a permission decision in UserDefaults with an expiration date
     /// - Parameters:
     ///   - result: The permission decision to store
@@ -180,7 +180,7 @@ class PermissionRequest {
             return "Remember my decision for \(days) day\(days == 1 ? "" : "s")"
         }
     }
-    
+
     /// Internal class for storing permission decisions with expiration dates in UserDefaults
     /// Conforms to NSSecureCoding for safe archiving/unarchiving
     @objc(StoredPermission)

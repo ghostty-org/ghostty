@@ -17,11 +17,11 @@ extension Ghostty.SurfaceView: Transferable {
             let uuid = data.withUnsafeBytes {
                 $0.load(as: UUID.self)
             }
-            
+
             guard let imported = await Self.find(uuid: uuid) else {
                 throw TransferError.invalidData
             }
-            
+
             return imported
         }
     }
@@ -29,7 +29,7 @@ extension Ghostty.SurfaceView: Transferable {
     enum TransferError: Error {
         case invalidData
     }
-    
+
     @MainActor
     static func find(uuid: UUID) -> Self? {
         #if canImport(AppKit)

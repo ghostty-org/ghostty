@@ -23,7 +23,7 @@ extension Ghostty {
             let pubInspector = center.publisher(for: Notification.didControlInspector, object: surfaceView)
 
             ZStack {
-                if (!surfaceView.inspectorVisible) {
+                if !surfaceView.inspectorVisible {
                     SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
                 } else {
                     SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
@@ -42,7 +42,7 @@ extension Ghostty {
             .onChange(of: surfaceView.inspectorVisible) { inspectorVisible in
                 // When we show the inspector, we want to focus on the inspector.
                 // When we hide the inspector, we want to move focus back to the surface.
-                if (inspectorVisible) {
+                if inspectorVisible {
                     // We need to delay this until SwiftUI shows the inspector.
                     DispatchQueue.main.async {
                         _ = surfaceView.resignFirstResponder()
@@ -59,7 +59,7 @@ extension Ghostty {
             guard let modeAny = notification.userInfo?["mode"] else { return }
             guard let mode = modeAny as? ghostty_action_inspector_e else { return }
 
-            switch (mode) {
+            switch mode {
             case GHOSTTY_INSPECTOR_TOGGLE:
                 surfaceView.inspectorVisible = !surfaceView.inspectorVisible
 
@@ -94,7 +94,7 @@ extension Ghostty {
     class InspectorView: MTKView, NSTextInputClient {
         let commandQueue: MTLCommandQueue
 
-        var surfaceView: SurfaceView? = nil {
+        var surfaceView: SurfaceView? {
             didSet { surfaceViewDidChange() }
         }
 
@@ -180,7 +180,7 @@ extension Ghostty {
 
         override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
-            if (result) {
+            if result {
                 if let inspector = self.inspector {
                     inspector.setFocus(true)
                 }
@@ -190,7 +190,7 @@ extension Ghostty {
 
         override func resignFirstResponder() -> Bool {
             let result = super.resignFirstResponder()
-            if (result) {
+            if result {
                 if let inspector = self.inspector {
                     inspector.setFocus(false)
                 }
@@ -275,7 +275,7 @@ extension Ghostty {
 
             // Determine our momentum value
             var momentum: ghostty_input_mouse_momentum_e = GHOSTTY_MOUSE_MOMENTUM_NONE
-            switch (event.momentumPhase) {
+            switch event.momentumPhase {
             case .began:
                 momentum = GHOSTTY_MOUSE_MOMENTUM_BEGAN
             case .stationary:
@@ -309,8 +309,8 @@ extension Ghostty {
         }
 
         override func flagsChanged(with event: NSEvent) {
-            let mod: UInt32;
-            switch (event.keyCode) {
+            let mod: UInt32
+            switch event.keyCode {
             case 0x39: mod = GHOSTTY_MODS_CAPS.rawValue
             case 0x38, 0x3C: mod = GHOSTTY_MODS_SHIFT.rawValue
             case 0x3B, 0x3E: mod = GHOSTTY_MODS_CTRL.rawValue
@@ -325,7 +325,7 @@ extension Ghostty {
 
             // If the key that pressed this is active, its a press, else release
             var action = GHOSTTY_ACTION_RELEASE
-            if (mods.rawValue & mod != 0) { action = GHOSTTY_ACTION_PRESS }
+            if mods.rawValue & mod != 0 { action = GHOSTTY_ACTION_PRESS }
 
             keyAction(action, event: event)
         }
@@ -382,7 +382,7 @@ extension Ghostty {
         }
 
         func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-            return NSMakeRect(frame.origin.x, frame.origin.y, 0, 0)
+            return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
         }
 
         func insertText(_ string: Any, replacementRange: NSRange) {
@@ -392,7 +392,7 @@ extension Ghostty {
 
             // We want the string view of the any value
             var chars = ""
-            switch (string) {
+            switch string {
             case let v as NSAttributedString:
                 chars = v.string
             case let v as String:
@@ -402,7 +402,7 @@ extension Ghostty {
             }
 
             let len = chars.utf8CString.count
-            if (len == 0) { return }
+            if len == 0 { return }
 
             inspector.text(chars)
         }

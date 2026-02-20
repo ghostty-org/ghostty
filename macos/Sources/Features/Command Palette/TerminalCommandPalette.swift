@@ -11,7 +11,7 @@ struct TerminalCommandPaletteView: View {
 
     /// The configuration so we can lookup keyboard shortcuts.
     @ObservedObject var ghosttyConfig: Ghostty.Config
-    
+
     /// The update view model for showing update commands.
     var updateViewModel: UpdateViewModel?
 
@@ -69,7 +69,7 @@ struct TerminalCommandPaletteView: View {
             }
         }
     }
-    
+
     /// All commands available in the command palette, combining update and terminal options.
     private var commandOptions: [CommandOption] {
         switch worktrunkMode {
@@ -104,11 +104,11 @@ struct TerminalCommandPaletteView: View {
     /// Commands for installing or canceling available updates.
     private var updateOptions: [CommandOption] {
         var options: [CommandOption] = []
-        
+
         guard let updateViewModel, updateViewModel.state.isInstallable else {
             return options
         }
-        
+
         // We override the update available one only because we want to properly
         // convey it'll go all the way through.
         let title: String
@@ -117,7 +117,7 @@ struct TerminalCommandPaletteView: View {
         } else {
             title = updateViewModel.text
         }
-        
+
         options.append(CommandOption(
             title: title,
             description: updateViewModel.description,
@@ -127,14 +127,14 @@ struct TerminalCommandPaletteView: View {
         ) {
             (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
         })
-        
+
         options.append(CommandOption(
             title: "Cancel or Skip Update",
             description: "Dismiss the current update process"
         ) {
             updateViewModel.state.cancel()
         })
-        
+
         return options
     }
 
@@ -144,9 +144,11 @@ struct TerminalCommandPaletteView: View {
         return appDelegate.ghostty.config.commandPaletteEntries
             .filter(\.isSupported)
             .map { c in
-                CommandOption(
+                let symbols = appDelegate.ghostty.config.keyboardShortcut(for: c.action)?.keyList
+                return CommandOption(
                     title: c.title,
-                    description: c.description
+                    description: c.description,
+                    symbols: symbols
                 ) {
                     onAction(c.action)
                 }
@@ -299,7 +301,7 @@ struct TerminalCommandPaletteView: View {
 }
 
 /// This is done to ensure that the given view is in the responder chain.
-fileprivate struct ResponderChainInjector: NSViewRepresentable {
+private struct ResponderChainInjector: NSViewRepresentable {
     let responder: NSResponder
 
     func makeNSView(context: Context) -> NSView {

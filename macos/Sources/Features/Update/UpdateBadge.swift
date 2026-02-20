@@ -9,15 +9,15 @@ import SwiftUI
 struct UpdateBadge: View {
     /// The update view model that provides the current state and progress
     @ObservedObject var model: UpdateViewModel
-    
+
     /// Current rotation angle for animated icon states
     @State private var rotationAngle: Double = 0
-    
+
     var body: some View {
         badgeContent
             .accessibilityLabel(model.text)
     }
-    
+
     @ViewBuilder
     private var badgeContent: some View {
         switch model.state {
@@ -28,10 +28,10 @@ struct UpdateBadge: View {
             } else {
                 Image(systemName: "arrow.down.circle")
             }
-            
+
         case .extracting(let extracting):
             ProgressRingView(progress: min(1, max(0, extracting.progress)))
-            
+
         case .checking:
             if let iconName = model.iconName {
                 Image(systemName: iconName)
@@ -47,7 +47,7 @@ struct UpdateBadge: View {
             } else {
                 EmptyView()
             }
-            
+
         default:
             if let iconName = model.iconName {
                 Image(systemName: iconName)
@@ -61,18 +61,18 @@ struct UpdateBadge: View {
 /// A circular progress indicator with a stroke-based ring design.
 ///
 /// Displays a partially filled circle that represents progress from 0.0 to 1.0.
-fileprivate struct ProgressRingView: View {
+private struct ProgressRingView: View {
     /// The current progress value, ranging from 0.0 (empty) to 1.0 (complete)
     let progress: Double
-    
+
     /// The width of the progress ring stroke
     let lineWidth: CGFloat = 2
-    
+
     var body: some View {
         ZStack {
             Circle()
                 .stroke(Color.primary.opacity(0.2), lineWidth: lineWidth)
-            
+
             Circle()
                 .trim(from: 0, to: progress)
                 .stroke(Color.primary, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))

@@ -28,7 +28,7 @@ func requestIntentPermission() async -> Bool {
     await withCheckedContinuation { continuation in
         Task { @MainActor in
             if let delegate = NSApp.delegate as? AppDelegate {
-                switch (delegate.ghostty.config.macosShortcuts) {
+                switch delegate.ghostty.config.macosShortcuts {
                 case .allow:
                     continuation.resume(returning: true)
                     return
@@ -42,7 +42,6 @@ func requestIntentPermission() async -> Bool {
                     break
                 }
             }
-
 
             PermissionRequest.show(
                 "dev.sidequery.Ghostree.shortcutsPermission",

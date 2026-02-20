@@ -9,10 +9,10 @@ import AppKit
 struct UpdatePopoverView: View {
     /// The update view model that provides the current state and information
     @ObservedObject var model: UpdateViewModel
-    
+
     /// Environment value for dismissing the popover
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch model.state {
@@ -20,34 +20,33 @@ struct UpdatePopoverView: View {
                 // Shouldn't happen in a well-formed view stack. Higher levels
                 // should not call the popover for idles.
                 EmptyView()
-                
+
             case .permissionRequest(let request):
                 PermissionRequestView(request: request, dismiss: dismiss)
-                
+
             case .checking(let checking):
                 CheckingView(checking: checking, dismiss: dismiss)
-                
+
             case .updateAvailable(let update):
                 UpdateAvailableView(update: update, dismiss: dismiss)
-                
+
             case .homebrewAvailable(let update):
                 HomebrewUpdateView(update: update, dismiss: dismiss)
-                
             case .downloading(let download):
                 DownloadingView(download: download, dismiss: dismiss)
-                
+
             case .extracting(let extracting):
                 ExtractingView(extracting: extracting)
-                
+
             case .installing(let installing):
                 // This is only required when `installing.isAutoUpdate == true`,
                 // but we keep it anyway, just in case something unexpected
                 // happens during installing
                 InstallingView(installing: installing, dismiss: dismiss)
-                
+
             case .notFound(let notFound):
                 NotFoundView(notFound: notFound, dismiss: dismiss)
-                
+
             case .error(let error):
                 UpdateErrorView(error: error, dismiss: dismiss)
             }
@@ -56,22 +55,22 @@ struct UpdatePopoverView: View {
     }
 }
 
-fileprivate struct PermissionRequestView: View {
+private struct PermissionRequestView: View {
     let request: UpdateState.PermissionRequest
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Enable automatic updates?")
                     .font(.system(size: 13, weight: .semibold))
-                
+
                 Text("Ghostree can automatically check for updates in the background.")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            
+
             HStack(spacing: 8) {
                 Button("Not Now") {
                     request.reply(SUUpdatePermissionResponse(
@@ -80,9 +79,9 @@ fileprivate struct PermissionRequestView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-                
+
                 Spacer()
-                
+
                 Button("Allow") {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: true,
@@ -97,10 +96,10 @@ fileprivate struct PermissionRequestView: View {
     }
 }
 
-fileprivate struct CheckingView: View {
+private struct CheckingView: View {
     let checking: UpdateState.Checking
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
@@ -109,7 +108,7 @@ fileprivate struct CheckingView: View {
                 Text("Checking for updates…")
                     .font(.system(size: 13))
             }
-            
+
             HStack {
                 Spacer()
                 Button("Cancel") {
@@ -124,19 +123,19 @@ fileprivate struct CheckingView: View {
     }
 }
 
-fileprivate struct UpdateAvailableView: View {
+private struct UpdateAvailableView: View {
     let update: UpdateState.UpdateAvailable
     let dismiss: DismissAction
-    
+
     private let labelWidth: CGFloat = 60
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Update Available")
                         .font(.system(size: 13, weight: .semibold))
-                    
+
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             Text("Version:")
@@ -145,7 +144,7 @@ fileprivate struct UpdateAvailableView: View {
                             Text(update.appcastItem.displayVersionString)
                         }
                         .font(.system(size: 11))
-                        
+
                         if update.appcastItem.contentLength > 0 {
                             HStack(spacing: 6) {
                                 Text("Size:")
@@ -155,7 +154,7 @@ fileprivate struct UpdateAvailableView: View {
                             }
                             .font(.system(size: 11))
                         }
-                        
+
                         if let date = update.appcastItem.date {
                             HStack(spacing: 6) {
                                 Text("Released:")
@@ -168,23 +167,23 @@ fileprivate struct UpdateAvailableView: View {
                     }
                     .textSelection(.enabled)
                 }
-                
+
                 HStack(spacing: 8) {
                     Button("Skip") {
                         update.reply(.skip)
                         dismiss()
                     }
                     .controlSize(.small)
-                    
+
                     Button("Later") {
                         update.reply(.dismiss)
                         dismiss()
                     }
                     .controlSize(.small)
                     .keyboardShortcut(.cancelAction)
-                    
+
                     Spacer()
-                    
+
                     Button("Install and Relaunch") {
                         update.reply(.install)
                         dismiss()
@@ -195,10 +194,10 @@ fileprivate struct UpdateAvailableView: View {
                 }
             }
             .padding(16)
-            
+
             if let notes = update.releaseNotes {
                 Divider()
-                
+
                 Link(destination: notes.url) {
                     HStack {
                         Image(systemName: "doc.text")
@@ -224,16 +223,16 @@ fileprivate struct UpdateAvailableView: View {
 fileprivate struct HomebrewUpdateView: View {
     let update: UpdateState.HomebrewUpdate
     let dismiss: DismissAction
-    
+
     private let labelWidth: CGFloat = 60
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Update via Homebrew")
                         .font(.system(size: 13, weight: .semibold))
-                    
+
                     VStack(alignment: .leading, spacing: 4) {
                         let version = update.appcastItem.displayVersionString
                         if !version.isEmpty {
@@ -245,7 +244,7 @@ fileprivate struct HomebrewUpdateView: View {
                             }
                             .font(.system(size: 11))
                         }
-                        
+
                         if update.appcastItem.contentLength > 0 {
                             HStack(spacing: 6) {
                                 Text("Size:")
@@ -255,7 +254,7 @@ fileprivate struct HomebrewUpdateView: View {
                             }
                             .font(.system(size: 11))
                         }
-                        
+
                         if let date = update.appcastItem.date {
                             HStack(spacing: 6) {
                                 Text("Released:")
@@ -267,7 +266,7 @@ fileprivate struct HomebrewUpdateView: View {
                         }
                     }
                     .textSelection(.enabled)
-                    
+
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Run:")
                             .font(.system(size: 11))
@@ -281,7 +280,7 @@ fileprivate struct HomebrewUpdateView: View {
                             .cornerRadius(6)
                     }
                 }
-                
+
                 HStack(spacing: 8) {
                     Button(openButtonTitle) {
                         update.openInGhostree()
@@ -291,16 +290,16 @@ fileprivate struct HomebrewUpdateView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
-                    
+
                     Button("Copy Command") {
                         update.copyCommand()
                         update.dismiss()
                         dismiss()
                     }
                     .controlSize(.small)
-                    
+
                     Spacer()
-                    
+
                     Button("Later") {
                         update.dismiss()
                         dismiss()
@@ -310,10 +309,10 @@ fileprivate struct HomebrewUpdateView: View {
                 }
             }
             .padding(16)
-            
+
             if let notes = update.releaseNotes {
                 Divider()
-                
+
                 Link(destination: notes.url) {
                     HStack {
                         Image(systemName: "doc.text")
@@ -334,7 +333,7 @@ fileprivate struct HomebrewUpdateView: View {
             }
         }
     }
-    
+
     private var openButtonTitle: String {
         if let window = NSApp.keyWindow, window.windowController is TerminalController {
             return "Open New Tab"
@@ -343,16 +342,16 @@ fileprivate struct HomebrewUpdateView: View {
     }
 }
 
-fileprivate struct DownloadingView: View {
+private struct DownloadingView: View {
     let download: UpdateState.Downloading
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Downloading Update")
                     .font(.system(size: 13, weight: .semibold))
-                
+
                 if let expectedLength = download.expectedLength, expectedLength > 0 {
                     let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))
                     VStack(alignment: .leading, spacing: 6) {
@@ -366,7 +365,7 @@ fileprivate struct DownloadingView: View {
                         .controlSize(.small)
                 }
             }
-            
+
             HStack {
                 Spacer()
                 Button("Cancel") {
@@ -381,14 +380,14 @@ fileprivate struct DownloadingView: View {
     }
 }
 
-fileprivate struct ExtractingView: View {
+private struct ExtractingView: View {
     let extracting: UpdateState.Extracting
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Preparing Update")
                 .font(.system(size: 13, weight: .semibold))
-            
+
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: min(1, max(0, extracting.progress)), total: 1.0)
                 Text(String(format: "%.0f%%", min(1, max(0, extracting.progress)) * 100))
@@ -400,22 +399,22 @@ fileprivate struct ExtractingView: View {
     }
 }
 
-fileprivate struct InstallingView: View {
+private struct InstallingView: View {
     let installing: UpdateState.Installing
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Restart Required")
                     .font(.system(size: 13, weight: .semibold))
-                
+
                 Text("The update is ready. Please restart the application to complete the installation.")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            
+
             HStack {
                 Button("Restart Later") {
                     installing.dismiss()
@@ -423,9 +422,9 @@ fileprivate struct InstallingView: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .controlSize(.small)
-                
+
                 Spacer()
-                
+
                 Button("Restart Now") {
                     installing.retryTerminatingApplication()
                     dismiss()
@@ -439,22 +438,22 @@ fileprivate struct InstallingView: View {
     }
 }
 
-fileprivate struct NotFoundView: View {
+private struct NotFoundView: View {
     let notFound: UpdateState.NotFound
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("No Updates Found")
                     .font(.system(size: 13, weight: .semibold))
-                
+
                 Text("You're already running the latest version.")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            
+
             HStack {
                 Spacer()
                 Button("OK") {
@@ -469,10 +468,10 @@ fileprivate struct NotFoundView: View {
     }
 }
 
-fileprivate struct UpdateErrorView: View {
+private struct UpdateErrorView: View {
     let error: UpdateState.Error
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
@@ -483,13 +482,13 @@ fileprivate struct UpdateErrorView: View {
                     Text("Update Failed")
                         .font(.system(size: 13, weight: .semibold))
                 }
-                
+
                 Text(error.error.localizedDescription)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            
+
             HStack(spacing: 8) {
                 Button("OK") {
                     error.dismiss()
@@ -497,9 +496,9 @@ fileprivate struct UpdateErrorView: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .controlSize(.small)
-                
+
                 Spacer()
-                
+
                 Button("Retry") {
                     error.retry()
                     dismiss()

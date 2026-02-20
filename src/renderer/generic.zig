@@ -125,6 +125,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         scrollbar: terminal.Scrollbar,
         scrollbar_dirty: bool,
 
+        /// Tracks the last bottom-right pin of the screen to detect new output.
+        /// When the final line changes (node or y differs), new content was added.
+        /// Used for scroll-to-bottom on output feature.
+        last_bottom_node: ?usize,
+        last_bottom_y: terminal.size.CellCountInt,
+
         /// The most recent viewport matches so that we can render search
         /// matches in the visible frame. This is provided asynchronously
         /// from the search thread so we have the dirty flag to also note
@@ -563,6 +569,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             colorspace: configpkg.Config.WindowColorspace,
             blending: configpkg.Config.AlphaBlending,
             background_blur: configpkg.Config.BackgroundBlur,
+            scroll_to_bottom_on_output: bool,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -636,6 +643,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .colorspace = config.@"window-colorspace",
                     .blending = config.@"alpha-blending",
                     .background_blur = config.@"background-blur",
+                    .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
                     .arena = arena,
                 };
             }
@@ -699,6 +707,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .focused = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
+                .last_bottom_node = null,
+                .last_bottom_y = 0,
                 .search_matches = null,
                 .search_selected_match = null,
                 .search_matches_dirty = false,
@@ -1164,6 +1174,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (state.terminal.modes.get(.synchronized_output)) {
                     log.debug("synchronized output started, skipping render", .{});
                     return;
+                }
+
+                // If scroll-to-bottom on output is enabled, check if the final line
+                // changed by comparing the bottom-right pin. If the node pointer or
+                // y offset changed, new content was added to the screen.
+                // Update this BEFORE we update our render state so we can
+                // draw the new scrolled data immediately.
+                if (self.config.scroll_to_bottom_on_output) scroll: {
+                    const br = state.terminal.screens.active.pages.getBottomRight(.screen) orelse break :scroll;
+
+                    // If the pin hasn't changed, then don't scroll.
+                    if (self.last_bottom_node == @intFromPtr(br.node) and
+                        self.last_bottom_y == br.y) break :scroll;
+
+                    // Update tracked pin state for next frame
+                    self.last_bottom_node = @intFromPtr(br.node);
+                    self.last_bottom_y = br.y;
+
+                    // Scroll
+                    state.terminal.scrollViewport(.bottom);
                 }
 
                 // Update our terminal state
@@ -2206,10 +2236,35 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // If we had a previous overlay, clear it. Otherwise, init.
-            const overlay: *Overlay = if (self.overlay) |*v| overlay: {
-                v.reset();
-                break :overlay v;
-            } else overlay: {
+            const overlay: *Overlay = overlay: {
+                if (self.overlay) |*v| existing: {
+                    // Verify that our overlay size matches our screen
+                    // size as we know it now. If not, deinit and reinit.
+                    // Note: these intCasts are always safe because z2d
+                    // stores as i32 but we always init with a u32.
+                    const width: u32 = @intCast(v.surface.getWidth());
+                    const height: u32 = @intCast(v.surface.getHeight());
+                    const term_size = self.size.terminal();
+                    if (width != term_size.width or
+                        height != term_size.height) break :existing;
+
+                    // We also depend on cell size.
+                    if (v.cell_size.width != self.size.cell.width or
+                        v.cell_size.height != self.size.cell.height) break :existing;
+
+                    // Everything matches, so we can just reset the surface
+                    // and redraw.
+                    v.reset();
+                    break :overlay v;
+                }
+
+                // If we reached this point we want to reset our overlay.
+                if (self.overlay) |*v| {
+                    v.deinit(alloc);
+                    self.overlay = null;
+                }
+
+                assert(self.overlay == null);
                 const new: Overlay = try .init(alloc, self.size);
                 self.overlay = new;
                 break :overlay &self.overlay.?;
@@ -2249,26 +2304,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             //     // "[rebuildCells time] <START us>\t<TIME_TAKEN us>"
             //     std.log.warn("[rebuildCells time] {}\t{}", .{start_micro, end.since(start) / std.time.ns_per_us});
             // }
-
-            // Determine our x/y range for preedit. We don't want to render anything
-            // here because we will render the preedit separately.
-            const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
-                // We base the preedit on the position of the cursor in the
-                // viewport. If the cursor isn't visible in the viewport we
-                // don't show it.
-                const cursor_vp = state.cursor.viewport orelse
-                    break :preedit null;
-
-                const range = preedit_v.range(
-                    cursor_vp.x,
-                    state.cols - 1,
-                );
-                break :preedit .{
-                    .y = @intCast(cursor_vp.y),
-                    .x = .{ range.start, range.end },
-                    .cp_offset = range.cp_offset,
-                };
-            } else null;
 
             const grid_size_diff =
                 self.cells.size.rows != state.rows or
@@ -2327,6 +2362,32 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 state.rows,
                 self.cells.size.rows,
             );
+
+            // Determine our x/y range for preedit. We don't want to render anything
+            // here because we will render the preedit separately.
+            const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
+                // We base the preedit on the position of the cursor in the
+                // viewport. If the cursor isn't visible in the viewport we
+                // don't show it.
+                const cursor_vp = state.cursor.viewport orelse
+                    break :preedit null;
+
+                // If our preedit row isn't dirty then we don't need the
+                // preedit range. This also avoids an issue later where we
+                // unconditionally add preedit cells when this is set.
+                if (!rebuild and !row_dirty[cursor_vp.y]) break :preedit null;
+
+                const range = preedit_v.range(
+                    cursor_vp.x,
+                    state.cols - 1,
+                );
+                break :preedit .{
+                    .y = @intCast(cursor_vp.y),
+                    .x = .{ range.start, range.end },
+                    .cp_offset = range.cp_offset,
+                };
+            } else null;
+
             for (
                 0..,
                 row_raws[0..row_len],
@@ -2502,14 +2563,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Setup our preedit text.
-            if (preedit) |preedit_v| {
-                const range = preedit_range.?;
+            if (preedit) |preedit_v| preedit: {
+                const range = preedit_range orelse break :preedit;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
-                        state.colors.background,
                         state.colors.foreground,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
@@ -3239,7 +3299,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             cp: renderer.State.Preedit.Codepoint,
             coord: terminal.Coordinate,
-            screen_bg: terminal.color.RGB,
             screen_fg: terminal.color.RGB,
         ) !void {
             // Render the glyph for our preedit text
@@ -3257,16 +3316,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 log.warn("failed to find font for preedit codepoint={X}", .{cp.codepoint});
                 return;
             };
-
-            // Add our opaque background cell
-            self.cells.bgCell(coord.y, coord.x).* = .{
-                screen_bg.r, screen_bg.g, screen_bg.b, 255,
-            };
-            if (cp.wide and coord.x < self.cells.size.columns - 1) {
-                self.cells.bgCell(coord.y, coord.x + 1).* = .{
-                    screen_bg.r, screen_bg.g, screen_bg.b, 255,
-                };
-            }
 
             // Add our text
             try self.cells.add(self.alloc, .text, .{

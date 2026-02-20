@@ -6,7 +6,7 @@ enum QuickTerminalSpaceBehavior {
     case move
 
     init?(fromGhosttyConfig string: String) {
-        switch (string) {
+        switch string {
             case "move":
                 self = .move
 
@@ -24,7 +24,7 @@ enum QuickTerminalSpaceBehavior {
             .fullScreenAuxiliary
         ]
 
-        switch (self) {
+        switch self {
             case .move:
                 // We want this to move the window to the active space.
                 return NSWindow.CollectionBehavior([.canJoinAllSpaces] + commonBehavior)

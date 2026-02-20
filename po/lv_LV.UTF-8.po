@@ -1,0 +1,352 @@
+# Latvian translations for com.mitchellh.ghostty package.
+# Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
+# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Ēriks Remess <eriks@remess.lv>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: com.mitchellh.ghostty\n"
+"Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2026-02-18 11:34+0200\n"
+"PO-Revision-Date: 2026-02-09 03:24+0200\n"
+"Last-Translator: Ēriks Remess <eriks@remess.lv>\n"
+"Language-Team: Latvian\n"
+"Language: LV\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n!=0 ? 1 : 2);\n"
+
+#: dist/linux/ghostty_nautilus.py:53
+msgid "Open in Ghostty"
+msgstr "Atvērt ar Ghostty"
+
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
+msgid "Authorize Clipboard Access"
+msgstr "Atļaut piekļuvi starpliktuvei"
+
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
+msgid "Deny"
+msgstr "Noraidīt"
+
+#: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
+msgid "Allow"
+msgstr "Atļaut"
+
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
+msgid "Remember choice for this split"
+msgstr "Atcerēties izvēli šim sadalījumam"
+
+#: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
+msgid "Reload configuration to show this prompt again"
+msgstr "Pārlādējiet konfigurāciju, lai šo uzvedni rādītu atkal"
+
+#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+msgid "Cancel"
+msgstr "Atcelt"
+
+#: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:8
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:85
+#: src/apprt/gtk/ui/1.3/surface-child-exited.blp:17
+msgid "Close"
+msgstr "Aizvērt"
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
+msgid "Configuration Errors"
+msgstr "Konfigurācijas kļūdas"
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:7
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Tika atrasta viena vai vairākas konfigurācijas kļūdas. Lūdzu, pārskatiet "
+"zemāk redzamās kļūdas un pārlādējiet konfigurāciju vai ignorējiet tās."
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
+msgid "Ignore"
+msgstr "Ignorēt"
+
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
+msgid "Reload Configuration"
+msgstr "Pārlādēt konfigurāciju"
+
+#: src/apprt/gtk/ui/1.2/debug-warning.blp:7
+#: src/apprt/gtk/ui/1.3/debug-warning.blp:6
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr "⚠️ Jūs izmantojat Ghostty atkļūdošanas būvējumu! Veiktspēja būs zemāka."
+
+#: src/apprt/gtk/ui/1.5/inspector-window.blp:5
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Termināļa inspektors"
+
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:29
+msgid "Find…"
+msgstr "Meklēt…"
+
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:64
+msgid "Previous Match"
+msgstr "Iepriekšējā atbilstība"
+
+#: src/apprt/gtk/ui/1.2/search-overlay.blp:74
+msgid "Next Match"
+msgstr "Nākamā atbilstība"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:6
+msgid "Oh, no."
+msgstr "Ak, nē."
+
+#: src/apprt/gtk/ui/1.2/surface.blp:7
+msgid "Unable to acquire an OpenGL context for rendering."
+msgstr "Neizdevās iegūt OpenGL kontekstu attēlošanai."
+
+#: src/apprt/gtk/ui/1.2/surface.blp:97
+msgid ""
+"This terminal is in read-only mode. You can still view, select, and scroll "
+"through the content, but no input events will be sent to the running "
+"application."
+msgstr ""
+"Šis terminālis ir tikai lasīšanas režīmā. Jūs joprojām varat skatīt, atlasīt "
+"un ritināt saturu, taču ievade netiks sūtīta palaistajai lietotnei."
+
+#: src/apprt/gtk/ui/1.2/surface.blp:107
+msgid "Read-only"
+msgstr "Tikai lasīšanai"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:200
+msgid "Copy"
+msgstr "Kopēt"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:265 src/apprt/gtk/ui/1.5/window.blp:205
+msgid "Paste"
+msgstr "Ielīmēt"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:270
+msgid "Notify on Next Command Finish"
+msgstr "Paziņot, kad nākamā komanda būs izpildīta"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
+msgid "Clear"
+msgstr "Notīrīt"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:278
+msgid "Reset"
+msgstr "Atiestatīt"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
+msgid "Split"
+msgstr "Sadalīt"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
+msgid "Change Title…"
+msgstr "Mainīt virsrakstu…"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
+#: src/apprt/gtk/ui/1.5/window.blp:250
+msgid "Split Up"
+msgstr "Sadalīt uz augšu"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
+#: src/apprt/gtk/ui/1.5/window.blp:255
+msgid "Split Down"
+msgstr "Sadalīt uz leju"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
+#: src/apprt/gtk/ui/1.5/window.blp:260
+msgid "Split Left"
+msgstr "Sadalīt pa kreisi"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
+#: src/apprt/gtk/ui/1.5/window.blp:265
+msgid "Split Right"
+msgstr "Sadalīt pa labi"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:322
+msgid "Tab"
+msgstr "Cilne"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
+#: src/apprt/gtk/ui/1.5/window.blp:320
+msgid "Change Tab Title…"
+msgstr "Mainīt cilnes virsrakstu…"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
+#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+msgid "New Tab"
+msgstr "Jauna cilne"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
+msgid "Close Tab"
+msgstr "Aizvērt cilni"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:342
+msgid "Window"
+msgstr "Logs"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
+msgid "New Window"
+msgstr "Jauns logs"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
+msgid "Close Window"
+msgstr "Aizvērt logu"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:358
+msgid "Config"
+msgstr "Konfigurācija"
+
+#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
+msgid "Open Configuration"
+msgstr "Atvērt konfigurāciju"
+
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:5
+msgid "Leave blank to restore the default title."
+msgstr "Atstāj tukšu, lai atjaunotu noklusēto virsrakstu."
+
+#: src/apprt/gtk/ui/1.5/title-dialog.blp:9
+msgid "OK"
+msgstr "Labi"
+
+#: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
+msgid "New Split"
+msgstr "Jauns sadalījums"
+
+#: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
+msgid "View Open Tabs"
+msgstr "Skatīt atvērtās cilnes"
+
+#: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
+msgid "Main Menu"
+msgstr "Galvenā izvēlne"
+
+#: src/apprt/gtk/ui/1.5/window.blp:285
+msgid "Command Palette"
+msgstr "Komandu palete"
+
+#: src/apprt/gtk/ui/1.5/window.blp:290
+msgid "Terminal Inspector"
+msgstr "Termināļa inspektors"
+
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+msgid "About Ghostty"
+msgstr "Par Ghostty"
+
+#: src/apprt/gtk/ui/1.5/window.blp:312
+msgid "Quit"
+msgstr "Iziet"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:17
+msgid "Execute a command…"
+msgstr "Izpildīt komandu…"
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
+msgid ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Lietotne mēģina rakstīt starpliktuvē. Zemāk ir redzams pašreizējais "
+"starpliktuves saturs."
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Lietotne mēģina lasīt no starpliktuves. Zemāk ir redzams pašreizējais "
+"starpliktuves saturs."
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "Brīdinājums: potenciāli nedroša ielīmēšana"
+
+#: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
+msgstr ""
+"Šī teksta ielīmēšana terminālī var būt bīstama, jo izskatās, ka var tikt "
+"izpildītas komandas."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:184
+msgid "Quit Ghostty?"
+msgstr "Iziet no Ghostty?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:185
+msgid "Close Tab?"
+msgstr "Aizvērt cilni?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:186
+msgid "Close Window?"
+msgstr "Aizvērt logu?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:187
+msgid "Close Split?"
+msgstr "Aizvērt sadalījumu?"
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:193
+msgid "All terminal sessions will be terminated."
+msgstr "Visas termināļa sesijas tiks pārtrauktas."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:194
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Visas termināļa sesijas šajā cilnē tiks pārtrauktas."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:195
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Visas termināļa sesijas šajā logā tiks pārtrauktas."
+
+#: src/apprt/gtk/class/close_confirmation_dialog.zig:196
+msgid "The currently running process in this split will be terminated."
+msgstr "Pašlaik palaistais process šajā sadalījumā tiks pārtraukts."
+
+#: src/apprt/gtk/class/surface.zig:1104
+msgid "Command Finished"
+msgstr "Komanda izpildīta"
+
+#: src/apprt/gtk/class/surface.zig:1105
+msgid "Command Succeeded"
+msgstr "Komanda izdevās"
+
+#: src/apprt/gtk/class/surface.zig:1106
+msgid "Command Failed"
+msgstr "Komanda neizdevās"
+
+#: src/apprt/gtk/class/surface_child_exited.zig:109
+msgid "Command succeeded"
+msgstr "Komanda izdevās"
+
+#: src/apprt/gtk/class/surface_child_exited.zig:113
+msgid "Command failed"
+msgstr "Komanda neizdevās"
+
+#: src/apprt/gtk/class/title_dialog.zig:225
+msgid "Change Terminal Title"
+msgstr "Mainīt termināļa virsrakstu"
+
+#: src/apprt/gtk/class/title_dialog.zig:226
+msgid "Change Tab Title"
+msgstr "Mainīt cilnes virsrakstu"
+
+#: src/apprt/gtk/class/window.zig:1007
+msgid "Reloaded the configuration"
+msgstr "Konfigurācija pārlādēta"
+
+#: src/apprt/gtk/class/window.zig:1566
+msgid "Copied to clipboard"
+msgstr "Nokopēts starpliktuvē"
+
+#: src/apprt/gtk/class/window.zig:1568
+msgid "Cleared clipboard"
+msgstr "Starpliktuve notīrīta"
+
+#: src/apprt/gtk/class/window.zig:1708
+msgid "Ghostty Developers"
+msgstr "Ghostty izstrādātāji"

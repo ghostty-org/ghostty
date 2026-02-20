@@ -17,8 +17,13 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+from pathlib import Path
+import gettext
 from gi.repository import Nautilus, GObject, Gio
 
+DOMAIN = "com.mitchellh.ghostty"
+locale_dir = Path(__file__).absolute().parents[2] / "locale"
+_ = gettext.translation(DOMAIN, locale_dir, fallback=True).gettext
 
 def open_in_ghostty_activated(_menu, paths):
     for path in paths:
@@ -45,7 +50,7 @@ def get_paths_to_open(files):
 def get_items_for_files(name, files):
     paths = get_paths_to_open(files)
     if paths:
-        item = Nautilus.MenuItem(name=name, label='Open in Ghostty',
+        item = Nautilus.MenuItem(name=name, label=_('Open in Ghostty'),
             icon='com.mitchellh.ghostty')
         item.connect('activate', open_in_ghostty_activated, paths)
         return [item]

@@ -44,9 +44,9 @@ struct SecureInputOverlay: View {
                     .padding(.trailing, 10)
                     .popover(isPresented: $isPopover, arrowEdge: .bottom) {
                         Text("""
-                        Secure Input is active. Secure Input is a macOS security feature that 
-                        prevents applications from reading keyboard events. This is enabled 
-                        automatically whenever Ghostty detects a password prompt in the terminal, 
+                        Secure Input is active. Secure Input is a macOS security feature that
+                        prevents applications from reading keyboard events. This is enabled
+                        automatically whenever Ghostty detects a password prompt in the terminal,
                         or at all times if `Ghostty > Secure Keyboard Entry` is active.
                         """)
                         .padding(.all)

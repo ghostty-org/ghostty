@@ -13,16 +13,16 @@ class UpdateController {
     private let userDriver: UpdateDriver
     private var installCancellable: AnyCancellable?
     let installChannel: InstallChannel
-    
+
     var viewModel: UpdateViewModel {
         userDriver.viewModel
     }
-    
+
     /// True if we're installing an update.
     var isInstalling: Bool {
         installCancellable != nil
     }
-    
+
     /// Initialize a new update controller.
     init() {
         let hostBundle = Bundle.main
@@ -39,11 +39,11 @@ class UpdateController {
             delegate: userDriver
         )
     }
-    
+
     deinit {
         installCancellable?.cancel()
     }
-    
+
     /// Start the updater.
     ///
     /// This must be called before the updater can check for updates. If starting fails,
@@ -64,35 +64,35 @@ class UpdateController {
             ))
         }
     }
-    
+
     /// Force install the current update. As long as we're in some "update available" state this will
     /// trigger all the steps necessary to complete the update.
     func installUpdate() {
         // Must be in an installable state
         guard viewModel.state.isInstallable else { return }
-        
+
         // If we're already force installing then do nothing.
         guard installCancellable == nil else { return }
-        
+
         // Setup a combine listener to listen for state changes and to always
         // confirm them. If we go to a non-installable state, cancel the listener.
         // The sink runs immediately with the current state, so we don't need to
         // manually confirm the first state.
         installCancellable = viewModel.$state.sink { [weak self] state in
             guard let self else { return }
-            
+
             // If we move to a non-installable state (error, idle, etc.) then we
             // stop force installing.
             guard state.isInstallable else {
                 self.installCancellable = nil
                 return
             }
-            
+
             // Continue the `yes` chain!
             state.confirm()
         }
     }
-    
+
     /// Check for updates.
     ///
     /// This is typically connected to a menu item action.
@@ -102,11 +102,11 @@ class UpdateController {
             updater.checkForUpdates()
             return
         }
-        
+
         // If we're not idle then we need to cancel any prior state.
         installCancellable?.cancel()
         viewModel.state.cancel()
-        
+
         // The above will take time to settle, so we delay the check for some time.
         // The 100ms is arbitrary and I'd rather not, but we have to wait more than
         // one loop tick it seems.
@@ -114,7 +114,7 @@ class UpdateController {
             self?.updater.checkForUpdates()
         }
     }
-    
+
     /// Validate the check for updates menu item.
     ///
     /// - Parameter item: The menu item to validate

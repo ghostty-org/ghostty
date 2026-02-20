@@ -252,6 +252,10 @@ pub const Window = extern struct {
         /// A weak reference to a command palette.
         command_palette: WeakRef(CommandPalette) = .empty,
 
+        /// Tab page that the context menu was opened for.
+        /// setup by `setup-menu`.
+        context_menu_page: ?*adw.TabPage = null,
+
         // Template bindings
         tab_overview: *adw.TabOverview,
         tab_bar: *adw.TabBar,
@@ -304,7 +308,7 @@ pub const Window = extern struct {
         if (priv.config) |config_obj| {
             const config = config_obj.get();
             if (config.maximize) self.as(gtk.Window).maximize();
-            if (config.fullscreen) self.as(gtk.Window).fullscreen();
+            if (config.fullscreen != .false) self.as(gtk.Window).fullscreen();
 
             // If we have an explicit title set, we set that immediately
             // so that any applications inspecting the window states see
@@ -335,6 +339,8 @@ pub const Window = extern struct {
             .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
             .init("new-window", actionNewWindow, null),
+            .init("prompt-tab-title", actionPromptTabTitle, null),
+            .init("prompt-context-tab-title", actionPromptContextTabTitle, null),
             .init("ring-bell", actionRingBell, null),
             .init("split-right", actionSplitRight, null),
             .init("split-left", actionSplitLeft, null),
@@ -1531,6 +1537,13 @@ pub const Window = extern struct {
             self.as(gtk.Window).close();
         }
     }
+    fn setupTabMenu(
+        _: *adw.TabView,
+        page: ?*adw.TabPage,
+        self: *Self,
+    ) callconv(.c) void {
+        self.private().context_menu_page = page;
+    }
 
     fn surfaceClipboardWrite(
         _: *Surface,
@@ -1774,6 +1787,26 @@ pub const Window = extern struct {
         self.performBindingAction(.new_tab);
     }
 
+    fn actionPromptContextTabTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        const page = priv.context_menu_page orelse return;
+        const child = page.getChild();
+        const tab = gobject.ext.cast(Tab, child) orelse return;
+        tab.promptTabTitle();
+    }
+
+    fn actionPromptTabTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.prompt_tab_title);
+    }
+
     fn actionSplitRight(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -1999,6 +2032,7 @@ pub const Window = extern struct {
             class.bindTemplateCallback("close_page", &tabViewClosePage);
             class.bindTemplateCallback("page_attached", &tabViewPageAttached);
             class.bindTemplateCallback("page_detached", &tabViewPageDetached);
+            class.bindTemplateCallback("setup_tab_menu", &setupTabMenu);
             class.bindTemplateCallback("tab_create_window", &tabViewCreateWindow);
             class.bindTemplateCallback("notify_n_pages", &tabViewNPages);
             class.bindTemplateCallback("notify_selected_page", &tabViewSelectedPage);

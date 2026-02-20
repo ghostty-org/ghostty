@@ -232,7 +232,7 @@ pub const StreamHandler = struct {
             .erase_display_below => self.terminal.eraseDisplay(.below, value),
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
             .erase_display_complete => {
-                try self.terminal.scrollViewport(.{ .bottom = {} });
+                self.terminal.scrollViewport(.{ .bottom = {} });
                 self.terminal.eraseDisplay(.complete, value);
             },
             .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),

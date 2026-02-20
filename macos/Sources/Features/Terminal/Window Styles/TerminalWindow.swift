@@ -36,7 +36,7 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
-    
+
     /// Sets up our tab context menu
     private var tabMenuObserver: NSObjectProtocol? = nil
     private var titlebarFontTabGroupObservation: NSKeyValueObservation? = nil
@@ -121,7 +121,7 @@ class TerminalWindow: NSWindow {
         }
 
         // If window decorations are disabled, remove our title
-        if (!config.windowDecorations) { styleMask.remove(.titled) }
+        if !config.windowDecorations { styleMask.remove(.titled) }
 
         // Set our window positioning to coordinates if config value exists, otherwise
         // fallback to original centering behavior
@@ -427,7 +427,7 @@ class TerminalWindow: NSWindow {
 
     // MARK: Tab Key Equivalents
 
-    var keyEquivalent: String? = nil {
+    var keyEquivalent: String? {
         didSet {
             // When our key equivalent is set, we must update the tab label.
             guard let keyEquivalent else {
@@ -479,7 +479,7 @@ class TerminalWindow: NSWindow {
         button.toolTip = "Reset Zoom"
         button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
-        button.image = NSImage(named:"ResetZoom")
+        button.image = NSImage(named: "ResetZoom")
         button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -694,8 +694,7 @@ class TerminalWindow: NSWindow {
         // Also check if the user has overridden transparency to be fully opaque.
         if !isFullScreen &&
             !forceOpaque &&
-            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle)
-        {
+            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle) {
             isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -704,7 +703,7 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // We don't need to set blur when using glass
-            if !surfaceConfig.backgroundBlur.isGlassStyle,  let appDelegate = NSApp.delegate as? AppDelegate {
+            if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
@@ -762,7 +761,7 @@ class TerminalWindow: NSWindow {
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
         guard x != nil, y != nil else {
-            if (!LastWindowPosition.shared.restore(self)) {
+            if !LastWindowPosition.shared.restore(self) {
                 center()
             }
 
@@ -796,7 +795,7 @@ class TerminalWindow: NSWindow {
             NotificationCenter.default.removeObserver(observer)
         }
     }
-    
+
     // MARK: Config
 
     struct DerivedConfig {

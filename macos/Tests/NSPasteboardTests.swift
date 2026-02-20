@@ -16,14 +16,14 @@ struct NSPasteboardTypeExtensionTests {
         #expect(pasteboardType != nil)
         #expect(pasteboardType == .string)
     }
-    
+
     /// Test text/html MIME type converts to .html
     @Test func testTextHtmlMimeType() async throws {
         let pasteboardType = NSPasteboard.PasteboardType(mimeType: "text/html")
         #expect(pasteboardType != nil)
         #expect(pasteboardType == .html)
     }
-    
+
     /// Test image/png MIME type
     @Test func testImagePngMimeType() async throws {
         let pasteboardType = NSPasteboard.PasteboardType(mimeType: "image/png")

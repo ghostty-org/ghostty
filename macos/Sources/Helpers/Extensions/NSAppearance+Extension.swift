@@ -9,7 +9,7 @@ extension NSAppearance {
     /// Initialize a desired NSAppearance for the Ghostty configuration.
     convenience init?(ghosttyConfig config: Ghostty.Config) {
         guard let theme = config.windowTheme else { return nil }
-        switch (theme) {
+        switch theme {
         case "dark":
             self.init(named: .darkAqua)
 

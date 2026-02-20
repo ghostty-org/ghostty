@@ -19,12 +19,12 @@ class SurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
-    
+
     /// The last row position sent via scroll_to_row action. Used to avoid
     /// sending redundant actions when the user drags the scrollbar but stays
     /// on the same row.
     private var lastSentRow: Int?
-    
+
     init(contentSize: CGSize, surfaceView: Ghostty.SurfaceView) {
         self.surfaceView = surfaceView
         // The scroll view is our outermost view that controls all our scrollbar
@@ -44,26 +44,26 @@ class SurfaceScrollView: NSView {
         // (we currently only use overlay scrollers, but might as well
         // configure the views correctly in case we change our mind)
         scrollView.contentView.clipsToBounds = false
-        
+
         // The document view is what the scrollview is actually going
         // to be directly scrolling. We set it up to a "blank" NSView
         // with the desired content size.
         documentView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         scrollView.documentView = documentView
-        
+
         // The document view contains our actual surface as a child.
         // We synchronize the scrolling of the document with this surface
         // so that our primary Ghostty renderer only needs to render the viewport.
         documentView.addSubview(surfaceView)
-        
+
         super.init(frame: .zero)
-        
+
         // Our scroll view is our only view
         addSubview(scrollView)
-        
+
         // Apply initial scrollbar settings
         synchronizeAppearance()
-        
+
         // We listen for scroll events through bounds notifications on our NSClipView.
         // This is based on: https://christiantietze.de/posts/2018/07/synchronize-nsscrollview/
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -74,7 +74,7 @@ class SurfaceScrollView: NSView {
         ) { [weak self] notification in
             self?.handleScrollChange(notification)
         })
-        
+
         // Listen for scrollbar updates from Ghostty
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidUpdateScrollbar,
@@ -83,7 +83,7 @@ class SurfaceScrollView: NSView {
         ) { [weak self] notification in
             self?.handleScrollbarUpdate(notification)
         })
-        
+
         // Listen for live scroll events
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.willStartLiveScrollNotification,
@@ -92,7 +92,7 @@ class SurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.isLiveScrolling = true
         })
-        
+
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.didEndLiveScrollNotification,
             object: scrollView,
@@ -100,7 +100,7 @@ class SurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.isLiveScrolling = false
         })
-        
+
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.didLiveScrollNotification,
             object: scrollView,
@@ -108,7 +108,7 @@ class SurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.handleLiveScroll()
         })
-        
+
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil,
@@ -150,11 +150,11 @@ class SurfaceScrollView: NSView {
             }
             .store(in: &cancellables)
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
-    
+
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
@@ -163,10 +163,10 @@ class SurfaceScrollView: NSView {
     // insets. This is necessary for the content view to match the
     // surface view if we have the "hidden" titlebar style.
     override var safeAreaInsets: NSEdgeInsets { return NSEdgeInsetsZero }
-    
+
     override func layout() {
         super.layout()
-        
+
         // Fill entire bounds with scroll view
         scrollView.frame = bounds
         surfaceView.frame.size = scrollView.bounds.size
@@ -174,13 +174,13 @@ class SurfaceScrollView: NSView {
         // We only set the width of the documentView here, as the height depends
         // on the scrollbar state and is updated in synchronizeScrollView
         documentView.frame.size.width = scrollView.bounds.width
-        
+
         // When our scrollview changes make sure our scroller and surface views are synchronized
         synchronizeScrollView()
         synchronizeSurfaceView()
         synchronizeCoreSurface()
     }
-    
+
     // MARK: Scrolling
 
     private func synchronizeAppearance() {
@@ -220,7 +220,7 @@ class SurfaceScrollView: NSView {
     private func synchronizeScrollView() {
         // Update the document height to give our scroller the correct proportions
         documentView.frame.size.height = documentHeight()
-        
+
         // Only update our actual scroll position if we're not actively scrolling.
         if !isLiveScrolling {
             // Convert row units to pixels using cell height, ignore zero height.
@@ -236,13 +236,13 @@ class SurfaceScrollView: NSView {
                 lastSentRow = Int(scrollbar.offset)
             }
         }
-        
+
         // Always update our scrolled view with the latest dimensions
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
-    
+
     // MARK: Notifications
-    
+
     /// Handles bounds changes in the scroll view's clip view, keeping the surface view synchronized.
     private func handleScrollChange(_ notification: Notification) {
         synchronizeSurfaceView()
@@ -259,7 +259,7 @@ class SurfaceScrollView: NSView {
         synchronizeAppearance()
         synchronizeCoreSurface()
     }
-    
+
     /// Handles live scroll events (user actively dragging the scrollbar).
     ///
     /// Converts the current scroll position to a row number and sends a `scroll_to_row` action
@@ -270,21 +270,21 @@ class SurfaceScrollView: NSView {
         // happen with a tiny terminal.
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
-        
+
         // AppKit views are +Y going up, so we calculate from the bottom
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
         let row = Int(scrollOffset / cellHeight)
-        
+
         // Only send action if the row changed to avoid action spam
         guard row != lastSentRow else { return }
         lastSentRow = row
-        
+
         // Use the keybinding action to scroll.
         _ = surfaceView.surfaceModel?.perform(action: "scroll_to_row:\(row)")
     }
-    
+
     /// Handles scrollbar state updates from the terminal core.
     ///
     /// Updates the document view size to reflect total scrollback and adjusts scroll position

@@ -222,7 +222,7 @@ extension SplitTree {
             case .split:
                 // If the best candidate is a split node, use its the leaf/rightmost
                 // depending on our spatial direction.
-                return switch (spatialDirection) {
+                return switch spatialDirection {
                 case .up, .left: bestNode.node.leftmostLeaf()
                 case .down, .right: bestNode.node.rightmostLeaf()
                 }
@@ -343,7 +343,7 @@ extension SplitTree {
 
 // MARK: SplitTree Codable
 
-fileprivate enum CodingKeys: String, CodingKey {
+private enum CodingKeys: String, CodingKey {
     case version
     case root
     case zoomed
@@ -422,7 +422,7 @@ extension SplitTree.Node {
 
     /// Returns the node in the tree that contains the given view.
     func node(view: ViewType) -> Node? {
-        switch (self) {
+        switch self {
         case .leaf(view):
             return self
 
@@ -727,7 +727,6 @@ extension SplitTree.Node {
             }
         }
     }
-
 
     /// Calculate the bounds of all views in this subtree based on split ratios
     func calculateViewBounds(in bounds: CGRect) -> [(view: ViewType, bounds: CGRect)] {

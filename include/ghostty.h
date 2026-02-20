@@ -509,6 +509,15 @@ typedef struct {
   ghostty_quick_terminal_size_s secondary;
 } ghostty_config_quick_terminal_size_s;
 
+// config.Fullscreen
+typedef enum {
+  GHOSTTY_CONFIG_FULLSCREEN_FALSE,
+  GHOSTTY_CONFIG_FULLSCREEN_TRUE,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
+} ghostty_config_fullscreen_e;
+
 // apprt.Target.Key
 typedef enum {
   GHOSTTY_TARGET_APP,
@@ -904,6 +913,7 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
+  GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
 } ghostty_action_tag_e;
 
 typedef union {

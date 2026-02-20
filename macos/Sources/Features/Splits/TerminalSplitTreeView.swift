@@ -7,19 +7,19 @@ import SwiftUI
 enum TerminalSplitOperation {
     case resize(Resize)
     case drop(Drop)
-    
+
     struct Resize {
         let node: SplitTree<Ghostty.SurfaceView>.Node
         let ratio: Double
     }
-    
+
     struct Drop {
         /// The surface being dragged.
         let payload: Ghostty.SurfaceView
-        
+
         /// The surface it was dragged onto
         let destination: Ghostty.SurfaceView
-        
+
         /// The zone it was dropped to determine how to split the destination.
         let zone: TerminalSplitDropZone
     }
@@ -44,7 +44,7 @@ struct TerminalSplitTreeView: View {
     }
 }
 
-fileprivate struct TerminalSplitSubtreeView: View {
+private struct TerminalSplitSubtreeView: View {
     @EnvironmentObject var ghostty: Ghostty.App
 
     let node: SplitTree<Ghostty.SurfaceView>.Node
@@ -52,12 +52,12 @@ fileprivate struct TerminalSplitSubtreeView: View {
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
-        switch (node) {
+        switch node {
         case .leaf(let leafView):
             TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, action: action)
 
         case .split(let split):
-            let splitViewDirection: SplitViewDirection = switch (split.direction) {
+            let splitViewDirection: SplitViewDirection = switch split.direction {
             case .horizontal: .horizontal
             case .vertical: .vertical
             }
@@ -86,14 +86,14 @@ fileprivate struct TerminalSplitSubtreeView: View {
     }
 }
 
-fileprivate struct TerminalSplitLeaf: View {
+private struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
-    
+
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
-    
+
     var body: some View {
         GeometryReader { geometry in
             Ghostty.InspectableSurface(
@@ -129,26 +129,26 @@ fileprivate struct TerminalSplitLeaf: View {
             .accessibilityLabel("Terminal pane")
         }
     }
-    
+
     private enum DropState: Equatable {
         case idle
         case dropping(TerminalSplitDropZone)
     }
-    
+
     private struct SplitDropDelegate: DropDelegate {
         @Binding var dropState: DropState
         let viewSize: CGSize
         let destinationSurface: Ghostty.SurfaceView
         let action: (TerminalSplitOperation) -> Void
-        
+
         func validateDrop(info: DropInfo) -> Bool {
             info.hasItemsConforming(to: [.ghosttySurfaceId])
         }
-        
+
         func dropEntered(info: DropInfo) {
             dropState = .dropping(.calculate(at: info.location, in: viewSize))
         }
-        
+
         func dropUpdated(info: DropInfo) -> DropProposal? {
             // For some reason dropUpdated is sent after performDrop is called
             // and we don't want to reset our drop zone to show it so we have
@@ -157,11 +157,11 @@ fileprivate struct TerminalSplitLeaf: View {
             dropState = .dropping(.calculate(at: info.location, in: viewSize))
             return DropProposal(operation: .move)
         }
-        
+
         func dropExited(info: DropInfo) {
             dropState = .idle
         }
-        
+
         func performDrop(info: DropInfo) -> Bool {
             let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize)
             dropState = .idle
@@ -169,7 +169,7 @@ fileprivate struct TerminalSplitLeaf: View {
             // Load the dropped surface asynchronously using Transferable
             let providers = info.itemProviders(for: [.ghosttySurfaceId])
             guard let provider = providers.first else { return false }
-            
+
             // Capture action before the async closure
             _ = provider.loadTransferable(type: Ghostty.SurfaceView.self) { [weak destinationSurface] result in
                 switch result {
@@ -180,12 +180,12 @@ fileprivate struct TerminalSplitLeaf: View {
                         guard sourceSurface !== destinationSurface else { return }
                         action(.drop(.init(payload: sourceSurface, destination: destinationSurface, zone: zone)))
                     }
-                    
+
                 case .failure:
                     break
                 }
             }
-            
+
             return true
         }
     }

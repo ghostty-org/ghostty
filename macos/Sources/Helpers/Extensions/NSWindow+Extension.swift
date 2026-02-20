@@ -52,31 +52,31 @@ extension NSWindow {
         guard themeFrameView.responds(to: Selector(("titlebarView"))) else { return nil }
         return themeFrameView.value(forKey: "titlebarView") as? NSView
     }
-    
+
     /// Returns the [private] NSTabBar view, if it exists.
     var tabBarView: NSView? {
         titlebarView?.firstDescendant(withClassName: "NSTabBar")
     }
-    
+
     /// Returns the index of the tab button at the given screen point, if any.
     func tabIndex(atScreenPoint screenPoint: NSPoint) -> Int? {
         guard let tabBarView else { return nil }
         let locationInWindow = convertPoint(fromScreen: screenPoint)
         let locationInTabBar = tabBarView.convert(locationInWindow, from: nil)
         guard tabBarView.bounds.contains(locationInTabBar) else { return nil }
-        
+
         // Find all tab buttons and sort by x position to get visual order.
         // The view hierarchy order doesn't match the visual tab order.
         let tabItemViews = tabBarView.descendants(withClassName: "NSTabButton")
             .sorted { $0.frame.origin.x < $1.frame.origin.x }
-        
+
         for (index, tabItemView) in tabItemViews.enumerated() {
             let locationInTab = tabItemView.convert(locationInWindow, from: nil)
             if tabItemView.bounds.contains(locationInTab) {
                 return index
             }
         }
-        
+
         return nil
     }
 }

@@ -165,7 +165,7 @@ pub const Option = enum {
 
             return switch (self) {
                 .aid => value,
-                .cl => std.meta.stringToEnum(Click, value),
+                .cl => .init(value),
                 .prompt_kind => if (value.len == 1) PromptKind.init(value[0]) else null,
                 .err => value,
                 .redraw => if (std.mem.eql(u8, value, "0"))
@@ -191,11 +191,43 @@ pub const Option = enum {
     }
 };
 
+/// The `cl` option specifies what kind of cursor key sequences are handled
+/// by the application for click-to-move-cursor functionality.
 pub const Click = enum {
+    /// Value: "line". Allows motion within a single input line using standard
+    /// left/right arrow escape sequences. Only a single left/right sequence
+    /// should be emitted for double-width characters.
     line,
+
+    /// Value: "m". Allows movement between different lines in the same group,
+    /// but only using left/right arrow escape sequences.
     multiple,
+
+    /// Value: "v". Like `multiple` but cursor up/down should be used. The
+    /// terminal should be conservative when moving between lines: move the
+    /// cursor left to the start of line, emit the needed up/down sequences,
+    /// then move the cursor right to the clicked destination.
     conservative_vertical,
+
+    /// Value: "w". Like `conservative_vertical` but specifies that there are
+    /// no spurious spaces at the end of the line, and the application editor
+    /// handles "smart vertical movement" (moving 2 lines up from position 20,
+    /// where the intermediate line is 15 chars wide and the destination is
+    /// 18 chars wide, ends at position 18).
     smart_vertical,
+
+    pub fn init(value: []const u8) ?Click {
+        return if (value.len == 1) switch (value[0]) {
+            'm' => .multiple,
+            'v' => .conservative_vertical,
+            'w' => .smart_vertical,
+            else => null,
+        } else if (std.mem.eql(
+            u8,
+            value,
+            "line",
+        )) .line else null;
+    }
 };
 
 pub const PromptKind = enum {
@@ -447,12 +479,12 @@ test "OSC 133: fresh_line_new_prompt with cl=line" {
     try testing.expect(cmd.semantic_prompt.readOption(.cl) == .line);
 }
 
-test "OSC 133: fresh_line_new_prompt with cl=multiple" {
+test "OSC 133: fresh_line_new_prompt with cl=m" {
     const testing = std.testing;
 
     var p: Parser = .init(null);
 
-    const input = "133;A;cl=multiple";
+    const input = "133;A;cl=m";
     for (input) |ch| p.next(ch);
 
     const cmd = p.end(null).?.*;
@@ -874,9 +906,9 @@ test "Option.read aid" {
 test "Option.read cl" {
     const testing = std.testing;
     try testing.expect(Option.cl.read("cl=line").? == .line);
-    try testing.expect(Option.cl.read("cl=multiple").? == .multiple);
-    try testing.expect(Option.cl.read("cl=conservative_vertical").? == .conservative_vertical);
-    try testing.expect(Option.cl.read("cl=smart_vertical").? == .smart_vertical);
+    try testing.expect(Option.cl.read("cl=m").? == .multiple);
+    try testing.expect(Option.cl.read("cl=v").? == .conservative_vertical);
+    try testing.expect(Option.cl.read("cl=w").? == .smart_vertical);
     try testing.expect(Option.cl.read("cl=invalid") == null);
     try testing.expect(Option.cl.read("aid=foo") == null);
 }

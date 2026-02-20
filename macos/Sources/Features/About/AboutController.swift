@@ -24,7 +24,7 @@ class AboutController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
-    //MARK: - First Responder
+    // MARK: - First Responder
 
     @IBAction func close(_ sender: Any) {
         self.window?.performClose(sender)

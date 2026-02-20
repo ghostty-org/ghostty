@@ -26,7 +26,7 @@ struct KeybindIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let surface = terminal.surfaceModel else {
             throw GhosttyIntentError.surfaceNotFound
         }

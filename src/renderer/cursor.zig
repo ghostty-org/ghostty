@@ -143,7 +143,7 @@ test "cursor: always block with preedit" {
 
     // If we're scrolled though, then we don't show the cursor.
     for (0..100) |_| try term.index();
-    try term.scrollViewport(.{ .top = {} });
+    term.scrollViewport(.{ .top = {} });
     try state.update(alloc, &term);
 
     // In any bool state

@@ -131,12 +131,12 @@ extension NSView {
 	/// This includes private views like title bar views.
 	func firstViewFromRoot(withClassName name: String) -> NSView? {
 		let root = rootView
-		
+
 		// Check if the root view itself matches
 		if String(describing: type(of: root)) == name {
 			return root
 		}
-		
+
 		// Otherwise search descendants
 		return root.firstDescendant(withClassName: name)
 	}
@@ -155,67 +155,67 @@ extension NSView {
 		print("View Hierarchy from Root:")
 		print(root.viewHierarchyDescription())
 	}
-	
+
 	/// Returns a string representation of the view hierarchy in a tree-like format.
 	func viewHierarchyDescription(indent: String = "", isLast: Bool = true) -> String {
 		var result = ""
-		
+
 		// Add the tree branch characters
 		result += indent
 		if !indent.isEmpty {
 			result += isLast ? "└── " : "├── "
 		}
-		
+
 		// Add the class name and optional identifier
 		let className = String(describing: type(of: self))
 		result += className
-		
+
 		// Add identifier if present
 		if let identifier = self.identifier {
 			result += " (id: \(identifier.rawValue))"
 		}
-		
+
 		// Add frame info
 		result += " [frame: \(frame)]"
-		
+
 		// Add visual properties
 		var properties: [String] = []
-		
+
 		// Hidden status
 		if isHidden {
 			properties.append("hidden")
 		}
-		
+
 		// Opaque status
 		properties.append(isOpaque ? "opaque" : "transparent")
-		
+
 		// Layer backing
 		if wantsLayer {
 			properties.append("layer-backed")
 			if let bgColor = layer?.backgroundColor {
 				let color = NSColor(cgColor: bgColor)
 				if let rgb = color?.usingColorSpace(.deviceRGB) {
-					properties.append(String(format: "bg:rgba(%.0f,%.0f,%.0f,%.2f)", 
-						rgb.redComponent * 255, 
-						rgb.greenComponent * 255, 
-						rgb.blueComponent * 255, 
+					properties.append(String(format: "bg:rgba(%.0f,%.0f,%.0f,%.2f)",
+						rgb.redComponent * 255,
+						rgb.greenComponent * 255,
+						rgb.blueComponent * 255,
 						rgb.alphaComponent))
 				} else {
 					properties.append("bg:\(bgColor)")
 				}
 			}
 		}
-		
+
 		result += " [\(properties.joined(separator: ", "))]"
 		result += "\n"
-		
+
 		// Process subviews
 		for (index, subview) in subviews.enumerated() {
 			let isLastSubview = index == subviews.count - 1
 			let newIndent = indent + (isLast ? "    " : "│   ")
 			result += subview.viewHierarchyDescription(indent: newIndent, isLast: isLastSubview)
 		}
-		
+
 		return result
 	}
 }

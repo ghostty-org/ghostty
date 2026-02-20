@@ -109,7 +109,7 @@ pub const Action = union(Key) {
     /// Toggle the quick terminal in or out.
     toggle_quick_terminal,
 
-    /// Toggle the command palette. This currently only works on macOS.
+    /// Toggle the command palette.
     toggle_command_palette,
 
     /// Toggle the visibility of all Ghostty terminal windows.
@@ -330,6 +330,11 @@ pub const Action = union(Key) {
     /// The readonly state of the surface has changed.
     readonly: Readonly,
 
+    /// Copy the effective title of the surface to the clipboard.
+    /// The effective title is the user-overridden title if set,
+    /// otherwise the terminal-set title.
+    copy_title_to_clipboard,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -395,6 +400,7 @@ pub const Action = union(Key) {
         search_total,
         search_selected,
         readonly,
+        copy_title_to_clipboard,
     };
 
     /// Sync with: ghostty_action_u

@@ -204,12 +204,12 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // We must hide the dock FIRST then hide the menu:
         // If you specify autoHideMenuBar, it must be accompanied by either hideDock or autoHideDock.
         // https://developer.apple.com/documentation/appkit/nsapplication/presentationoptions-swift.struct
-        if (savedState.dock) {
+        if savedState.dock {
             hideDock()
         }
 
         // Hide the menu if requested
-        if (properties.hideMenu && savedState.menu) {
+        if properties.hideMenu && savedState.menu {
             hideMenu()
         }
 
@@ -261,7 +261,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         if savedState.dock {
             unhideDock()
         }
-        if (properties.hideMenu && savedState.menu) {
+        if properties.hideMenu && savedState.menu {
             unhideMenu()
         }
 
@@ -328,8 +328,8 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // calculate this ourselves.
         var frame = screen.frame
 
-        if (!NSApp.presentationOptions.contains(.autoHideMenuBar) &&
-            !NSApp.presentationOptions.contains(.hideMenuBar)) {
+        if !NSApp.presentationOptions.contains(.autoHideMenuBar) &&
+            !NSApp.presentationOptions.contains(.hideMenuBar) {
             // We need to subtract the menu height since we're still showing it.
             frame.size.height -= NSApp.mainMenu?.menuBarHeight ?? 0
 
@@ -339,7 +339,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             // put an #available check, but it was in a bug fix release so I think
             // if a bug is reported to Ghostty we can just advise the user to
             // update.
-        } else if (properties.paddedNotch) {
+        } else if properties.paddedNotch {
             // We are hiding the menu, we may need to avoid the notch.
             frame.size.height -= screen.safeAreaInsets.top
         }
@@ -413,7 +413,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.toolbarStyle = window.toolbarStyle
             self.dock = window.screen?.hasDock ?? false
 
-            self.titlebarAccessoryViewControllers = if (window.hasTitleBar) {
+            self.titlebarAccessoryViewControllers = if window.hasTitleBar {
                 // Accessing titlebarAccessoryViewControllers without a titlebar triggers a crash.
                 window.titlebarAccessoryViewControllers
             } else {

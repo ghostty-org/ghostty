@@ -168,7 +168,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         tabGroupWindowsObservation = tabGroup.observe(
             \.windows,
              options: [.new]
-        ) { [weak self] _, change in
+        ) { [weak self] _, _ in
             // NOTE: At one point, I guarded this on only if we went from 0 to N
             // or N to 0 under the assumption that the tab bar would only get
             // replaced on those cases. This turned out to be false (Tahoe).
@@ -193,7 +193,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         tabBarVisibleObservation = tabGroup.observe(
             \.isTabBarVisible,
              options: [.new]
-        ) { [weak self] _, change in
+        ) { [weak self] _, _ in
             guard let self else { return }
             guard let lastSurfaceConfig else { return }
             self.syncAppearance(lastSurfaceConfig)

@@ -40,16 +40,16 @@ private final class TransferableDataProvider: NSObject, NSPasteboardItemDataProv
         // to block until the async load completes. This is safe because AppKit
         // calls this method on a background thread during drag operations.
         let semaphore = DispatchSemaphore(value: 0)
-        
+
         var result: Data?
         itemProvider.loadDataRepresentation(forTypeIdentifier: type.rawValue) { data, _ in
             result = data
             semaphore.signal()
         }
-        
+
         // Wait for the data to load
         semaphore.wait()
-        
+
         // Set it. I honestly don't know what happens here if this fails.
         if let data = result {
             item.setData(data, forType: type)

@@ -116,8 +116,8 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260126-150817-02c580d.tgz",
-            .hash = "N-V-__8AAM5RAwB5jHC1P1uqrabiz_ieQvfrIYNzs4eAY__c",
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260202-151632-49169e9.tgz",
+            .hash = "N-V-__8AAKlTAwClvdUfsAoiLgM6sb2NPZNnS6wzCiIs252Z",
             .lazy = true,
         },
     },

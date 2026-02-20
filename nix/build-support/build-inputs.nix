@@ -35,10 +35,10 @@
   pkgs.libadwaita
 ]
 ++ lib.optionals (stdenv.hostPlatform.isLinux && enableX11) [
-  pkgs.xorg.libX11
-  pkgs.xorg.libXcursor
-  pkgs.xorg.libXi
-  pkgs.xorg.libXrandr
+  pkgs.libx11
+  pkgs.libxcursor
+  pkgs.libxi
+  pkgs.libxrandr
 ]
 ++ lib.optionals (stdenv.hostPlatform.isLinux && enableWayland) [
   pkgs.gtk4-layer-shell

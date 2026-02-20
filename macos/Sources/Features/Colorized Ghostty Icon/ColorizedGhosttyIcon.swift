@@ -19,7 +19,7 @@ struct ColorizedGhosttyIcon {
         guard let crt = NSImage(named: "CustomIconCRT") else { return nil }
         guard let gloss = NSImage(named: "CustomIconGloss") else { return nil }
 
-        let baseName = switch (frame) {
+        let baseName = switch frame {
         case .aluminum: "CustomIconBaseAluminum"
         case .beige: "CustomIconBaseBeige"
         case .chrome: "CustomIconBaseChrome"

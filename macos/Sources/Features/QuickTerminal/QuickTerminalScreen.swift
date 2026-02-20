@@ -6,23 +6,23 @@ enum QuickTerminalScreen {
     case menuBar
 
     init?(fromGhosttyConfig string: String) {
-        switch (string) {
+        switch string {
         case "main":
             self = .main
 
         case "mouse":
             self = .mouse
-            
+
         case "macos-menu-bar":
             self = .menuBar
-            
+
         default:
             return nil
         }
     }
 
     var screen: NSScreen? {
-        switch (self) {
+        switch self {
         case .main:
             return NSScreen.main
 

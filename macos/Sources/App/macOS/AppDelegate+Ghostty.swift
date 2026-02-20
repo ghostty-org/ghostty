@@ -10,14 +10,14 @@ extension AppDelegate: Ghostty.Delegate {
             guard let controller = window.windowController as? BaseTerminalController else {
                 continue
             }
-            
+
             for surface in controller.surfaceTree {
                 if surface.id == id {
                     return surface
                 }
             }
         }
-        
+
         return nil
     }
 }

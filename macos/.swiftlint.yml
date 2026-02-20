@@ -1,0 +1,42 @@
+# SwiftLint <https://realm.github.io/SwiftLint/>
+#
+check_for_updates: false
+
+disabled_rules:
+  - cyclomatic_complexity
+  - file_length
+  - function_body_length
+  - nesting
+  - todo
+  - trailing_comma
+  - trailing_newline
+  - type_body_length
+
+  # TODO
+  - deployment_target
+  - for_where
+  - force_cast
+  - line_length
+  - mark
+  - multiple_closures_with_trailing_closure
+  - no_fallthrough_only
+  - switch_case_alignment
+  - unused_enumerated
+
+identifier_name:
+  min_length: 1
+  allowed_symbols: ["_"]
+  excluded:
+    - Core.*
+
+type_name:
+  min_length: 2
+  allowed_symbols: ["_"]
+  excluded:
+    - iOS_.*
+
+function_parameter_count:
+  warning: 6
+
+large_tuple:
+  warning: 3

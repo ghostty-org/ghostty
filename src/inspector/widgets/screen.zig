@@ -76,6 +76,11 @@ pub const Info = struct {
             );
 
             if (cimgui.c.ImGui_CollapsingHeader(
+                "Semantic Prompt",
+                cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
+            )) semanticPromptTable(&screen.semantic_prompt);
+
+            if (cimgui.c.ImGui_CollapsingHeader(
                 "Kitty Graphics",
                 cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
             )) kittyGraphicsTable(&screen.kitty_images);
@@ -355,15 +360,41 @@ pub fn internalStateTable(
     cimgui.c.ImGui_Text("Viewport Location");
     _ = cimgui.c.ImGui_TableSetColumnIndex(1);
     cimgui.c.ImGui_Text("%s", @tagName(pages.viewport).ptr);
+}
+
+/// Render semantic prompt state table.
+pub fn semanticPromptTable(
+    semantic_prompt: *const terminal.Screen.SemanticPrompt,
+) void {
+    if (!cimgui.c.ImGui_BeginTable(
+        "##semantic_prompt",
+        2,
+        cimgui.c.ImGuiTableFlags_None,
+    )) return;
+    defer cimgui.c.ImGui_EndTable();
 
     {
         cimgui.c.ImGui_TableNextRow();
         _ = cimgui.c.ImGui_TableSetColumnIndex(0);
-        cimgui.c.ImGui_Text("Semantic Content");
+        cimgui.c.ImGui_Text("Seen");
         cimgui.c.ImGui_SameLine();
-        widgets.helpMarker("Whether semantic prompt markers (OSC 133) have been seen.");
+        widgets.helpMarker("Whether any semantic prompt markers (OSC 133) have been seen in this screen.");
         _ = cimgui.c.ImGui_TableSetColumnIndex(1);
-        var value: bool = screen.flags.semantic_content;
-        _ = cimgui.c.ImGui_Checkbox("##semantic_content", &value);
+        var value: bool = semantic_prompt.seen;
+        _ = cimgui.c.ImGui_Checkbox("##seen", &value);
+    }
+
+    {
+        cimgui.c.ImGui_TableNextRow();
+        _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+        cimgui.c.ImGui_Text("Click Handling");
+        cimgui.c.ImGui_SameLine();
+        widgets.helpMarker("How click events are handled in prompts. Set via 'cl' or 'click_events' options in OSC 133.");
+        _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+        switch (semantic_prompt.click) {
+            .none => cimgui.c.ImGui_TextDisabled("(none)"),
+            .click_events => cimgui.c.ImGui_Text("click_events"),
+            .cl => |cl| cimgui.c.ImGui_Text("cl=%s", @tagName(cl).ptr),
+        }
     }
 }

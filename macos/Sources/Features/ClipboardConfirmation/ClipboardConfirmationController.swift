@@ -13,7 +13,7 @@ class ClipboardConfirmationController: NSWindowController {
     let contents: String
     let request: Ghostty.ClipboardRequest
     let state: UnsafeMutableRawPointer?
-    weak private var delegate: ClipboardConfirmationViewDelegate? = nil
+    weak private var delegate: ClipboardConfirmationViewDelegate?
 
     init(surface: ghostty_surface_t, contents: String, request: Ghostty.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
         self.surface = surface
@@ -28,12 +28,12 @@ class ClipboardConfirmationController: NSWindowController {
         fatalError("init(coder:) is not supported for this view")
     }
 
-    //MARK: - NSWindowController
+    // MARK: - NSWindowController
 
     override func windowDidLoad() {
         guard let window = window else { return }
 
-        switch (request) {
+        switch request {
         case .paste:
             window.title = "Warning: Potentially Unsafe Paste"
         case .osc_52_read, .osc_52_write:

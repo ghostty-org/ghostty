@@ -15,7 +15,7 @@ struct QuickTerminalIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let delegate = NSApp.delegate as? AppDelegate else {
             throw GhosttyIntentError.appUnavailable
         }
