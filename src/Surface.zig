@@ -429,7 +429,16 @@ const DerivedConfig = struct {
     fn scaledPadding(self: *const DerivedConfig, x_dpi: f32, y_dpi: f32) rendererpkg.Padding {
         const padding_top: u32 = padding_top: {
             const padding_top: f32 = @floatFromInt(self.window_padding_top);
-            break :padding_top @intFromFloat(@floor(padding_top * y_dpi / 72));
+            const scaled_padding: u32 = @intFromFloat(@floor(padding_top * y_dpi / 72));
+
+            // Add 6pt header height for macOS surface grab overlay elements
+            if (comptime builtin.os.tag == .macos) {
+                const header_height_pt: f32 = 4.0;
+                const header_height_px: u32 = @intFromFloat(@floor(header_height_pt * y_dpi / 72));
+                break :padding_top scaled_padding + header_height_px;
+            }
+
+            break :padding_top scaled_padding;
         };
         const padding_bottom: u32 = padding_bottom: {
             const padding_bottom: f32 = @floatFromInt(self.window_padding_bottom);
