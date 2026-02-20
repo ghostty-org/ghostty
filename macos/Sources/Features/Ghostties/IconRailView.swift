@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// The far-left icon rail showing project icons.
 ///
@@ -95,17 +94,8 @@ struct IconRailView: View {
     // MARK: - Actions
 
     private func presentFolderPicker() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a project folder"
-        panel.prompt = "Add Project"
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.addProject(at: url)
-        selectedProjectID = store.sortedProjects.first(where: {
-            $0.rootPath == url.standardizedFileURL.path
-        })?.id
+        if let id = store.addProjectViaFolderPicker() {
+            selectedProjectID = id
+        }
     }
 }

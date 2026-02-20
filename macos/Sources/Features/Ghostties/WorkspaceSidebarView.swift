@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// The full sidebar: icon rail overlays a detail panel within a fixed-width container.
 ///
@@ -70,17 +69,8 @@ struct WorkspaceSidebarView: View {
     // MARK: - Actions
 
     private func presentFolderPicker() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a project folder"
-        panel.prompt = "Add Project"
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.addProject(at: url)
-        selectedProjectID = store.sortedProjects.first(where: {
-            $0.rootPath == url.standardizedFileURL.path
-        })?.id
+        if let id = store.addProjectViaFolderPicker() {
+            selectedProjectID = id
+        }
     }
 }

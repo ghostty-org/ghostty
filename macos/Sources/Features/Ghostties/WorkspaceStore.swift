@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -141,15 +142,46 @@ final class WorkspaceStore: ObservableObject {
         sessions.contains { $0.templateId == id }
     }
 
+    // MARK: - Folder Picker
+
+    /// Presents an NSOpenPanel and adds the selected directory as a project.
+    /// Returns the new or existing project's ID, or nil if the user cancelled.
+    @discardableResult
+    func addProjectViaFolderPicker() -> UUID? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a project folder"
+        panel.prompt = "Add Project"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        addProject(at: url)
+        return sortedProjects.first(where: {
+            $0.rootPath == url.standardizedFileURL.path
+        })?.id
+    }
+
     // MARK: - Private
 
+    /// Debounced persistence — coalesces rapid mutations into a single disk write
+    /// on a background thread to avoid blocking the main actor.
+    private var persistTask: Task<Void, Never>?
+
     private func persist() {
-        let customTemplates = templates.filter { !$0.isDefault }
-        let state = WorkspacePersistence.State(
-            projects: projects,
-            sessions: sessions,
-            templates: customTemplates
-        )
-        WorkspacePersistence.save(state)
+        persistTask?.cancel()
+        persistTask = Task { [projects, sessions, templates] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            let customTemplates = templates.filter { !$0.isDefault }
+            let state = WorkspacePersistence.State(
+                projects: projects,
+                sessions: sessions,
+                templates: customTemplates
+            )
+            await Task.detached(priority: .utility) {
+                WorkspacePersistence.save(state)
+            }.value
+        }
     }
 }

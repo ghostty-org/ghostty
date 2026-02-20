@@ -54,18 +54,48 @@ struct WorkspacePersistence {
 
     static func load() -> State {
         let url = fileURL
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return State()
-        }
         do {
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(State.self, from: data)
+            let state = try decoder.decode(State.self, from: data)
+            return validate(state)
+        } catch let error as DecodingError {
+            logger.error("Corrupted workspace.json, backing up and starting fresh")
+            backupCorruptFile(at: url)
+            return State()
         } catch {
-            logger.error("Failed to load workspace state: \(error.localizedDescription)")
+            // File doesn't exist or can't be read — start fresh
             return State()
         }
+    }
+
+    /// Validates referential integrity of loaded state.
+    private static func validate(_ state: State) -> State {
+        var validated = state
+
+        // Remove sessions whose template no longer exists.
+        let knownTemplateIds = Set(state.templates.map(\.id))
+            .union(SessionTemplate.defaults.map(\.id))
+        validated.sessions = state.sessions.filter { session in
+            knownTemplateIds.contains(session.templateId)
+        }
+
+        // Remove sessions whose project no longer exists.
+        let knownProjectIds = Set(state.projects.map(\.id))
+        validated.sessions = validated.sessions.filter { session in
+            knownProjectIds.contains(session.projectId)
+        }
+
+        return validated
+    }
+
+    /// Renames a corrupt workspace file so the user can recover data manually.
+    private static func backupCorruptFile(at url: URL) {
+        let backupURL = url.deletingPathExtension()
+            .appendingPathExtension("corrupt.json")
+        try? FileManager.default.removeItem(at: backupURL)
+        try? FileManager.default.moveItem(at: url, to: backupURL)
     }
 
     static func save(_ state: State) {
@@ -81,6 +111,11 @@ struct WorkspacePersistence {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(state)
             try data.write(to: url, options: .atomic)
+            // Atomic write inherits default umask; restrict to owner-only.
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: url.path
+            )
         } catch {
             logger.error("Failed to save workspace state: \(error.localizedDescription)")
         }
