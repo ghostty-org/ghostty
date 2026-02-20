@@ -350,14 +350,52 @@ class AppDelegate: NSObject,
         return derivedConfig.shouldQuitAfterLastWindowClosed
     }
 
+    /// Initiates graceful application termination.
+    ///
+    /// We signal all child processes to stop and then wait for them to exit
+    /// (or for our timeout to expire) before terminating the application.
+    private func terminateGracefully(
+        timeout: DispatchTimeInterval = .milliseconds(500),
+    ) -> NSApplication.TerminateReply {
+        var surfaces = TerminalController.all.flatMap { $0.surfaceTree }
+        if case .initialized(let controller) = quickTerminalControllerState {
+            surfaces += controller.surfaceTree
+        }
+        surfaces.forEach { $0.stopProcess() }
+
+        let deadline = DispatchTime.now() + timeout
+
+        func waitForProcesses() {
+            if surfaces.allSatisfy({ $0.processExited }) {
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            if DispatchTime.now() >= deadline {
+                Ghostty.logger.info("child process deadline exceeded; terminating immediately")
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
+                waitForProcesses()
+            }
+        }
+
+        Ghostty.logger.debug("waiting for child processes to exit")
+        waitForProcesses()
+
+        return .terminateLater
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let windows = NSApplication.shared.windows
-        if windows.isEmpty { return .terminateNow }
+        if windows.isEmpty { return terminateGracefully() }
 
         // If we've already accepted to install an update, then we don't need to
         // confirm quit. The user is already expecting the update to happen.
         if updateController.isInstalling {
-            return .terminateNow
+            return terminateGracefully()
         }
 
         // This probably isn't fully safe. The isEmpty check above is aspirational, it doesn't
@@ -368,7 +406,7 @@ class AppDelegate: NSObject,
         // here because I don't want to remove it in a patch release cycle but we should
         // target removing it soon.
         if (windows.allSatisfy { !$0.isVisible }) {
-            return .terminateNow
+            return terminateGracefully()
         }
 
         // If the user is shutting down, restarting, or logging out, we don't confirm quit.
@@ -387,7 +425,7 @@ class AppDelegate: NSObject,
                     fallthrough
 
                 case kAEReallyLogOut:
-                    return .terminateNow
+                    return terminateGracefully()
 
                 default:
                     break
@@ -396,7 +434,7 @@ class AppDelegate: NSObject,
         }
 
         // If our app says we don't need to confirm, we can exit now.
-        if !ghostty.needsConfirmQuit { return .terminateNow }
+        if !ghostty.needsConfirmQuit { return terminateGracefully() }
 
         // We have some visible window. Show an app-wide modal to confirm quitting.
         let alert = NSAlert()
@@ -407,7 +445,7 @@ class AppDelegate: NSObject,
         alert.alertStyle = .warning
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return .terminateNow
+            return terminateGracefully()
 
         default:
             return .terminateCancel

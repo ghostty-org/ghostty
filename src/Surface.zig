@@ -824,6 +824,14 @@ pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
 }
 
+/// Stop the child process by sending it the kill command (SIGHUP).
+/// child_exited will be set once the child process has stopped.
+pub fn stopProcess(self: *Surface) void {
+    switch (self.io.backend) {
+        .exec => |*exec| exec.subprocess.stop(),
+    }
+}
+
 /// Returns a mailbox that can be used to send messages to this surface.
 inline fn surfaceMailbox(self: *Surface) Mailbox {
     return .{

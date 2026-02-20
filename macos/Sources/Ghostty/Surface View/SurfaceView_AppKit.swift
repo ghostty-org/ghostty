@@ -172,6 +172,12 @@ extension Ghostty {
             return ghostty_surface_process_exited(surface)
         }
 
+        // Stops the child process.
+        func stopProcess() {
+            guard let surface = self.surface else { return }
+            ghostty_surface_process_stop(surface)
+        }
+
         // Returns the inspector instance for this surface, or nil if the
         // surface has been closed or no inspector is active.
         var inspector: Ghostty.Inspector? {
