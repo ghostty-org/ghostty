@@ -82,6 +82,11 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveSplitDividerLeft: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerRight: NSMenuItem?
 
+    /// Programmatically-created workspace menu items.
+    private var menuToggleSidebar: NSMenuItem?
+    private var menuNextProject: NSMenuItem?
+    private var menuPreviousProject: NSMenuItem?
+
     /// The dock menu
     private var dockMenu: NSMenu = NSMenu()
 
@@ -290,6 +295,7 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+        setupWorkspaceMenuItems()
 
         // Setup signal handlers
         setupSignals()
@@ -594,6 +600,50 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+    }
+
+    /// Injects programmatic menu items that aren't defined in the XIB.
+    /// Called once from applicationDidFinishLaunching after the menu bar exists.
+    private func setupWorkspaceMenuItems() {
+        // Find the View menu by locating an item we know is there.
+        guard let viewMenu = menuToggleFullScreen?.menu else { return }
+
+        // "Toggle Sidebar" — Cmd+Shift+E
+        let sidebarItem = NSMenuItem(
+            title: "Toggle Sidebar",
+            action: #selector(TerminalController.toggleWorkspaceSidebar(_:)),
+            keyEquivalent: "e"
+        )
+        sidebarItem.keyEquivalentModifierMask = [.command, .shift]
+        sidebarItem.setImageIfDesired(systemSymbolName: "sidebar.left")
+
+        // "Next Project" — Cmd+Shift+]
+        let nextItem = NSMenuItem(
+            title: "Next Project",
+            action: #selector(TerminalController.selectNextProject(_:)),
+            keyEquivalent: "]"
+        )
+        nextItem.keyEquivalentModifierMask = [.command, .shift]
+        nextItem.setImageIfDesired(systemSymbolName: "chevron.right")
+
+        // "Previous Project" — Cmd+Shift+[
+        let prevItem = NSMenuItem(
+            title: "Previous Project",
+            action: #selector(TerminalController.selectPreviousProject(_:)),
+            keyEquivalent: "["
+        )
+        prevItem.keyEquivalentModifierMask = [.command, .shift]
+        prevItem.setImageIfDesired(systemSymbolName: "chevron.left")
+
+        // Insert workspace group at the top of the View menu.
+        viewMenu.insertItem(sidebarItem, at: 0)
+        viewMenu.insertItem(nextItem, at: 1)
+        viewMenu.insertItem(prevItem, at: 2)
+        viewMenu.insertItem(NSMenuItem.separator(), at: 3)
+
+        self.menuToggleSidebar = sidebarItem
+        self.menuNextProject = nextItem
+        self.menuPreviousProject = prevItem
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

@@ -29,6 +29,10 @@ struct AgentSession: Identifiable, Codable, Hashable {
 
 /// Live status of a running session. Not persisted.
 enum SessionStatus {
+    /// Process is alive and running.
     case running
+    /// Process exited naturally (process_alive was false when surface closed).
     case exited
+    /// Surface was closed while the process was still running (force-killed by user).
+    case killed
 }

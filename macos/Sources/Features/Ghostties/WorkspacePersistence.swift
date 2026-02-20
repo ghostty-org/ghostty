@@ -32,6 +32,12 @@ struct WorkspacePersistence {
         var sessions: [AgentSession]
         var templates: [SessionTemplate]
 
+        /// Whether the sidebar was visible when the app last saved state.
+        var sidebarVisible: Bool
+
+        /// The last selected project ID, for restoring selection on launch.
+        var lastSelectedProjectId: UUID?
+
         init(
             projects: [Project] = [],
             sessions: [AgentSession] = [],
@@ -40,6 +46,8 @@ struct WorkspacePersistence {
             self.projects = projects
             self.sessions = sessions
             self.templates = templates
+            self.sidebarVisible = true
+            self.lastSelectedProjectId = nil
         }
 
         init(from decoder: Decoder) throws {
@@ -47,6 +55,8 @@ struct WorkspacePersistence {
             self.projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
             self.sessions = try container.decodeIfPresent([AgentSession].self, forKey: .sessions) ?? []
             self.templates = try container.decodeIfPresent([SessionTemplate].self, forKey: .templates) ?? []
+            self.sidebarVisible = try container.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
+            self.lastSelectedProjectId = try container.decodeIfPresent(UUID.self, forKey: .lastSelectedProjectId)
         }
     }
 

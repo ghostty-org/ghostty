@@ -26,10 +26,24 @@ struct WorkspaceSidebarView: View {
             IconRailView(selectedProjectID: $selectedProjectID)
         }
         .onAppear {
-            // Default to the first project on initial display.
+            // Restore persisted project selection, or default to the first project.
             if selectedProjectID == nil {
-                selectedProjectID = store.sortedProjects.first?.id
+                if let lastId = store.lastSelectedProjectId,
+                   store.projects.contains(where: { $0.id == lastId }) {
+                    selectedProjectID = lastId
+                } else {
+                    selectedProjectID = store.sortedProjects.first?.id
+                }
             }
+        }
+        .onChange(of: selectedProjectID) { newId in
+            store.lastSelectedProjectId = newId
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceSelectNextProject)) { _ in
+            selectAdjacentProject(offset: 1)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceSelectPreviousProject)) { _ in
+            selectAdjacentProject(offset: -1)
         }
     }
 
@@ -72,5 +86,20 @@ struct WorkspaceSidebarView: View {
         if let id = store.addProjectViaFolderPicker() {
             selectedProjectID = id
         }
+    }
+
+    /// Move selection to the next or previous project in the sorted list.
+    private func selectAdjacentProject(offset: Int) {
+        let sorted = store.sortedProjects
+        guard !sorted.isEmpty else { return }
+
+        guard let currentId = selectedProjectID,
+              let currentIndex = sorted.firstIndex(where: { $0.id == currentId }) else {
+            selectedProjectID = sorted.first?.id
+            return
+        }
+
+        let newIndex = (currentIndex + offset + sorted.count) % sorted.count
+        selectedProjectID = sorted[newIndex].id
     }
 }

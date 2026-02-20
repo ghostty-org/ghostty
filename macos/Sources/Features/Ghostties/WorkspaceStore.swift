@@ -16,10 +16,22 @@ final class WorkspaceStore: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var templates: [SessionTemplate] = []
 
+    /// Whether the sidebar should be visible. Persisted across launches.
+    var sidebarVisible: Bool = true {
+        didSet { if oldValue != sidebarVisible { persist() } }
+    }
+
+    /// The last selected project ID, used to restore selection on launch.
+    var lastSelectedProjectId: UUID? {
+        didSet { if oldValue != lastSelectedProjectId { persist() } }
+    }
+
     private init() {
         let state = WorkspacePersistence.load()
         self.projects = state.projects
         self.sessions = state.sessions
+        self.sidebarVisible = state.sidebarVisible
+        self.lastSelectedProjectId = state.lastSelectedProjectId
 
         // Merge persisted custom templates with built-in defaults.
         // Defaults are always present; custom templates are additive.
@@ -170,15 +182,17 @@ final class WorkspaceStore: ObservableObject {
 
     private func persist() {
         persistTask?.cancel()
-        persistTask = Task { [projects, sessions, templates] in
+        persistTask = Task { [projects, sessions, templates, sidebarVisible, lastSelectedProjectId] in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             let customTemplates = templates.filter { !$0.isDefault }
-            let state = WorkspacePersistence.State(
+            var state = WorkspacePersistence.State(
                 projects: projects,
                 sessions: sessions,
                 templates: customTemplates
             )
+            state.sidebarVisible = sidebarVisible
+            state.lastSelectedProjectId = lastSelectedProjectId
             await Task.detached(priority: .utility) {
                 WorkspacePersistence.save(state)
             }.value

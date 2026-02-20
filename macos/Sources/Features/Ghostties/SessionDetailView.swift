@@ -170,6 +170,7 @@ struct SessionRow: View {
         switch status {
         case .running: return .green
         case .exited: return Color(.tertiaryLabelColor)
+        case .killed: return .red
         }
     }
 
@@ -177,6 +178,7 @@ struct SessionRow: View {
         switch status {
         case .running: return "running"
         case .exited: return "exited"
+        case .killed: return "killed"
         }
     }
 }

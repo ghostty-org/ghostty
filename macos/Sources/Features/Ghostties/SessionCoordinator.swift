@@ -4,10 +4,14 @@ import GhosttyKit
 
 /// Bridges the SwiftUI sidebar to Ghostty's terminal surface system.
 ///
-/// Sessions work like **vertical tabs**: each session owns a terminal surface, and the
-/// sidebar switches which one occupies the terminal area. Only one session is visible at a
-/// time (unless the user manually splits via Ghostty shortcuts). Background sessions keep
-/// their processes running — the coordinator holds strong references to their SurfaceViews.
+/// Sessions work like **vertical tabs**: each session owns a terminal surface tree
+/// (which may contain splits), and the sidebar switches which tree occupies the
+/// terminal area. Only one session is visible at a time. Background sessions keep
+/// their processes running — the coordinator holds strong references to their trees.
+///
+/// When the user creates splits via Ghostty shortcuts (Cmd+D), those splits live in
+/// the controller's `surfaceTree`. Before switching sessions, we snapshot the current
+/// tree back into `sessionTrees` so splits are preserved across switches.
 ///
 /// Each window gets its own coordinator instance, injected via `.environmentObject()`.
 /// The coordinator discovers its window controller lazily through the view hierarchy.
@@ -21,9 +25,11 @@ final class SessionCoordinator: ObservableObject {
     /// The currently displayed session. Nil before any session is created.
     @Published private(set) var activeSessionId: UUID?
 
-    /// Maps session IDs to their live SurfaceView references.
-    /// Surfaces are kept alive here even when not displayed in the terminal area.
-    @Published private(set) var surfaceViews: [UUID: Ghostty.SurfaceView] = [:]
+    /// Maps session IDs to their full split trees. Trees are kept alive here even
+    /// when not displayed — this preserves both the surfaces and any user-created
+    /// splits. The active session's tree may be stale (the controller owns the
+    /// live version); call `snapshotActiveTree()` to sync before reading.
+    private(set) var sessionTrees: [UUID: SplitTree<Ghostty.SurfaceView>] = [:]
 
     /// Maps session IDs to their runtime status.
     @Published private(set) var statuses: [UUID: SessionStatus] = [:]
@@ -39,7 +45,7 @@ final class SessionCoordinator: ObservableObject {
     ///
     /// Creates a Ghostty surface with the appropriate configuration and makes it
     /// the sole occupant of the terminal area (replacing whatever was there before).
-    /// The previous session's surface stays alive in the background.
+    /// The previous session's tree is snapshotted before the switch.
     @discardableResult
     func createSession(
         session: AgentSession,
@@ -54,12 +60,16 @@ final class SessionCoordinator: ObservableObject {
         config.environmentVariables = template.environmentVariables
 
         let newView = Ghostty.SurfaceView(ghosttyApp, baseConfig: config)
+        let newTree = SplitTree(view: newView)
 
-        surfaceViews[session.id] = newView
+        // Snapshot the outgoing session's tree (captures any user-created splits).
+        snapshotActiveTree()
+
+        sessionTrees[session.id] = newTree
         statuses[session.id] = .running
         activeSessionId = session.id
 
-        showSurface(newView)
+        showSession(newTree, focusView: newView)
         return true
     }
 
@@ -67,28 +77,32 @@ final class SessionCoordinator: ObservableObject {
 
     /// Switch the terminal area to show a specific session.
     ///
-    /// The previously visible session's surface stays alive in the background.
+    /// Snapshots the current session's tree (preserving splits) before switching.
     /// This is the "vertical tab" behavior — clicking a session in the sidebar
-    /// replaces the terminal content.
+    /// replaces the terminal content with the target session's full split tree.
     func focusSession(id: UUID) {
-        guard let surfaceView = surfaceViews[id] else { return }
+        guard let tree = sessionTrees[id] else { return }
+
+        // Snapshot the outgoing session's tree first.
+        snapshotActiveTree()
+
         activeSessionId = id
-        showSurface(surfaceView)
+        showSession(tree, focusView: tree.first)
     }
 
     // MARK: - Lifecycle
 
     /// Check if a session has a live surface.
     func isRunning(id: UUID) -> Bool {
-        surfaceViews[id] != nil && statuses[id] == .running
+        sessionTrees[id] != nil && statuses[id] == .running
     }
 
-    /// Close a session's surface. The process is terminated and the surface destroyed.
+    /// Close a session's surface tree. All processes in the tree are terminated.
     func closeSession(id: UUID) {
-        guard let surfaceView = surfaceViews[id] else { return }
+        guard let tree = sessionTrees[id] else { return }
 
-        // Remove from our tracking first, then close via the controller.
-        surfaceViews.removeValue(forKey: id)
+        // Remove from our tracking first, then close surfaces via the controller.
+        sessionTrees.removeValue(forKey: id)
         statuses[id] = .exited
 
         // If this was the active session, switch to another running session.
@@ -96,14 +110,16 @@ final class SessionCoordinator: ObservableObject {
             switchToNextSession()
         }
 
-        // Tell Ghostty to close the surface (kills the process).
+        // Tell Ghostty to close each surface in the tree (kills processes).
         guard let controller = terminalController else { return }
-        controller.closeSurface(surfaceView, withConfirmation: false)
+        for surface in tree {
+            controller.closeSurface(surface, withConfirmation: false)
+        }
     }
 
     /// Clean up runtime state for a session (after removing from the store).
     func clearRuntime(id: UUID) {
-        surfaceViews.removeValue(forKey: id)
+        sessionTrees.removeValue(forKey: id)
         statuses.removeValue(forKey: id)
     }
 
@@ -114,33 +130,42 @@ final class SessionCoordinator: ObservableObject {
         containerView?.window?.windowController as? BaseTerminalController
     }
 
-    /// Replace the terminal area with a single surface.
+    /// Snapshot the active session's current tree from the controller.
+    ///
+    /// The controller owns the live tree (including any splits the user created
+    /// via Ghostty shortcuts). We must capture it before every switch so that
+    /// returning to this session restores the user's split layout.
+    private func snapshotActiveTree() {
+        guard let currentId = activeSessionId,
+              let controller = terminalController,
+              sessionTrees[currentId] != nil else { return }
+        sessionTrees[currentId] = controller.surfaceTree
+    }
+
+    /// Replace the terminal area with a session's full split tree.
     ///
     /// Uses `replaceSurfaceTree` (the canonical safe setter) instead of direct
     /// `surfaceTree` assignment to avoid bypassing undo registration.
     /// We pass `undoAction: nil` because session switching is a sidebar navigation
     /// action, not an undoable edit.
-    private func showSurface(_ surfaceView: Ghostty.SurfaceView) {
+    private func showSession(_ tree: SplitTree<Ghostty.SurfaceView>, focusView: Ghostty.SurfaceView?) {
         guard let controller = terminalController else { return }
         let oldFocused = controller.focusedSurface
 
         controller.replaceSurfaceTree(
-            SplitTree(view: surfaceView),
-            moveFocusTo: surfaceView,
+            tree,
+            moveFocusTo: focusView,
             moveFocusFrom: oldFocused
         )
     }
 
     /// Switch to the next available running session, or show nothing.
     private func switchToNextSession() {
-        // Find another running session to display.
-        if let (nextId, nextView) = surfaceViews.first(where: { statuses[$0.key] == .running }) {
+        if let (nextId, nextTree) = sessionTrees.first(where: { statuses[$0.key] == .running }) {
             activeSessionId = nextId
-            showSurface(nextView)
+            showSession(nextTree, focusView: nextTree.first)
         } else {
             activeSessionId = nil
-            // All sessions closed — the initial Ghostty surface is gone.
-            // The controller handles the empty-tree case (may close the window).
         }
     }
 
@@ -157,22 +182,55 @@ final class SessionCoordinator: ObservableObject {
     @objc private func surfaceDidClose(_ notification: Notification) {
         guard let closedSurface = notification.object as? Ghostty.SurfaceView else { return }
 
-        // Only handle surfaces we own. BaseTerminalController also observes this
-        // notification for its own split tree management — we must not interfere
-        // with surfaces belonging to other windows or non-session surfaces.
-        guard let (sessionId, _) = surfaceViews.first(where: { $0.value === closedSurface }) else {
-            return
-        }
+        // Find which session owns this surface by scanning all stored trees.
+        guard let sessionId = sessionId(for: closedSurface) else { return }
 
-        // Remove our strong reference first so BaseTerminalController's handler
-        // (which may fire after us) won't find a stale reference.
-        surfaceViews.removeValue(forKey: sessionId)
-        statuses[sessionId] = .exited
+        let processAlive = notification.userInfo?["process_alive"] as? Bool ?? false
 
-        // If the active session just closed, switch to another.
-        if activeSessionId == sessionId {
-            switchToNextSession()
+        // For the active session, read the live tree from the controller (which
+        // BaseTerminalController has already updated to remove the closed surface).
+        // For background sessions, remove the surface from our stored tree.
+        if sessionId == activeSessionId {
+            if let controller = terminalController {
+                let liveTree = controller.surfaceTree
+                if liveTree.isEmpty {
+                    sessionTrees.removeValue(forKey: sessionId)
+                    statuses[sessionId] = processAlive ? .killed : .exited
+                    switchToNextSession()
+                } else {
+                    sessionTrees[sessionId] = liveTree
+                }
+            }
+        } else {
+            // Background session: remove the closed surface's node from our stored tree.
+            if let tree = sessionTrees[sessionId],
+               let node = tree.root?.node(view: closedSurface) {
+                let updated = tree.removing(node)
+                if updated.isEmpty {
+                    sessionTrees.removeValue(forKey: sessionId)
+                    statuses[sessionId] = processAlive ? .killed : .exited
+                } else {
+                    sessionTrees[sessionId] = updated
+                }
+            }
         }
+    }
+
+    /// Find which session owns a given surface by searching all stored trees.
+    private func sessionId(for surface: Ghostty.SurfaceView) -> UUID? {
+        // Check the active session's live tree first (from the controller).
+        if let activeId = activeSessionId,
+           let controller = terminalController,
+           controller.surfaceTree.contains(where: { $0 === surface }) {
+            return activeId
+        }
+        // Check stored trees for background sessions.
+        for (id, tree) in sessionTrees where id != activeSessionId {
+            if tree.contains(where: { $0 === surface }) {
+                return id
+            }
+        }
+        return nil
     }
 
     deinit {

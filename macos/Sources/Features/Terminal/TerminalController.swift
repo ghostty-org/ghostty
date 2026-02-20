@@ -1179,6 +1179,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         data.encode(with: state)
     }
 
+    // MARK: Workspace Sidebar
+
+    @IBAction func toggleWorkspaceSidebar(_ sender: Any?) {
+        guard let container = window?.contentView as? WorkspaceViewContainer<TerminalController> else { return }
+        container.toggleSidebar()
+    }
+
+    @IBAction func selectNextProject(_ sender: Any?) {
+        NotificationCenter.default.post(name: .workspaceSelectNextProject, object: window)
+    }
+
+    @IBAction func selectPreviousProject(_ sender: Any?) {
+        NotificationCenter.default.post(name: .workspaceSelectPreviousProject, object: window)
+    }
+
     // MARK: First Responder
 
     @IBAction func newWindow(_ sender: Any?) {
