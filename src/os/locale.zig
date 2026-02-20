@@ -5,6 +5,7 @@ const macos = @import("macos");
 const objc = @import("objc");
 const internal_os = @import("main.zig");
 const i18n = internal_os.i18n;
+const i18n_locales = @import("i18n_locales.zig");
 
 const log = std.log.scoped(.os_locale);
 
@@ -25,6 +26,47 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
         // Set the lang if it is not set or if its empty.
         if (lang == null or lang.?.value.len == 0) {
             setLangFromCocoa();
+        }
+    }
+
+    if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
+        defer language.deinit(alloc);
+        if (language.value.len > 0) {
+            normalized: {
+                var locale_buf: [128]u8 = undefined;
+                var first = true;
+                // LANGUAGE might come as lv:en, without .UTF-8. Ordered by preference, we check one by one to find first valid locale.
+                var it = std.mem.splitScalar(u8, language.value, ':');
+                while (it.next()) |entry| {
+                    if (entry.len == 0) continue;
+                    defer first = false;
+
+                    // If the first preferred language is English (Ghostty's default), stop.
+                    if (first and std.mem.eql(u8, entry, "en")) {
+                        _ = internal_os.setenv("LANGUAGE", "en");
+                        break :normalized;
+                    }
+
+                    // If entry has no region (no "_*"), pick the first matching full locale.
+                    if (std.mem.indexOfScalar(u8, entry, '_') == null) {
+                        for (i18n_locales.locales) |locale| {
+                            if (!std.mem.startsWith(u8, locale, entry)) continue;
+                            if (locale.len <= entry.len) continue;
+                            if (locale[entry.len] != '_') continue;
+                            _ = internal_os.setenv("LANGUAGE", locale);
+                            break :normalized;
+                        }
+                    }
+
+                    // Normalize to {entry}.UTF-8 for LANGUAGE when supported by Ghostty.
+                    const locale = std.fmt.bufPrintZ(&locale_buf, "{s}.UTF-8", .{entry}) catch continue;
+                    for (i18n_locales.locales) |supported| {
+                        if (!std.mem.eql(u8, locale, supported)) continue;
+                        _ = internal_os.setenv("LANGUAGE", locale);
+                        break :normalized;
+                    }
+                }
+            }
         }
     }
 
