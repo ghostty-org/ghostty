@@ -115,17 +115,20 @@ final class SessionCoordinator: ObservableObject {
     }
 
     /// Replace the terminal area with a single surface.
+    ///
+    /// Uses `replaceSurfaceTree` (the canonical safe setter) instead of direct
+    /// `surfaceTree` assignment to avoid bypassing undo registration.
+    /// We pass `undoAction: nil` because session switching is a sidebar navigation
+    /// action, not an undoable edit.
     private func showSurface(_ surfaceView: Ghostty.SurfaceView) {
         guard let controller = terminalController else { return }
         let oldFocused = controller.focusedSurface
 
-        // Replace the entire split tree with just this surface.
-        controller.surfaceTree = SplitTree(view: surfaceView)
-        controller.focusedSurface = surfaceView
-
-        DispatchQueue.main.async {
-            Ghostty.moveFocus(to: surfaceView, from: oldFocused)
-        }
+        controller.replaceSurfaceTree(
+            SplitTree(view: surfaceView),
+            moveFocusTo: surfaceView,
+            moveFocusFrom: oldFocused
+        )
     }
 
     /// Switch to the next available running session, or show nothing.
@@ -154,11 +157,15 @@ final class SessionCoordinator: ObservableObject {
     @objc private func surfaceDidClose(_ notification: Notification) {
         guard let closedSurface = notification.object as? Ghostty.SurfaceView else { return }
 
-        // Find the session that owns this surface.
+        // Only handle surfaces we own. BaseTerminalController also observes this
+        // notification for its own split tree management — we must not interfere
+        // with surfaces belonging to other windows or non-session surfaces.
         guard let (sessionId, _) = surfaceViews.first(where: { $0.value === closedSurface }) else {
             return
         }
 
+        // Remove our strong reference first so BaseTerminalController's handler
+        // (which may fire after us) won't find a stale reference.
         surfaceViews.removeValue(forKey: sessionId)
         statuses[sessionId] = .exited
 

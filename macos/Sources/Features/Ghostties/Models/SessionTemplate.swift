@@ -35,13 +35,17 @@ struct SessionTemplate: Identifiable, Codable, Hashable {
     // MARK: - Built-in Templates
 
     /// Default shell session — uses the user's login shell.
+    /// Uses a deterministic UUID so persisted sessions can find this template across launches.
     static let shell = SessionTemplate(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
         name: "Shell",
         isDefault: true
     )
 
     /// Claude Code agent session.
+    /// Uses a deterministic UUID so persisted sessions can find this template across launches.
     static let claudeCode = SessionTemplate(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
         name: "Claude Code",
         command: "claude",
         isDefault: true
