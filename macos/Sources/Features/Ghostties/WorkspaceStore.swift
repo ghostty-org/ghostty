@@ -93,6 +93,54 @@ final class WorkspaceStore: ObservableObject {
         persist()
     }
 
+    // MARK: - Template Actions
+
+    @discardableResult
+    func addTemplate(name: String, command: String?, environmentVariables: [String: String] = [:]) -> SessionTemplate {
+        let template = SessionTemplate(
+            name: name,
+            command: command,
+            environmentVariables: environmentVariables
+        )
+        templates.append(template)
+        persist()
+        return template
+    }
+
+    func updateTemplate(id: UUID, name: String, command: String?, environmentVariables: [String: String]) {
+        guard let index = templates.firstIndex(where: { $0.id == id }) else { return }
+        guard !templates[index].isDefault else { return }
+        templates[index].name = name
+        templates[index].command = command
+        templates[index].environmentVariables = environmentVariables
+        persist()
+    }
+
+    @discardableResult
+    func duplicateTemplate(id: UUID) -> SessionTemplate? {
+        guard let original = templates.first(where: { $0.id == id }) else { return nil }
+        let copy = SessionTemplate(
+            name: "Copy of \(original.name)",
+            command: original.command,
+            environmentVariables: original.environmentVariables
+        )
+        templates.append(copy)
+        persist()
+        return copy
+    }
+
+    func removeTemplate(id: UUID) {
+        guard let template = templates.first(where: { $0.id == id }),
+              !template.isDefault else { return }
+        templates.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// Whether any session references a given template.
+    func templateInUse(id: UUID) -> Bool {
+        sessions.contains { $0.templateId == id }
+    }
+
     // MARK: - Private
 
     private func persist() {

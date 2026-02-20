@@ -179,12 +179,13 @@ HStack(spacing: 0) {
 - [x] Track session lifecycle (surface created → running → exited)
 - [x] Implement click-to-focus (sidebar click → focus surface in terminal area)
 - [x] Default templates: "Shell", "Claude Code"
-- [ ] Template CRUD: edit, duplicate, delete via context menu
+- [x] Template CRUD: edit, duplicate, delete via context menu
 - [x] Handle session exit: clean (Done), crash (Failed + Relaunch), user-closed (remove)
 - [ ] Verify: can create sessions from templates, switch between them, relaunch failed ones
 
 ### Phase 4: Status + Polish (2 sessions)
 
+- [ ] **Known limitation from Phase 3:** Switching sessions replaces the entire split tree. Split layouts are not preserved per-session. Fix: save/restore `SplitTree` snapshots when switching.
 - [ ] Create `StatusIndicatorView` (running/idle/done states)
 - [ ] Add status indicators to session list items
 - [ ] Sidebar toggle toolbar button
