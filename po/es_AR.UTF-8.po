@@ -336,7 +336,7 @@ msgstr "Cambiar título de la terminal"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr "Cambiar título de la ventana"
+msgstr "Cambiar título de la pestaña"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
