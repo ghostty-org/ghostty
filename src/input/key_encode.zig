@@ -129,10 +129,28 @@ fn kitty(
 
         // Otherwise, we use our unicode codepoint from UTF8. We
         // always use the unshifted value.
-        if (event.unshifted_codepoint > 0) {
+        // However, if a non-Shift modifier (like AltGr/Level3) produces a different character,
+        // we use that character as the key code and "consume" the modifiers
+        // to prevent the app from seeing them as active shortcuts.
+        const key_code: u21 = key_code: {
+            if (event.utf8.len > 0) {
+                const view = std.unicode.Utf8View.init(event.utf8) catch {
+                    break :key_code event.unshifted_codepoint;
+                };
+                var it = view.iterator();
+                if (it.nextCodepoint()) |cp| {
+                    if (cp != event.unshifted_codepoint and !event.mods.shift) {
+                        break :key_code cp;
+                    }
+                }
+            }
+            break :key_code event.unshifted_codepoint;
+        };
+
+        if (key_code > 0) {
             break :entry .{
                 .key = event.key,
-                .code = event.unshifted_codepoint,
+                .code = key_code,
                 .final = 'u',
                 .modifier = false,
             };
