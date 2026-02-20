@@ -5,7 +5,7 @@
   <br>Ghostree
 </h1>
   <p align="center">
-    A fork of a fast, native, feature-rich terminal emulator pushing modern features with <a href="https://worktrunk.dev/" target="_blank">worktrunk</a> built-in.
+    A fork of a fast, native, feature-rich terminal emulator pushing modern features with <a href="https://worktrunk.dev/" target="_blank">worktrunk</a> built-in. It goes without saying all credit goes to Ghostty and this is just a light layer on top of Ghostty to make working with agents a little better.
     <br /><br />
     macOS: <code>brew install sidequery/tap/ghostree</code>
     <br /><br />
