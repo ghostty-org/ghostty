@@ -7,9 +7,13 @@ import SwiftUI
 /// The sidebar is a SwiftUI view hierarchy (icon rail + detail panel) embedded in an
 /// NSHostingView. The terminal side is the standard TerminalViewContainer, untouched.
 /// Both are arranged via Auto Layout with the sidebar at a fixed 220pt width.
+///
+/// This container also creates and owns the `SessionCoordinator`, which bridges
+/// the sidebar's SwiftUI world to the terminal controller's AppKit world.
 class WorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
     private let sidebarHostingView: NSView
     private let terminalContainer: TerminalViewContainer<ViewModel>
+    private let coordinator: SessionCoordinator
 
     init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
         self.terminalContainer = TerminalViewContainer(
@@ -18,8 +22,11 @@ class WorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
             delegate: delegate
         )
 
+        self.coordinator = SessionCoordinator(ghostty: ghostty)
+
         let sidebarView = WorkspaceSidebarView()
             .environmentObject(WorkspaceStore.shared)
+            .environmentObject(coordinator)
         let hostingView = NSHostingView(rootView: sidebarView)
         // Auto Layout controls the sidebar width; disable intrinsic size reporting
         // to avoid unnecessary layout computation from the hosting view.
@@ -33,6 +40,13 @@ class WorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Give the coordinator a reference to this view so it can discover
+        // the window controller through the responder chain.
+        coordinator.containerView = self
     }
 
     override var intrinsicContentSize: NSSize {

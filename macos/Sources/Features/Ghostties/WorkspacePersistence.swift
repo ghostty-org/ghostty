@@ -22,8 +22,32 @@ struct WorkspacePersistence {
     // MARK: - Persistence Model
 
     /// Top-level container for everything we persist.
+    ///
+    /// Uses a custom `Decodable` init so that new fields (sessions, templates)
+    /// are decoded with defaults when missing from older workspace.json files.
+    /// Without this, adding a new field would fail to decode existing JSON and
+    /// silently wipe the user's projects.
     struct State: Codable {
         var projects: [Project]
+        var sessions: [AgentSession]
+        var templates: [SessionTemplate]
+
+        init(
+            projects: [Project] = [],
+            sessions: [AgentSession] = [],
+            templates: [SessionTemplate] = []
+        ) {
+            self.projects = projects
+            self.sessions = sessions
+            self.templates = templates
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
+            self.sessions = try container.decodeIfPresent([AgentSession].self, forKey: .sessions) ?? []
+            self.templates = try container.decodeIfPresent([SessionTemplate].self, forKey: .templates) ?? []
+        }
     }
 
     // MARK: - Read / Write
@@ -31,7 +55,7 @@ struct WorkspacePersistence {
     static func load() -> State {
         let url = fileURL
         guard FileManager.default.fileExists(atPath: url.path) else {
-            return State(projects: [])
+            return State()
         }
         do {
             let data = try Data(contentsOf: url)
@@ -40,7 +64,7 @@ struct WorkspacePersistence {
             return try decoder.decode(State.self, from: data)
         } catch {
             logger.error("Failed to load workspace state: \(error.localizedDescription)")
-            return State(projects: [])
+            return State()
         }
     }
 

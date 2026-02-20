@@ -44,25 +44,7 @@ struct WorkspaceSidebarView: View {
     @ViewBuilder
     private var detailPanel: some View {
         if let project = selectedProject {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(project.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-
-                Divider()
-
-                // Project path — sessions replace this in Phase 3
-                Text(project.rootPath)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-
-                Spacer()
-            }
+            SessionDetailView(project: project)
         } else {
             emptyState
         }

@@ -171,16 +171,16 @@ HStack(spacing: 0) {
 
 ### Phase 3: Session Management (2-3 sessions)
 
-- [ ] Create `SessionTemplate` model (Codable)
-- [ ] Create `AgentSession` model (links to SurfaceView)
-- [ ] Create `SessionDetailView` (list for selected project)
-- [ ] Implement "New Session" with template picker
-- [ ] Wire template → `SurfaceConfiguration` → new Ghostty surface
-- [ ] Track session lifecycle (surface created → running → exited)
-- [ ] Implement click-to-focus (sidebar click → focus surface in terminal area)
-- [ ] Default templates: "Shell", "Claude Code"
+- [x] Create `SessionTemplate` model (Codable)
+- [x] Create `AgentSession` model (links to SurfaceView)
+- [x] Create `SessionDetailView` (list for selected project)
+- [x] Implement "New Session" with template picker
+- [x] Wire template → `SurfaceConfiguration` → new Ghostty surface
+- [x] Track session lifecycle (surface created → running → exited)
+- [x] Implement click-to-focus (sidebar click → focus surface in terminal area)
+- [x] Default templates: "Shell", "Claude Code"
 - [ ] Template CRUD: edit, duplicate, delete via context menu
-- [ ] Handle session exit: clean (Done), crash (Failed + Relaunch), user-closed (remove)
+- [x] Handle session exit: clean (Done), crash (Failed + Relaunch), user-closed (remove)
 - [ ] Verify: can create sessions from templates, switch between them, relaunch failed ones
 
 ### Phase 4: Status + Polish (2 sessions)
