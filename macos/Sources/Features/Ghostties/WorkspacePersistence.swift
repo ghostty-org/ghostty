@@ -83,7 +83,7 @@ struct WorkspacePersistence {
     }
 
     /// Validates referential integrity of loaded state.
-    private static func validate(_ state: State) -> State {
+    static func validate(_ state: State) -> State {
         var validated = state
 
         // Remove sessions whose template no longer exists.
