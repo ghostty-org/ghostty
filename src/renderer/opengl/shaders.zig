@@ -232,8 +232,8 @@ pub const Uniforms = extern struct {
 
 /// This is a single parameter for the terminal cell shader.
 pub const CellText = extern struct {
-    glyph_pos: [2]u32 align(8) = .{ 0, 0 },
-    glyph_size: [2]u32 align(8) = .{ 0, 0 },
+    glyph_pos: [2]u16 align(4) = .{ 0, 0 },
+    glyph_size: [2]u16 align(4) = .{ 0, 0 },
     bearings: [2]i16 align(4) = .{ 0, 0 },
     grid_pos: [2]u16 align(4),
     color: [4]u8 align(4),
@@ -243,18 +243,18 @@ pub const CellText = extern struct {
         is_cursor_glyph: bool = false,
         _padding: u6 = 0,
     } align(1) = .{},
-    bg_color: [4]u8 align(1) = .{ 0, 0, 0, 0 },
+    bg_color: [4]u8 align(4) = .{ 0, 0, 0, 0 },
 
     pub const Atlas = enum(u8) {
         grayscale = 0,
         color = 1,
     };
 
-    // test {
-    //     // Minimizing the size of this struct is important,
-    //     // so we test it in order to be aware of any changes.
-    //     try std.testing.expectEqual(40, @sizeOf(CellText));
-    // }
+    test {
+        // Minimizing the size of this struct is important,
+        // so we test it in order to be aware of any changes.
+        try std.testing.expectEqual(28, @sizeOf(CellText));
+    }
 };
 
 /// This is a single parameter for the cell bg shader.
