@@ -82,11 +82,6 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveSplitDividerLeft: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerRight: NSMenuItem?
 
-    /// Programmatically-created workspace menu items.
-    private var menuToggleSidebar: NSMenuItem?
-    private var menuNextProject: NSMenuItem?
-    private var menuPreviousProject: NSMenuItem?
-
     /// The dock menu
     private var dockMenu: NSMenu = NSMenu()
 
@@ -641,9 +636,6 @@ class AppDelegate: NSObject,
         viewMenu.insertItem(prevItem, at: 2)
         viewMenu.insertItem(NSMenuItem.separator(), at: 3)
 
-        self.menuToggleSidebar = sidebarItem
-        self.menuNextProject = nextItem
-        self.menuPreviousProject = prevItem
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

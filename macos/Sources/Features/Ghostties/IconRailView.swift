@@ -7,7 +7,7 @@ import SwiftUI
 /// The expanded state uses an opaque background to overlay the detail panel.
 struct IconRailView: View {
     @EnvironmentObject private var store: WorkspaceStore
-    @Binding var selectedProjectID: UUID?
+    @Binding var selectedProjectId: UUID?
     @State private var isExpanded = false
     @State private var hoverTask: Task<Void, Never>?
 
@@ -50,11 +50,11 @@ struct IconRailView: View {
         ForEach(store.sortedProjects) { project in
             ProjectRailItem(
                 project: project,
-                isSelected: project.id == selectedProjectID,
+                isSelected: project.id == selectedProjectId,
                 isExpanded: isExpanded
             )
             .onTapGesture {
-                selectedProjectID = project.id
+                selectedProjectId = project.id
             }
             .contextMenu {
                 Button(project.isPinned ? "Unpin" : "Pin") {
@@ -95,7 +95,7 @@ struct IconRailView: View {
 
     private func presentFolderPicker() {
         if let id = store.addProjectViaFolderPicker() {
-            selectedProjectID = id
+            selectedProjectId = id
         }
     }
 }

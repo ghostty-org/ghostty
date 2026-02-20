@@ -8,9 +8,10 @@ import SwiftUI
 /// background. This keeps the sidebar width fixed so the terminal never re-layouts.
 struct WorkspaceSidebarView: View {
     @EnvironmentObject private var store: WorkspaceStore
+    @EnvironmentObject private var coordinator: SessionCoordinator
 
     /// Per-window selection state — each window can focus a different project.
-    @State private var selectedProjectID: UUID?
+    @State private var selectedProjectId: UUID?
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -23,26 +24,28 @@ struct WorkspaceSidebarView: View {
             }
 
             // Icon rail: overlays the detail panel when expanded
-            IconRailView(selectedProjectID: $selectedProjectID)
+            IconRailView(selectedProjectId: $selectedProjectId)
         }
         .onAppear {
             // Restore persisted project selection, or default to the first project.
-            if selectedProjectID == nil {
+            if selectedProjectId == nil {
                 if let lastId = store.lastSelectedProjectId,
                    store.projects.contains(where: { $0.id == lastId }) {
-                    selectedProjectID = lastId
+                    selectedProjectId = lastId
                 } else {
-                    selectedProjectID = store.sortedProjects.first?.id
+                    selectedProjectId = store.sortedProjects.first?.id
                 }
             }
         }
-        .onChange(of: selectedProjectID) { newId in
+        .onChange(of: selectedProjectId) { newId in
             store.lastSelectedProjectId = newId
         }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceSelectNextProject)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceSelectNextProject)) { notification in
+            guard notification.object as? NSWindow === coordinator.containerView?.window else { return }
             selectAdjacentProject(offset: 1)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceSelectPreviousProject)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceSelectPreviousProject)) { notification in
+            guard notification.object as? NSWindow === coordinator.containerView?.window else { return }
             selectAdjacentProject(offset: -1)
         }
     }
@@ -50,7 +53,7 @@ struct WorkspaceSidebarView: View {
     // MARK: - Detail Panel
 
     private var selectedProject: Project? {
-        guard let id = selectedProjectID else { return nil }
+        guard let id = selectedProjectId else { return nil }
         return store.projects.first { $0.id == id }
     }
 
@@ -84,7 +87,7 @@ struct WorkspaceSidebarView: View {
 
     private func presentFolderPicker() {
         if let id = store.addProjectViaFolderPicker() {
-            selectedProjectID = id
+            selectedProjectId = id
         }
     }
 
@@ -93,13 +96,13 @@ struct WorkspaceSidebarView: View {
         let sorted = store.sortedProjects
         guard !sorted.isEmpty else { return }
 
-        guard let currentId = selectedProjectID,
+        guard let currentId = selectedProjectId,
               let currentIndex = sorted.firstIndex(where: { $0.id == currentId }) else {
-            selectedProjectID = sorted.first?.id
+            selectedProjectId = sorted.first?.id
             return
         }
 
         let newIndex = (currentIndex + offset + sorted.count) % sorted.count
-        selectedProjectID = sorted[newIndex].id
+        selectedProjectId = sorted[newIndex].id
     }
 }

@@ -82,6 +82,7 @@ final class WorkspaceStore: ObservableObject {
         // Also remove sessions belonging to this project.
         sessions.removeAll { $0.projectId == id }
         projects.removeAll { $0.id == id }
+        if lastSelectedProjectId == id { lastSelectedProjectId = nil }
         persist()
     }
 
@@ -186,13 +187,13 @@ final class WorkspaceStore: ObservableObject {
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             let customTemplates = templates.filter { !$0.isDefault }
-            var state = WorkspacePersistence.State(
+            let state = WorkspacePersistence.State(
                 projects: projects,
                 sessions: sessions,
-                templates: customTemplates
+                templates: customTemplates,
+                sidebarVisible: sidebarVisible,
+                lastSelectedProjectId: lastSelectedProjectId
             )
-            state.sidebarVisible = sidebarVisible
-            state.lastSelectedProjectId = lastSelectedProjectId
             await Task.detached(priority: .utility) {
                 WorkspacePersistence.save(state)
             }.value

@@ -158,9 +158,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window.surfaceIsZoomed = to.zoomed != nil
         }
 
-        // If our surface tree is now nil then we close our window.
+        // If our surface tree is now empty, close the window — unless a
+        // workspace sidebar is present, in which case the user can still
+        // interact with exited sessions from the sidebar.
         if to.isEmpty {
-            self.window?.close()
+            if !(window?.contentView is WorkspaceViewContainer<TerminalController>) {
+                self.window?.close()
+            }
         }
     }
 
@@ -171,8 +175,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         undoAction: String? = nil
     ) {
         // We have a special case if our tree is empty to close our tab immediately.
-        // This makes it so that undo is handled properly.
+        // This makes it so that undo is handled properly. However, if a workspace
+        // sidebar is present, allow the empty tree — the sidebar is still usable.
         if newTree.isEmpty {
+            if window?.contentView is WorkspaceViewContainer<TerminalController> {
+                super.replaceSurfaceTree(newTree, moveFocusTo: newView, moveFocusFrom: oldView, undoAction: undoAction)
+                return
+            }
             closeTabImmediately()
             return
         }

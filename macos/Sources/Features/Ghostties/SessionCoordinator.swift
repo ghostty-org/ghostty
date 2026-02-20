@@ -180,6 +180,17 @@ final class SessionCoordinator: ObservableObject {
     }
 
     @objc private func surfaceDidClose(_ notification: Notification) {
+        // Defer processing by one run-loop tick. BaseTerminalController also observes
+        // ghosttyCloseSurface and updates the live surfaceTree synchronously, but
+        // NotificationCenter delivery order depends on registration order and is not
+        // guaranteed. By dispatching async we ensure the controller has already
+        // removed the closed surface before we snapshot its tree.
+        DispatchQueue.main.async { [weak self] in
+            self?.handleSurfaceClose(notification)
+        }
+    }
+
+    private func handleSurfaceClose(_ notification: Notification) {
         guard let closedSurface = notification.object as? Ghostty.SurfaceView else { return }
 
         // Find which session owns this surface by scanning all stored trees.

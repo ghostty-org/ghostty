@@ -67,6 +67,11 @@ class WorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
         return NSSize(width: termSize.width + sidebarWidth, height: termSize.height)
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        dividerView.layer?.backgroundColor = NSColor.separatorColor.cgColor
+    }
+
     // MARK: - Sidebar Toggle
 
     /// Whether the sidebar is currently visible.
@@ -84,12 +89,6 @@ class WorkspaceViewContainer<ViewModel: TerminalViewModel>: NSView {
             dividerWidthConstraint.animator().constant = hiding ? 0 : 1
         }
         WorkspaceStore.shared.sidebarVisible = !hiding
-    }
-
-    /// Set sidebar visibility without animation (used on initial layout).
-    func setSidebarVisible(_ visible: Bool) {
-        sidebarWidthConstraint.constant = visible ? WorkspaceLayout.sidebarWidth : 0
-        dividerWidthConstraint.constant = visible ? 1 : 0
     }
 
     // MARK: - Layout

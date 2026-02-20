@@ -41,13 +41,15 @@ struct WorkspacePersistence {
         init(
             projects: [Project] = [],
             sessions: [AgentSession] = [],
-            templates: [SessionTemplate] = []
+            templates: [SessionTemplate] = [],
+            sidebarVisible: Bool = true,
+            lastSelectedProjectId: UUID? = nil
         ) {
             self.projects = projects
             self.sessions = sessions
             self.templates = templates
-            self.sidebarVisible = true
-            self.lastSelectedProjectId = nil
+            self.sidebarVisible = sidebarVisible
+            self.lastSelectedProjectId = lastSelectedProjectId
         }
 
         init(from decoder: Decoder) throws {
@@ -95,6 +97,12 @@ struct WorkspacePersistence {
         let knownProjectIds = Set(state.projects.map(\.id))
         validated.sessions = validated.sessions.filter { session in
             knownProjectIds.contains(session.projectId)
+        }
+
+        // Clear stale lastSelectedProjectId if the project was deleted.
+        if let lastId = validated.lastSelectedProjectId,
+           !knownProjectIds.contains(lastId) {
+            validated.lastSelectedProjectId = nil
         }
 
         return validated
