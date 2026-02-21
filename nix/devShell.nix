@@ -88,9 +88,11 @@
   patched_zon2nix =
     zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix.overrideAttrs
     (old: {
-      patches = (old.patches or []) ++ [
-        ./patches/zon2nix-relative-cache-path.patch
-      ];
+      patches =
+        (old.patches or [])
+        ++ [
+          ./patches/zon2nix-relative-cache-path.patch
+        ];
     });
 in
   mkShell {
