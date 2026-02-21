@@ -58,4 +58,28 @@ struct NSPasteboardExtensionTests {
 
         #expect(!pasteboard.hasTextContent())
     }
+
+    @Test func hasTextContentMatchesOpinionatedStringAvailabilityForSupportedTypes() {
+        func assertSync(_ pasteboard: NSPasteboard) {
+            #expect(pasteboard.hasTextContent() == (pasteboard.getOpinionatedStringContents() != nil))
+        }
+
+        let stringPasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        stringPasteboard.clearContents()
+        let stringSet = stringPasteboard.setString("hello", forType: .string)
+        #expect(stringSet)
+        assertSync(stringPasteboard)
+
+        let urlPasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        urlPasteboard.clearContents()
+        let urlSet = urlPasteboard.writeObjects([NSURL(string: "https://example.com")!])
+        #expect(urlSet)
+        assertSync(urlPasteboard)
+
+        let fileURLPasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        fileURLPasteboard.clearContents()
+        let fileURLSet = fileURLPasteboard.writeObjects([NSURL(fileURLWithPath: "/tmp/ghostty test.txt")])
+        #expect(fileURLSet)
+        assertSync(fileURLPasteboard)
+    }
 }

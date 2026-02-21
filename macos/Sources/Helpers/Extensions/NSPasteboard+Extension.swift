@@ -38,6 +38,7 @@ extension NSPasteboard {
     /// - Tries to get any string from the pasteboard.
     /// If all of the above fail, returns None.
     /// Returns true if the pasteboard contains text or file URL content.
+    /// Keep this in sync with `getOpinionatedStringContents()`: both should recognize the same text-like types.
     func hasTextContent() -> Bool {
         let stringType: NSPasteboard.PasteboardType = .string
         let urlTypes: [NSPasteboard.PasteboardType] = [
@@ -48,6 +49,7 @@ extension NSPasteboard {
     }
 
     func getOpinionatedStringContents() -> String? {
+        // Keep this in sync with `hasTextContent()`: changes to supported types should be reflected there too.
         if let urls = readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
             return urls
