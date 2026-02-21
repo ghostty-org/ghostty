@@ -47,6 +47,29 @@ BUILD_ZIG_ZON_TXT="$ROOT/build.zig.zon.txt"
 BUILD_ZIG_ZON_JSON="$ROOT/build.zig.zon.json"
 ZIG_PACKAGES_JSON="$ROOT/flatpak/zig-packages.json"
 
+normalize_dir_path() {
+  local path="$1"
+
+  case "$path" in
+    /*) ;;
+    *) path="$ROOT/$path" ;;
+  esac
+
+  mkdir -p "$path"
+  (
+    cd "$path"
+    pwd -P
+  )
+}
+
+# zon2nix shells out to `zig env` and expects an absolute global_cache_dir.
+# Normalize cache-related environment vars to absolute paths.
+HOME="$(normalize_dir_path "${HOME:-$ROOT/.home}")"
+XDG_CACHE_HOME="$(normalize_dir_path "${XDG_CACHE_HOME:-$HOME/.cache}")"
+ZIG_LOCAL_CACHE_DIR="$(normalize_dir_path "${ZIG_LOCAL_CACHE_DIR:-$ROOT/.zig-cache/local}")"
+ZIG_GLOBAL_CACHE_DIR="$(normalize_dir_path "${ZIG_GLOBAL_CACHE_DIR:-$ROOT/.zig-cache/global}")"
+export HOME XDG_CACHE_HOME ZIG_LOCAL_CACHE_DIR ZIG_GLOBAL_CACHE_DIR
+
 if [ -f "${BUILD_ZIG_ZON_NIX}" ]; then
   OLD_HASH_NIX=$(sha512sum "${BUILD_ZIG_ZON_NIX}" | awk '{print $1}')
 elif [ "$1" != "--update" ]; then
@@ -79,7 +102,12 @@ elif [ "$1" != "--update" ]; then
   exit 1
 fi
 
-zon2nix "$BUILD_ZIG_ZON" --15 --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
+env \
+  HOME="$HOME" \
+  XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+  ZIG_LOCAL_CACHE_DIR="$ZIG_LOCAL_CACHE_DIR" \
+  ZIG_GLOBAL_CACHE_DIR="$ZIG_GLOBAL_CACHE_DIR" \
+  zon2nix "$BUILD_ZIG_ZON" --15 --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
 alejandra --quiet "$WORK_DIR/build.zig.zon.nix"
 prettier --log-level warn --write "$WORK_DIR/build.zig.zon.json"
 prettier --log-level warn --write "$WORK_DIR/zig-packages.json"

@@ -85,6 +85,15 @@
   gi_typelib_path = import ./build-support/gi-typelib-path.nix {
     inherit pkgs lib stdenv;
   };
+  patched_zon2nix =
+    zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix.overrideAttrs
+    (old: {
+      patches =
+        (old.patches or [])
+        ++ [
+          ./patches/zon2nix-relative-cache-path.patch
+        ];
+    });
 in
   mkShell {
     name = "ghostty";
@@ -101,7 +110,7 @@ in
         scdoc
         zig
         zip
-        zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix
+        patched_zon2nix
 
         # For web and wasm stuff
         nodejs

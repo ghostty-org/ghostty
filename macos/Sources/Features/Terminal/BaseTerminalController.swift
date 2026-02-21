@@ -869,8 +869,7 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
 
         if derivedConfig.macosTitlebarProxyIcon == .visible {
-            // Use the 'to' URL directly
-            window.representedURL = to
+            window.representedURL = RestorablePath.existingDirectoryURL(to)
         } else {
             window.representedURL = nil
         }
@@ -1164,6 +1163,10 @@ class BaseTerminalController: NSWindowController,
         if fullscreenStyle == nil {
             fullscreenStyle = NativeFullscreen(window)
             fullscreenStyle?.delegate = self
+        }
+
+        if RestorablePath.existingDirectoryURL(window.representedURL) == nil {
+            window.representedURL = nil
         }
 
         // Set our update overlay state

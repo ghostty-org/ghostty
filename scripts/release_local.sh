@@ -50,8 +50,7 @@ embed_worktrunk() {
     curl -L -o "$archive" "$WORKTRUNK_URL"
 
     local sum
-    set -- $(shasum -a 256 "$archive")
-    sum="$1"
+    sum="$(shasum -a 256 "$archive" | awk '{print $1}')"
     [[ "$sum" == "$WORKTRUNK_SHA256" ]] || err "Worktrunk sha256 mismatch: expected $WORKTRUNK_SHA256 got $sum"
 
     tar -xJf "$archive" -C "$tmpdir"

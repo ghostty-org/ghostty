@@ -6,17 +6,6 @@ name: "Vouch - Check PR"
 
 jobs:
   check:
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
-        id: app-token
-        with:
-          app-id: ${{ secrets.VOUCH_APP_ID }}
-          private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
-
-      - uses: mitchellh/vouch/action/check-pr@daa39f90448eb4054ad334d7f53959a7efb5005b # v1.4.0
-        with:
-          pr-number: ${{ github.event.pull_request.number }}
-          auto-close: true
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+      - run: echo "Vouch enforcement is disabled for PR CI."

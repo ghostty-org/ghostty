@@ -8,7 +8,7 @@ concurrency:
 jobs:
   required:
     name: "Required Checks: Nix"
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs:
       - check-zig-cache-hash
     steps:
@@ -32,20 +32,13 @@ jobs:
           exit 1
 
   check-zig-cache-hash:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/global
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
-        with:
-          path: |
-            /nix
-            /zig
       - name: Setup Nix
         uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
         with:

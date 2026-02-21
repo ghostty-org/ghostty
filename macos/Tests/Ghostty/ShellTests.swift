@@ -1,5 +1,5 @@
 import Testing
-@testable import Ghostty
+@testable import Ghostree
 
 struct ShellTests {
     @Test(arguments: [
