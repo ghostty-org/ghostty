@@ -1728,7 +1728,8 @@ extension Ghostty {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
             var config = Ghostty.SurfaceConfiguration()
-            config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
+            let decodedPwd = try container.decode(String?.self, forKey: .pwd)
+            config.workingDirectory = RestorablePath.normalizedExistingDirectoryPath(decodedPwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 
@@ -1746,7 +1747,8 @@ extension Ghostty {
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(pwd, forKey: .pwd)
+            let persistedPwd = RestorablePath.normalizedExistingDirectoryPath(pwd)
+            try container.encode(persistedPwd, forKey: .pwd)
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
             try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)

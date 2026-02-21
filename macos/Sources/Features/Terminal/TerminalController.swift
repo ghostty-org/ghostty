@@ -361,7 +361,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     func restoreWorktreeTabRootPath(_ path: String?) {
-        setWorktreeTabRootPath(path)
+        let sanitized = RestorablePath.normalizedExistingDirectoryPath(path)
+        setWorktreeTabRootPath(sanitized)
     }
 
     private static func existingWorktreeTabController(forWorktreePath path: String) -> TerminalController? {
@@ -1994,6 +1995,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // Called when the window will be encoded. We handle the data encoding here in the
     // window controller.
     func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
+        if RestorablePath.existingDirectoryURL(window.representedURL) == nil {
+            window.representedURL = nil
+        }
+
         let data = TerminalRestorableState(from: self)
         data.encode(with: state)
     }

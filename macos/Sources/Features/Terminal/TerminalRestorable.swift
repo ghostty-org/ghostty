@@ -56,7 +56,7 @@ class TerminalRestorableState: TerminalRestorable {
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
         self.tabColor = (controller.window as? TerminalWindow)?.tabColor ?? .none
         self.titleOverride = controller.titleOverride
-        self.worktreeTabRootPath = controller.worktreeTabRootPath
+        self.worktreeTabRootPath = RestorablePath.normalizedExistingDirectoryPath(controller.worktreeTabRootPath)
     }
 
     required init(copy other: TerminalRestorableState) {
