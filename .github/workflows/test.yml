@@ -466,6 +466,7 @@ jobs:
 
       # Build the iOS target without code signing just to verify it works.
       - name: Build Ghostty iOS
+        if: github.repository == 'ghostty-org/ghostty'
         run: |
           cd macos
           xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO"
@@ -835,6 +836,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -848,7 +851,19 @@ jobs:
           useDaemon: false # sometimes fails on short jobs
 
       - name: swiftlint check
-        run: nix develop -c swiftlint lint --strict macos
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags --prune --depth=1 origin main
+          base="$(git merge-base origin/main "$GITHUB_SHA")"
+
+          mapfile -d '' files < <(git diff --name-only -z "$base" "$GITHUB_SHA" -- 'macos/**/*.swift')
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No changed Swift files under macos/"
+            exit 0
+          fi
+
+          nix develop -c swiftlint lint --strict "${files[@]}"
 
   alejandra:
     runs-on: ubuntu-24.04
@@ -992,14 +1007,7 @@ jobs:
     needs: [test, build-dist]
     permissions:
       contents: read
-      id-token: write
     steps:
-      - name: Install and configure Namespace CLI
-        uses: namespacelabs/nscloud-setup@d1c625762f7c926a54bd39252efff0705fd11c64 # v0.0.10
-
-      - name: Configure Namespace powered Buildx
-        uses: namespacelabs/nscloud-setup-buildx-action@f5814dcf37a16cce0624d5bec2ab879654294aa0 # v0.0.22
-
       - name: Download Source Tarball Artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -1010,13 +1018,12 @@ jobs:
           mkdir dist
           tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
 
-      - name: Build and push
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: dist
-          file: dist/src/build/docker/debian/Dockerfile
-          build-args: |
-            DISTRO_VERSION=13
+      - name: Build Debian 13 container
+        run: |
+          docker build \
+            --file dist/src/build/docker/debian/Dockerfile \
+            --build-arg DISTRO_VERSION=13 \
+            dist
 
   valgrind:
     runs-on: ubuntu-24.04

@@ -307,7 +307,7 @@ enum AgentHookInstaller {
          */
         import fs from "node:fs";
         import path from "node:path";
-        
+
         export const GhostreeNotifyPlugin = async ({ client, directory, worktree }) => {
           if (globalThis.__ghostreeOpencodeNotifyPluginV5) return {};
           globalThis.__ghostreeOpencodeNotifyPluginV5 = true;
@@ -370,11 +370,11 @@ enum AgentHookInstaller {
               // Best-effort only
             }
           };
-        
+
           let currentState = "idle"; // 'idle' | 'busy'
           let rootSessionID = null;
           let stopSent = false;
-        
+
           const childSessionCache = new Map();
           const isChildSession = async (sessionID) => {
             if (!sessionID) return false;
@@ -390,14 +390,14 @@ enum AgentHookInstaller {
               return false;
             }
           };
-        
+
           const normalizeSessionID = (sessionID) => sessionID ?? "unknown";
-        
+
           const getSessionID = (event) => {
             const props = event?.properties ?? {};
             return props.sessionID ?? props.sessionId ?? props.session_id ?? props.session ?? props.id ?? null;
           };
-        
+
           const handleBusy = async (sessionID, event) => {
             const sid = normalizeSessionID(sessionID);
             if (!rootSessionID) rootSessionID = sid;
@@ -426,14 +426,14 @@ enum AgentHookInstaller {
               rootSessionID = null;
             }
           };
-        
+
           return {
             event: async ({ event }) => {
               const sessionID = getSessionID(event);
               updateCwd(event);
-        
+
               if (await isChildSession(sessionID)) return;
-        
+
               if (event.type === "session.status") {
                 const status = event.properties?.status;
                 if (status?.type === "busy") await handleBusy(sessionID, event);
@@ -464,7 +464,7 @@ enum AgentHookInstaller {
             },
           };
         };
-        
+
         export default GhostreeNotifyPlugin;
         """
     }

@@ -64,10 +64,11 @@ normalize_dir_path() {
 
 # zon2nix shells out to `zig env` and expects an absolute global_cache_dir.
 # Normalize cache-related environment vars to absolute paths.
-export HOME="$(normalize_dir_path "${HOME:-$ROOT/.home}")"
-export XDG_CACHE_HOME="$(normalize_dir_path "${XDG_CACHE_HOME:-$HOME/.cache}")"
-export ZIG_LOCAL_CACHE_DIR="$(normalize_dir_path "${ZIG_LOCAL_CACHE_DIR:-$ROOT/.zig-cache/local}")"
-export ZIG_GLOBAL_CACHE_DIR="$(normalize_dir_path "${ZIG_GLOBAL_CACHE_DIR:-$ROOT/.zig-cache/global}")"
+HOME="$(normalize_dir_path "${HOME:-$ROOT/.home}")"
+XDG_CACHE_HOME="$(normalize_dir_path "${XDG_CACHE_HOME:-$HOME/.cache}")"
+ZIG_LOCAL_CACHE_DIR="$(normalize_dir_path "${ZIG_LOCAL_CACHE_DIR:-$ROOT/.zig-cache/local}")"
+ZIG_GLOBAL_CACHE_DIR="$(normalize_dir_path "${ZIG_GLOBAL_CACHE_DIR:-$ROOT/.zig-cache/global}")"
+export HOME XDG_CACHE_HOME ZIG_LOCAL_CACHE_DIR ZIG_GLOBAL_CACHE_DIR
 
 if [ -f "${BUILD_ZIG_ZON_NIX}" ]; then
   OLD_HASH_NIX=$(sha512sum "${BUILD_ZIG_ZON_NIX}" | awk '{print $1}')
