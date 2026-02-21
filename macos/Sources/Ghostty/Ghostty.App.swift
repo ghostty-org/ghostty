@@ -638,7 +638,6 @@ extension Ghostty {
             case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 return presentTerminal(app, target: target)
 
-
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
@@ -1410,8 +1409,9 @@ extension Ghostty {
                 if mode == .never { return }
                 if mode == .unfocused && surfaceView.focused { return }
 
-                let durationMs = v.duration / 1_000_000
-                if durationMs < config.notifyOnCommandFinishAfter { return }
+                let duration = Duration.nanoseconds(v.duration)
+
+                if duration < config.notifyOnCommandFinishAfter { return }
 
                 let actions = config.notifyOnCommandFinishAction
 
@@ -1433,7 +1433,13 @@ extension Ghostty {
                     }
 
                     let body: String
-                    let formattedDuration = Self.formatDuration(ns: v.duration)
+                    let formattedDuration = duration.formatted(
+                        .units(
+                            allowed: [.hours, .minutes, .seconds, .milliseconds],
+                            width: .abbreviated,
+                            fractionalPart: .hide
+                        )
+                    )
                     if v.exit_code < 0 {
                         body = "Command took \(formattedDuration)."
                     } else {
@@ -1446,26 +1452,6 @@ extension Ghostty {
             default:
                 assertionFailure()
             }
-        }
-
-        private static func formatDuration(ns: UInt64) -> String {
-            let totalSeconds = ns / 1_000_000_000
-            let ms = (ns / 1_000_000) % 1000
-
-            if totalSeconds == 0 {
-                return "\(ms)ms"
-            }
-
-            let seconds = totalSeconds % 60
-            let minutes = (totalSeconds / 60) % 60
-            let hours = totalSeconds / 3600
-
-            var parts: [String] = []
-            if hours > 0 { parts.append("\(hours)h") }
-            if minutes > 0 { parts.append("\(minutes)m") }
-            if seconds > 0 || (hours == 0 && minutes == 0) { parts.append("\(seconds)s") }
-
-            return parts.joined(separator: " ")
         }
 
         private static func toggleFloatWindow(

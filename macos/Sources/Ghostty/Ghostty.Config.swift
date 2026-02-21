@@ -144,19 +144,20 @@ extension Ghostty {
         }
 
         var notifyOnCommandFinishAction: NotifyOnCommandFinishAction {
-            guard let config = self.config else { return .bell }
+            let defaultValue = NotifyOnCommandFinishAction.bell
+            guard let config = self.config else { return defaultValue }
             var v: CUnsignedInt = 0
             let key = "notify-on-command-finish-action"
-            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return .bell }
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
             return .init(rawValue: v)
         }
 
-        var notifyOnCommandFinishAfter: UInt {
-            guard let config = self.config else { return 5000 }
+        var notifyOnCommandFinishAfter: Duration {
+            guard let config = self.config else { return .seconds(5) }
             var v: UInt = 0
             let key = "notify-on-command-finish-after"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return v
+            return .milliseconds(v)
         }
 
         var splitPreserveZoom: SplitPreserveZoom {
