@@ -270,8 +270,9 @@ extension Ghostty {
         static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
+            request: ghostty_clipboard_request_e,
             state: UnsafeMutableRawPointer?
-        ) {}
+        ) -> Bool { return false }
 
         static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?,
