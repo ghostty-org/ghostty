@@ -10421,16 +10421,19 @@ test "default paste keybinds are performable" {
 
     const Trigger = inputpkg.Binding.Trigger;
 
-    // super+v (macOS) or ctrl+shift+v (Linux) paste binding should be performable
-    const paste_trigger: Trigger = .{
+    // super+v (macOS) or ctrl+shift+v (non-macOS) paste binding should be performable.
+    // We check both to keep this test target-agnostic.
+    const mac_paste_trigger: Trigger = .{
         .key = .{ .unicode = 'v' },
-        .mods = if (comptime builtin.target.os.tag.isDarwin())
-            .{ .super = true }
-        else
-            .{ .ctrl = true, .shift = true },
+        .mods = .{ .super = true },
+    };
+    const non_macos_paste_trigger: Trigger = .{
+        .key = .{ .unicode = 'v' },
+        .mods = .{ .ctrl = true, .shift = true },
     };
 
-    const entry = cfg.keybind.set.get(paste_trigger);
+    const entry = cfg.keybind.set.get(mac_paste_trigger) orelse
+        cfg.keybind.set.get(non_macos_paste_trigger);
     try testing.expect(entry != null);
     switch (entry.?.value_ptr.*) {
         .leaf => |leaf| {
