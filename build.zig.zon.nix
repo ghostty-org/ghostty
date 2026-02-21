@@ -99,11 +99,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v";
+      name = "N-V-__8AANIsLQB6bOopmMzDkvz9nvrqdzH21s2jaxfGK9b9";
       path = fetchZigArtifact {
         name = "fontconfig";
-        url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz";
-        hash = "sha256-O6LdkhWHGKzsXKrxpxYEO1qgVcJ7CB2RSvPMtA3OilU=";
+        url = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.17.1/fontconfig-2.17.1.tar.gz";
+        hash = "sha256-guc7Jq2tZRsjbl9dSzB02vj/CRAYiAhJYya9NEnlJh0=";
       };
     }
     {
