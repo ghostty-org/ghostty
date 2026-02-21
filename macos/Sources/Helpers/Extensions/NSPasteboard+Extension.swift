@@ -66,7 +66,7 @@ extension NSPasteboard {
         case GHOSTTY_CLIPBOARD_STANDARD:
             return Self.general
 
-        case GHOSTTY_CLIPBOARD_SELECTION:
+        case GHOSTTY_CLIPBOARD_SELECTION, GHOSTTY_CLIPBOARD_PRIMARY:
             return Self.ghosttySelection
 
         default:

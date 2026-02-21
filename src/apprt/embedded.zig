@@ -25,64 +25,6 @@ const log = std.log.scoped(.embedded_window);
 
 pub const resourcesDir = internal_os.resourcesDir;
 
-/// Convert apprt clipboard type to the embedded runtime C callback value.
-///
-/// Sync with ghostty_clipboard_e in include/ghostty.h.
-fn clipboardToRuntimeClipboard(clipboard: apprt.Clipboard) c_int {
-    const RuntimeClipboard = enum(c_int) {
-        standard = 0,
-        selection = 1,
-    };
-
-    comptime {
-        assert(@intFromEnum(apprt.Clipboard.standard) == 0);
-        assert(@intFromEnum(apprt.Clipboard.selection) == 1);
-        assert(@intFromEnum(apprt.Clipboard.primary) == 2);
-    }
-
-    return switch (clipboard) {
-        .standard => @intFromEnum(RuntimeClipboard.standard),
-        .selection, .primary => @intFromEnum(RuntimeClipboard.selection),
-    };
-}
-
-/// Convert apprt clipboard request to the embedded runtime C callback value.
-///
-/// Sync with ghostty_clipboard_request_e in include/ghostty.h.
-fn clipboardRequestToRuntimeClipboardRequest(request: apprt.ClipboardRequest) c_int {
-    const RuntimeClipboardRequest = enum(c_int) {
-        paste = 0,
-        osc_52_read = 1,
-        osc_52_write = 2,
-    };
-
-    comptime {
-        assert(@intFromEnum(apprt.ClipboardRequestType.paste) == 0);
-        assert(@intFromEnum(apprt.ClipboardRequestType.osc_52_read) == 1);
-        assert(@intFromEnum(apprt.ClipboardRequestType.osc_52_write) == 2);
-    }
-
-    return switch (request) {
-        .paste => @intFromEnum(RuntimeClipboardRequest.paste),
-        .osc_52_read => @intFromEnum(RuntimeClipboardRequest.osc_52_read),
-        .osc_52_write => @intFromEnum(RuntimeClipboardRequest.osc_52_write),
-    };
-}
-
-test "embedded: clipboard enum mapping for runtime callbacks" {
-    const testing = std.testing;
-    try testing.expectEqual(@as(c_int, 0), clipboardToRuntimeClipboard(.standard));
-    try testing.expectEqual(@as(c_int, 1), clipboardToRuntimeClipboard(.selection));
-    try testing.expectEqual(@as(c_int, 1), clipboardToRuntimeClipboard(.primary));
-}
-
-test "embedded: clipboard request enum mapping for runtime callbacks" {
-    const testing = std.testing;
-    try testing.expectEqual(@as(c_int, 0), clipboardRequestToRuntimeClipboardRequest(.paste));
-    try testing.expectEqual(@as(c_int, 1), clipboardRequestToRuntimeClipboardRequest(.{ .osc_52_read = .standard }));
-    try testing.expectEqual(@as(c_int, 2), clipboardRequestToRuntimeClipboardRequest(.{ .osc_52_write = .standard }));
-}
-
 pub const App = struct {
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
@@ -111,7 +53,7 @@ pub const App = struct {
         /// Read the clipboard value. The return value must be preserved
         /// by the host until the next call. If there is no valid clipboard
         /// value then this should return false.
-        read_clipboard: *const fn (SurfaceUD, c_int, c_int, *apprt.ClipboardRequest) callconv(.c) bool,
+        read_clipboard: *const fn (SurfaceUD, apprt.Clipboard, apprt.ClipboardRequestType, *apprt.ClipboardRequest) callconv(.c) bool,
 
         /// This may be called after a read clipboard call to request
         /// confirmation that the clipboard value is safe to read. The embedder
@@ -126,7 +68,7 @@ pub const App = struct {
         /// Write the clipboard value.
         write_clipboard: *const fn (
             SurfaceUD,
-            c_int,
+            apprt.Clipboard,
             [*]const CAPI.ClipboardContent,
             usize,
             bool,
@@ -733,8 +675,8 @@ pub const Surface = struct {
 
         const started = self.app.opts.read_clipboard(
             self.userdata,
-            clipboardToRuntimeClipboard(clipboard_type),
-            clipboardRequestToRuntimeClipboardRequest(state),
+            clipboard_type,
+            state,
             state_ptr,
         );
         if (!started) {
@@ -799,7 +741,7 @@ pub const Surface = struct {
 
         self.app.opts.write_clipboard(
             self.userdata,
-            @intCast(@intFromEnum(clipboard_type)),
+            clipboard_type,
             array.ptr,
             array.len,
             confirm,
