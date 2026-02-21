@@ -779,6 +779,7 @@ jobs:
 
   pinact:
     name: "GitHub Actions Pins"
+    if: github.repository == 'ghostty-org/ghostty'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -803,6 +804,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   prettier:
+    if: github.repository == 'ghostty-org/ghostty'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -823,7 +825,7 @@ jobs:
         run: nix develop -c prettier --check .
 
   swiftlint:
-    if: needs.paths.outputs.macos == 'true'
+    if: github.repository == 'ghostty-org/ghostty' && needs.paths.outputs.macos == 'true'
     runs-on: macos-latest
     needs: paths
     timeout-minutes: 60
@@ -865,6 +867,7 @@ jobs:
         run: nix develop -c alejandra --check .
 
   typos:
+    if: github.repository == 'ghostty-org/ghostty'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -885,6 +888,7 @@ jobs:
         run: nix develop -c typos
 
   shellcheck:
+    if: github.repository == 'ghostty-org/ghostty'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
