@@ -5899,49 +5899,37 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .io => self.queueIo(.{ .crash = {} }, .unlocked),
         },
 
+        .start_selection => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            if (!try startSelectionAtCursor(screen)) {
+                // If we already have a selection we don't perform this action.
+                return false;
+            }
+
+            screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
         .adjust_selection => |direction| {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
 
             const screen: *terminal.Screen = self.io.terminal.screens.active;
-            const sel = if (screen.selection) |*sel| sel else {
-                // If we don't have a selection we do not perform this
-                // action, allowing the keybind to fall through to the
-                // terminal.
+            if (!adjustSelectionByDirection(screen, direction)) {
+                // If we don't have a selection we do not perform this action,
+                // allowing the keybind to fall through to the terminal.
                 return false;
-            };
-            sel.adjust(screen, switch (direction) {
-                .left => .left,
-                .right => .right,
-                .up => .up,
-                .down => .down,
-                .page_up => .page_up,
-                .page_down => .page_down,
-                .home => .home,
-                .end => .end,
-                .beginning_of_line => .beginning_of_line,
-                .end_of_line => .end_of_line,
-            });
+            }
+
+            const sel = &screen.selection.?;
 
             // If the selection endpoint is outside of the current viewpoint,
             // scroll it in to view. Note we always specifically use sel.end
             // because that is what adjust modifies.
-            scroll: {
-                const viewport_tl = screen.pages.getTopLeft(.viewport);
-                const viewport_br = screen.pages.getBottomRight(.viewport).?;
-                if (sel.end().isBetween(viewport_tl, viewport_br))
-                    break :scroll;
-
-                // Our end point is not within the viewport. If the end
-                // point is after the br then we need to adjust the end so
-                // that it is at the bottom right of the viewport.
-                const target = if (sel.end().before(viewport_tl))
-                    sel.end()
-                else
-                    sel.end().up(screen.pages.rows - 1) orelse sel.end();
-
-                screen.scroll(.{ .pin = target });
-            }
+            scrollSelectionEndpointIntoView(screen, sel);
 
             // Queue a render so its shown
             screen.dirty.selection = true;
@@ -5950,6 +5938,53 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
     }
 
     return true;
+}
+
+fn startSelectionAtCursor(screen: *terminal.Screen) !bool {
+    if (screen.selection != null) return false;
+
+    const cursor_pin = screen.cursor.page_pin.*;
+    try screen.select(terminal.Selection.init(cursor_pin, cursor_pin, false));
+    return true;
+}
+
+fn adjustSelectionByDirection(
+    screen: *terminal.Screen,
+    direction: input.Binding.Action.AdjustSelection,
+) bool {
+    const sel = if (screen.selection) |*sel| sel else return false;
+    sel.adjust(screen, switch (direction) {
+        .left => .left,
+        .right => .right,
+        .up => .up,
+        .down => .down,
+        .page_up => .page_up,
+        .page_down => .page_down,
+        .home => .home,
+        .end => .end,
+        .beginning_of_line => .beginning_of_line,
+        .end_of_line => .end_of_line,
+    });
+    return true;
+}
+
+fn scrollSelectionEndpointIntoView(
+    screen: *terminal.Screen,
+    sel: *const terminal.Selection,
+) void {
+    const viewport_tl = screen.pages.getTopLeft(.viewport);
+    const viewport_br = screen.pages.getBottomRight(.viewport).?;
+    if (sel.end().isBetween(viewport_tl, viewport_br)) return;
+
+    // Our end point is not within the viewport. If the end
+    // point is after the br then we need to adjust the end so
+    // that it is at the bottom right of the viewport.
+    const target = if (sel.end().before(viewport_tl))
+        sel.end()
+    else
+        sel.end().up(screen.pages.rows - 1) orelse sel.end();
+
+    screen.scroll(.{ .pin = target });
 }
 
 /// Returns true if performing the given action result in closing
@@ -6351,6 +6386,52 @@ fn presentSurface(self: *Surface) !void {
         .present_terminal,
         {},
     );
+}
+
+test "Surface: start_selection creates and adjust_selection extends" {
+    const testing = std.testing;
+
+    var screen = try terminal.Screen.init(testing.allocator, .{
+        .cols = 10,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
+    defer screen.deinit();
+    try screen.testWriteString("ABCDE\nFGHIJ");
+
+    screen.cursorAbsolute(1, 0);
+
+    try testing.expect(screen.selection == null);
+    try testing.expect(try startSelectionAtCursor(&screen));
+
+    {
+        const sel = screen.selection.?;
+        try testing.expectEqual(terminal.Point{ .screen = .{ .x = 1, .y = 0 } }, screen.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(terminal.Point{ .screen = .{ .x = 1, .y = 0 } }, screen.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    try testing.expect(adjustSelectionByDirection(&screen, .right));
+
+    {
+        const sel = screen.selection.?;
+        try testing.expectEqual(terminal.Point{ .screen = .{ .x = 1, .y = 0 } }, screen.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(terminal.Point{ .screen = .{ .x = 2, .y = 0 } }, screen.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Surface: adjust_selection is not performable without selection" {
+    const testing = std.testing;
+
+    var screen = try terminal.Screen.init(testing.allocator, .{
+        .cols = 10,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
+    defer screen.deinit();
+    try screen.testWriteString("ABCDE");
+
+    try testing.expect(screen.selection == null);
+    try testing.expect(!adjustSelectionByDirection(&screen, .right));
 }
 
 /// Utility function for the unit tests for mouse selection logic.

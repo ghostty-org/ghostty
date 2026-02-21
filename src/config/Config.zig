@@ -1757,6 +1757,19 @@ class: ?[:0]const u8 = null,
 /// related binding actions also exist; see the documentation for a full list.
 /// These are the primary way to interact with key tables.
 ///
+/// Example "vim" table for keyboard selection:
+///
+/// ```ini
+/// keybind = ctrl+v=activate_key_table:vim
+/// keybind = vim/v=start_selection
+/// keybind = vim/h=adjust_selection:left
+/// keybind = vim/j=adjust_selection:down
+/// keybind = vim/k=adjust_selection:up
+/// keybind = vim/l=adjust_selection:right
+/// keybind = vim/y=copy_to_clipboard
+/// keybind = vim/escape=deactivate_key_table
+/// ```
+///
 /// Binding lookup proceeds from the innermost table outward, so keybinds in
 /// the default table remain available unless explicitly unbound in an inner
 /// table.
@@ -7166,6 +7179,30 @@ pub const Keybinds = struct {
         try testing.expectEqual(2, keybinds.tables.count());
         try testing.expectEqual(2, keybinds.tables.get("foo").?.bindings.count());
         try testing.expectEqual(1, keybinds.tables.get("bar").?.bindings.count());
+    }
+
+    test "parseCLI table vim selection mode example" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "vim/v=start_selection");
+        try keybinds.parseCLI(alloc, "vim/y=copy_to_clipboard");
+
+        try testing.expectEqual(1, keybinds.tables.count());
+        const table = keybinds.tables.get("vim").?;
+        try testing.expectEqual(2, table.bindings.count());
+
+        const v_binding = table.get(.{ .key = .{ .unicode = 'v' } }).?;
+        try testing.expect(v_binding.value_ptr.* == .leaf);
+        try testing.expect(v_binding.value_ptr.*.leaf.action == .start_selection);
+
+        const y_binding = table.get(.{ .key = .{ .unicode = 'y' } }).?;
+        try testing.expect(y_binding.value_ptr.* == .leaf);
+        try testing.expect(y_binding.value_ptr.*.leaf.action == .copy_to_clipboard);
     }
 
     test "parseCLI table does not affect root set" {

@@ -450,6 +450,11 @@ pub const Action = union(enum) {
     /// lines.
     scroll_page_lines: i16,
 
+    /// Start a new cursor-based selection at the current cursor position.
+    ///
+    /// This does nothing when a selection already exists.
+    start_selection,
+
     /// Adjust the current selection in the given direction or position,
     /// relative to the cursor.
     ///
@@ -1337,6 +1342,7 @@ pub const Action = union(enum) {
             .scroll_page_down,
             .scroll_page_fractional,
             .scroll_page_lines,
+            .start_selection,
             .adjust_selection,
             .jump_to_prompt,
             .write_scrollback_file,
@@ -4467,6 +4473,15 @@ test "parse: set_font_size" {
         const binding = try parseSingle("a=set_font_size:13.5");
         try testing.expect(binding.action == .set_font_size);
         try testing.expectEqual(13.5, binding.action.set_font_size);
+    }
+}
+
+test "parse: start_selection" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=start_selection");
+        try testing.expect(binding.action == .start_selection);
     }
 }
 
