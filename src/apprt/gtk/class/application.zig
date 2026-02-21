@@ -999,6 +999,38 @@ pub const Application = extern struct {
             \\}
             \\
             \\/*
+            \\ * Drag and Drop Overlay
+            \\ */
+            \\.drop-overlay.drop-left {
+            \\  background: linear-gradient(
+            \\    to left,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-right {
+            \\  background: linear-gradient(
+            \\    to right,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-top {
+            \\  background: linear-gradient(
+            \\    to top,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\.drop-overlay.drop-bottom {
+            \\  background: linear-gradient(
+            \\    to bottom,
+            \\    transparent, 50%,
+            \\    color-mix(in srgb, var(--accent-bg-color), transparent 80%) 50%
+            \\  );
+            \\}
+            \\
+            \\/*
             \\ * Splits
             \\ */
             \\

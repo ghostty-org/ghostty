@@ -183,6 +183,18 @@ pub fn SplitTree(comptime V: type) type {
             };
         }
 
+        /// Find the handle within this tree that corresponds
+        /// to the given view. Uses pointer equality.
+        pub fn locate(self: *const Self, view: *const View) ?Node.Handle {
+            var it = self.iterator();
+            while (it.next()) |entry| {
+                if (entry.view == view) {
+                    return entry.handle;
+                }
+            }
+            return null;
+        }
+
         /// An iterator over all the views in the tree.
         pub fn iterator(
             self: *const Self,
