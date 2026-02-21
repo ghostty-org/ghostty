@@ -307,6 +307,14 @@ in
       };
     }
     {
+      name = "N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA";
+      path = fetchZigArtifact {
+        name = "wayland_protocols";
+        url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.47/wayland-protocols-1.47.tar.gz";
+        hash = "sha256-3S3xSrX0EDgleq7cxLX7msDuAY8/D5SvkJcCjmDTMiM=";
+      };
+    }
+    {
       name = "N-V-__8AAAzZywE3s51XfsLbP9eyEw57ae9swYB9aGB6fCMs";
       path = fetchZigArtifact {
         name = "wuffs";

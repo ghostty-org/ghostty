@@ -19,6 +19,7 @@ pub const c = @cImport({
 const input = @import("../../../input.zig");
 const Config = @import("../../../config.zig").Config;
 const ApprtWindow = @import("../class/window.zig").Window;
+const blur = @import("blur.zig");
 
 const log = std.log.scoped(.gtk_x11);
 
@@ -170,13 +171,6 @@ pub const Window = struct {
     app: *App,
     apprt_window: *ApprtWindow,
     x11_surface: *gdk_x11.X11Surface,
-
-    blur_region: Region = .{},
-
-    // Cache last applied values to avoid redundant X11 property updates.
-    // Redundant property updates seem to cause some visual glitches
-    // with some window managers: https://github.com/ghostty-org/ghostty/pull/8075
-    last_applied_blur_region: ?Region = null,
     last_applied_decoration_hints: ?MotifWMHints = null,
 
     pub fn init(
@@ -206,37 +200,7 @@ pub const Window = struct {
         _ = alloc;
     }
 
-    pub fn resizeEvent(self: *Window) !void {
-        // The blur region must update with window resizes
-        try self.syncBlur();
-    }
-
     pub fn syncAppearance(self: *Window) !void {
-        // The user could have toggled between CSDs and SSDs,
-        // therefore we need to recalculate the blur region offset.
-        self.blur_region = blur: {
-            // NOTE(pluiedev): CSDs are a f--king mistake.
-            // Please, GNOME, stop this nonsense of making a window ~30% bigger
-            // internally than how they really are just for your shadows and
-            // rounded corners and all that fluff. Please. I beg of you.
-            var x: f64 = 0;
-            var y: f64 = 0;
-
-            self.apprt_window.as(gtk.Native).getSurfaceTransform(&x, &y);
-
-            // Transform surface coordinates to device coordinates.
-            const scale: f64 = @floatFromInt(self.apprt_window.as(gtk.Widget).getScaleFactor());
-            x *= scale;
-            y *= scale;
-
-            break :blur .{
-                .x = @intFromFloat(x),
-                .y = @intFromFloat(y),
-            };
-        };
-        self.syncBlur() catch |err| {
-            log.err("failed to synchronize blur={}", .{err});
-        };
         self.syncDecorations() catch |err| {
             log.err("failed to synchronize decorations={}", .{err});
         };
@@ -249,54 +213,25 @@ pub const Window = struct {
         };
     }
 
-    fn syncBlur(self: *Window) !void {
-        // FIXME: This doesn't currently factor in rounded corners on Adwaita,
-        // which means that the blur region will grow slightly outside of the
-        // window borders. Unfortunately, actually calculating the rounded
-        // region can be quite complex without having access to existing APIs
-        // (cf. https://github.com/cutefishos/fishui/blob/41d4ba194063a3c7fff4675619b57e6ac0504f06/src/platforms/linux/blurhelper/windowblur.cpp#L134)
-        // and I think it's not really noticeable enough to justify the effort.
-        // (Wayland also has this visual artifact anyway...)
-
-        const gtk_widget = self.apprt_window.as(gtk.Widget);
-        const config = if (self.apprt_window.getConfig()) |v| v.get() else return;
-
-        // When blur is disabled, remove the property if it was previously set
-        const blur = config.@"background-blur";
-        if (!blur.enabled()) {
-            if (self.last_applied_blur_region != null) {
-                try self.deleteProperty(self.app.atoms.kde_blur);
-                self.last_applied_blur_region = null;
-            }
-
-            return;
+    pub fn setBlur(self: *Window, region: blur.Region) !void {
+        if (region.slices.items.len > 0) {
+            try self.changeProperty(
+                blur.Region.Slice,
+                self.app.atoms.kde_blur,
+                c.XA_CARDINAL,
+                ._32,
+                .{ .mode = .replace },
+                region.slices.items,
+            );
+        } else {
+            try self.deleteProperty(self.app.atoms.kde_blur);
         }
+    }
 
-        // Transform surface coordinates to device coordinates.
-        const scale = gtk_widget.getScaleFactor();
-        self.blur_region.width = gtk_widget.getWidth() * scale;
-        self.blur_region.height = gtk_widget.getHeight() * scale;
-
-        // Only update X11 properties when the blur region actually changes
-        if (self.last_applied_blur_region) |last| {
-            if (std.meta.eql(self.blur_region, last)) return;
-        }
-
-        log.debug("set blur={}, window xid={}, region={}", .{
-            blur,
-            self.x11_surface.getXid(),
-            self.blur_region,
-        });
-
-        try self.changeProperty(
-            Region,
-            self.app.atoms.kde_blur,
-            c.XA_CARDINAL,
-            ._32,
-            .{ .mode = .replace },
-            &self.blur_region,
-        );
-        self.last_applied_blur_region = self.blur_region;
+    /// On certain winprotos, the blur region is specified in device
+    /// coordinates and have to be scaled by the GDK scale factor.
+    pub fn blurRegionInDeviceCoords(_: Window) bool {
+        return true;
     }
 
     fn syncDecorations(self: *Window) !void {
@@ -336,7 +271,7 @@ pub const Window = struct {
             self.app.atoms.motif_wm_hints,
             ._32,
             .{ .mode = .replace },
-            &hints,
+            &.{hints},
         );
         self.last_applied_decoration_hints = hints;
     }
@@ -411,9 +346,11 @@ pub const Window = struct {
         options: struct {
             mode: PropertyChangeMode,
         },
-        value: *T,
+        value: []const T,
     ) X11Error!void {
-        const data: format.bufferType() = @ptrCast(value);
+        const data: format.bufferType() = @ptrCast(@constCast(value));
+        // The number of "words" that each element `T` occupies.
+        const words_per_elem = @divExact(@sizeOf(T), @sizeOf(format.elemType()));
 
         const status = c.XChangeProperty(
             @ptrCast(@alignCast(self.app.display)),
@@ -423,7 +360,7 @@ pub const Window = struct {
             @intFromEnum(format),
             @intFromEnum(options.mode),
             data,
-            @divExact(@sizeOf(T), @sizeOf(format.elemType())),
+            @intCast(words_per_elem * value.len),
         );
 
         // For some godforsaken reason Xlib alternates between
@@ -497,13 +434,6 @@ const PropertyFormat = enum(c_int) {
         // I know this is really ugly. X11 is ugly. I consider it apropos.
         return [*]align(@alignOf(self.elemType())) u8;
     }
-};
-
-const Region = extern struct {
-    x: c_long = 0,
-    y: c_long = 0,
-    width: c_long = 0,
-    height: c_long = 0,
 };
 
 // See Xm/MwmUtil.h, packaged with the Motif Window Manager

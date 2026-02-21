@@ -6,6 +6,7 @@ const gdk = @import("gdk");
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
+const blur = @import("blur.zig");
 
 const log = std.log.scoped(.winproto_noop);
 
@@ -57,7 +58,11 @@ pub const Window = struct {
         _: *const ApprtWindow.DerivedConfig,
     ) !void {}
 
-    pub fn resizeEvent(_: *Window) !void {}
+    pub fn setBlur(_: *Window, _: blur.Region) !void {}
+
+    pub fn blurRegionInDeviceCoords(_: Window) bool {
+        return false;
+    }
 
     pub fn syncAppearance(_: *Window) !void {}
 
