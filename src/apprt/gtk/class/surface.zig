@@ -2005,11 +2005,12 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
     }
 
-    /// Compute and set the initial window size from config and font metrics.
+    /// Estimate and set the initial window size from config and font metrics.
     /// This can be called before the core surface exists to set up the window
-    /// size before presenting.
-    pub fn computeInitialSize(self: *Self) void {
-        const priv = self.private();
+    /// size before presenting. This is an estimate because it does not take
+    /// into account any padding that may need to be added to the window.
+    pub fn estimateInitialSize(self: *Self) void {
+        const priv: *Private = self.private();
         const config_obj = priv.config orelse return;
         const config = config_obj.get();
 
@@ -2042,11 +2043,8 @@ pub const Surface = extern struct {
 
         const cell = font_grid.cellSize();
 
-        // Calculate size: "best guess"; Padding unavailable pre-init.
-        // We do not need to @max here because the surface init will set
-        // size_limit which enforces minimums defined in src/Surface.zig
-        const width = config.@"window-width" * cell.width;
-        const height = config.@"window-height" * cell.height;
+        const width = @max(CoreSurface.min_window_width_cells, config.@"window-width") * cell.width;
+        const height = @max(CoreSurface.min_window_height_cells, config.@"window-height") * cell.height;
         const width_f32: f32 = @floatFromInt(width);
         const height_f32: f32 = @floatFromInt(height);
 

@@ -2182,10 +2182,10 @@ const Action = struct {
         // Create a new tab with window context (first tab in new window)
         win.newTabForWindow(parent);
 
-        // Compute the initial window size before presenting so the window
+        // Estimate the initial window size before presenting so the window
         // manager can position it correctly.
         if (win.getActiveSurface()) |surface| {
-            surface.computeInitialSize();
+            surface.estimateInitialSize();
             if (surface.getDefaultSize()) |size| {
                 win.as(gtk.Window).setDefaultSize(
                     @intCast(size.width),
