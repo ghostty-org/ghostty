@@ -25,6 +25,34 @@ const log = std.log.scoped(.embedded_window);
 
 pub const resourcesDir = internal_os.resourcesDir;
 
+/// Convert apprt clipboard type to the embedded runtime C callback value.
+///
+/// Sync with ghostty_clipboard_e in include/ghostty.h.
+fn clipboardToRuntimeClipboard(clipboard: apprt.Clipboard) c_int {
+    const RuntimeClipboard = enum(c_int) {
+        standard = 0,
+        selection = 1,
+    };
+
+    comptime {
+        assert(@intFromEnum(apprt.Clipboard.standard) == 0);
+        assert(@intFromEnum(apprt.Clipboard.selection) == 1);
+        assert(@intFromEnum(apprt.Clipboard.primary) == 2);
+    }
+
+    return switch (clipboard) {
+        .standard => @intFromEnum(RuntimeClipboard.standard),
+        .selection, .primary => @intFromEnum(RuntimeClipboard.selection),
+    };
+}
+
+test "embedded: clipboard enum mapping for runtime callbacks" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(c_int, 0), clipboardToRuntimeClipboard(.standard));
+    try testing.expectEqual(@as(c_int, 1), clipboardToRuntimeClipboard(.selection));
+    try testing.expectEqual(@as(c_int, 1), clipboardToRuntimeClipboard(.primary));
+}
+
 pub const App = struct {
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
@@ -671,7 +699,7 @@ pub const Surface = struct {
         // false so that performable keybinds pass the key through to the app.
         if (state == .paste) {
             if (self.app.opts.clipboard_has_text) |cb| {
-                if (!cb(self.userdata, @intCast(@intFromEnum(clipboard_type)))) {
+                if (!cb(self.userdata, clipboardToRuntimeClipboard(clipboard_type))) {
                     return false;
                 }
             }
@@ -688,7 +716,7 @@ pub const Surface = struct {
 
         self.app.opts.read_clipboard(
             self.userdata,
-            @intCast(@intFromEnum(clipboard_type)),
+            clipboardToRuntimeClipboard(clipboard_type),
             state_ptr,
         );
 
@@ -749,7 +777,7 @@ pub const Surface = struct {
 
         self.app.opts.write_clipboard(
             self.userdata,
-            @intCast(@intFromEnum(clipboard_type)),
+            clipboardToRuntimeClipboard(clipboard_type),
             array.ptr,
             array.len,
             confirm,

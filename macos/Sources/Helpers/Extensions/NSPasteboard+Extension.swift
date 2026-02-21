@@ -39,7 +39,12 @@ extension NSPasteboard {
     /// If all of the above fail, returns None.
     /// Returns true if the pasteboard contains text or file URL content.
     func hasTextContent() -> Bool {
-        return getOpinionatedStringContents() != nil
+        let stringType: NSPasteboard.PasteboardType = .string
+        let urlTypes: [NSPasteboard.PasteboardType] = [
+            NSPasteboard.PasteboardType(UTType.url.identifier),
+            NSPasteboard.PasteboardType(UTType.fileURL.identifier),
+        ]
+        return availableType(from: [stringType] + urlTypes) != nil
     }
 
     func getOpinionatedStringContents() -> String? {

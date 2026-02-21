@@ -31,3 +31,31 @@ struct NSPasteboardTypeExtensionTests {
         #expect(pasteboardType == .png)
     }
 }
+
+struct NSPasteboardExtensionTests {
+    @Test func hasTextContentReturnsTrueForString() {
+        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("hello", forType: .string)
+
+        #expect(pasteboard.hasTextContent())
+    }
+
+    @Test func hasTextContentReturnsTrueForURL() {
+        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let ok = pasteboard.writeObjects([NSURL(string: "https://example.com")!])
+        #expect(ok)
+
+        #expect(pasteboard.hasTextContent())
+    }
+
+    @Test func hasTextContentReturnsFalseForImageOnly() {
+        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let ok = pasteboard.setData(Data([0x89, 0x50, 0x4e, 0x47]), forType: .png)
+        #expect(ok)
+
+        #expect(!pasteboard.hasTextContent())
+    }
+}
