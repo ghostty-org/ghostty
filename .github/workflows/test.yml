@@ -837,7 +837,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
@@ -854,10 +855,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch --no-tags --prune --depth=1 origin main
-          base="$(git merge-base origin/main "$GITHUB_SHA")"
+          files=()
+          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            while IFS= read -r -d '' file; do
+              files+=("$file")
+            done < <(git diff --name-only -z HEAD~1 HEAD -- 'macos/**/*.swift')
+          fi
 
-          mapfile -d '' files < <(git diff --name-only -z "$base" "$GITHUB_SHA" -- 'macos/**/*.swift')
           if [[ ${#files[@]} -eq 0 ]]; then
             echo "No changed Swift files under macos/"
             exit 0

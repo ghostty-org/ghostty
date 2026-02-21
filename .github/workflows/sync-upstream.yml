@@ -3,7 +3,7 @@ name: Sync with Upstream
 on:
   schedule:
     # Run daily at 6am UTC
-    - cron: '0 6 * * *'
+    - cron: "0 6 * * *"
   workflow_dispatch:
     # Allow manual trigger
 
