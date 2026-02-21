@@ -1206,8 +1206,6 @@ command: ?Command = null,
 /// notifications for a single command, overriding the `never` and `unfocused`
 /// options.
 ///
-/// GTK only.
-///
 /// Available since 1.3.0.
 @"notify-on-command-finish": NotifyOnCommandFinish = .never,
 
@@ -1221,8 +1219,6 @@ command: ?Command = null,
 ///
 /// Options can be combined by listing them as a comma separated list. Options
 /// can be negated by prefixing them with `no-`. For example `no-bell,notify`.
-///
-/// GTK only.
 ///
 /// Available since 1.3.0.
 @"notify-on-command-finish-action": NotifyOnCommandFinishAction = .{
@@ -1260,8 +1256,6 @@ command: ?Command = null,
 ///
 /// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
 /// value larger than this will be clamped to the maximum value.
-///
-/// GTK only.
 ///
 /// Available since 1.3.0
 @"notify-on-command-finish-after": Duration = .{ .duration = 5 * std.time.ns_per_s },
