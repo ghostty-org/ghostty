@@ -6093,10 +6093,11 @@ pub const Keybinds = struct {
                     .{ .key = .{ .physical = .insert }, .mods = .{ .ctrl = true } },
                     .{ .copy_to_clipboard = .mixed },
                 );
-                try self.set.put(
+                try self.set.putFlags(
                     alloc,
                     .{ .key = .{ .physical = .insert }, .mods = .{ .shift = true } },
                     .{ .paste_from_clipboard = {} },
+                    .{ .performable = true },
                 );
             }
 
