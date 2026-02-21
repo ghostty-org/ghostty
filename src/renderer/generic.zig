@@ -544,6 +544,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cursor_color: ?configpkg.Config.TerminalColor,
             cursor_opacity: f64,
             cursor_text: ?configpkg.Config.TerminalColor,
+            cursor_style_unfocused: terminal.CursorStyle,
             background: terminal.color.RGB,
             background_opacity: f64,
             background_opacity_cells: bool,
@@ -616,6 +617,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_color = config.@"cursor-color",
                     .cursor_text = config.@"cursor-text",
                     .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
+                    .cursor_style_unfocused = config.@"cursor-style-unfocused",
 
                     .background = config.background.toTerminalRGB(),
                     .foreground = config.foreground.toTerminalRGB(),
@@ -1211,7 +1213,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // can be expensive) and also makes it so we don't need another
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
-
                 // Get our preedit state
                 const preedit: ?renderer.State.Preedit = preedit: {
                     const p = state.preedit orelse break :preedit null;
@@ -1360,6 +1361,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .preedit = critical.preedit != null,
                         .focused = self.focused,
                         .blink_visible = cursor_blink_visible,
+                        .unfocused_style = self.config.cursor_style_unfocused,
                     }),
                     &critical.links,
                 ) catch |err| {
