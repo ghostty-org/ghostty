@@ -106,6 +106,7 @@ rpfaeffle
 secrus
 silveirapf
 slsrepo
+sunshine-syz
 tdslot
 ticclick
 tnagatomi
