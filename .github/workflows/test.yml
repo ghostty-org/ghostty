@@ -86,8 +86,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -122,8 +122,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -148,8 +148,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -175,8 +175,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -212,8 +212,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -269,8 +269,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -291,8 +291,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -317,8 +317,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -356,8 +356,8 @@ jobs:
     outputs:
       artifact-id: ${{ steps.upload-artifact.outputs.artifact-id }}
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -572,8 +572,8 @@ jobs:
     outputs:
       zig_version: ${{ steps.zig.outputs.version }}
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -612,8 +612,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -653,8 +653,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -681,8 +681,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -738,8 +738,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -761,8 +761,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -784,8 +784,8 @@ jobs:
     permissions:
       contents: read
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -806,8 +806,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -848,8 +848,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -868,8 +868,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -888,8 +888,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -913,8 +913,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -933,8 +933,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
@@ -960,8 +960,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1014,8 +1014,8 @@ jobs:
     timeout-minutes: 30
     needs: test
     env:
-      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
