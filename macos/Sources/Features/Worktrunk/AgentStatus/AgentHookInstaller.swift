@@ -114,7 +114,7 @@ enum AgentHookInstaller {
             *permission*|*input*|*prompt*|*confirm*)
               EVENT_TYPE="PermissionRequest"
               ;;
-            *permissionresponse*|*permission_respons*|*permissiondecision*|*permission_decision*|*approved*|*denied*|*allow*|*disallow*)
+            *permissionresponse*|*permission_response*|*permissiondecision*|*permission_decision*|*approved*|*denied*|*allow*|*disallow*)
               EVENT_TYPE="Start"
               ;;
             *start*|*begin*|*busy*|*running*|*work*)
