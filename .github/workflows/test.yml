@@ -389,6 +389,9 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: [build-dist, build-snap]
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -407,6 +410,9 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: [build-dist, build-flatpak]
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -456,7 +462,7 @@ jobs:
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
       # Nix breaks xcodebuild so this has to be run outside.
       - name: Build Ghostty.app
-        run: cd macos && xcodebuild -target Ghostty
+        run: cd macos && xcodebuild -target Ghostree
 
       # Build the iOS target without code signing just to verify it works.
       - name: Build Ghostty iOS
@@ -734,7 +740,7 @@ jobs:
       fail-fast: false
       matrix:
         i18n: ["true", "false"]
-    name: Build -Di18n=${{ matrix.simd }}
+    name: Build -Di18n=${{ matrix.i18n }}
     runs-on: ubuntu-24.04
     needs: test
     env:
@@ -988,6 +994,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [test, build-dist]
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Install and configure Namespace CLI
         uses: namespacelabs/nscloud-setup@d1c625762f7c926a54bd39252efff0705fd11c64 # v0.0.10

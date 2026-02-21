@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import Ghostty
+@testable import Ghostree
 
 class MockView: NSView, Codable, Identifiable {
     let id: UUID
