@@ -799,7 +799,7 @@ pub const Surface = struct {
 
         self.app.opts.write_clipboard(
             self.userdata,
-            clipboardToRuntimeClipboard(clipboard_type),
+            @intCast(@intFromEnum(clipboard_type)),
             array.ptr,
             array.len,
             confirm,
