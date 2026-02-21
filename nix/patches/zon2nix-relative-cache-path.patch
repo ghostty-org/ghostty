@@ -1,0 +1,22 @@
+diff --git a/src/zig.zig b/src/zig.zig
+index f53b8a2..1a9dbf2 100644
+--- a/src/zig.zig
++++ b/src/zig.zig
+@@ -91,7 +91,7 @@ pub fn fetch(alloc: std.mem.Allocator, url: []const u8, expected_hash: []const
+ 
+     // if the cache dir already exists don't download it again
+     check: {
+-        std.fs.accessAbsolute(cache_path, .{}) catch {
++        std.fs.cwd().access(cache_path, .{}) catch {
+             break :check;
+         };
+         return cache_path;
+@@ -138,7 +138,7 @@ pub fn fetch(alloc: std.mem.Allocator, url: []const u8, expected_hash: []const
+     }
+ 
+     // insurance
+-    try std.fs.accessAbsolute(cache_path, .{});
++    try std.fs.cwd().access(cache_path, .{});
+ 
+     return cache_path;
+ }
