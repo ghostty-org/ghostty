@@ -46,11 +46,41 @@ fn clipboardToRuntimeClipboard(clipboard: apprt.Clipboard) c_int {
     };
 }
 
+/// Convert apprt clipboard request to the embedded runtime C callback value.
+///
+/// Sync with ghostty_clipboard_request_e in include/ghostty.h.
+fn clipboardRequestToRuntimeClipboardRequest(request: apprt.ClipboardRequest) c_int {
+    const RuntimeClipboardRequest = enum(c_int) {
+        paste = 0,
+        osc_52_read = 1,
+        osc_52_write = 2,
+    };
+
+    comptime {
+        assert(@intFromEnum(apprt.ClipboardRequestType.paste) == 0);
+        assert(@intFromEnum(apprt.ClipboardRequestType.osc_52_read) == 1);
+        assert(@intFromEnum(apprt.ClipboardRequestType.osc_52_write) == 2);
+    }
+
+    return switch (request) {
+        .paste => @intFromEnum(RuntimeClipboardRequest.paste),
+        .osc_52_read => @intFromEnum(RuntimeClipboardRequest.osc_52_read),
+        .osc_52_write => @intFromEnum(RuntimeClipboardRequest.osc_52_write),
+    };
+}
+
 test "embedded: clipboard enum mapping for runtime callbacks" {
     const testing = std.testing;
     try testing.expectEqual(@as(c_int, 0), clipboardToRuntimeClipboard(.standard));
     try testing.expectEqual(@as(c_int, 1), clipboardToRuntimeClipboard(.selection));
     try testing.expectEqual(@as(c_int, 1), clipboardToRuntimeClipboard(.primary));
+}
+
+test "embedded: clipboard request enum mapping for runtime callbacks" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(c_int, 0), clipboardRequestToRuntimeClipboardRequest(.paste));
+    try testing.expectEqual(@as(c_int, 1), clipboardRequestToRuntimeClipboardRequest(.{ .osc_52_read = .standard }));
+    try testing.expectEqual(@as(c_int, 2), clipboardRequestToRuntimeClipboardRequest(.{ .osc_52_write = .standard }));
 }
 
 pub const App = struct {
@@ -80,8 +110,8 @@ pub const App = struct {
 
         /// Read the clipboard value. The return value must be preserved
         /// by the host until the next call. If there is no valid clipboard
-        /// value then this should return null.
-        read_clipboard: *const fn (SurfaceUD, c_int, *apprt.ClipboardRequest) callconv(.c) void,
+        /// value then this should return false.
+        read_clipboard: *const fn (SurfaceUD, c_int, c_int, *apprt.ClipboardRequest) callconv(.c) bool,
 
         /// This may be called after a read clipboard call to request
         /// confirmation that the clipboard value is safe to read. The embedder
@@ -105,9 +135,6 @@ pub const App = struct {
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
 
-        /// Check if the clipboard has text content. Used for paste requests
-        /// to determine if the keypress should pass through to the application.
-        clipboard_has_text: ?*const fn (SurfaceUD, c_int) callconv(.c) bool = null,
     };
 
     /// This is the key event sent for ghostty_surface_key and
@@ -695,16 +722,6 @@ pub const Surface = struct {
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) !bool {
-        // For paste requests, check if clipboard has text. If not, return
-        // false so that performable keybinds pass the key through to the app.
-        if (state == .paste) {
-            if (self.app.opts.clipboard_has_text) |cb| {
-                if (!cb(self.userdata, clipboardToRuntimeClipboard(clipboard_type))) {
-                    return false;
-                }
-            }
-        }
-
         // We need to allocate to get a pointer to store our clipboard request
         // so that it is stable until the read_clipboard callback and call
         // complete_clipboard_request. This sucks but clipboard requests aren't
@@ -714,11 +731,16 @@ pub const Surface = struct {
         errdefer alloc.destroy(state_ptr);
         state_ptr.* = state;
 
-        self.app.opts.read_clipboard(
+        const started = self.app.opts.read_clipboard(
             self.userdata,
             clipboardToRuntimeClipboard(clipboard_type),
+            clipboardRequestToRuntimeClipboardRequest(state),
             state_ptr,
         );
+        if (!started) {
+            alloc.destroy(state_ptr);
+            return false;
+        }
 
         return true;
     }
