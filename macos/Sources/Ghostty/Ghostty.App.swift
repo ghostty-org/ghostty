@@ -339,14 +339,15 @@ extension Ghostty {
                 return true
             }
 
-            // For paste requests, report a non-started request when we have no
-            // text-like data so performable keybinds can pass through.
-            if request == GHOSTTY_CLIPBOARD_REQUEST_PASTE && !pasteboard.hasTextContent() {
-                return false
+            // Get our string. For paste requests, report a non-started request
+            // when we have no text-like data so performable keybinds can pass through.
+            guard let str = pasteboard.getOpinionatedStringContents() else {
+                if request == GHOSTTY_CLIPBOARD_REQUEST_PASTE {
+                    return false
+                }
+                completeClipboardRequest(surface, data: "", state: state)
+                return true
             }
-
-            // Get our string
-            let str = pasteboard.getOpinionatedStringContents() ?? ""
             completeClipboardRequest(surface, data: str, state: state)
             return true
         }
