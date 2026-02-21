@@ -47,6 +47,12 @@ BUILD_ZIG_ZON_TXT="$ROOT/build.zig.zon.txt"
 BUILD_ZIG_ZON_JSON="$ROOT/build.zig.zon.json"
 ZIG_PACKAGES_JSON="$ROOT/flatpak/zig-packages.json"
 
+# zon2nix shells out to `zig env` and expects absolute cache paths.
+# In some CI environments, inherited values may be relative or unset.
+export ZIG_LOCAL_CACHE_DIR="$(realpath -m "${ZIG_LOCAL_CACHE_DIR:-$ROOT/.zig-cache/local}")"
+export ZIG_GLOBAL_CACHE_DIR="$(realpath -m "${ZIG_GLOBAL_CACHE_DIR:-$ROOT/.zig-cache/global}")"
+mkdir -p "$ZIG_LOCAL_CACHE_DIR" "$ZIG_GLOBAL_CACHE_DIR"
+
 if [ -f "${BUILD_ZIG_ZON_NIX}" ]; then
   OLD_HASH_NIX=$(sha512sum "${BUILD_ZIG_ZON_NIX}" | awk '{print $1}')
 elif [ "$1" != "--update" ]; then
