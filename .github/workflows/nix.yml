@@ -8,7 +8,7 @@ concurrency:
 jobs:
   required:
     name: "Required Checks: Nix"
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs:
       - check-zig-cache-hash
     steps:
@@ -32,8 +32,7 @@ jobs:
           exit 1
 
   check-zig-cache-hash:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache

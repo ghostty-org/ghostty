@@ -12,8 +12,7 @@ concurrency:
 
 jobs:
   paths:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     outputs:
       macos: ${{ steps.filter.outputs.macos }}
     steps:
@@ -27,7 +26,7 @@ jobs:
 
   required:
     name: "Required Checks: Test"
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     needs:
       - paths
       - build-bench
@@ -84,7 +83,7 @@ jobs:
 
   build-bench:
     # We build benchmarks on large because it uses ReleaseFast
-    runs-on: namespace-profile-ghostty-lg
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -127,7 +126,7 @@ jobs:
             zig-vt-stream,
           ]
     name: Example ${{ matrix.dir }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -160,7 +159,7 @@ jobs:
   build-flatpak:
     strategy:
       fail-fast: false
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -194,7 +193,7 @@ jobs:
   build-snap:
     strategy:
       fail-fast: false
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -238,7 +237,7 @@ jobs:
             x86_64-windows,
             wasm32-freestanding,
           ]
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -274,7 +273,7 @@ jobs:
     strategy:
       matrix:
         target: [aarch64-macos, x86_64-macos, aarch64-ios]
-    runs-on: namespace-profile-ghostty-macos-tahoe
+    runs-on: macos-latest
     needs: test
     steps:
       - name: Checkout code
@@ -301,7 +300,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [namespace-profile-ghostty-md, namespace-profile-ghostty-md-arm64]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     needs: test
     env:
@@ -331,7 +330,7 @@ jobs:
         run: nix develop -c zig build
 
   build-linux-libghostty:
-    runs-on: namespace-profile-ghostty-md
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -363,7 +362,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [namespace-profile-ghostty-md, namespace-profile-ghostty-md-arm64]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     needs: test
     env:
@@ -408,7 +407,7 @@ jobs:
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'main_ghostty.main'
 
   build-dist:
-    runs-on: namespace-profile-ghostty-md
+    runs-on: ubuntu-24.04
     needs: test
     outputs:
       artifact-id: ${{ steps.upload-artifact.outputs.artifact-id }}
@@ -451,7 +450,7 @@ jobs:
 
   trigger-snap:
     if: github.event_name != 'pull_request'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     needs: [build-dist, build-snap]
     steps:
       - name: Checkout code
@@ -469,7 +468,7 @@ jobs:
 
   trigger-flatpak:
     if: github.event_name != 'pull_request'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     needs: [build-dist, build-flatpak]
     steps:
       - name: Checkout code
@@ -486,7 +485,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-macos:
-    runs-on: namespace-profile-ghostty-macos-tahoe
+    runs-on: macos-latest
     needs: test
     steps:
       - name: Checkout code
@@ -529,7 +528,7 @@ jobs:
           xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO"
 
   build-macos-freetype:
-    runs-on: namespace-profile-ghostty-macos-tahoe
+    runs-on: macos-latest
     needs: test
     steps:
       - name: Checkout code
@@ -632,8 +631,7 @@ jobs:
         run: Get-Content -Path ".\build.log"
 
   test:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-md
+    runs-on: ubuntu-24.04
     outputs:
       zig_version: ${{ steps.zig.outputs.version }}
     env:
@@ -681,7 +679,7 @@ jobs:
         x11: ["true", "false"]
         wayland: ["true", "false"]
     name: GTK x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -729,7 +727,7 @@ jobs:
       matrix:
         simd: ["true", "false"]
     name: Build -Dsimd=${{ matrix.simd }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -764,7 +762,7 @@ jobs:
       matrix:
         sentry: ["true", "false"]
     name: Build -Dsentry=${{ matrix.sentry }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -794,7 +792,7 @@ jobs:
           nix develop -c zig build -Dsentry=${{ matrix.sentry }}
 
   test-macos:
-    runs-on: namespace-profile-ghostty-macos-tahoe
+    runs-on: macos-latest
     needs: test
     steps:
       - name: Checkout code
@@ -828,7 +826,7 @@ jobs:
       matrix:
         i18n: ["true", "false"]
     name: Build -Di18n=${{ matrix.simd }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -858,8 +856,7 @@ jobs:
           nix develop -c zig build -Di18n=${{ matrix.i18n }}
 
   zig-fmt:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -886,8 +883,7 @@ jobs:
 
   pinact:
     name: "GitHub Actions Pins"
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -917,8 +913,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   prettier:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -944,8 +939,8 @@ jobs:
         run: nix develop -c prettier --check .
 
   swiftlint:
-    if: github.repository == 'ghostty-org/ghostty' && needs.paths.outputs.macos == 'true'
-    runs-on: namespace-profile-ghostty-macos-tahoe
+    if: needs.paths.outputs.macos == 'true'
+    runs-on: macos-latest
     needs: paths
     timeout-minutes: 60
     steps:
@@ -966,8 +961,7 @@ jobs:
         run: nix develop -c swiftlint lint --strict macos
 
   alejandra:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -993,8 +987,7 @@ jobs:
         run: nix develop -c alejandra --check .
 
   typos:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -1020,8 +1013,7 @@ jobs:
         run: nix develop -c typos
 
   shellcheck:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -1052,8 +1044,7 @@ jobs:
             $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
 
   translations:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -1079,8 +1070,7 @@ jobs:
         run: nix develop -c .github/scripts/check-translations.sh
 
   blueprint-compiler:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-xsm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -1113,7 +1103,7 @@ jobs:
       matrix:
         pkg: ["wuffs"]
     name: Test pkg/${{ matrix.pkg }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -1144,7 +1134,7 @@ jobs:
 
   test-debian-13:
     name: Test build on Debian 13
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [test, build-dist]
     steps:
@@ -1173,8 +1163,7 @@ jobs:
             DISTRO_VERSION=13
 
   valgrind:
-    if: github.repository == 'ghostty-org/ghostty'
-    runs-on: namespace-profile-ghostty-lg
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: test
     env:
