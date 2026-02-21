@@ -7,6 +7,11 @@
 # we quote everything that can be quoted. Some aliases will still break us
 # though.
 
+# Fix HISTFILE if /etc/zshrc misdirected it to Ghostty's dir.
+# On macOS, /etc/zshrc sets HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history but
+# ZDOTDIR was still Ghostty's integration dir when that ran.
+[[ "${HISTFILE:-}" == "${ZDOTDIR}"/* ]] && HISTFILE="${GHOSTTY_ZSH_ZDOTDIR:-$HOME}/.zsh_history"
+
 # Permanently restore the user's ZDOTDIR.
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
     'builtin' 'export' ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
