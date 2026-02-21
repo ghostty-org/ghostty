@@ -156,6 +156,10 @@ pub const DerivedConfig = struct {
     arena: ArenaAllocator,
 
     palette: terminalpkg.color.Palette,
+    palette_generate: bool,
+    palette_harmonious: bool,
+    palette_base: terminalpkg.color.Palette,
+    palette_mask: terminalpkg.color.PaletteMask,
     image_storage_limit: usize,
     cursor_style: terminalpkg.CursorStyle,
     cursor_blink: ?bool,
@@ -192,6 +196,10 @@ pub const DerivedConfig = struct {
 
         return .{
             .palette = palette,
+            .palette_generate = config.@"palette-generate",
+            .palette_harmonious = config.@"palette-harmonious",
+            .palette_base = config.palette.value,
+            .palette_mask = config.palette.mask,
             .image_storage_limit = config.@"image-storage-limit",
             .cursor_style = config.@"cursor-style",
             .cursor_blink = config.@"cursor-style-blink",
@@ -291,6 +299,11 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .renderer_mailbox = opts.renderer_mailbox,
         .size = &self.size,
         .terminal = &self.terminal,
+        .palette_generate = opts.config.palette_generate,
+        .palette_harmonious = opts.config.palette_harmonious,
+        .palette_base = opts.config.palette_base,
+        .palette_mask = opts.config.palette_mask,
+        .palette_mask_base = opts.config.palette_mask,
         .osc_color_report_format = opts.config.osc_color_report_format,
         .clipboard_write = opts.config.clipboard_write,
         .enquiry_response = opts.config.enquiry_response,
