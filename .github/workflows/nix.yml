@@ -32,7 +32,6 @@ jobs:
           exit 1
 
   check-zig-cache-hash:
-    if: github.repository == 'ghostty-org/ghostty'
     runs-on: ubuntu-24.04
     env:
       ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
