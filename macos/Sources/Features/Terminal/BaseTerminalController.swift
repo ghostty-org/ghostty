@@ -509,9 +509,29 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
         guard window.isVisible else { return }
 
-        // We ignore fullscreen windows because macOS automatically resizes
-        // those back to the fullscreen bounds.
-        guard !window.styleMask.contains(.fullScreen) else { return }
+        // For fullscreen windows with tabs, force a relayout on all tabs.
+        // After a monitor disconnect, the window frames become stale. Cycling
+        // through tabs fixes this, so we simulate that by changing the selected tab.
+        if window.styleMask.contains(.fullScreen) {
+            if let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
+                DispatchQueue.main.async {
+                    // Remember the current selected window
+                    let originalSelected = tabGroup.selectedWindow
+
+                    // Briefly select each tab to trigger layout recalculation
+                    // Only cycle through tabs that have the fullscreen style mask
+                    for tabWindow in tabGroup.windows where tabWindow != originalSelected && tabWindow.styleMask.contains(.fullScreen) {
+                        tabGroup.selectedWindow = tabWindow
+                    }
+
+                    // Restore the original selection
+                    if let originalSelected {
+                        tabGroup.selectedWindow = originalSelected
+                    }
+                }
+            }
+            return
+        }
 
         guard let screen = window.screen else { return }
         let visibleFrame = screen.visibleFrame
