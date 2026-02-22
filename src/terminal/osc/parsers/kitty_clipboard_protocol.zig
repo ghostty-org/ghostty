@@ -10,6 +10,7 @@ const assert = @import("../../../quirks.zig").inlineAssert;
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 const Terminator = @import("../../osc.zig").Terminator;
+const Iterator = @import("../lib.zig").Iterator;
 const encoding = @import("../encoding.zig");
 
 const log = std.log.scoped(.kitty_clipboard_protocol);
@@ -90,37 +91,8 @@ pub const Option = enum {
         comptime key: Option,
         metadata: []const u8,
     ) ?key.Type() {
-        const value: []const u8 = value: {
-            var pos: usize = 0;
-            while (pos < metadata.len) {
-                // skip any whitespace
-                while (pos < metadata.len and std.ascii.isWhitespace(metadata[pos])) pos += 1;
-                // bail if we are out of metadata
-                if (pos >= metadata.len) return null;
-                if (!std.mem.startsWith(u8, metadata[pos..], @tagName(key))) {
-                    // this isn't the key we are looking for, skip to the next option, or bail if
-                    // there is no next option
-                    pos = std.mem.indexOfScalarPos(u8, metadata, pos, ':') orelse return null;
-                    pos += 1;
-                    continue;
-                }
-                // skip past the key
-                pos += @tagName(key).len;
-                // skip any whitespace
-                while (pos < metadata.len and std.ascii.isWhitespace(metadata[pos])) pos += 1;
-                // bail if we are out of metadata
-                if (pos >= metadata.len) return null;
-                // a valid option has an '='
-                if (metadata[pos] != '=') return null;
-                // the end of the value is bounded by a ':' or the end of the metadata
-                const end = std.mem.indexOfScalarPos(u8, metadata, pos, ':') orelse metadata.len;
-                const start = pos + 1;
-                // strip any leading or trailing whitespace
-                break :value std.mem.trim(u8, metadata[start..end], &std.ascii.whitespace);
-            }
-            // the key was not found
-            return null;
-        };
+        var it: Iterator(Option, isValidMetadataValue, key) = .init(metadata);
+        const value = it.next() orelse return null;
 
         // return the parsed value
         return switch (key) {
@@ -147,6 +119,10 @@ fn isValidIdentifier(str: []const u8) bool {
 fn parseIdentifier(str: []const u8) ?[]const u8 {
     if (isValidIdentifier(str)) return str;
     return null;
+}
+
+fn isValidMetadataValue(_: []const u8) bool {
+    return true;
 }
 
 pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {
