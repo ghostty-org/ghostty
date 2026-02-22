@@ -1895,7 +1895,7 @@ test "shape Bengali ligatures with out of order vowels" {
         try testing.expectEqual(@as(u16, 0), cells[0].x);
         try testing.expectEqual(@as(u16, 0), cells[1].x);
         // See the giant "We need to reset the `cell_offset`" comment, but here
-        // we should technically have the rest of these be `x` of 1, but that
+        // we should technically have the rest of these be `x` of 2, but that
         // would require going back in the stream to adjust past cells, and
         // we don't take on that complexity.
         try testing.expectEqual(@as(u16, 0), cells[2].x);
