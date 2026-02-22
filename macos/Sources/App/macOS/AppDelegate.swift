@@ -688,6 +688,30 @@ class AppDelegate: NSObject,
         }
     }
 
+    /// For sheet text fields, route standard editing shortcuts to the text
+    /// system before terminal/menu shortcuts can consume them.
+    private func modalSheetTextEditingSelector(_ event: NSEvent) -> Selector? {
+        let relevantFlags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard relevantFlags == [.command] else { return nil }
+        guard let key = event.charactersIgnoringModifiers?.lowercased() else { return nil }
+
+        switch key {
+        case "a": return NSSelectorFromString("selectAll:")
+        case "c": return NSSelectorFromString("copy:")
+        case "x": return NSSelectorFromString("cut:")
+        case "v": return NSSelectorFromString("paste:")
+        default: return nil
+        }
+    }
+
+    private func dispatchModalSheetTextEditingShortcut(_ event: NSEvent) -> Bool {
+        guard let keyWindow = NSApp.keyWindow else { return false }
+        guard keyWindow.sheetParent != nil || NSApp.modalWindow != nil else { return false }
+        guard let firstResponder = keyWindow.firstResponder as? NSTextView else { return false }
+        guard let selector = modalSheetTextEditingSelector(event) else { return false }
+        return NSApp.sendAction(selector, to: nil, from: firstResponder)
+    }
+
     private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
         // If the tab overview is visible and escape is pressed, close it.
         // This can't POSSIBLY be right and is probably a FirstResponder problem
@@ -698,6 +722,11 @@ class AppDelegate: NSObject,
            let tabGroup = window.tabGroup,
            tabGroup.isOverviewVisible {
             window.toggleTabOverview(nil)
+            return nil
+        }
+
+        if dispatchModalSheetTextEditingShortcut(event) {
+            // We dispatched a standard text editing action (copy/cut/paste/select all).
             return nil
         }
 
