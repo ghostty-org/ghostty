@@ -5,6 +5,7 @@ const macos = @import("macos");
 const objc = @import("objc");
 const internal_os = @import("main.zig");
 const i18n = internal_os.i18n;
+const i18n_locales = @import("i18n_locales.zig");
 
 const log = std.log.scoped(.os_locale);
 
@@ -25,6 +26,13 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
         // Set the lang if it is not set or if its empty.
         if (lang == null or lang.?.value.len == 0) {
             setLangFromCocoa();
+        }
+    }
+
+    if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
+        defer language.deinit(alloc);
+        if (language.value.len > 0) {
+            preferredLanguage("LANGUAGE", language.value);
         }
     }
 
@@ -210,9 +218,116 @@ fn preferredLanguageFromCocoa(
     return slice[0 .. slice.len - 1 :0];
 }
 
+fn preferredLanguage(key: [:0]const u8, language: []const u8) void {
+    var locale_buf: [128]u8 = undefined;
+    var first = true;
+
+    // LANGUAGE might come as lv:en, without .UTF-8. Ordered by preference,
+    // we check one by one to find first supported locale.
+    var it = std.mem.splitScalar(u8, language, ':');
+    while (it.next()) |entry| {
+        if (entry.len == 0) continue;
+        defer first = false;
+
+        // If entry is already a full UTF-8 locale, keep it when supported.
+        if (std.mem.endsWith(u8, entry, ".UTF-8")) {
+            for (i18n_locales.locales) |supported| {
+                if (!std.mem.eql(u8, entry, supported)) continue;
+                _ = internal_os.setenv(key, supported);
+                return;
+            }
+        }
+
+        // If the first preferred language is English (Ghostty's default), stop.
+        if (first and std.mem.eql(u8, entry, "en")) {
+            _ = internal_os.setenv(key, "en");
+            return;
+        }
+
+        // If entry has no region (no "_*"), pick the first matching full locale.
+        if (std.mem.indexOfScalar(u8, entry, '_') == null) {
+            for (i18n_locales.locales) |locale| {
+                if (!std.mem.startsWith(u8, locale, entry)) continue;
+                if (locale.len <= entry.len) continue;
+                if (locale[entry.len] != '_') continue;
+                _ = internal_os.setenv(key, locale);
+                return;
+            }
+        }
+
+        // Normalize to {entry}.UTF-8 for LANGUAGE when supported by Ghostty.
+        const locale = std.fmt.bufPrintZ(&locale_buf, "{s}.UTF-8", .{entry}) catch continue;
+        for (i18n_locales.locales) |supported| {
+            if (!std.mem.eql(u8, locale, supported)) continue;
+            _ = internal_os.setenv(key, locale);
+            return;
+        }
+    }
+}
+
 const LC_ALL: c_int = 6; // from locale.h
 const LC_ALL_MASK: c_int = 0x7fffffff; // from locale.h
 const locale_t = ?*anyopaque;
 extern "c" fn setlocale(category: c_int, locale: ?[*]const u8) ?[*:0]u8;
 extern "c" fn newlocale(category: c_int, locale: ?[*]const u8, base: locale_t) locale_t;
 extern "c" fn freelocale(v: locale_t) void;
+
+test "preferredLanguage normalizes short language code" {
+    const testing = std.testing;
+    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_NORMALIZE_SHORT";
+    _ = internal_os.unsetenv(key);
+    defer _ = internal_os.unsetenv(key);
+
+    preferredLanguage(key, "lv:en");
+
+    const got_opt = try internal_os.getenv(testing.allocator, key);
+    try testing.expect(got_opt != null);
+    const got = got_opt.?;
+    defer got.deinit(testing.allocator);
+    try testing.expectEqualStrings("lv_LV.UTF-8", got.value);
+}
+
+test "preferredLanguage keeps english when first" {
+    const testing = std.testing;
+    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_ENGLISH_FIRST";
+    _ = internal_os.unsetenv(key);
+    defer _ = internal_os.unsetenv(key);
+
+    preferredLanguage(key, "en:lv");
+
+    const got_opt = try internal_os.getenv(testing.allocator, key);
+    try testing.expect(got_opt != null);
+    const got = got_opt.?;
+    defer got.deinit(testing.allocator);
+    try testing.expectEqualStrings("en", got.value);
+}
+
+test "preferredLanguage normalizes locale without encoding" {
+    const testing = std.testing;
+    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_NORMALIZE_ENCODING";
+    _ = internal_os.unsetenv(key);
+    defer _ = internal_os.unsetenv(key);
+
+    preferredLanguage(key, "it_IT");
+
+    const got_opt = try internal_os.getenv(testing.allocator, key);
+    try testing.expect(got_opt != null);
+    const got = got_opt.?;
+    defer got.deinit(testing.allocator);
+    try testing.expectEqualStrings("it_IT.UTF-8", got.value);
+}
+
+test "preferredLanguage keeps locale with encoding" {
+    const testing = std.testing;
+    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_KEEP_ENCODING";
+    _ = internal_os.unsetenv(key);
+    defer _ = internal_os.unsetenv(key);
+
+    preferredLanguage(key, "pt_BR.UTF-8");
+
+    const got_opt = try internal_os.getenv(testing.allocator, key);
+    try testing.expect(got_opt != null);
+    const got = got_opt.?;
+    defer got.deinit(testing.allocator);
+    try testing.expectEqualStrings("pt_BR.UTF-8", got.value);
+}
