@@ -62,7 +62,9 @@ extension Ghostty {
                 supports_selection_clipboard: true,
                 wakeup_cb: { userdata in App.wakeup(userdata) },
                 action_cb: { app, target, action in App.action(app!, target: target, action: action) },
-                read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
+                read_clipboard_cb: { userdata, loc, request, state in
+                    App.readClipboard(userdata, location: loc, request: request, state: state)
+                },
                 confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
                 write_clipboard_cb: { userdata, loc, content, len, confirm in
                     App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
@@ -268,8 +270,9 @@ extension Ghostty {
         static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
+            request: ghostty_clipboard_request_e,
             state: UnsafeMutableRawPointer?
-        ) {}
+        ) -> Bool { return false }
 
         static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?,
@@ -321,20 +324,32 @@ extension Ghostty {
             ])
         }
 
-        static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
-            // If we don't even have a surface, something went terrible wrong so we have
-            // to leak "state".
+        static func readClipboard(
+            _ userdata: UnsafeMutableRawPointer?,
+            location: ghostty_clipboard_e,
+            request: ghostty_clipboard_request_e,
+            state: UnsafeMutableRawPointer?
+        ) -> Bool {
             let surfaceView = self.surfaceUserdata(from: userdata)
-            guard let surface = surfaceView.surface else { return }
+            guard let surface = surfaceView.surface else { return false }
 
             // Get our pasteboard
             guard let pasteboard = NSPasteboard.ghostty(location) else {
-                return completeClipboardRequest(surface, data: "", state: state)
+                completeClipboardRequest(surface, data: "", state: state)
+                return true
             }
 
-            // Get our string
-            let str = pasteboard.getOpinionatedStringContents() ?? ""
+            // Get our string. For paste requests, report a non-started request
+            // when we have no text-like data so performable keybinds can pass through.
+            guard let str = pasteboard.getOpinionatedStringContents() else {
+                if request == GHOSTTY_CLIPBOARD_REQUEST_PASTE {
+                    return false
+                }
+                completeClipboardRequest(surface, data: "", state: state)
+                return true
+            }
             completeClipboardRequest(surface, data: str, state: state)
+            return true
         }
 
         static func confirmReadClipboard(

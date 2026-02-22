@@ -6239,10 +6239,11 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .copy } },
                 .{ .copy_to_clipboard = .mixed },
             );
-            try self.set.put(
+            try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .paste } },
                 .paste_from_clipboard,
+                .{ .performable = true },
             );
 
             // On non-MacOS desktop envs (Windows, KDE, Gnome, Xfce), ctrl+insert is an
@@ -6257,10 +6258,11 @@ pub const Keybinds = struct {
                     .{ .key = .{ .physical = .insert }, .mods = .{ .ctrl = true } },
                     .{ .copy_to_clipboard = .mixed },
                 );
-                try self.set.put(
+                try self.set.putFlags(
                     alloc,
                     .{ .key = .{ .physical = .insert }, .mods = .{ .shift = true } },
                     .{ .paste_from_clipboard = {} },
+                    .{ .performable = true },
                 );
             }
 
@@ -6277,10 +6279,11 @@ pub const Keybinds = struct {
                 .{ .copy_to_clipboard = .mixed },
                 .{ .performable = true },
             );
-            try self.set.put(
+            try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'v' }, .mods = mods },
                 .{ .paste_from_clipboard = {} },
+                .{ .performable = true },
             );
         }
 
@@ -10572,5 +10575,52 @@ test "compatibility: window new-window" {
             MacOSDockDropBehavior.@"new-window",
             cfg.@"macos-dock-drop-behavior",
         );
+    }
+}
+
+test "default paste keybinds are performable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    const Trigger = inputpkg.Binding.Trigger;
+
+    // super+v (macOS) or ctrl+shift+v (non-macOS) paste binding should be performable.
+    // We check both to keep this test target-agnostic.
+    const mac_paste_trigger: Trigger = .{
+        .key = .{ .unicode = 'v' },
+        .mods = .{ .super = true },
+    };
+    const non_macos_paste_trigger: Trigger = .{
+        .key = .{ .unicode = 'v' },
+        .mods = .{ .ctrl = true, .shift = true },
+    };
+
+    const entry = cfg.keybind.set.get(mac_paste_trigger) orelse
+        cfg.keybind.set.get(non_macos_paste_trigger);
+    try testing.expect(entry != null);
+    switch (entry.?.value_ptr.*) {
+        .leaf => |leaf| {
+            try testing.expect(leaf.flags.performable);
+            try testing.expectEqual(leaf.action, .paste_from_clipboard);
+        },
+        else => return error.UnexpectedValue,
+    }
+
+    // physical paste key should also be performable
+    const physical_paste_trigger: Trigger = .{
+        .key = .{ .physical = .paste },
+    };
+
+    const phys_entry = cfg.keybind.set.get(physical_paste_trigger);
+    try testing.expect(phys_entry != null);
+    switch (phys_entry.?.value_ptr.*) {
+        .leaf => |leaf| {
+            try testing.expect(leaf.flags.performable);
+            try testing.expectEqual(leaf.action, .paste_from_clipboard);
+        },
+        else => return error.UnexpectedValue,
     }
 }

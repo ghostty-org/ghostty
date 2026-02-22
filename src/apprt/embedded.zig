@@ -52,8 +52,8 @@ pub const App = struct {
 
         /// Read the clipboard value. The return value must be preserved
         /// by the host until the next call. If there is no valid clipboard
-        /// value then this should return null.
-        read_clipboard: *const fn (SurfaceUD, c_int, *apprt.ClipboardRequest) callconv(.c) void,
+        /// value then this should return false.
+        read_clipboard: *const fn (SurfaceUD, apprt.Clipboard, apprt.ClipboardRequestType, *apprt.ClipboardRequest) callconv(.c) bool,
 
         /// This may be called after a read clipboard call to request
         /// confirmation that the clipboard value is safe to read. The embedder
@@ -68,7 +68,7 @@ pub const App = struct {
         /// Write the clipboard value.
         write_clipboard: *const fn (
             SurfaceUD,
-            c_int,
+            apprt.Clipboard,
             [*]const CAPI.ClipboardContent,
             usize,
             bool,
@@ -76,6 +76,7 @@ pub const App = struct {
 
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
+
     };
 
     /// This is the key event sent for ghostty_surface_key and
@@ -672,14 +673,17 @@ pub const Surface = struct {
         errdefer alloc.destroy(state_ptr);
         state_ptr.* = state;
 
-        self.app.opts.read_clipboard(
+        const started = self.app.opts.read_clipboard(
             self.userdata,
-            @intCast(@intFromEnum(clipboard_type)),
+            clipboard_type,
+            state,
             state_ptr,
         );
+        if (!started) {
+            alloc.destroy(state_ptr);
+            return false;
+        }
 
-        // Embedded apprt can't synchronously check clipboard content types,
-        // so we always return true to indicate the request was started.
         return true;
     }
 
@@ -737,7 +741,7 @@ pub const Surface = struct {
 
         self.app.opts.write_clipboard(
             self.userdata,
-            @intCast(@intFromEnum(clipboard_type)),
+            clipboard_type,
             array.ptr,
             array.len,
             confirm,

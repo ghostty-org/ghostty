@@ -43,6 +43,7 @@ typedef enum {
 typedef enum {
   GHOSTTY_CLIPBOARD_STANDARD,
   GHOSTTY_CLIPBOARD_SELECTION,
+  GHOSTTY_CLIPBOARD_PRIMARY,
 } ghostty_clipboard_e;
 
 typedef struct {
@@ -962,8 +963,9 @@ typedef struct {
 } ghostty_action_s;
 
 typedef void (*ghostty_runtime_wakeup_cb)(void*);
-typedef void (*ghostty_runtime_read_clipboard_cb)(void*,
+typedef bool (*ghostty_runtime_read_clipboard_cb)(void*,
                                                   ghostty_clipboard_e,
+                                                  ghostty_clipboard_request_e,
                                                   void*);
 typedef void (*ghostty_runtime_confirm_read_clipboard_cb)(
     void*,

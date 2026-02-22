@@ -36,12 +36,9 @@ pub const Clipboard = enum(Backing) {
     selection = 1,
     primary = 2,
 
-    // Our backing isn't is as small as we can in Zig, but a full
-    // C int if we're binding to C APIs.
-    const Backing = switch (build_config.app_runtime) {
-        .gtk => c_int,
-        else => u2,
-    };
+    // We use a full C int for the backing type so that this is C ABI
+    // compatible when binding to C APIs (GTK and embedded).
+    const Backing = c_int;
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
@@ -59,7 +56,7 @@ pub const ClipboardContent = struct {
     data: [:0]const u8,
 };
 
-pub const ClipboardRequestType = enum(u8) {
+pub const ClipboardRequestType = enum(c_int) {
     paste,
     osc_52_read,
     osc_52_write,
@@ -87,6 +84,19 @@ pub const ClipboardRequest = union(ClipboardRequestType) {
         .none => void,
     };
 };
+
+// If these are changed, you must also update ghostty.h
+comptime {
+    // Sync with ghostty_clipboard_e
+    @import("std").debug.assert(@intFromEnum(Clipboard.standard) == 0);
+    @import("std").debug.assert(@intFromEnum(Clipboard.selection) == 1);
+    @import("std").debug.assert(@intFromEnum(Clipboard.primary) == 2);
+
+    // Sync with ghostty_clipboard_request_e
+    @import("std").debug.assert(@intFromEnum(ClipboardRequestType.paste) == 0);
+    @import("std").debug.assert(@intFromEnum(ClipboardRequestType.osc_52_read) == 1);
+    @import("std").debug.assert(@intFromEnum(ClipboardRequestType.osc_52_write) == 2);
+}
 
 /// The color scheme in use (light vs dark).
 pub const ColorScheme = enum(u2) {
