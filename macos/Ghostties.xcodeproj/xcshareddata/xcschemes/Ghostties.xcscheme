@@ -16,8 +16,8 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A5B30530299BEAAA0047F10C"
                BuildableName = "Ghostties.app"
-               BlueprintName = "Ghostty"
-               ReferencedContainer = "container:Ghostty.xcodeproj">
+               BlueprintName = "Ghostties"
+               ReferencedContainer = "container:Ghostties.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -37,7 +37,7 @@
                BlueprintIdentifier = "A54F45F22E1F047A0046BD5C"
                BuildableName = "GhosttyTests.xctest"
                BlueprintName = "GhosttyTests"
-               ReferencedContainer = "container:Ghostty.xcodeproj">
+               ReferencedContainer = "container:Ghostties.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -48,7 +48,7 @@
                BlueprintIdentifier = "810ACC9E2E9D3301004F8F92"
                BuildableName = "GhosttyUITests.xctest"
                BlueprintName = "GhosttyUITests"
-               ReferencedContainer = "container:Ghostty.xcodeproj">
+               ReferencedContainer = "container:Ghostties.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -69,8 +69,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A5B30530299BEAAA0047F10C"
             BuildableName = "Ghostties.app"
-            BlueprintName = "Ghostty"
-            ReferencedContainer = "container:Ghostty.xcodeproj">
+            BlueprintName = "Ghostties"
+            ReferencedContainer = "container:Ghostties.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -99,8 +99,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A5B30530299BEAAA0047F10C"
             BuildableName = "Ghostties.app"
-            BlueprintName = "Ghostty"
-            ReferencedContainer = "container:Ghostty.xcodeproj">
+            BlueprintName = "Ghostties"
+            ReferencedContainer = "container:Ghostties.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

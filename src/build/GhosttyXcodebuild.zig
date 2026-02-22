@@ -66,7 +66,7 @@ pub fn init(
         step.addArgs(&.{
             "xcodebuild",
             "-target",
-            "Ghostty",
+            "Ghostties",
             "-configuration",
             xc_config,
         });
@@ -103,7 +103,7 @@ pub fn init(
             "xcodebuild",
             "test",
             "-scheme",
-            "Ghostty",
+            "Ghostties",
         });
         if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
 
