@@ -25,6 +25,10 @@ const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
             .fragment_fn = loadShaderCode("../shaders/glsl/cell_text.f.glsl"),
             .step_fn = .per_instance,
             .blending_enabled = true,
+            .buffer_texture = .{
+                .unit = 2,
+                .internal_format = .r32ui,
+            },
         } },
         .{ "image", .{
             .vertex_attributes = Image,
@@ -50,6 +54,7 @@ const PipelineDescription = struct {
     fragment_fn: [:0]const u8,
     step_fn: Pipeline.Options.StepFunction = .per_vertex,
     blending_enabled: bool = true,
+    buffer_texture: ?Pipeline.Options.BufferTexture = null,
 
     fn initPipeline(self: PipelineDescription) !Pipeline {
         return try .init(self.vertex_attributes, .{
@@ -57,6 +62,7 @@ const PipelineDescription = struct {
             .fragment_fn = self.fragment_fn,
             .step_fn = self.step_fn,
             .blending_enabled = self.blending_enabled,
+            .buffer_texture = self.buffer_texture,
         });
     }
 };

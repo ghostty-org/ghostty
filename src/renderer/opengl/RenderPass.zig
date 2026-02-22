@@ -101,6 +101,19 @@ pub fn step(self: *Self, s: Step) void {
         _ = tex.texture.bind(tex.target) catch return;
     };
 
+    // Bind an optional texture buffer view over `buffers[1]`.
+    if (s.pipeline.buffer_texture) |tbo| {
+        gl.Texture.active(tbo.unit) catch return;
+        const tbind = tbo.texture.bind(.Buffer) catch return;
+
+        if (s.buffers.len > 1 and s.buffers[1] != null) {
+            tbind.buffer(tbo.internal_format, s.buffers[1].?.id) catch return;
+        } else {
+            // Detach to avoid stale bindings from prior draws.
+            tbind.buffer(tbo.internal_format, 0) catch return;
+        }
+    }
+
     // Bind relevant samplers.
     for (s.samplers, 0..) |s_, i| if (s_) |sampler| {
         _ = sampler.sampler.bind(@intCast(i)) catch return;
@@ -116,7 +129,9 @@ pub fn step(self: *Self, s: Step) void {
             @intCast(s.pipeline.stride),
         ) catch return;
 
+        const skip_ssbo_at_1 = s.pipeline.buffer_texture != null;
         for (s.buffers[1..], 1..) |b, i| if (b) |buf| {
+            if (skip_ssbo_at_1 and i == 1) continue;
             _ = buf.bindBase(.storage, @intCast(i)) catch return;
         };
     }
