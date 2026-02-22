@@ -82,7 +82,7 @@ class BaseTerminalController: NSWindowController,
 
     /// A managed tab/window title that takes precedence over user-initiated overrides.
     /// Used for features that pin the title to a specific concept (e.g. worktree tabs).
-    var managedTitleOverride: String? = nil {
+    var managedTitleOverride: String? {
         didSet { applyTitleToWindow() }
     }
 

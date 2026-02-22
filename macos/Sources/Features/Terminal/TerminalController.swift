@@ -8,7 +8,7 @@ final class WorktrunkSidebarState: ObservableObject {
     @Published var columnVisibility: NavigationSplitViewVisibility
     @Published var expandedRepoIDs: Set<UUID> = []
     @Published var expandedWorktreePaths: Set<String> = []
-    @Published var selection: SidebarSelection? = nil
+    @Published var selection: SidebarSelection?
     @Published var isApplyingRemoteUpdate: Bool = false
 
     init(
@@ -211,12 +211,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var worktrunkSidebarSyncCancellables: Set<AnyCancellable> = []
     private var worktrunkSidebarSyncApplyingRemoteUpdate: Bool = false
     private let gitDiffSidebarState = GitDiffSidebarState()
-    private var lastTabSwitchRefreshAt: Date? = nil
+    private var lastTabSwitchRefreshAt: Date?
     private let tabSwitchRefreshThrottle: TimeInterval = 0.15
-    private var pendingTabSwitchRefresh: DispatchWorkItem? = nil
-    private var lastTabSwitchSurfaceID: UUID? = nil
+    private var pendingTabSwitchRefresh: DispatchWorkItem?
+    private var lastTabSwitchSurfaceID: UUID?
 
-    private(set) var worktreeTabRootPath: String? = nil {
+    private(set) var worktreeTabRootPath: String? {
         didSet { syncWorktreeTabTitle() }
     }
 
