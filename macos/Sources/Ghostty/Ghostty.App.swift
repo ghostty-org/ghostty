@@ -1563,6 +1563,29 @@ extension Ghostty {
                     assertionFailure()
                     return false
                 }
+
+            case .window:
+                switch (target.tag) {
+                case GHOSTTY_TARGET_APP:
+                    guard let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                          let controller = window.windowController as? BaseTerminalController
+                    else { return false }
+                    controller.promptWindowTitle()
+                    return true
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let window = surfaceView.window,
+                          let controller = window.windowController as? BaseTerminalController
+                    else { return false }
+                    controller.promptWindowTitle()
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
             }
         }
 

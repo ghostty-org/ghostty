@@ -377,6 +377,37 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Prompt the user to change the window title.
+    func promptWindowTitle() {
+        guard let window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Change Window Title"
+        alert.informativeText = "Leave blank to restore the default."
+        alert.alertStyle = .informational
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.stringValue = titleOverride ?? window.title
+        alert.accessoryView = textField
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.window.initialFirstResponder = textField
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            guard response == .alertFirstButtonReturn else { return }
+
+            let newTitle = textField.stringValue
+            if newTitle.isEmpty {
+                self.titleOverride = nil
+            } else {
+                self.titleOverride = newTitle
+            }
+        }
+    }
+
     /// Close a surface from a view.
     func closeSurface(
         _ view: Ghostty.SurfaceView,

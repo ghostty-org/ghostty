@@ -2288,6 +2288,10 @@ const Action = struct {
                     },
                 }
             },
+            .window => {
+                // GTK does not yet support window title prompting
+                return false;
+            },
         }
     }
 
