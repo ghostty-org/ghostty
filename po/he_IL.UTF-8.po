@@ -87,7 +87,7 @@ msgstr "⚠️ זוהי רצה גרסת דיבוג של Ghostty. מהירות ה
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: מדבג המסוף"
+msgstr "Ghostty: סוקר המסוף"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -200,11 +200,11 @@ msgstr "סגירת חלון"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:358
 msgid "Config"
-msgstr "קינפוג"
+msgstr "הגדרות"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Open Configuration"
-msgstr "פתיחת קינפוגך"
+msgstr "פתיחת ההגדרות"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -228,11 +228,11 @@ msgstr "תפריט ראשי"
 
 #: src/apprt/gtk/ui/1.5/window.blp:285
 msgid "Command Palette"
-msgstr "פלטת פקודת"
+msgstr "לוח פקודת"
 
 #: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Terminal Inspector"
-msgstr "מדבג המסוף"
+msgstr "סוקר המסוף"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
 msgid "About Ghostty"
