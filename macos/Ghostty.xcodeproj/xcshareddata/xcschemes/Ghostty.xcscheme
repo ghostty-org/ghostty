@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A5B30530299BEAAA0047F10C"
-               BuildableName = "Ghostty.app"
+               BuildableName = "Ghostties.app"
                BlueprintName = "Ghostty"
                ReferencedContainer = "container:Ghostty.xcodeproj">
             </BuildableReference>
@@ -68,7 +68,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A5B30530299BEAAA0047F10C"
-            BuildableName = "Ghostty.app"
+            BuildableName = "Ghostties.app"
             BlueprintName = "Ghostty"
             ReferencedContainer = "container:Ghostty.xcodeproj">
          </BuildableReference>
@@ -98,7 +98,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A5B30530299BEAAA0047F10C"
-            BuildableName = "Ghostty.app"
+            BuildableName = "Ghostties.app"
             BlueprintName = "Ghostty"
             ReferencedContainer = "container:Ghostty.xcodeproj">
          </BuildableReference>

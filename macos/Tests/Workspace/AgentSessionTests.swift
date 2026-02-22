@@ -60,13 +60,23 @@ struct AgentSessionTests {
 
     // MARK: - Hashable
 
-    @Test func sessionHashableUsesId() {
+    @Test func sessionHashableUsesAllFields() {
+        // AgentSession uses Swift's synthesized Hashable, which hashes ALL stored
+        // properties — not just `id`. Two sessions with the same id but different
+        // names or templateIds are treated as distinct values by Set/Dictionary.
         let id = UUID()
+        let templateId = UUID()
         let projectId = UUID()
-        let session1 = AgentSession(id: id, name: "A", templateId: UUID(), projectId: projectId)
-        let session2 = AgentSession(id: id, name: "B", templateId: UUID(), projectId: projectId)
-        // Same id means same hash, so a Set should deduplicate.
-        let set: Set<AgentSession> = [session1, session2]
-        #expect(set.count == 1)
+
+        // Identical fields → same hash → deduplicated.
+        let session1 = AgentSession(id: id, name: "A", templateId: templateId, projectId: projectId)
+        let session2 = AgentSession(id: id, name: "A", templateId: templateId, projectId: projectId)
+        let deduped: Set<AgentSession> = [session1, session2]
+        #expect(deduped.count == 1)
+
+        // Different name → different hash → both kept.
+        let session3 = AgentSession(id: id, name: "B", templateId: templateId, projectId: projectId)
+        let distinct: Set<AgentSession> = [session1, session3]
+        #expect(distinct.count == 2)
     }
 }

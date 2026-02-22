@@ -72,7 +72,7 @@ struct WorkspacePersistence {
             decoder.dateDecodingStrategy = .iso8601
             let state = try decoder.decode(State.self, from: data)
             return validate(state)
-        } catch let error as DecodingError {
+        } catch is DecodingError {
             logger.error("Corrupted workspace.json, backing up and starting fresh")
             backupCorruptFile(at: url)
             return State()
