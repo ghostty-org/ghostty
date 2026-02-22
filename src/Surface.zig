@@ -46,8 +46,8 @@ const Renderer = rendererpkg.Renderer;
 /// being resized to a size that is too small to be useful. These defaults
 /// are chosen to match the default size of Mac's Terminal.app, but is
 /// otherwise somewhat arbitrary.
-const min_window_width_cells: u32 = 10;
-const min_window_height_cells: u32 = 4;
+pub const min_window_width_cells: u32 = 10;
+pub const min_window_height_cells: u32 = 4;
 
 /// The maximum number of key tables that can be active at any
 /// given time. `activate_key_table` calls after this are ignored.
