@@ -255,6 +255,36 @@ pub const Shaper = struct {
         }
         //log.warn("----------------", .{});
 
+        // If shaping was RTL, we need to remap X positions.
+        // HarfBuzz outputs glyphs in visual order with X positions
+        // going right-to-left (e.g., 4,3,2,1,0 for a 5-char word).
+        // Our renderer requires monotonically increasing X (0,1,2,3,4).
+        const dir = self.hb_buf.getDirection();
+        if (dir == .rtl and self.cell_buf.items.len > 0) {
+            // Find the maximum X position (rightmost cell in visual order)
+            const max_x: u16 = blk: {
+                var max: u16 = 0;
+                for (self.cell_buf.items) |cell| {
+                    max = @max(max, cell.x);
+                }
+                break :blk max;
+            };
+
+            // Remap X positions: visual X -> logical X
+            // For 5 cells at visual positions 4,3,2,1,0:
+            // We want logical positions 0,1,2,3,4
+            for (self.cell_buf.items) |*cell| {
+                cell.x = max_x - cell.x;
+            }
+
+            // Sort cells by X to ensure monotonically increasing order
+            std.mem.sort(font.shape.Cell, self.cell_buf.items, {}, struct {
+                fn lt(_: void, a: font.shape.Cell, b: font.shape.Cell) bool {
+                    return a.x < b.x;
+                }
+            }.lt);
+        }
+
         return self.cell_buf.items;
     }
 
@@ -274,10 +304,10 @@ pub const Shaper = struct {
 
             self.shaper.codepoints.clearRetainingCapacity();
 
-            // We don't support RTL text because RTL in terminals is messy.
-            // Its something we want to improve. For now, we force LTR because
-            // our renderers assume a strictly increasing X value.
-            self.shaper.hb_buf.setDirection(.ltr);
+            // Note: We let HarfBuzz detect script direction via guessSegmentProperties()
+            // so that RTL scripts get correct shaping. After shaping, if the direction
+            // is RTL, we remap X positions to match the terminal's LTR cell order.
+            // See: https://github.com/ghostty-org/ghostty/issues/1442
         }
 
         pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
@@ -716,11 +746,11 @@ test "shape monaspace ligs" {
     }
 }
 
-// Ghostty doesn't currently support RTL and our renderers assume
-// that cells are in strict LTR order. This means that we need to
-// force RTL text to be LTR for rendering. This test ensures that
-// we are correctly forcing RTL text to be LTR.
-test "shape arabic forced LTR" {
+// RTL text is shaped with correct glyph forms via HarfBuzz's RTL direction
+// detection. After shaping, we remap X positions so cells remain in LTR order
+// for the renderer. This test verifies that Arabic text is shaped correctly
+// and cells are in monotonically increasing X order.
+test "shape arabic RTL" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
