@@ -8,6 +8,7 @@ pub const String = extern struct {
                 .ptr = zig.ptr,
                 .len = zig.len,
             },
+            else => |v| @compileLog(v),
         };
     }
 };

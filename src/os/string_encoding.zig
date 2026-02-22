@@ -1,35 +1,30 @@
 const std = @import("std");
 
-/// Do an in-place decode of a string that has been encoded in the same way
-/// that `bash`'s `printf %q` encodes a string. This is safe because a string
-/// can only get shorter after decoding. This destructively modifies the buffer
-/// given to it. If an error is returned the buffer may be in an unusable state.
-pub fn printfQDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
-    const data: [:0]u8 = data: {
+/// Decode date from the buffer that has been encoded in the same way that
+/// `bash`'s `printf %q` encodes a string and write it to the writer. If an
+/// error is returned garbage may have been written to the buffer.
+pub fn printfQDecode(writer: *std.Io.Writer, buf: []const u8) (std.Io.Writer.Error || error{DecodeError})!void {
+    const data: []const u8 = data: {
         // Strip off `$''` quoting.
         if (std.mem.startsWith(u8, buf, "$'")) {
             if (buf.len < 3 or !std.mem.endsWith(u8, buf, "'")) return error.DecodeError;
-            buf[buf.len - 1] = 0;
-            break :data buf[2 .. buf.len - 1 :0];
+            break :data buf[2 .. buf.len - 1];
         }
         // Strip off `''` quoting.
         if (std.mem.startsWith(u8, buf, "'")) {
             if (buf.len < 2 or !std.mem.endsWith(u8, buf, "'")) return error.DecodeError;
-            buf[buf.len - 1] = 0;
-            break :data buf[1 .. buf.len - 1 :0];
+            break :data buf[1 .. buf.len - 1];
         }
         break :data buf;
     };
 
     var src: usize = 0;
-    var dst: usize = 0;
 
     while (src < data.len) {
         switch (data[src]) {
             else => {
-                data[dst] = data[src];
+                try writer.writeByte(data[src]);
                 src += 1;
-                dst += 1;
             },
             '\\' => {
                 if (src + 1 >= data.len) return error.DecodeError;
@@ -40,132 +35,141 @@ pub fn printfQDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
                     '\'',
                     '$',
                     => |c| {
-                        data[dst] = c;
+                        try writer.writeByte(c);
                         src += 2;
-                        dst += 1;
                     },
                     'e' => {
-                        data[dst] = std.ascii.control_code.esc;
+                        try writer.writeByte(std.ascii.control_code.esc);
                         src += 2;
-                        dst += 1;
                     },
                     'n' => {
-                        data[dst] = std.ascii.control_code.lf;
+                        try writer.writeByte(std.ascii.control_code.lf);
                         src += 2;
-                        dst += 1;
                     },
                     'r' => {
-                        data[dst] = std.ascii.control_code.cr;
+                        try writer.writeByte(std.ascii.control_code.cr);
                         src += 2;
-                        dst += 1;
                     },
                     't' => {
-                        data[dst] = std.ascii.control_code.ht;
+                        try writer.writeByte(std.ascii.control_code.ht);
                         src += 2;
-                        dst += 1;
                     },
                     'v' => {
-                        data[dst] = std.ascii.control_code.vt;
+                        try writer.writeByte(std.ascii.control_code.vt);
                         src += 2;
-                        dst += 1;
                     },
                     else => return error.DecodeError,
                 }
             },
         }
     }
-
-    data[dst] = 0;
-    return data[0..dst :0];
 }
 
 test "printf_q 1" {
-    const s: [:0]const u8 = "bobr\\ kurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    const dst = try printfQDecode(&src);
-    try std.testing.expectEqualStrings("bobr kurwa", dst);
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr\\ kurwa";
+
+    try printfQDecode(&w.writer, s);
+    try std.testing.expectEqualStrings("bobr kurwa", w.written());
 }
 
 test "printf_q 2" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "bobr\\nkurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    const dst = try printfQDecode(&src);
-    try std.testing.expectEqualStrings("bobr\nkurwa", dst);
+
+    try printfQDecode(&w.writer, s);
+    try std.testing.expectEqualStrings("bobr\nkurwa", w.written());
 }
 
 test "printf_q 3" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "bobr\\dkurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
+
+    try std.testing.expectError(error.DecodeError, printfQDecode(&w.writer, s));
 }
 
 test "printf_q 4" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "bobr kurwa\\";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
+
+    try std.testing.expectError(error.DecodeError, printfQDecode(&w.writer, s));
 }
 
 test "printf_q 5" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "$'bobr kurwa'";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    const dst = try printfQDecode(&src);
-    try std.testing.expectEqualStrings("bobr kurwa", dst);
+
+    try printfQDecode(&w.writer, s);
+    try std.testing.expectEqualStrings("bobr kurwa", w.written());
 }
 
 test "printf_q 6" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "'bobr kurwa'";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    const dst = try printfQDecode(&src);
-    try std.testing.expectEqualStrings("bobr kurwa", dst);
+
+    try printfQDecode(&w.writer, s);
+    try std.testing.expectEqualStrings("bobr kurwa", w.written());
 }
 
 test "printf_q 7" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "$'bobr kurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
+
+    try std.testing.expectError(error.DecodeError, printfQDecode(&w.writer, s));
 }
 
 test "printf_q 8" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
     const s: [:0]const u8 = "$'";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&w.writer, s));
 }
 
 test "printf_q 9" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
     const s: [:0]const u8 = "'bobr kurwa";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&w.writer, s));
 }
 
 test "printf_q 10" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
     const s: [:0]const u8 = "'";
     var src: [s.len:0]u8 = undefined;
     @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, printfQDecode(&src));
+    try std.testing.expectError(error.DecodeError, printfQDecode(&w.writer, s));
 }
 
-/// Do an in-place decode of a string that has been URL percent encoded.
-/// This is safe because a string can only get shorter after decoding. This
-/// destructively modifies the buffer given to it. If an error is returned the
-/// buffer may be in an unusable state.
-pub fn urlPercentDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
+/// Decode data from the buffer that has been URL percent encoded and write
+/// it to the given buffer. If an error is returned the garbage may have been
+/// written to the writer.
+pub fn urlPercentDecode(writer: *std.Io.Writer, buf: []const u8) (std.Io.Writer.Error || error{DecodeError})!void {
     var src: usize = 0;
-    var dst: usize = 0;
     while (src < buf.len) {
         switch (buf[src]) {
             else => {
-                buf[dst] = buf[src];
+                try writer.writeByte(buf[src]);
                 src += 1;
-                dst += 1;
             },
             '%' => {
                 if (src + 2 >= buf.len) return error.DecodeError;
@@ -173,9 +177,8 @@ pub fn urlPercentDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
                         switch (buf[src + 2]) {
                             '0'...'9', 'a'...'f', 'A'...'F' => {
-                                buf[dst] = std.math.shl(u8, hex(buf[src + 1]), 4) | hex(buf[src + 2]);
+                                try writer.writeByte(std.math.shl(u8, hex(buf[src + 1]), 4) | hex(buf[src + 2]));
                                 src += 3;
-                                dst += 1;
                             },
                             else => return error.DecodeError,
                         }
@@ -185,8 +188,6 @@ pub fn urlPercentDecode(buf: [:0]u8) error{DecodeError}![:0]const u8 {
             },
         }
     }
-    buf[dst] = 0;
-    return buf[0..dst :0];
 }
 
 inline fn hex(c: u8) u4 {
@@ -200,70 +201,96 @@ inline fn hex(c: u8) u4 {
 
 test "singles percent" {
     for (0..255) |c| {
+        var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer w.deinit();
+
         var buf_: [4]u8 = undefined;
         const buf = try std.fmt.bufPrintZ(&buf_, "%{x:0>2}", .{c});
-        const decoded = try urlPercentDecode(buf);
+
+        try urlPercentDecode(&w.writer, buf);
+        const decoded = w.written();
+
         try std.testing.expectEqual(1, decoded.len);
         try std.testing.expectEqual(c, decoded[0]);
     }
     for (0..255) |c| {
+        var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer w.deinit();
+
         var buf_: [4]u8 = undefined;
         const buf = try std.fmt.bufPrintZ(&buf_, "%{X:0>2}", .{c});
-        const decoded = try urlPercentDecode(buf);
+
+        try urlPercentDecode(&w.writer, buf);
+        const decoded = w.written();
+
         try std.testing.expectEqual(1, decoded.len);
         try std.testing.expectEqual(c, decoded[0]);
     }
 }
 
 test "percent 1" {
-    const s: [:0]const u8 = "bobr%20kurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    const dst = try urlPercentDecode(&src);
-    try std.testing.expectEqualStrings("bobr kurwa", dst);
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%20kurwa";
+
+    try urlPercentDecode(&w.writer, s);
+    try std.testing.expectEqualStrings("bobr kurwa", w.written());
 }
 
 test "percent 2" {
-    const s: [:0]const u8 = "bobr%2kurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%2kurwa";
+
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&w.writer, s));
 }
 
 test "percent 3" {
-    const s: [:0]const u8 = "bobr%kurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%kurwa";
+
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&w.writer, s));
 }
 
 test "percent 4" {
-    const s: [:0]const u8 = "bobr%%kurwa";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%%kurwa";
+
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&w.writer, s));
 }
 
 test "percent 5" {
-    const s: [:0]const u8 = "bobr%20kurwa%20";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    const dst = try urlPercentDecode(&src);
-    try std.testing.expectEqualStrings("bobr kurwa ", dst);
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%20kurwa%20";
+
+    try urlPercentDecode(&w.writer, s);
+    try std.testing.expectEqualStrings("bobr kurwa ", w.written());
 }
 
 test "percent 6" {
-    const s: [:0]const u8 = "bobr%20kurwa%2";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%20kurwa%2";
+
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&w.writer, s));
 }
 
 test "percent 7" {
-    const s: [:0]const u8 = "bobr%20kurwa%";
-    var src: [s.len:0]u8 = undefined;
-    @memcpy(&src, s);
-    try std.testing.expectError(error.DecodeError, urlPercentDecode(&src));
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+
+    const s: []const u8 = "bobr%20kurwa%";
+
+    try std.testing.expectError(error.DecodeError, urlPercentDecode(&w.writer, s));
 }
 
 /// Is the given character valid in URI percent encoding?
