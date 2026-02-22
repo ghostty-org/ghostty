@@ -27,6 +27,7 @@ const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
 const file_load = @import("file_load.zig");
 const formatterpkg = @import("formatter.zig");
+const shellpkg = @import("shell.zig");
 const themepkg = @import("theme.zig");
 const url = @import("url.zig");
 const Key = @import("key.zig").Key;
@@ -854,9 +855,11 @@ palette: Palette = .{},
 /// q`). Shell configurations will often request specific cursor styles.
 ///
 /// Note that shell integration will automatically set the cursor to a bar at
-/// a prompt, regardless of this configuration. You can disable that behavior
-/// by specifying `shell-integration-features = no-cursor` or disabling shell
-/// integration entirely.
+/// a prompt, regardless of this configuration. You can customize the shell
+/// integration cursor style using `shell-integration-features` (e.g.,
+/// `shell-integration-features = cursor:block` or `cursor:underline:steady`).
+/// You can also disable the cursor feature entirely with
+/// `shell-integration-features = no-cursor`.
 ///
 /// Valid values are:
 ///
@@ -2775,7 +2778,7 @@ keybind: Keybinds = .{},
 ///   * `bash`, `elvish`, `fish`, `nushell`, `zsh` - Use this specific shell injection scheme.
 ///
 /// The default value is `detect`.
-@"shell-integration": ShellIntegration = .detect,
+@"shell-integration": shellpkg.ShellIntegration = .detect,
 
 /// Shell integration features to enable. These require our shell integration
 /// to be loaded, either automatically via shell-integration or manually.
@@ -2789,7 +2792,20 @@ keybind: Keybinds = .{},
 ///
 /// Available features:
 ///
-///   * `cursor` - Set the cursor to a bar at the prompt.
+///   * `cursor` - Set the cursor style at the prompt. By default, this sets a bar
+///     cursor using the cursor-style-blink configuration value.
+///
+///     Available cursor shapes: `bar`, `block`, `underline`
+///     Available cursor styles: `blink`, `steady`, or omit to use cursor-style-blink
+///
+///     Examples:
+///       - `cursor` or `cursor:bar` - bar cursor (respects cursor-style-blink)
+///       - `cursor:block` - block cursor (respects cursor-style-blink)
+///       - `cursor:underline:steady` - steady underline cursor
+///       - `cursor:block:blink` - blinking block cursor
+///
+///     For convenience, `cursor:blink` and `cursor:steady` are supported as
+///     shortcuts for `cursor:bar:blink` and `cursor:bar:steady`.
 ///
 ///   * `sudo` - Set sudo wrapper to preserve terminfo.
 ///
@@ -2820,7 +2836,7 @@ keybind: Keybinds = .{},
 /// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
 /// terminfo on remote hosts and use `xterm-ghostty` as TERM, falling back to
 /// `xterm-256color` with environment variables if terminfo installation fails.
-@"shell-integration-features": ShellIntegrationFeatures = .{},
+@"shell-integration-features": shellpkg.ShellIntegrationFeatures = .{},
 
 /// Custom entries into the command palette.
 ///
@@ -8334,27 +8350,6 @@ pub const RightClickAction = enum {
 
     /// Shows a context menu with options.
     @"context-menu",
-};
-
-/// Shell integration values
-pub const ShellIntegration = enum {
-    none,
-    detect,
-    bash,
-    elvish,
-    fish,
-    nushell,
-    zsh,
-};
-
-/// Shell integration features
-pub const ShellIntegrationFeatures = packed struct {
-    cursor: bool = true,
-    sudo: bool = false,
-    title: bool = true,
-    @"ssh-env": bool = false,
-    @"ssh-terminfo": bool = false,
-    path: bool = true,
 };
 
 pub const SplitPreserveZoom = packed struct {

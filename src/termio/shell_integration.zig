@@ -188,47 +188,16 @@ test detectShell {
 pub fn setupFeatures(
     env: *EnvMap,
     features: config.ShellIntegrationFeatures,
-    cursor_blink: bool,
+    cursor_blink_default: bool,
 ) !void {
-    const fields = @typeInfo(@TypeOf(features)).@"struct".fields;
-    const capacity: usize = capacity: {
-        comptime var n: usize = fields.len - 1; // commas
-        inline for (fields) |field| n += field.name.len;
-        n += ":steady".len; // cursor value
-        break :capacity n;
-    };
-
-    var buf: [capacity]u8 = undefined;
+    var buf: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
 
-    // Sort the fields so that the output is deterministic. This is
-    // done at comptime so it has no runtime cost
-    const fields_sorted: [fields.len][]const u8 = comptime fields: {
-        var fields_sorted: [fields.len][]const u8 = undefined;
-        for (fields, 0..) |field, i| fields_sorted[i] = field.name;
-        std.mem.sortUnstable(
-            []const u8,
-            &fields_sorted,
-            {},
-            (struct {
-                fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
-                    return std.ascii.orderIgnoreCase(lhs, rhs) == .lt;
-                }
-            }).lessThan,
-        );
-        break :fields fields_sorted;
-    };
-
-    inline for (fields_sorted) |name| {
-        if (@field(features, name)) {
-            if (writer.end > 0) try writer.writeByte(',');
-            try writer.writeAll(name);
-
-            if (std.mem.eql(u8, name, "cursor")) {
-                try writer.writeAll(if (cursor_blink) ":blink" else ":steady");
-            }
-        }
+    var resolved = features;
+    if (resolved.cursor.style == .default) {
+        resolved.cursor.style = if (cursor_blink_default) .blink else .steady;
     }
+    try resolved.format(&writer, .env);
 
     if (writer.end > 0) {
         try env.put("GHOSTTY_SHELL_FEATURES", buf[0..writer.end]);
@@ -242,16 +211,16 @@ test "setup features" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // Test: all features enabled
+    // Default features
     {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true }, true);
-        try testing.expectEqualStrings("cursor:blink,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, .{}, true);
+        try testing.expectEqualStrings("cursor:5,path,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
-    // Test: all features disabled
+    // No features (all disabled)
     {
         var env = EnvMap.init(alloc);
         defer env.deinit();
@@ -260,29 +229,36 @@ test "setup features" {
         try testing.expect(env.get("GHOSTTY_SHELL_FEATURES") == null);
     }
 
-    // Test: mixed features
+    // Cursor defaults (bar with style from config)
     {
         var env = EnvMap.init(alloc);
         defer env.deinit();
-
-        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false }, true);
-        try testing.expectEqualStrings("ssh-env,sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
+        var features: config.ShellIntegrationFeatures = std.mem.zeroes(config.ShellIntegrationFeatures);
+        features.cursor = .{};
+        try setupFeatures(&env, features, true);
+        try testing.expectEqualStrings("cursor:5", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, features, false);
+        try testing.expectEqualStrings("cursor:6", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
-    // Test: blinking cursor
+    // Cursor with explicit shape
     {
         var env = EnvMap.init(alloc);
         defer env.deinit();
-        try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, true);
-        try testing.expectEqualStrings("cursor:blink", env.get("GHOSTTY_SHELL_FEATURES").?);
+        var features: config.ShellIntegrationFeatures = std.mem.zeroes(config.ShellIntegrationFeatures);
+        features.cursor = .{ .shape = .block, .style = .default };
+        try setupFeatures(&env, features, true);
+        try testing.expectEqualStrings("cursor:1", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
-    // Test: steady cursor
+    // Cursor with explicit shape and style
     {
         var env = EnvMap.init(alloc);
         defer env.deinit();
-        try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, false);
-        try testing.expectEqualStrings("cursor:steady", env.get("GHOSTTY_SHELL_FEATURES").?);
+        var features: config.ShellIntegrationFeatures = std.mem.zeroes(config.ShellIntegrationFeatures);
+        features.cursor = .{ .shape = .underline, .style = .steady };
+        try setupFeatures(&env, features, true);
+        try testing.expectEqualStrings("cursor:4", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 }
 

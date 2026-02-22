@@ -72,12 +72,10 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         set -g __ghostty_prompt_start_mark "\e]133;A;click_events=1\a"
     end
 
-    if string match -q 'cursor*' -- $features
-        set -l cursor 5                                   # blinking bar
-        contains cursor:steady $features && set cursor 6  # steady bar
+    if string match -q 'cursor:*' -- $features
+        set -l cursor (string replace -r '.*cursor:(\d+).*' '$1' -- $GHOSTTY_SHELL_FEATURES)
 
-        # Change the cursor to a beam on prompt.
-        function __ghostty_set_cursor_beam --on-event fish_prompt -V cursor -d "Set cursor shape"
+        function __ghostty_set_cursor --on-event fish_prompt -V cursor -d "Set cursor shape"
             if not functions -q fish_vi_cursor_handle
                 echo -en "\e[$cursor q"
             end
@@ -236,8 +234,8 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     set --global fish_handle_reflow 1
 
     # Initial calls for first prompt
-    if string match -q 'cursor*' -- $features
-        __ghostty_set_cursor_beam
+    if string match -q 'cursor:*' -- $features
+        __ghostty_set_cursor
     end
     __ghostty_mark_prompt_start
     __update_cwd_osc

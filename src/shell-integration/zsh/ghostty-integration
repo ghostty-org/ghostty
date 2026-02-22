@@ -221,17 +221,21 @@ _ghostty_deferred_init() {
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${1//[[:cntrl:]]}\"\$'\\a'"
     fi
 
-    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:"* ]]; then
       # Enable cursor shape changes depending on the current keymap.
       # This implementation leaks blinking block cursor into external commands
       # executed from zle. For example, users of fzf-based widgets may find
       # themselves with a blinking block cursor within fzf.
       _ghostty_zle_line_init _ghostty_zle_line_finish _ghostty_zle_keymap_select() {
-        builtin local steady=0
-        [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:steady"* ]] && steady=1
+        builtin local cursor="${GHOSTTY_SHELL_FEATURES#*cursor:}"
+        cursor="${cursor%%[, ]*}"
+
+        # vi command mode uses block cursor (1=blink, 2=steady)
+        builtin local block=$(( 1 + (cursor % 2 == 0) ))
+
         case ${KEYMAP-} in
-            vicmd|visual) builtin print -nu "$_ghostty_fd" "\e[$(( 1 + steady )) q" ;; # block
-            *)            builtin print -nu "$_ghostty_fd" "\e[$(( 5 + steady )) q" ;; # bar
+            vicmd|visual) builtin print -nu "$_ghostty_fd" "\e[${block} q" ;;
+            *)            builtin print -nu "$_ghostty_fd" "\e[${cursor} q" ;;
         esac
       }
       # Restore the default shape before executing an external command

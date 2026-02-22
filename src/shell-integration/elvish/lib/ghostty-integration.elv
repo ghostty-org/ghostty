@@ -1,5 +1,6 @@
 {
   use platform
+  use re
   use str
 
   # Clean up XDG_DATA_DIRS by removing GHOSTTY_SHELL_INTEGRATION_XDG_DIR
@@ -154,15 +155,13 @@
   set edit:after-readline  = (conj $edit:after-readline $mark-output-start~)
   set edit:after-command   = (conj $edit:after-command $mark-output-end~)
 
-  if (str:contains $E:GHOSTTY_SHELL_FEATURES "cursor") {
-    var cursor = "5"    # blinking bar
-    if (has-value $features cursor:steady) {
-      set cursor = "6"  # steady bar
-    }
+  if (str:contains $E:GHOSTTY_SHELL_FEATURES "cursor:") {
+    var match = (re:find 'cursor:(\d+)' $E:GHOSTTY_SHELL_FEATURES)
+    var cursor = $match[groups][1][text]
 
-    fn beam  { printf "\e["$cursor" q" }
+    fn set-cursor  { printf "\e["$cursor" q" }
     fn reset { printf "\e[0 q" }
-    set edit:before-readline = (conj $edit:before-readline $beam~)
+    set edit:before-readline = (conj $edit:before-readline $set-cursor~)
     set edit:after-readline  = (conj $edit:after-readline {|_| reset })
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
