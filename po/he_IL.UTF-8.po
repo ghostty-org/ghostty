@@ -47,7 +47,7 @@ msgstr "זכרו בחירתי לפיצול זה"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
-msgstr "טענו הגדרותך מחדש על־מנת להציג שוב בקשה זו"
+msgstr "טענו הגדרות חדשות על־מנת להציג שוב בקשה זו"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
@@ -77,13 +77,13 @@ msgstr "התעלמות"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
 #: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
-msgstr "טעינת ההגדרות מחדש"
+msgstr "טעינת הגדרות מחדש"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ זוהי רצה גרסת דיבוג של Ghostty. מהירות המסוף תפגע."
+msgstr "⚠️ זוהי גרסת דיבוג של Ghostty. מהירות המסוף תפגע."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
@@ -91,7 +91,7 @@ msgstr "Ghostty: סוקר המסוף"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr "מצאו…"
+msgstr "חפשו…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
@@ -146,7 +146,7 @@ msgstr "פיצול"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
 msgid "Change Title…"
-msgstr "שינוי כותרת חלון…"
+msgstr "שינוי כותרת…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
 #: src/apprt/gtk/ui/1.5/window.blp:250
@@ -228,7 +228,7 @@ msgstr "תפריט ראשי"
 
 #: src/apprt/gtk/ui/1.5/window.blp:285
 msgid "Command Palette"
-msgstr "לוח פקודת"
+msgstr "לוח פקודות"
 
 #: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Terminal Inspector"
@@ -244,7 +244,7 @@ msgstr "יציאה"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "…הרצת פקודה"
+msgstr "הרצת פקודה…"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -302,11 +302,11 @@ msgstr "התהליך הרץ בפיצול יופסק."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr "פקודה בוצעה"
+msgstr "פקודה הסתיימה"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr "פקודה בוצעה בהצלחה"
+msgstr "פקודה הצליחה"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
@@ -314,11 +314,11 @@ msgstr "פקודה נכשלה"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
-msgstr "פקודה בוצעה בהצלחה"
+msgstr "הפקודה הצליחה"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command failed"
-msgstr "פקודה נכשלה"
+msgstr "הפקודה נכשלה"
 
 #: src/apprt/gtk/class/title_dialog.zig:225
 msgid "Change Terminal Title"
