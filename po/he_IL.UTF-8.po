@@ -1,6 +1,7 @@
 # Hebrew translations for com.mitchellh.ghostty.
 # Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Laxystem <the@laxla.quest>, 2026.
 # Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo.com>, 2026.
 # CraziestOwl <craziestowl@proton.me>, 2025.
 #
@@ -10,9 +11,8 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
-"PO-Revision-Date: 2026-02-18 18:14+0300\n"
-"Last-Translator: Sl (Shahaf Levi), Sl's Repository Ltd "
-"<ghostty@slsrepo.com>\n"
+"PO-Revision-Date: 2026-02-22 14:59+0200\n"
+"Last-Translator: Laxystem <the@laxla.quest>\n"
 "Language-Team: Hebrew <he_IL@lists.sourceforge.net>\n"
 "Language: he\n"
 "MIME-Version: 1.0\n"
@@ -22,32 +22,32 @@ msgstr ""
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
-msgstr "פתח/י בGhostty"
+msgstr "פתיחה ב־Ghostty"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr "אשר/י גישה ללוח ההעתקה"
+msgstr "אישור גישה ללוח־הגזירים"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
 msgid "Deny"
-msgstr "דחייה"
+msgstr "איסור"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:18
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:18
 msgid "Allow"
-msgstr "אישור"
+msgstr "אפשור"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "זכור/י את הבחירה עבור פיצול זה"
+msgstr "זכרו בחירתי לפיצול זה"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
-msgstr "טען/י את ההגדרות מחדש כדי להציג את הבקשה הזו שוב"
+msgstr "טענו הגדרותך מחדש על־מנת להציג שוב בקשה זו"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
@@ -62,15 +62,13 @@ msgstr "סגירה"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid "Configuration Errors"
-msgstr "שגיאות בהגדרות"
+msgstr "שגיאות הגדרה"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:7
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
-msgstr ""
-"נמצאו אחת או יותר שגיאות בהגדרות. אנא בדוק/י את השגיאות המופיעות מטה ולאחר "
-"מכן טען/י את ההגדרות מחדש או התעלם/י מהשגיאות."
+msgstr "נמצאו שגיאות הגדרה (לפחות אחת). אנא סקרונן כפי שמוצגות מטה, וטענו הגדרות חדשות או התעלמו מהן."
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Ignore"
@@ -79,50 +77,48 @@ msgstr "התעלמות"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
 #: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
-msgstr "טעינה מחדש של ההגדרות"
+msgstr "טעינת ההגדרות מחדש"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ את/ה מריץ/ה גרסת ניפוי שגיאות של Ghostty! הביצועים יהיו ירודים."
+msgstr "⚠️ זוהי רצה גרסת דיבוג של Ghostty. מהירות המסוף תפגע."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: בודק המסוף"
+msgstr "Ghostty: מדבג המסוף"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr "חפש/י…"
+msgstr "מצאו…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr "ההתאמה הקודמת"
+msgstr "תוצאה קודמת"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr "ההתאמה הבאה"
+msgstr "תוצאה הבאה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr "אוי, לא"
+msgstr "אוי וֵי!"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr "לא ניתן לקבל הקשר OpenGL לצורך רינדור."
+msgstr "השגת הקשר ה־OpenGL (בלעז, \"OpenGL context\") הדרוש לרנדור המסוף נכשלה."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
 "application."
-msgstr ""
-"מסוף זה נמצא במצב קריאה בלבד. עדיין תוכל/י לצפות, לבחור ולגלול בתוכן, אך לא "
-"יישלחו אירועי קלט לאפליקציה הפעילה."
+msgstr "מסוף זה הינו לקריאה־בלבד. באפשרותך לקרוא, לבחור, או לגלול בתוכנו, אך לא תהיה לֵקלט השפעה."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr "לקריאה בלבד"
+msgstr "לקריאה־בלבד"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:200
 msgid "Copy"
@@ -134,7 +130,7 @@ msgstr "הדבקה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "תזכורת בסיום הפקודה הבאה"
+msgstr "התרעה בסיום הפקודה הבאה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
 msgid "Clear"
@@ -150,17 +146,17 @@ msgstr "פיצול"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
 msgid "Change Title…"
-msgstr "שינוי כותרת…"
+msgstr "שינוי כותרת חלון…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
 #: src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split Up"
-msgstr "פיצול למעלה"
+msgstr "פיצול מעלה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
 #: src/apprt/gtk/ui/1.5/window.blp:255
 msgid "Split Down"
-msgstr "פיצול למטה"
+msgstr "פיצול מטה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
 #: src/apprt/gtk/ui/1.5/window.blp:260
@@ -179,7 +175,7 @@ msgstr "כרטיסייה"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr "שנה/י את כותרת הכרטיסייה…"
+msgstr "שינוי כותרת כרטיסייה…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -188,7 +184,7 @@ msgstr "כרטיסייה חדשה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "Close Tab"
-msgstr "סגור/י כרטיסייה"
+msgstr "סגירת כרטיסייה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:342
 msgid "Window"
@@ -200,23 +196,23 @@ msgstr "חלון חדש"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "Close Window"
-msgstr "סגור/י חלון"
+msgstr "סגירת חלון"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:358
 msgid "Config"
-msgstr "הגדרות"
+msgstr "קינפוג"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Open Configuration"
-msgstr "פתיחת ההגדרות"
+msgstr "פתיחת קינפוגך"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
-msgstr "השאר/י ריק כדי לשחזר את כותרת ברירת המחדל."
+msgstr "ערך ריק ישחזר את כותרת ברירת־המחדל."
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
-msgstr "אישור"
+msgstr "סבבה"
 
 #: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
 msgid "New Split"
@@ -224,7 +220,7 @@ msgstr "פיצול חדש"
 
 #: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
 msgid "View Open Tabs"
-msgstr "הצג/י כרטיסיות פתוחות"
+msgstr "הצגת כרטיסיות פתוחות"
 
 #: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
 msgid "Main Menu"
@@ -232,15 +228,15 @@ msgstr "תפריט ראשי"
 
 #: src/apprt/gtk/ui/1.5/window.blp:285
 msgid "Command Palette"
-msgstr "לוח פקודות"
+msgstr "פלטת פקודת"
 
 #: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Terminal Inspector"
-msgstr "בודק המסוף"
+msgstr "מדבג המסוף"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
 msgid "About Ghostty"
-msgstr "אודות Ghostty"
+msgstr "על־אודות Ghostty"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -248,105 +244,102 @@ msgstr "יציאה"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "הרץ/י פקודה…"
+msgstr "…הרצת פקודה"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
-msgstr ""
-"יש אפליקציה שמנסה לכתוב לתוך לוח ההעתקה. התוכן הנוכחי של הלוח מופיע למטה."
+msgstr "אפליקציה מנסה להעתיק ללוח־גזיריך. תוכנו הנוכחי מוצג מטה."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:202
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "יש אפליקציה שמנסה לקרוא מלוח ההעתקה. התוכן הנוכחי של הלוח מופיע למטה."
+msgstr "אפליקציה מנסה להדביק מלוח־גזיריך. תוכנו הנוכחי מוצג מטה."
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:205
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "אזהרה: ההדבקה עלולה להיות מסוכנת"
+msgstr "אזהרה: הדבקה בלתי־בטוחה"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:206
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
-msgstr ""
-"הדבקת טקסט זה במסוף עלולה להיות מסוכנת, מכיוון שככל הנראה היא תוביל להרצה של "
-"פקודות מסוימות."
+msgstr "הדבקת טקסט זה למסוף יכולה להיות מסוכנת; נראה כי הוא מכיל פקודה שאפשר להריצה."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
 msgid "Quit Ghostty?"
-msgstr "לצאת מGhostty?"
+msgstr "לצאת מ־Ghostty?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
-msgstr "לסגור את הכרטיסייה?"
+msgstr "לסגור כרטיסייה?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Window?"
-msgstr "לסגור את החלון?"
+msgstr "לסגור חלון?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "לסגור את הפיצול?"
+msgstr "לסגור פיצול?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
-msgstr "כל הפעלות המסוף יסתיימו."
+msgstr "כל פעולות המסוף יופסקו."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:194
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "כל הפעלות המסוף בכרטיסייה זו יסתיימו."
+msgstr "כל פעולות המסוף בכרטייסיה זו יופסקו."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "All terminal sessions in this window will be terminated."
-msgstr "כל הפעלות המסוף בחלון זה יסתיימו."
+msgstr "כל פעולות המסוף בחלון זה יופסקו."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "התהליך שרץ כרגע בפיצול זה יסתיים."
+msgstr "התהליך הרץ בפיצול יופסק."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr "הפקודה הסתיימה"
+msgstr "פקודה בוצעה"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr "הפקודה הצליחה"
+msgstr "פקודה בוצעה בהצלחה"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr "הפקודה נכשלה"
+msgstr "פקודה נכשלה"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
-msgstr "הפקודה הצליחה"
+msgstr "פקודה בוצעה בהצלחה"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command failed"
-msgstr "הפקודה נכשלה"
+msgstr "פקודה נכשלה"
 
 #: src/apprt/gtk/class/title_dialog.zig:225
 msgid "Change Terminal Title"
-msgstr "שינוי כותרת המסוף"
+msgstr "שינוי כותרת מסוף"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr "שינוי כותרת הכרטיסייה"
+msgstr "שינוי כותרת כרטיסייה"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
-msgstr "ההגדרות הוטענו מחדש"
+msgstr "הגדרות חדשות נטענו"
 
 #: src/apprt/gtk/class/window.zig:1566
 msgid "Copied to clipboard"
-msgstr "הועתק ללוח ההעתקה"
+msgstr "הועתק ללוח־הגזירים"
 
 #: src/apprt/gtk/class/window.zig:1568
 msgid "Cleared clipboard"
-msgstr "לוח ההעתקה רוקן"
+msgstr "לוח־הגזירים רוקן"
 
 #: src/apprt/gtk/class/window.zig:1708
 msgid "Ghostty Developers"
-msgstr "המפתחים של Ghostty"
+msgstr "מפתחי Ghostty"
