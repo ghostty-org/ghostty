@@ -30,6 +30,7 @@ const font = @import("font/main.zig");
 const Command = @import("Command.zig");
 const terminal = @import("terminal/main.zig");
 const configpkg = @import("config.zig");
+const ConfigOverrides = configpkg.ConfigOverrides;
 const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
 const App = @import("App.zig");
@@ -607,10 +608,27 @@ pub fn init(
     };
 
     // The command we're going to execute
-    const command: ?configpkg.Command = if (app.first)
-        config.@"initial-command" orelse config.command
-    else
-        config.command;
+    const command: ?configpkg.Command = command: {
+        if (self.getConfigOverrides()) |config_overrides| {
+            if (config_overrides.isSet(.command))
+                break :command config_overrides.get(.command);
+        }
+        if (app.first) {
+            if (config.@"initial-command") |command| {
+                break :command command;
+            }
+        }
+        break :command config.command;
+    };
+
+    // The working directory to execute the command in.
+    const working_directory: ?[]const u8 = wd: {
+        if (self.getConfigOverrides()) |config_overrides| {
+            if (config_overrides.isSet(.@"working-directory"))
+                break :wd config_overrides.get(.@"working-directory");
+        }
+        break :wd config.@"working-directory";
+    };
 
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
@@ -635,7 +653,7 @@ pub fn init(
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
             .cursor_blink = config.@"cursor-style-blink",
-            .working_directory = config.@"working-directory",
+            .working_directory = working_directory,
             .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
             .rt_pre_exec_info = .init(config),
@@ -1787,6 +1805,13 @@ pub fn updateConfig(
         .config_change,
         .{ .config = config },
     );
+}
+
+fn getConfigOverrides(self: *Surface) ?*const ConfigOverrides {
+    if (@hasDecl(apprt.runtime.Surface, "getConfigOverrides")) {
+        return self.rt_surface.getConfigOverrides();
+    }
+    return null;
 }
 
 const InitialSizeError = error{

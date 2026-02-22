@@ -4,7 +4,7 @@ const key = @import("key.zig");
 const Config = @import("Config.zig");
 const Color = Config.Color;
 const Key = key.Key;
-const Value = key.Value;
+const Type = key.Type;
 
 /// Get a value from the config by key into the given pointer. This is
 /// specifically for C-compatible APIs. If you're using Zig, just access
@@ -17,7 +17,7 @@ pub fn get(config: *const Config, k: Key, ptr_raw: *anyopaque) bool {
     @setEvalBranchQuota(10_000);
     switch (k) {
         inline else => |tag| {
-            const value = fieldByKey(config, tag);
+            const value = config.get(tag);
             return getValue(ptr_raw, value);
         },
     }
@@ -100,22 +100,6 @@ fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
     }
 
     return true;
-}
-
-/// Get a value from the config by key.
-fn fieldByKey(self: *const Config, comptime k: Key) Value(k) {
-    const field = comptime field: {
-        const fields = std.meta.fields(Config);
-        for (fields) |field| {
-            if (@field(Key, field.name) == k) {
-                break :field field;
-            }
-        }
-
-        unreachable;
-    };
-
-    return @field(self, field.name);
 }
 
 test "c_get: u8" {

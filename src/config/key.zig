@@ -32,7 +32,7 @@ pub const Key = key: {
 };
 
 /// Returns the value type for a key
-pub fn Value(comptime key: Key) type {
+pub fn Type(comptime key: Key) type {
     const field = comptime field: {
         @setEvalBranchQuota(100_000);
 
@@ -52,6 +52,6 @@ pub fn Value(comptime key: Key) type {
 test "Value" {
     const testing = std.testing;
 
-    try testing.expectEqual(Config.RepeatableString, Value(.@"font-family"));
-    try testing.expectEqual(?bool, Value(.@"cursor-style-blink"));
+    try testing.expectEqual(Config.RepeatableString, Type(.@"font-family"));
+    try testing.expectEqual(?bool, Type(.@"cursor-style-blink"));
 }

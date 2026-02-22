@@ -16,6 +16,7 @@ const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const ConfigOverrides = @import("config_overrides.zig").ConfigOverrides;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -208,11 +209,12 @@ pub const SplitTree = extern struct {
         self: *Self,
         direction: Surface.Tree.Split.Direction,
         parent_: ?*Surface,
+        config_overrides: ?*ConfigOverrides,
     ) Allocator.Error!void {
         const alloc = Application.default().allocator();
 
         // Create our new surface.
-        const surface: *Surface = .new();
+        const surface: *Surface = .new(config_overrides);
         defer surface.unref();
         _ = surface.refSink();
 
@@ -638,6 +640,7 @@ pub const SplitTree = extern struct {
         self.newSplit(
             direction,
             self.getActiveSurface(),
+            null,
         ) catch |err| {
             log.warn("new split failed error={}", .{err});
         };

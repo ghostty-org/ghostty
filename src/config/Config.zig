@@ -29,7 +29,8 @@ const file_load = @import("file_load.zig");
 const formatterpkg = @import("formatter.zig");
 const themepkg = @import("theme.zig");
 const url = @import("url.zig");
-const Key = @import("key.zig").Key;
+pub const Key = @import("key.zig").Key;
+pub const Type = @import("key.zig").Type;
 const MetricModifier = fontpkg.Metrics.Modifier;
 const help_strings = @import("help_strings");
 pub const Command = @import("command.zig").Command;
@@ -94,6 +95,23 @@ pub const compatibility = std.StaticStringMap(
     // See: https://github.com/ghostty-org/ghostty/pull/9764
     .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 });
+
+pub fn get(self: *const Config, comptime key: Key) Type(key) {
+    return @field(self, @tagName(key));
+}
+
+pub fn set(self: *Config, comptime key: Key, value: Type(key)) Allocator.Error!void {
+    const alloc = self.arenaAlloc();
+    @field(self.*, @tagName(key)) = try cloneValue(alloc, Type(key), value);
+}
+
+test "set/get" {
+    var config: Config = try .default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.get(.language) == null);
+    try config.set(.language, "en_US.UTF-8");
+    try std.testing.expectEqualStrings("en_US.UTF-8", config.get(.language).?);
+}
 
 /// Set Ghostty's graphical user interface language to a language other than the
 /// system default language. The language must be fully specified, including the
@@ -4740,8 +4758,8 @@ fn compatCursorInvertFgBg(
     // Realistically, these fields were mutually exclusive so anyone
     // relying on that behavior should just upgrade to the new
     // cursor-color/cursor-text fields.
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"cursor-color" = .@"cell-foreground";
         self.@"cursor-text" = .@"cell-background";
     }
@@ -4758,8 +4776,8 @@ fn compatSelectionInvertFgBg(
     _ = alloc;
     assert(std.mem.eql(u8, key, "selection-invert-fg-bg"));
 
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"selection-foreground" = .@"cell-background";
         self.@"selection-background" = .@"cell-foreground";
     }
@@ -4776,8 +4794,8 @@ fn compatBoldIsBright(
     _ = alloc;
     assert(std.mem.eql(u8, key, "bold-is-bright"));
 
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"bold-color" = .bright;
     }
 
@@ -7210,9 +7228,9 @@ pub const Keybinds = struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var set: Keybinds = .{};
-        try set.parseCLI(alloc, "shift+a=copy_to_clipboard");
-        try set.parseCLI(alloc, "shift+a=csi:hello");
+        var keyset: Keybinds = .{};
+        try keyset.parseCLI(alloc, "shift+a=copy_to_clipboard");
+        try keyset.parseCLI(alloc, "shift+a=csi:hello");
     }
 
     test "formatConfig single" {

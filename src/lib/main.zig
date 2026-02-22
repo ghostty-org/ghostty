@@ -9,6 +9,7 @@ pub const String = types.String;
 pub const Struct = @import("struct.zig").Struct;
 pub const Target = @import("target.zig").Target;
 pub const TaggedUnion = unionpkg.TaggedUnion;
+pub const cutPrefix = @import("string.zig").cutPrefix;
 
 test {
     std.testing.refAllDecls(@This());
