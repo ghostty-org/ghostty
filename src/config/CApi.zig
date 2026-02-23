@@ -111,12 +111,32 @@ export fn ghostty_config_trigger(
     };
 }
 
+export fn ghostty_config_trigger_menu(
+    self: *Config,
+    str: [*]const u8,
+    len: usize,
+) inputpkg.Binding.Trigger.C {
+    return config_trigger_menu_(self, str[0..len]) catch |err| err: {
+        log.err("error finding menu trigger err={}", .{err});
+        break :err .{};
+    };
+}
+
 fn config_trigger_(
     self: *Config,
     str: []const u8,
 ) !inputpkg.Binding.Trigger.C {
     const action = try inputpkg.Binding.Action.parse(str);
     const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTrigger(action) orelse .{};
+    return trigger.cval();
+}
+
+fn config_trigger_menu_(
+    self: *Config,
+    str: []const u8,
+) !inputpkg.Binding.Trigger.C {
+    const action = try inputpkg.Binding.Action.parse(str);
+    const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTriggerForMenu(action) orelse .{};
     return trigger.cval();
 }
 

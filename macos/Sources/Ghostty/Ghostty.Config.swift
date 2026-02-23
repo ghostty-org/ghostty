@@ -115,7 +115,7 @@ extension Ghostty {
         func keyboardShortcut(for action: String) -> KeyboardShortcut? {
             guard let cfg = self.config else { return nil }
 
-            let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
+            let trigger = ghostty_config_trigger_menu(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
             return Ghostty.keyboardShortcut(for: trigger)
         }
 #endif

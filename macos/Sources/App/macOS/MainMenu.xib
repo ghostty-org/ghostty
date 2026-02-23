@@ -228,6 +228,11 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4O9-zO-zB9"/>
+                            <menuItem title="Cut" keyEquivalent="x" id="u9x-X1-ctT">
+                                <connections>
+                                    <action selector="cut:" target="-1" id="k2Z-yc-1fN"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Copy" id="Jqf-pv-Zcu">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

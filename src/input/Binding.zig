@@ -2603,6 +2603,62 @@ pub const Set = struct {
         return self.reverse.get(a);
     }
 
+    /// Get a trigger suitable for GUI shortcut display and key-equivalent
+    /// routing. This prefers representable triggers and falls back to
+    /// performable mappings when needed.
+    pub fn getTriggerForMenu(self: Set, a: Action) ?Trigger {
+        if (self.getTrigger(a)) |trigger| {
+            if (triggerIsMenuRepresentable(trigger)) return trigger;
+        }
+
+        var fallback_nonperformable: ?Trigger = null;
+        var fallback_performable: ?Trigger = null;
+        var it = self.bindings.iterator();
+        while (it.next()) |entry| {
+            const leaf = switch (entry.value_ptr.*) {
+                .leaf => |leaf| leaf,
+                .leader, .leaf_chained => continue,
+            };
+
+            if (!std.meta.eql(leaf.action, a)) continue;
+            const trigger = entry.key_ptr.*;
+            if (!triggerIsMenuRepresentable(trigger)) continue;
+
+            if (leaf.flags.performable) {
+                if (fallback_performable == null) fallback_performable = trigger;
+            } else if (fallback_nonperformable == null) {
+                fallback_nonperformable = trigger;
+            }
+        }
+
+        return fallback_nonperformable orelse fallback_performable;
+    }
+
+    fn triggerIsMenuRepresentable(trigger: Trigger) bool {
+        return switch (trigger.key) {
+            .unicode => true,
+            .catch_all => false,
+            .physical => |physical_key| switch (physical_key) {
+                .arrow_up,
+                .arrow_down,
+                .arrow_left,
+                .arrow_right,
+                .home,
+                .end,
+                .delete,
+                .page_up,
+                .page_down,
+                .escape,
+                .enter,
+                .tab,
+                .backspace,
+                .space,
+                => true,
+                else => false,
+            },
+        };
+    }
+
     /// Get an entry for the given key event. This will attempt to find
     /// a binding using multiple parts of the event in the following order:
     ///
@@ -4038,6 +4094,40 @@ test "set: performable is not part of reverse mappings" {
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
         try testing.expect(trigger.key.unicode == 'a');
+    }
+}
+
+test "set: getTriggerForMenu prefers representable performable over non-representable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Non-performable physical copy key is not representable in macOS menu
+    // key equivalents.
+    try s.put(
+        alloc,
+        .{ .key = .{ .physical = .copy } },
+        .{ .copy_to_clipboard = .mixed },
+    );
+    // Performable unicode mapping should be selected for menu/display.
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'c' }, .mods = .{ .super = true } },
+        .{ .copy_to_clipboard = .mixed },
+        .{ .performable = true },
+    );
+
+    {
+        const reverse = s.getTrigger(.{ .copy_to_clipboard = .mixed }).?;
+        try testing.expect(reverse.key == .physical);
+        try testing.expect(reverse.key.physical == .copy);
+    }
+    {
+        const menu = s.getTriggerForMenu(.{ .copy_to_clipboard = .mixed }).?;
+        try testing.expect(menu.key == .unicode);
+        try testing.expectEqual(@as(u21, 'c'), menu.key.unicode);
     }
 }
 

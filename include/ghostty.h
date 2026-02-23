@@ -1033,6 +1033,9 @@ bool ghostty_config_get(ghostty_config_t, void*, const char*, uintptr_t);
 ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
                                                const char*,
                                                uintptr_t);
+ghostty_input_trigger_s ghostty_config_trigger_menu(ghostty_config_t,
+                                                    const char*,
+                                                    uintptr_t);
 uint32_t ghostty_config_diagnostics_count(ghostty_config_t);
 ghostty_diagnostic_s ghostty_config_get_diagnostic(ghostty_config_t, uint32_t);
 ghostty_string_s ghostty_config_open_path(void);
