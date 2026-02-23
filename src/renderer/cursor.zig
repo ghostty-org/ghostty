@@ -29,6 +29,7 @@ pub const StyleOptions = struct {
     preedit: bool = false,
     focused: bool = false,
     blink_visible: bool = false,
+    unfocused_style: terminal.CursorStyle = .block_hollow,
 };
 
 /// Returns the cursor style to use for the current render state or null
@@ -56,8 +57,8 @@ pub fn style(
     if (!state.cursor.visible) return null;
 
     // If we're not focused, our cursor is always visible so that
-    // we can show the hollow box.
-    if (!opts.focused) return .block_hollow;
+    // we can show the configured unfocused cursor style.
+    if (!opts.focused) return Style.fromTerminal(opts.unfocused_style);
 
     // If the cursor is blinking and our blink state is not visible,
     // then we don't show the cursor.
@@ -80,10 +81,30 @@ test "cursor: default uses configured style" {
     defer state.deinit(alloc);
     try state.update(alloc, &term);
 
-    try testing.expect(style(&state, .{ .preedit = false, .focused = true, .blink_visible = true }) == .bar);
-    try testing.expect(style(&state, .{ .preedit = false, .focused = false, .blink_visible = true }) == .block_hollow);
-    try testing.expect(style(&state, .{ .preedit = false, .focused = false, .blink_visible = false }) == .block_hollow);
-    try testing.expect(style(&state, .{ .preedit = false, .focused = true, .blink_visible = false }) == null);
+    try testing.expect(style(&state, .{
+        .preedit = false,
+        .focused = true,
+        .blink_visible = true,
+        .unfocused_style = .underline,
+    }) == .bar);
+    try testing.expect(style(&state, .{
+        .preedit = false,
+        .focused = false,
+        .blink_visible = true,
+        .unfocused_style = .underline,
+    }) == .underline);
+    try testing.expect(style(&state, .{
+        .preedit = false,
+        .focused = false,
+        .blink_visible = false,
+        .unfocused_style = .underline,
+    }) == .underline);
+    try testing.expect(style(&state, .{
+        .preedit = false,
+        .focused = true,
+        .blink_visible = false,
+        .unfocused_style = .underline,
+    }) == null);
 }
 
 test "cursor: blinking disabled" {
