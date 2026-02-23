@@ -32,7 +32,19 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
         defer language.deinit(alloc);
         if (language.value.len > 0) {
-            preferredLanguage("LANGUAGE", language.value);
+            var out: [11:0]u8 = undefined; // xx_YY.UTF-8 is 11 bytes long
+            var writer: std.Io.Writer = .fixed(out[0..out.len]);
+
+            const ok = preferredLanguage(&writer, language.value) catch false;
+            if (ok) {
+                const value = writer.buffered();
+                if (value.len == 11) {
+                    out[11] = 0;
+                    const preferred = out[0..11 :0];
+                    _ = internal_os.setenv("LANGUAGE", preferred);
+                    log.info("setlocale preferred locale from LANGUAGE {s}", .{preferred});
+                }
+            }
         }
     }
 
@@ -218,7 +230,7 @@ fn preferredLanguageFromCocoa(
     return slice[0 .. slice.len - 1 :0];
 }
 
-fn preferredLanguage(key: [:0]const u8, language: []const u8) void {
+fn preferredLanguage(writer: *std.Io.Writer, language: []const u8) !bool {
     var locale_buf: [128]u8 = undefined;
     var first = true;
 
@@ -233,15 +245,14 @@ fn preferredLanguage(key: [:0]const u8, language: []const u8) void {
         if (std.mem.endsWith(u8, entry, ".UTF-8")) {
             for (i18n_locales.locales) |supported| {
                 if (!std.mem.eql(u8, entry, supported)) continue;
-                _ = internal_os.setenv(key, supported);
-                return;
+                try writer.writeAll(supported);
+                return true;
             }
         }
 
         // If the first preferred language is English (Ghostty's default), stop.
         if (first and std.mem.eql(u8, entry, "en")) {
-            _ = internal_os.setenv(key, "en");
-            return;
+            return false;
         }
 
         // If entry has no region (no "_*"), pick the first matching full locale.
@@ -250,19 +261,21 @@ fn preferredLanguage(key: [:0]const u8, language: []const u8) void {
                 if (!std.mem.startsWith(u8, locale, entry)) continue;
                 if (locale.len <= entry.len) continue;
                 if (locale[entry.len] != '_') continue;
-                _ = internal_os.setenv(key, locale);
-                return;
+                try writer.writeAll(locale);
+                return true;
             }
         }
 
-        // Normalize to {entry}.UTF-8 for LANGUAGE when supported by Ghostty.
-        const locale = std.fmt.bufPrintZ(&locale_buf, "{s}.UTF-8", .{entry}) catch continue;
+        // Normalize to "{entry}.UTF-8" when supported.
+        const normalized = std.fmt.bufPrint(&locale_buf, "{s}.UTF-8", .{entry}) catch continue;
         for (i18n_locales.locales) |supported| {
-            if (!std.mem.eql(u8, locale, supported)) continue;
-            _ = internal_os.setenv(key, locale);
-            return;
+            if (!std.mem.eql(u8, normalized, supported)) continue;
+            try writer.writeAll(supported);
+            return true;
         }
     }
+
+    return false;
 }
 
 const LC_ALL: c_int = 6; // from locale.h
@@ -274,60 +287,60 @@ extern "c" fn freelocale(v: locale_t) void;
 
 test "preferredLanguage normalizes short language code" {
     const testing = std.testing;
-    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_NORMALIZE_SHORT";
-    _ = internal_os.unsetenv(key);
-    defer _ = internal_os.unsetenv(key);
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
 
-    preferredLanguage(key, "lv:en");
+    const ok = try preferredLanguage(&buf.writer, "lv");
 
-    const got_opt = try internal_os.getenv(testing.allocator, key);
-    try testing.expect(got_opt != null);
-    const got = got_opt.?;
-    defer got.deinit(testing.allocator);
-    try testing.expectEqualStrings("lv_LV.UTF-8", got.value);
+    try testing.expect(ok);
+    try testing.expectEqual(@as(usize, 11), buf.written().len);
+    try testing.expectEqualStrings("lv_LV.UTF-8", buf.written());
 }
 
-test "preferredLanguage keeps english when first" {
+test "preferredLanguage keeps english when first and doesn't overwrite env" {
     const testing = std.testing;
-    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_ENGLISH_FIRST";
-    _ = internal_os.unsetenv(key);
-    defer _ = internal_os.unsetenv(key);
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
 
-    preferredLanguage(key, "en:lv");
+    const ok = try preferredLanguage(&buf.writer, "en:lv");
 
-    const got_opt = try internal_os.getenv(testing.allocator, key);
-    try testing.expect(got_opt != null);
-    const got = got_opt.?;
-    defer got.deinit(testing.allocator);
-    try testing.expectEqualStrings("en", got.value);
+    try testing.expect(!ok); // ignores LANGUAGE and just continues
+    try testing.expectEqual(@as(usize, 0), buf.written().len);
+    try testing.expectEqualStrings("", buf.written());
 }
 
 test "preferredLanguage normalizes locale without encoding" {
     const testing = std.testing;
-    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_NORMALIZE_ENCODING";
-    _ = internal_os.unsetenv(key);
-    defer _ = internal_os.unsetenv(key);
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
 
-    preferredLanguage(key, "it_IT");
+    const ok = try preferredLanguage(&buf.writer, "it_IT");
 
-    const got_opt = try internal_os.getenv(testing.allocator, key);
-    try testing.expect(got_opt != null);
-    const got = got_opt.?;
-    defer got.deinit(testing.allocator);
-    try testing.expectEqualStrings("it_IT.UTF-8", got.value);
+    try testing.expect(ok);
+    try testing.expectEqual(@as(usize, 11), buf.written().len);
+    try testing.expectEqualStrings("it_IT.UTF-8", buf.written());
 }
 
 test "preferredLanguage keeps locale with encoding" {
     const testing = std.testing;
-    const key: [:0]const u8 = "GHOSTTY_TEST_LANGUAGE_KEEP_ENCODING";
-    _ = internal_os.unsetenv(key);
-    defer _ = internal_os.unsetenv(key);
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
 
-    preferredLanguage(key, "pt_BR.UTF-8");
+    const ok = try preferredLanguage(&buf.writer, "pt_BR.UTF-8");
 
-    const got_opt = try internal_os.getenv(testing.allocator, key);
-    try testing.expect(got_opt != null);
-    const got = got_opt.?;
-    defer got.deinit(testing.allocator);
-    try testing.expectEqualStrings("pt_BR.UTF-8", got.value);
+    try testing.expect(ok);
+    try testing.expectEqual(@as(usize, 11), buf.written().len);
+    try testing.expectEqualStrings("pt_BR.UTF-8", buf.written());
+}
+
+test "preferredLanguage returns false and writes nothing for completely invalid LANGUAGE" {
+    const testing = std.testing;
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
+
+    const ok = try preferredLanguage(&buf.writer, "zz:qq_QQ:xx_YY.ISO-8859-1:__:@@@");
+
+    try testing.expect(!ok);
+    try testing.expectEqual(@as(usize, 0), buf.written().len);
+    try testing.expectEqualStrings("", buf.written());
 }
