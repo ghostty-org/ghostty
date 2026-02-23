@@ -32,8 +32,8 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
         defer language.deinit(alloc);
         if (language.value.len > 0) {
-            var out: [11:0]u8 = undefined; // xx_YY.UTF-8 is 11 bytes long
-            var writer: std.Io.Writer = .fixed(out[0..out.len]);
+            var out: [11:0]u8 = undefined; // xx_YY.UTF-8 is exactly 11 bytes long
+            var writer: std.Io.Writer = .fixed(out[0..11]);
 
             const ok = preferredLanguage(&writer, language.value) catch false;
             if (ok) {
@@ -231,7 +231,7 @@ fn preferredLanguageFromCocoa(
 }
 
 fn preferredLanguage(writer: *std.Io.Writer, language: []const u8) !bool {
-    var locale_buf: [128]u8 = undefined;
+    var locale_buf: [11]u8 = undefined;
     var first = true;
 
     // LANGUAGE might come as lv:en, without .UTF-8. Ordered by preference,
