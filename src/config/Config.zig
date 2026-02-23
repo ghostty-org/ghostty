@@ -2731,7 +2731,7 @@ keybind: Keybinds = .{},
 /// This controls how rounded the corners of the quick terminal window are.
 ///
 /// If this value is unset (the default), the quick terminal window uses
-/// sharp corners.
+/// macOS defaults for the window decorations (which are usually sharp corners).
 ///
 /// If this value is set to a positive number, that radius is used for rounding
 /// the quick terminal window corners.

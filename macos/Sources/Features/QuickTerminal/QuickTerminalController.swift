@@ -143,19 +143,14 @@ class QuickTerminalController: BaseTerminalController {
             delegate: self
         )
 
-
-        if
-            let qtWindow = window as? QuickTerminalWindow,
-            let radius = derivedConfig.quickTerminalCornerRadius,
-            radius > 0
-        {
-            qtWindow.setupRoundedCorners(cornerRadius: CGFloat(radius))
-        } else if let qtWindow = window as? QuickTerminalWindow {
-            qtWindow.setupRoundedCorners(cornerRadius: 0)
-        }
-
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
+            if let radius = derivedConfig.quickTerminalCornerRadius, radius > 0 {
+                qtWindow.setupRoundedCorners(cornerRadius: CGFloat(radius))
+            } else {
+                qtWindow.setupRoundedCorners(cornerRadius: 0)
+            }
+            
             qtWindow.initialFrame = nil
         }
 
