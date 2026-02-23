@@ -38,6 +38,7 @@ brentschroeter
 charliie-dev
 chernetskyi
 craziestowl
+curtismoncoq
 d-dudas
 daiimus
 damyanbogoev
