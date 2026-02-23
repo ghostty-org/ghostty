@@ -20,7 +20,7 @@ pub const Options = struct {
     /// Whether to enable blending.
     blending_enabled: bool = true,
 
-    /// Optional texture buffer binding for `buffers[1]`.
+    /// Texture buffer binding for `buffers[1]`.
     buffer_texture: ?BufferTexture = null,
 
     pub const BufferTexture = struct {

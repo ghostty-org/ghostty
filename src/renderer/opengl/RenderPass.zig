@@ -104,13 +104,7 @@ pub fn step(self: *Self, s: Step) void {
     if (s.pipeline.buffer_texture) |tbo| {
         gl.Texture.active(tbo.unit) catch return;
         const tbind = tbo.texture.bind(.Buffer) catch return;
-
-        if (s.buffers.len > 1 and s.buffers[1] != null) {
-            tbind.buffer(tbo.internal_format, s.buffers[1].?.id) catch return;
-        } else {
-            // Detach to avoid stale bindings from prior draws.
-            tbind.buffer(tbo.internal_format, 0) catch return;
-        }
+        tbind.buffer(tbo.internal_format, s.buffers[1].?.id) catch return;
     }
 
     // Bind relevant samplers.

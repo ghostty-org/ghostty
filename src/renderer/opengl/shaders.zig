@@ -91,7 +91,7 @@ const PipelineCollection = t: {
     } });
 };
 
-/// This contains the state for the shaders used by the Metal renderer.
+/// This contains the state for the shaders used by the OpenGL renderer.
 pub const Shaders = struct {
     /// Collection of available render pipelines.
     pipelines: PipelineCollection,
