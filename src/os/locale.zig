@@ -29,22 +29,26 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
         }
     }
 
-    if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
-        defer language.deinit(alloc);
-        if (language.value.len > 0) {
-            var out: [11:0]u8 = undefined; // xx_YY.UTF-8 is exactly 11 bytes long
-            var writer: std.Io.Writer = .fixed(out[0..11]);
+    language: {
+        if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
+            defer language.deinit(alloc);
+
+            if (language.value.len <= 0) break :language;
+
+            var out: [64:0]u8 = undefined;
+            var writer: std.Io.Writer = .fixed(out[0..out.len]);
 
             const ok = preferredLanguage(&writer, language.value) catch false;
-            if (ok) {
-                const value = writer.buffered();
-                if (value.len == 11) {
-                    out[11] = 0;
-                    const preferred = out[0..11 :0];
-                    _ = internal_os.setenv("LANGUAGE", preferred);
-                    log.info("setlocale preferred locale from LANGUAGE {s}", .{preferred});
-                }
-            }
+
+            if (!ok) break :language;
+
+            writer.writeByte(0) catch break :language;
+
+            const value = writer.buffered();
+            const preferred = out[0 .. value.len - 1 :0];
+
+            log.info("setlocale preferred locale from LANGUAGE {s}", .{preferred});
+            _ = internal_os.setenv("LANGUAGE", preferred);
         }
     }
 
@@ -231,7 +235,7 @@ fn preferredLanguageFromCocoa(
 }
 
 fn preferredLanguage(writer: *std.Io.Writer, language: []const u8) !bool {
-    var locale_buf: [11]u8 = undefined;
+    var locale_buf: [64]u8 = undefined;
     var first = true;
 
     // LANGUAGE might come as lv:en, without .UTF-8. Ordered by preference,
@@ -293,7 +297,6 @@ test "preferredLanguage normalizes short language code" {
     const ok = try preferredLanguage(&buf.writer, "lv");
 
     try testing.expect(ok);
-    try testing.expectEqual(@as(usize, 11), buf.written().len);
     try testing.expectEqualStrings("lv_LV.UTF-8", buf.written());
 }
 
@@ -305,7 +308,7 @@ test "preferredLanguage keeps english when first and doesn't overwrite env" {
     const ok = try preferredLanguage(&buf.writer, "en:lv");
 
     try testing.expect(!ok); // ignores LANGUAGE and just continues
-    try testing.expectEqual(@as(usize, 0), buf.written().len);
+    try testing.expectEqual(0, buf.written().len);
     try testing.expectEqualStrings("", buf.written());
 }
 
@@ -317,7 +320,6 @@ test "preferredLanguage normalizes locale without encoding" {
     const ok = try preferredLanguage(&buf.writer, "it_IT");
 
     try testing.expect(ok);
-    try testing.expectEqual(@as(usize, 11), buf.written().len);
     try testing.expectEqualStrings("it_IT.UTF-8", buf.written());
 }
 
@@ -329,7 +331,6 @@ test "preferredLanguage keeps locale with encoding" {
     const ok = try preferredLanguage(&buf.writer, "pt_BR.UTF-8");
 
     try testing.expect(ok);
-    try testing.expectEqual(@as(usize, 11), buf.written().len);
     try testing.expectEqualStrings("pt_BR.UTF-8", buf.written());
 }
 
@@ -341,6 +342,6 @@ test "preferredLanguage returns false and writes nothing for completely invalid 
     const ok = try preferredLanguage(&buf.writer, "zz:qq_QQ:xx_YY.ISO-8859-1:__:@@@");
 
     try testing.expect(!ok);
-    try testing.expectEqual(@as(usize, 0), buf.written().len);
+    try testing.expectEqual(0, buf.written().len);
     try testing.expectEqualStrings("", buf.written());
 }
