@@ -2025,7 +2025,7 @@ pub fn dumpTextLocked(
 
 pub const AccessibilityText = terminal.Screen.AccessibilityText;
 
-/// Returns the full screen text along with the byte range of the
+/// Returns the terminal text along with the byte range of the
 /// currently visible viewport within that text.
 pub fn accessibilityText(
     self: *Surface,
@@ -2045,7 +2045,7 @@ pub const AccessibilityBounds = struct {
     height: f64,
 };
 
-/// Given a byte offset into the full screen text, returns the
+/// Given a byte offset into the terminal text, returns the
 /// view-local bounds of that character's cell.
 pub fn boundsForOffset(
     self: *Surface,
@@ -2101,7 +2101,7 @@ fn boundsForOffsetLocked(
 
 /// Given a view-local point (in unscaled points, top-left origin),
 /// returns the byte offset of the character at that position in
-/// the full screen text. Used by AXRangeForPosition.
+/// the terminal text. Used by AXRangeForPosition.
 pub fn offsetForPoint(
     self: *Surface,
     alloc: Allocator,
@@ -2136,7 +2136,7 @@ fn offsetForPointLocked(
     );
 }
 
-/// Returns the byte offset of the cursor in the full screen text.
+/// Returns the byte offset of the cursor in the terminal text.
 /// Used by accessibilityInsertionPointLineNumber.
 pub fn cursorOffset(self: *Surface, alloc: Allocator) !?usize {
     self.renderer_state.mutex.lock();

@@ -2356,7 +2356,7 @@ extension Ghostty.SurfaceView {
     override func accessibilityInsertionPointLineNumber() -> Int {
         guard let surface = self.surface else { return 0 }
 
-        // Get the cursor's byte offset in the full screen text from the Zig core.
+        // Get the cursor's byte offset in the terminal text from the Zig core.
         var byteOffset: UInt = 0
         guard ghostty_surface_ax_cursor_offset(surface, &byteOffset) else { return 0 }
 

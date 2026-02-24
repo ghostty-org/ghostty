@@ -1690,7 +1690,7 @@ pub const CAPI = struct {
         ptr.deinit();
     }
 
-    /// Returns the full screen text along with the byte range of
+    /// Returns the terminal text along with the byte range of
     /// the currently visible viewport within it. This is used by
     /// accessibility to implement AXVisibleCharacterRange, AXValue,
     /// AXBoundsForRange, and AXRangeForPosition.
@@ -1723,7 +1723,7 @@ pub const CAPI = struct {
         ptr.deinit();
     }
 
-    /// Given a byte offset into the full screen text (as returned
+    /// Given a byte offset into the terminal text (as returned
     /// by ghostty_surface_ax_text), returns the view-local bounds
     /// of the cell at that position. Coordinates are in points
     /// with a top-left origin.
@@ -1751,7 +1751,7 @@ pub const CAPI = struct {
 
     /// Given a view-local point (in points, top-left origin),
     /// returns the byte offset of the character at that position
-    /// in the full screen text.
+    /// in the terminal text.
     export fn ghostty_surface_ax_offset(
         surface: *Surface,
         x: f64,
@@ -1769,7 +1769,7 @@ pub const CAPI = struct {
         return true;
     }
 
-    /// Returns the byte offset of the cursor in the full screen text.
+    /// Returns the byte offset of the cursor in the terminal text.
     /// Used by the Swift layer for accessibilityInsertionPointLineNumber.
     export fn ghostty_surface_ax_cursor_offset(
         surface: *Surface,

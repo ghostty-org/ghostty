@@ -2499,10 +2499,10 @@ pub fn selectionString(
 // ---------------------------------------------------------------
 
 /// Text with viewport byte range for accessibility. The viewport
-/// range identifies which portion of the full screen text is currently
+/// range identifies which portion of the terminal text is currently
 /// visible, so the apprt can report the correct visible character range.
 pub const AccessibilityText = struct {
-    /// The full screen text (all scrollback + active area).
+    /// The terminal text (all scrollback + active area).
     text: [:0]const u8,
 
     /// Byte offsets within `text` that delimit the visible viewport.
@@ -2522,7 +2522,7 @@ pub const AccessibilityCell = struct {
     wide: bool,
 };
 
-/// Returns the full screen text along with the byte range of the
+/// Returns the terminal text along with the byte range of the
 /// currently visible viewport within that text. Uses the formatter's
 /// PinMap to find exact viewport boundaries — this correctly handles
 /// wide characters, grapheme clusters, and soft-wrapped lines.
@@ -2606,7 +2606,7 @@ pub fn accessibilityText(
     };
 }
 
-/// Given a byte offset into the full screen text, returns the
+/// Given a byte offset into the terminal text, returns the
 /// viewport-relative grid cell at that position.
 pub fn accessibilityGridForOffset(
     self: *Screen,
@@ -2655,7 +2655,7 @@ pub fn accessibilityGridForOffset(
 }
 
 /// Given viewport-relative grid coordinates, returns the byte offset
-/// of that cell in the full screen text.
+/// of that cell in the terminal text.
 pub fn accessibilityOffsetForGrid(
     self: *Screen,
     alloc: Allocator,
@@ -2673,7 +2673,7 @@ pub fn accessibilityOffsetForGrid(
     const target_row = target_screen_pt.coord().y;
     const target_col = target_pin.x;
 
-    // Generate full screen text with pin map.
+    // Generate terminal text with pin map.
     const screen_tl = self.pages.getTopLeft(.screen);
     const screen_br = self.pages.getBottomRight(.screen) orelse return null;
     const sel = Selection.init(screen_tl, screen_br, false);
@@ -2721,7 +2721,7 @@ pub fn accessibilityOffsetForGrid(
     return row_start;
 }
 
-/// Returns the byte offset of the cursor position within the full screen text.
+/// Returns the byte offset of the cursor position within the terminal text.
 /// This is a convenience wrapper that delegates to accessibilityOffsetForGrid
 /// using the current cursor coordinates.
 pub fn accessibilityCursorOffset(self: *Screen, alloc: Allocator) !?usize {
