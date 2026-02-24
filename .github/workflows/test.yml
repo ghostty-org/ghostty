@@ -471,6 +471,10 @@ jobs:
       - name: Build GhosttyKit
         run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
 
+      # Build an XCFramework that includes visionOS slices.
+      - name: Build GhosttyKit visionOS slices
+        run: nix develop -c ./scripts/build-visionos-xcframework.sh --system ${{ steps.deps.outputs.deps }}
+
       # The native app is built with native Xcode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
       # Nix breaks xcodebuild so this has to be run outside.

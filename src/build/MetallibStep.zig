@@ -30,6 +30,10 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
             .simulator => "iphoneos",
             else => "iphoneos",
         },
+        .visionos => switch (opts.target.result.abi) {
+            .simulator => "xrsimulator",
+            else => "xros",
+        },
         else => return null,
     };
     const platform_version_arg = switch (opts.target.result.os.tag) {
@@ -38,6 +42,7 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
             .simulator => "-mios-simulator-version-min",
             else => "-mios-version-min",
         },
+        .visionos => null,
         else => null,
     };
 
@@ -48,6 +53,7 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
     else switch (opts.target.result.os.tag) {
         .macos => "10.14",
         .ios => "11.0",
+        .visionos => "1.0",
         else => unreachable,
     };
 

@@ -63,7 +63,7 @@ autorelease_pool: ?*objc.AutoreleasePool = null,
 
 pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
     comptime switch (builtin.os.tag) {
-        .macos, .ios => {},
+        .macos, .ios, .visionos => {},
         else => @compileError("unsupported platform for Metal"),
     };
 
@@ -78,7 +78,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
     // Grab metadata about the device.
     const default_storage_mode: mtl.MTLResourceOptions.StorageMode = switch (comptime builtin.os.tag) {
         // manage mode is not supported by iOS
-        .ios => .shared,
+        .ios, .visionos => .shared,
         else => if (device.getProperty(bool, "hasUnifiedMemory")) .shared else .managed,
     };
     const max_texture_size = queryMaxTextureSize(device);
@@ -99,6 +99,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
             .view = switch (opts.rt_surface.platform) {
                 .macos => |v| v.nsview,
                 .ios => |v| v.uiview,
+                .visionos => |v| v.uiview,
             },
         },
 
@@ -125,7 +126,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
             info.view.setProperty("wantsLayer", true);
         },
 
-        .ios => {
+        .ios, .visionos => {
             const view_layer = objc.Object.fromId(info.view.getProperty(?*anyopaque, "layer"));
             view_layer.msgSend(void, objc.sel("addSublayer:"), .{layer.layer.value});
         },
@@ -427,7 +428,7 @@ fn chooseDevice() error{NoMetalDevice}!objc.Object {
                     device.getProperty(bool, "isLowPower")) break;
             }
         },
-        .ios => {
+        .ios, .visionos => {
             chosen_device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
         },
         else => @compileError("unsupported target for Metal"),

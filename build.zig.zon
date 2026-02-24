@@ -8,9 +8,9 @@
         // Zig libs
 
         .libxev = .{
-            // mitchellh/libxev
-            .url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
-            .hash = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs",
+            // douglance/libxev (visionOS kqueue backend support)
+            .url = "https://github.com/douglance/libxev/archive/3726043b4942d5ad88f33f6b1ed0e9a60548f5a0.tar.gz",
+            .hash = "libxev-0.0.0-86vtc3kbEwBykzpSo2s87dYDs1G0fPxn__T4tG5AipAN",
             .lazy = true,
         },
         .vaxis = .{
