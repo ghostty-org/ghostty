@@ -16,8 +16,8 @@ pub inline fn home(buf: []u8) !?[]const u8 {
         inline .linux, .freebsd, .macos => try homeUnix(buf),
         .windows => try homeWindows(buf),
 
-        // iOS doesn't have a user-writable home directory
-        .ios => null,
+        // iOS/visionOS don't expose a standard user home directory model.
+        .ios, .visionos => null,
 
         else => @compileError("unimplemented"),
     };
@@ -122,7 +122,7 @@ pub const ExpandError = error{
 pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
     return switch (builtin.os.tag) {
         .linux, .freebsd, .macos => try expandHomeUnix(path, buf),
-        .ios => return path,
+        .ios, .visionos => return path,
         else => @compileError("unimplemented"),
     };
 }

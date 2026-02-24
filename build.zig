@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
+const TerminalBuildOptions = @import("src/terminal/build_options.zig").Options;
 
 const appVersion = @import("build.zig.zon").version;
 const minimumZigVersion = @import("build.zig.zon").minimum_zig_version;
@@ -60,7 +61,11 @@ pub fn build(b: *std.Build) !void {
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
 
     // Ghostty executable, the actual runnable Ghostty program.
-    const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
+    // Skip exe init for platforms that don't support it (e.g., visionOS).
+    const exe = if (config.app_runtime != .none)
+        try buildpkg.GhosttyExe.init(b, &config, &deps)
+    else
+        null;
 
     // Ghostty docs
     const docs = try buildpkg.GhosttyDocs.init(b, &deps);
@@ -118,13 +123,23 @@ pub fn build(b: *std.Build) !void {
     libghostty_vt_shared.install(libvt_step);
     libghostty_vt_shared.install(b.getInstallStep());
 
+    // libghostty-vt static
+    const libvt_static_step = b.step("lib-vt-static", "Build libghostty-vt static library");
+    if (!config.target.result.cpu.arch.isWasm()) {
+        const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
+            b,
+            &mod,
+        );
+        libghostty_vt_static.install(libvt_static_step);
+    }
+
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();
 
     // Runtime "none" is libghostty, anything else is an executable.
     if (config.app_runtime != .none) {
         if (config.emit_exe) {
-            exe.install();
+            if (exe) |e| e.install();
             resources.install();
             if (i18n) |v| v.install();
         }
@@ -182,7 +197,7 @@ pub fn build(b: *std.Build) !void {
     // Run step
     run: {
         if (config.app_runtime != .none) {
-            const run_cmd = b.addRunArtifact(exe.exe);
+            const run_cmd = b.addRunArtifact((exe orelse break :run).exe);
             if (b.args) |args| run_cmd.addArgs(args);
 
             // Set the proper resources dir so things like shell integration
@@ -256,16 +271,59 @@ pub fn build(b: *std.Build) !void {
 
     // Zig module tests
     {
+        const mkVtTestModule = struct {
+            fn create(
+                b_: *std.Build,
+                config_: *const buildpkg.Config,
+                deps_: *const buildpkg.SharedDeps,
+                c_abi_: bool,
+            ) !*std.Build.Module {
+                var vt_options: TerminalBuildOptions = config_.terminalOptions();
+                vt_options.artifact = .lib;
+                vt_options.oniguruma = false;
+                vt_options.c_abi = c_abi_;
+
+                const module = b_.createModule(.{
+                    .root_source_file = b_.path("src/lib_vt.zig"),
+                    .target = config_.target,
+                    .optimize = config_.optimize,
+                    .link_libc = if (config_.simd) true else null,
+                    .link_libcpp = if (config_.simd) true else null,
+                });
+
+                const general_options = b_.addOptions();
+                try config_.addOptions(general_options);
+                module.addOptions("build_options", general_options);
+                vt_options.add(b_, module);
+
+                deps_.unicode_tables.addModuleImport(module);
+                deps_.addUucode(b_, module, config_.target, config_.optimize);
+                if (config_.simd) try buildpkg.SharedDeps.addSimd(b_, module, null);
+
+                return module;
+            }
+        }.create;
+
         const mod_vt_test = b.addTest(.{
-            .root_module = mod.vt,
+            .root_module = try mkVtTestModule(b, &config, &deps, false),
             .filters = test_filters,
+        });
+        _ = try deps.addWith(mod_vt_test, .{
+            .include_build_options = false,
+            .include_terminal_options = false,
+            .include_simd = false,
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
 
         const mod_vt_c_test = b.addTest(.{
-            .root_module = mod.vt_c,
+            .root_module = try mkVtTestModule(b, &config, &deps, true),
             .filters = test_filters,
+        });
+        _ = try deps.addWith(mod_vt_c_test, .{
+            .include_build_options = false,
+            .include_terminal_options = false,
+            .include_simd = false,
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);

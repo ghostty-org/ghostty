@@ -7,6 +7,13 @@ const terminal = @import("../../terminal/main.zig");
 const autoHash = std.hash.autoHash;
 const Hasher = std.hash.Wyhash;
 
+fn kittyGraphicsPlaceholder() u21 {
+    return if (comptime @hasDecl(terminal.kitty.graphics, "unicode"))
+        terminal.kitty.graphics.unicode.placeholder
+    else
+        0;
+}
+
 /// A single text run. A text run is only valid for one Shaper instance and
 /// until the next run is created. A text run never goes across multiple
 /// rows in a terminal, so it is guaranteed to always be one line.
@@ -262,7 +269,7 @@ pub const RunIterator = struct {
             }
 
             // If we're a Kitty unicode placeholder then we add a blank.
-            if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
+            if (cell.codepoint() == kittyGraphicsPlaceholder()) {
                 try self.addCodepoint(&hasher, ' ', @intCast(cluster));
                 continue;
             }
@@ -325,7 +332,7 @@ pub const RunIterator = struct {
     ) !?font.Collection.Index {
         if (cell.isEmpty() or
             cell.codepoint() == 0 or
-            cell.codepoint() == terminal.kitty.graphics.unicode.placeholder)
+            cell.codepoint() == kittyGraphicsPlaceholder())
         {
             return try self.opts.grid.getIndex(
                 alloc,

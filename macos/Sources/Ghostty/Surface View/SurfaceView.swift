@@ -703,6 +703,12 @@ extension Ghostty {
             // probably set this to some default, then modify the scale factor through
             // libghostty APIs when a UIView is attached to a window/scene. TODO.
             config.scale_factor = UIScreen.main.scale
+#elseif os(visionOS)
+            config.platform_tag = GHOSTTY_PLATFORM_VISIONOS
+            config.platform = ghostty_platform_u(visionos: ghostty_platform_visionos_s(
+                uiview: Unmanaged.passUnretained(view).toOpaque()
+            ))
+            config.scale_factor = UIScreen.main.scale
 #else
 #error("unsupported target")
 #endif
