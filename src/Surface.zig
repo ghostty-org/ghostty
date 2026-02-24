@@ -1149,6 +1149,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .{ .selected = v },
             );
         },
+
+        .content_changed => {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .content_changed,
+                {},
+            ) catch |err| {
+                log.warn("apprt failed to notify content changed={}", .{err});
+            };
+        },
     }
 }
 

@@ -551,7 +551,7 @@ if let lineNum = insertionLine {
 
 print("")
 
-if !allPassed {
+if !allPassed && !listenMode {
     exit(1)
 }
 

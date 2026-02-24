@@ -255,12 +255,6 @@ extension Ghostty {
         }
         private(set) var cachedScreenTextInfo: CachedValue<ScreenTextInfo>
 
-        // Timer for polling accessibility content/selection changes.
-        // Fires every 500ms (matching cache TTL) to detect changes and
-        // post NSAccessibility notifications so VoiceOver stays in sync.
-        private var accessibilityChangeTimer: Timer?
-        private var lastNotifiedTextHash: Int = 0
-        private var lastNotifiedSelectionRange: NSRange = .init(location: NSNotFound, length: 0)
 
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
@@ -377,13 +371,6 @@ extension Ghostty {
                 }
             }
 
-            // Poll for content/selection changes so VoiceOver stays in sync.
-            // We match the 500ms cache TTL — fast enough for usable feedback,
-            // cheap because warm cache hits avoid any Zig calls.
-            accessibilityChangeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                self?.checkAccessibilityChanges()
-            }
-
             // Before we initialize the surface we want to register our notifications
             // so there is no window where we can't receive them.
             let center = NotificationCenter.default
@@ -494,9 +481,8 @@ extension Ghostty {
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
 
-            // Cancel timers
+            // Cancel progress report timer
             progressReportTimer?.invalidate()
-            accessibilityChangeTimer?.invalidate()
         }
 
         func focusDidChange(_ focused: Bool) {
@@ -2552,23 +2538,14 @@ extension Ghostty.SurfaceView {
         return NSRange(charStart..<charEnd, in: text)
     }
 
-    /// Checks for content and selection changes and posts accessibility
-    /// notifications so VoiceOver stays in sync with terminal updates.
-    /// Called by `accessibilityChangeTimer` every 500ms.
-    func checkAccessibilityChanges() {
-        let info = cachedScreenTextInfo.get()
-        let textHash = info.text.hashValue
-
-        if textHash != lastNotifiedTextHash {
-            lastNotifiedTextHash = textHash
-            NSAccessibility.post(element: self, notification: .valueChanged)
-        }
-
-        let currentSelection = selectedRange()
-        if currentSelection != lastNotifiedSelectionRange {
-            lastNotifiedSelectionRange = currentSelection
-            NSAccessibility.post(element: self, notification: .selectedTextChanged)
-        }
+    /// Posts an accessibility valueChanged notification so VoiceOver stays
+    /// in sync with terminal output. Called from the `content_changed` action
+    /// dispatched by the Zig renderer whenever new output is rendered.
+    func accessibilityContentDidChange() {
+        // Invalidate the cache so subsequent AX queries (triggered by
+        // VoiceOver in response to this notification) fetch fresh text.
+        cachedScreenTextInfo.invalidate()
+        NSAccessibility.post(element: self, notification: .valueChanged)
     }
 }
 
@@ -2588,6 +2565,13 @@ class CachedValue<T> {
 
     deinit {
         expiryTask?.cancel()
+    }
+
+    /// Discard the cached value so the next `get()` will re-fetch.
+    func invalidate() {
+        value = nil
+        expiryTask?.cancel()
+        expiryTask = nil
     }
 
     func get() -> T {
