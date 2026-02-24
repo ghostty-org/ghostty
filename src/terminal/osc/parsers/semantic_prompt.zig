@@ -28,10 +28,27 @@ pub const Command = struct {
         end_command, // 'D'
     };
 
+    pub const C = extern struct {
+        action: c_int,
+        options_unvalidated: [*c]const u8,
+        options_unvalidated_len: usize,
+    };
+
     pub fn init(action: Action) Command {
         return .{
             .action = action,
             .options_unvalidated = "",
+        };
+    }
+
+    pub fn cval(self: Command) C {
+        return .{
+            .action = @intFromEnum(self.action),
+            .options_unvalidated = if (self.options_unvalidated.len > 0)
+                self.options_unvalidated.ptr
+            else
+                null,
+            .options_unvalidated_len = self.options_unvalidated.len,
         };
     }
 
