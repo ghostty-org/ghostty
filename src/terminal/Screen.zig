@@ -2595,8 +2595,9 @@ pub fn accessibilityText(
     }
 
     // If we never found a start, the viewport is empty or all blank.
-    if (vp_start > string_map.map.len) vp_start = text.len;
-    if (vp_end > string_map.map.len) vp_end = text.len;
+    // Use >= because vp_start is initialized to map.len as a sentinel.
+    if (vp_start >= string_map.map.len) vp_start = text.len;
+    if (vp_end >= string_map.map.len) vp_end = text.len;
 
     return .{
         .text = text,
@@ -2634,20 +2635,10 @@ pub fn accessibilityGridForOffset(
     const pin = string_map.map[byte_offset];
 
     // Convert pin to viewport coordinates. If the pin is outside
-    // the viewport we still return a position (extrapolated).
-    const vp_pt = self.pages.pointFromPin(.viewport, pin) orelse vp: {
-        const screen_pt = self.pages.pointFromPin(.screen, pin) orelse return null;
-        const vp_tl_pt = self.pages.pointFromPin(.screen, self.pages.getTopLeft(.viewport)) orelse return null;
-        break :vp point.Point{
-            .viewport = .{
-                .x = screen_pt.coord().x,
-                .y = @as(
-                    size.CellCountInt,
-                    @intCast(@as(i64, @intCast(screen_pt.coord().y)) - @as(i64, @intCast(vp_tl_pt.coord().y))),
-                ),
-            },
-        };
-    };
+    // the viewport (e.g. in scrollback above the visible area),
+    // return null — we can only compute meaningful bounds for
+    // cells that are currently on screen.
+    const vp_pt = self.pages.pointFromPin(.viewport, pin) orelse return null;
 
     const coord = vp_pt.coord();
 

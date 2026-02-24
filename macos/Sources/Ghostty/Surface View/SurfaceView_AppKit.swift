@@ -325,7 +325,10 @@ extension Ghostty {
                 return String(cString: text.text)
             }
 
-            // Cache for screen text with viewport range (used by accessibility)
+            // Cache for screen text with viewport range, used by accessibility.
+            // The Zig core returns UTF-8 byte offsets for the viewport boundaries;
+            // we convert these to an NSRange (UTF-16 code units) because macOS
+            // Accessibility APIs use NSRange throughout (NSAccessibility, VoiceOver, etc.).
             cachedScreenTextInfo = CachedValue<ScreenTextInfo>(duration: .milliseconds(500)) { [weak self] in
                 guard let self else {
                     return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
@@ -2255,6 +2258,9 @@ extension Ghostty.SurfaceView {
     }
 
     /// Returns the number of characters in the terminal content.
+    /// We use NSString.length (UTF-16 code unit count) rather than String.count
+    /// (grapheme cluster count) because NSRange — used by all accessibility APIs —
+    /// operates on UTF-16 offsets.
     override func accessibilityNumberOfCharacters() -> Int {
         let info = cachedScreenTextInfo.get()
         return (info.text as NSString).length
@@ -2267,9 +2273,15 @@ extension Ghostty.SurfaceView {
     }
 
     /// Returns the line number for a given character index.
+    /// The `index` parameter is a UTF-16 code unit offset (NSRange convention),
+    /// so we must convert it to a Swift String.Index before slicing.
     override func accessibilityLine(for index: Int) -> Int {
         let content = cachedScreenTextInfo.get().text
-        let substring = String(content.prefix(index))
+        let nsContent = content as NSString
+        let clampedIndex = min(index, nsContent.length)
+        let nsRange = NSRange(location: 0, length: clampedIndex)
+        guard let swiftRange = Range(nsRange, in: content) else { return 0 }
+        let substring = String(content[..<swiftRange.upperBound])
         return substring.components(separatedBy: .newlines).count - 1
     }
 
@@ -2281,6 +2293,10 @@ extension Ghostty.SurfaceView {
     }
 
     /// Returns an attributed string for the given range.
+    ///
+    /// Note: right now this only applies font information. One day it'd be nice to extend
+    /// this to copy styling information as well but we need to augment Ghostty core to
+    /// expose that.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let surface = self.surface else { return nil }
         guard let plainString = accessibilityString(for: range) else { return nil }
@@ -2320,7 +2336,8 @@ extension Ghostty.SurfaceView {
         let info = cachedScreenTextInfo.get()
         let text = info.text
 
-        // Convert the NSRange character offset to a UTF-8 byte offset for the start.
+        // Convert the NSRange (UTF-16 code units) to a UTF-8 byte offset,
+        // since the Zig core operates on UTF-8 byte offsets for its pin map.
         guard let swiftRange = Range(range, in: text) else { return .zero }
         let startByteOffset = text.utf8.distance(
             from: text.utf8.startIndex,
@@ -2420,15 +2437,19 @@ extension Ghostty.SurfaceView {
             return .init(location: NSNotFound, length: 0)
         }
 
-        // Convert byte offset to an NSRange character offset.
+        // Convert the UTF-8 byte offset to an NSRange (UTF-16 code unit range).
+        // macOS Accessibility uses NSRange with UTF-16 offsets throughout.
         let info = cachedScreenTextInfo.get()
         let text = info.text
         let utf8 = text.utf8
         let clampedOffset = min(Int(byteOffset), utf8.count)
         let idx = utf8.index(utf8.startIndex, offsetBy: clampedOffset)
 
-        // Find the end of this character (one Character forward).
+        // Find the Character boundary and advance one Character forward.
         let charStart = String.Index(idx, within: text) ?? text.startIndex
+        guard charStart < text.endIndex else {
+            return .init(location: NSNotFound, length: 0)
+        }
         let charEnd = text.index(after: charStart)
         return NSRange(charStart..<charEnd, in: text)
     }
