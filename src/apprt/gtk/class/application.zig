@@ -208,10 +208,9 @@ pub const Application = extern struct {
         /// Providers for loading custom stylesheets defined by user
         custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
 
-        /// A copy of the LANG environment variable that was provided to Ghostty
-        /// by the system. If this is null, the LANG environment variable did
-        /// not exist in Ghostty's environment variable.
-        saved_language: ?[:0]const u8 = null,
+        /// A map of saved locale environment variables (e.g., LANG, LANGUAGE) provided to Ghostty by the system.
+        /// If a key is missing, the environment variable did not exist in Ghostty's environment.
+        saved_locale_envs: std.StringHashMap(?[:0]const u8) = undefined,
 
         pub var offset: c_int = 0;
     };
@@ -266,17 +265,23 @@ pub const Application = extern struct {
         };
         defer config.deinit();
 
-        const saved_language: ?[:0]const u8 = saved_language: {
-            const old_language = old_language: {
-                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
+        var saved_locale_envs = std.StringHashMap(?[:0]const u8).init(alloc);
+        defer saved_locale_envs.deinit();
+
+        const locale_vars = [_][]const u8{ "LANG", "LANGUAGE" };
+        for (locale_vars) |env_name| {
+            const value = blk: {
+                const result = (internal_os.getenv(alloc, env_name) catch break :blk null) orelse break :blk null;
                 defer result.deinit(alloc);
-                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+                break :blk alloc.dupeZ(u8, result.value) catch break :blk null;
             };
+            try saved_locale_envs.put(env_name, value);
+        }
 
-            if (config.language) |language| _ = internal_os.setenv("LANG", language);
-
-            break :saved_language old_language;
-        };
+        if (config.language) |language| {
+            _ = internal_os.setenv("LANG", language);
+            _ = internal_os.setenv("LANGUAGE", language);
+        }
 
         // Set gettext global domain to be our app so that our unqualified
         // translations map to our translations.
@@ -395,7 +400,7 @@ pub const Application = extern struct {
             .css_provider = css_provider,
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
-            .saved_language = saved_language,
+            .saved_locale_envs = try saved_locale_envs.clone(),
         };
 
         // Signals
@@ -432,7 +437,12 @@ pub const Application = extern struct {
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
-        if (priv.saved_language) |language| alloc.free(language);
+        // Free saved_locale_envs values
+        var it = priv.saved_locale_envs.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.*) |v| alloc.free(v);
+        }
+        priv.saved_locale_envs.deinit();
         if (gdk.Display.getDefault()) |display| {
             gtk.StyleContext.removeProviderForDisplay(
                 display,
@@ -461,7 +471,13 @@ pub const Application = extern struct {
     /// Get the original language that Ghostty was launched with. This returns a
     /// pointer to internal memory so it must be copied by callers.
     pub fn savedLanguage(self: *Self) ?[:0]const u8 {
-        return self.private().saved_language;
+        // Deprecated: Use savedLocaleEnvs instead
+        return self.private().saved_locale_envs.get("LANG") orelse null;
+    }
+
+    /// Get the saved locale environment variables map.
+    pub fn savedLocaleEnvs(self: *Self) std.StringHashMap(?[:0]const u8) {
+        return self.private().saved_locale_envs;
     }
 
     /// Run the application. This is a replacement for `gio.Application.run`

@@ -1530,10 +1530,17 @@ pub const Surface = extern struct {
         var env = try internal_os.getEnvMap(alloc);
         errdefer env.deinit();
 
-        if (app.savedLanguage()) |language| {
-            try env.put("LANG", language);
-        } else {
-            env.remove("LANG");
+        const locale_envs = [_][]const u8{ "LANG", "LANGUAGE" };
+        for (locale_envs) |locale_env| {
+            if (app.savedLocaleEnvs().get(locale_env)) |value| {
+                if (value) |v| {
+                    try env.put(locale_env, v);
+                } else {
+                    env.remove(locale_env);
+                }
+            } else {
+                env.remove(locale_env);
+            }
         }
 
         // Don't leak these GTK environment variables to child processes.
