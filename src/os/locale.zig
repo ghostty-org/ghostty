@@ -29,27 +29,25 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
         }
     }
 
-    language: {
-        if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| {
-            defer language.deinit(alloc);
+    if ((try internal_os.getenv(alloc, "LANGUAGE"))) |language| language: {
+        defer language.deinit(alloc);
 
-            if (language.value.len <= 0) break :language;
+        if (language.value.len <= 0) break :language;
 
-            var out: [64:0]u8 = undefined;
-            var writer: std.Io.Writer = .fixed(out[0..out.len]);
+        var out: [64:0]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&out);
 
-            const ok = preferredLanguage(&writer, language.value) catch false;
+        const ok = preferredLanguage(&writer, language.value) catch false;
 
-            if (!ok) break :language;
+        if (!ok) break :language;
 
-            writer.writeByte(0) catch break :language;
+        writer.writeByte(0) catch break :language;
 
-            const value = writer.buffered();
-            const preferred = out[0 .. value.len - 1 :0];
+        const value = writer.buffered();
+        const preferred = out[0 .. value.len - 1 :0];
 
-            log.info("setlocale preferred locale from LANGUAGE {s}", .{preferred});
-            _ = internal_os.setenv("LANGUAGE", preferred);
-        }
+        log.info("setlocale preferred locale from LANGUAGE {s}", .{preferred});
+        _ = internal_os.setenv("LANGUAGE", preferred);
     }
 
     // Set the locale to whatever is set in env vars.
