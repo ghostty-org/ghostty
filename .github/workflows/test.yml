@@ -570,7 +570,7 @@ jobs:
         run: |
           # Generate a script so that we can swallow the errors
           $scriptContent = @"
-          .\zig\zig.exe build 2>&1 | Out-File -FilePath "build.log" -Append
+          .\zig\zig.exe build -Doptimize=ReleaseFast 2>&1 | Out-File -FilePath "build.log" -Append
           exit 0
           "@
           $scriptPath = "zigbuild.ps1"
@@ -581,6 +581,13 @@ jobs:
       - name: Build Windows
         shell: pwsh
         run: .\zigbuild.ps1 -ErrorAction SilentlyContinue
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ghostty-windows
+          path: zig-out/bin/ghostty.exe
+          if-no-files-found: ignore
 
       - name: Dump logs
         shell: pwsh
