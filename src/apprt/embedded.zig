@@ -1292,6 +1292,28 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_ax_text_s
+    const AXText = extern struct {
+        text: ?[*:0]const u8,
+        text_len: usize,
+        viewport_start: usize,
+        viewport_end: usize,
+
+        pub fn deinit(self: *AXText) void {
+            if (self.text) |ptr| {
+                global.alloc.free(ptr[0..self.text_len :0]);
+            }
+        }
+    };
+
+    // ghostty_ax_bounds_s
+    const AXBounds = extern struct {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    };
+
     // ghostty_point_s
     const Point = extern struct {
         tag: Tag,
@@ -1666,6 +1688,81 @@ pub const CAPI = struct {
 
     export fn ghostty_surface_free_text(ptr: *Text) void {
         ptr.deinit();
+    }
+
+    /// Returns the full screen text along with the byte range of
+    /// the currently visible viewport within it. This is used by
+    /// accessibility to implement AXVisibleCharacterRange, AXValue,
+    /// AXBoundsForRange, and AXRangeForPosition.
+    export fn ghostty_surface_ax_text(
+        surface: *Surface,
+        result: *AXText,
+    ) bool {
+        const ax_text = surface.core_surface.accessibilityText(
+            global.alloc,
+        ) catch |err| {
+            log.warn("error reading accessibility text err={}", .{err});
+            return false;
+        };
+
+        result.* = .{
+            .text = ax_text.text.ptr,
+            .text_len = ax_text.text.len,
+            .viewport_start = ax_text.viewport_start,
+            .viewport_end = ax_text.viewport_end,
+        };
+
+        return true;
+    }
+
+    export fn ghostty_surface_ax_text_free(_: *Surface, ptr: *AXText) void {
+        ptr.deinit();
+    }
+
+    /// Given a byte offset into the full screen text (as returned
+    /// by ghostty_surface_ax_text), returns the view-local bounds
+    /// of the cell at that position. Coordinates are in points
+    /// with a top-left origin.
+    export fn ghostty_surface_ax_bounds(
+        surface: *Surface,
+        byte_offset: usize,
+        result: *AXBounds,
+    ) bool {
+        const bounds = surface.core_surface.boundsForOffset(
+            global.alloc,
+            byte_offset,
+        ) catch |err| {
+            log.warn("error computing bounds for offset err={}", .{err});
+            return false;
+        } orelse return false;
+
+        result.* = .{
+            .x = bounds.x,
+            .y = bounds.y,
+            .width = bounds.width,
+            .height = bounds.height,
+        };
+        return true;
+    }
+
+    /// Given a view-local point (in points, top-left origin),
+    /// returns the byte offset of the character at that position
+    /// in the full screen text.
+    export fn ghostty_surface_ax_offset(
+        surface: *Surface,
+        x: f64,
+        y: f64,
+        byte_offset: *usize,
+    ) bool {
+        byte_offset.* = surface.core_surface.offsetForPoint(
+            global.alloc,
+            x,
+            y,
+        ) catch |err| {
+            log.warn("error computing offset for point err={}", .{err});
+            return false;
+        } orelse return false;
+        return true;
     }
 
     /// Tell the surface that it needs to schedule a render

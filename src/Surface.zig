@@ -2009,6 +2009,123 @@ pub fn dumpTextLocked(
     };
 }
 
+// ---------------------------------------------------------------
+// Accessibility helpers
+// ---------------------------------------------------------------
+
+pub const AccessibilityText = terminal.Screen.AccessibilityText;
+
+/// Returns the full screen text along with the byte range of the
+/// currently visible viewport within that text.
+pub fn accessibilityText(
+    self: *Surface,
+    alloc: Allocator,
+) !AccessibilityText {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.io.terminal.screens.active.accessibilityText(alloc);
+}
+
+/// View-local bounds (in points, top-left origin) for a screen
+/// text position. Used by AXBoundsForRange.
+pub const AccessibilityBounds = struct {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+};
+
+/// Given a byte offset into the full screen text, returns the
+/// view-local bounds of that character's cell.
+pub fn boundsForOffset(
+    self: *Surface,
+    alloc: Allocator,
+    byte_offset: usize,
+) !?AccessibilityBounds {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.boundsForOffsetLocked(alloc, byte_offset);
+}
+
+fn boundsForOffsetLocked(
+    self: *Surface,
+    alloc: Allocator,
+    byte_offset: usize,
+) !?AccessibilityBounds {
+    const cell = try self.io.terminal.screens.active.accessibilityGridForOffset(
+        alloc,
+        byte_offset,
+    ) orelse return null;
+
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+
+    var cell_count: u32 = 1;
+    if (cell.wide) cell_count = 2;
+
+    const x: f64 = x: {
+        var xf: f64 = @floatFromInt(@as(u32, cell.col) * self.size.cell.width + self.size.padding.left);
+        xf /= content_scale.x;
+        break :x xf;
+    };
+
+    const y: f64 = y: {
+        var yf: f64 = @floatFromInt(@as(u32, cell.row) * self.size.cell.height + self.size.padding.top);
+        yf /= content_scale.y;
+        break :y yf;
+    };
+
+    const width: f64 = w: {
+        var w: f64 = @floatFromInt(cell_count * self.size.cell.width);
+        w /= content_scale.x;
+        break :w w;
+    };
+
+    const height: f64 = h: {
+        var h: f64 = @floatFromInt(self.size.cell.height);
+        h /= content_scale.y;
+        break :h h;
+    };
+
+    return .{ .x = x, .y = y, .width = width, .height = height };
+}
+
+/// Given a view-local point (in unscaled points, top-left origin),
+/// returns the byte offset of the character at that position in
+/// the full screen text. Used by AXRangeForPosition.
+pub fn offsetForPoint(
+    self: *Surface,
+    alloc: Allocator,
+    x: f64,
+    y: f64,
+) !?usize {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.offsetForPointLocked(alloc, x, y);
+}
+
+fn offsetForPointLocked(
+    self: *Surface,
+    alloc: Allocator,
+    x: f64,
+    y: f64,
+) !?usize {
+    // Scale to pixels and convert to a viewport grid coordinate.
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+    const coord: rendererpkg.Coordinate = .{
+        .surface = .{
+            .x = x * content_scale.x,
+            .y = y * content_scale.y,
+        },
+    };
+    const grid = coord.convert(.grid, self.size).grid;
+
+    return self.io.terminal.screens.active.accessibilityOffsetForGrid(
+        alloc,
+        grid.x,
+        @intCast(grid.y),
+    );
+}
+
 /// Returns true if the terminal has a selection.
 pub fn hasSelection(self: *const Surface) bool {
     self.renderer_state.mutex.lock();

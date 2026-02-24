@@ -2494,6 +2494,242 @@ pub fn selectionString(
     return text;
 }
 
+// ---------------------------------------------------------------
+// Accessibility helpers
+// ---------------------------------------------------------------
+
+/// Text with viewport byte range for accessibility. The viewport
+/// range identifies which portion of the full screen text is currently
+/// visible, so the apprt can report the correct visible character range.
+pub const AccessibilityText = struct {
+    /// The full screen text (all scrollback + active area).
+    text: [:0]const u8,
+
+    /// Byte offsets within `text` that delimit the visible viewport.
+    viewport_start: usize,
+    viewport_end: usize,
+
+    pub fn deinit(self: *AccessibilityText, alloc: Allocator) void {
+        alloc.free(self.text);
+    }
+};
+
+/// A single cell resolved from a byte offset, with viewport-relative
+/// grid coordinates and a flag indicating whether the cell is wide.
+pub const AccessibilityCell = struct {
+    col: size.CellCountInt,
+    row: size.CellCountInt,
+    wide: bool,
+};
+
+/// Returns the full screen text along with the byte range of the
+/// currently visible viewport within that text. Uses the formatter's
+/// PinMap to find exact viewport boundaries — this correctly handles
+/// wide characters, grapheme clusters, and soft-wrapped lines.
+pub fn accessibilityText(
+    self: *Screen,
+    alloc: Allocator,
+) !AccessibilityText {
+    // Build the full screen selection.
+    const screen_tl = self.pages.getTopLeft(.screen);
+    const screen_br = self.pages.getBottomRight(.screen) orelse
+        return .{ .text = try alloc.dupeZ(u8, ""), .viewport_start = 0, .viewport_end = 0 };
+
+    const sel = Selection.init(screen_tl, screen_br, false);
+
+    // Generate text with a pin map so we can locate the viewport.
+    var string_map: StringMap = undefined;
+    const text = try self.selectionString(alloc, .{
+        .sel = sel,
+        .trim = false,
+        .map = &string_map,
+    });
+    defer {
+        alloc.free(string_map.string);
+        alloc.free(string_map.map);
+    }
+
+    // Determine viewport boundaries.
+    const vp_tl = self.pages.getTopLeft(.viewport);
+    const vp_br = self.pages.getBottomRight(.viewport) orelse
+        return .{ .text = text, .viewport_start = 0, .viewport_end = 0 };
+
+    const vp_tl_screen = self.pages.pointFromPin(.screen, vp_tl) orelse
+        return .{ .text = text, .viewport_start = 0, .viewport_end = 0 };
+    const vp_br_screen = self.pages.pointFromPin(.screen, vp_br) orelse
+        return .{ .text = text, .viewport_start = 0, .viewport_end = text.len };
+
+    const vp_tl_row = vp_tl_screen.coord().y;
+    const vp_br_row = vp_br_screen.coord().y;
+
+    // Build a node → cumulative-row-offset lookup so we can
+    // convert any Pin to an absolute screen row in O(1).
+    var node_offsets = std.AutoHashMap(*PageList.List.Node, usize).init(alloc);
+    defer node_offsets.deinit();
+    {
+        var total: usize = 0;
+        var it = self.pages.pages.first;
+        while (it) |node| : (it = node.next) {
+            try node_offsets.put(node, total);
+            total += node.data.size.rows;
+        }
+    }
+
+    // Scan the pin map to find viewport byte boundaries.
+    var vp_start: usize = string_map.map.len;
+    var vp_end: usize = string_map.map.len;
+
+    for (string_map.map, 0..) |pin, i| {
+        const row_offset = node_offsets.get(pin.node) orelse continue;
+        const abs_row = row_offset + pin.y;
+
+        if (abs_row < vp_tl_row) continue;
+        if (abs_row == vp_tl_row and pin.x < vp_tl.x) continue;
+
+        if (abs_row > vp_br_row or (abs_row == vp_br_row and pin.x > vp_br.x)) {
+            vp_end = i;
+            break;
+        }
+
+        if (vp_start > i) vp_start = i;
+    }
+
+    // If we never found a start, the viewport is empty or all blank.
+    if (vp_start > string_map.map.len) vp_start = text.len;
+    if (vp_end > string_map.map.len) vp_end = text.len;
+
+    return .{
+        .text = text,
+        .viewport_start = vp_start,
+        .viewport_end = vp_end,
+    };
+}
+
+/// Given a byte offset into the full screen text, returns the
+/// viewport-relative grid cell at that position.
+pub fn accessibilityGridForOffset(
+    self: *Screen,
+    alloc: Allocator,
+    byte_offset: usize,
+) !?AccessibilityCell {
+    // Build screen-wide selection and generate text with pin map.
+    const screen_tl = self.pages.getTopLeft(.screen);
+    const screen_br = self.pages.getBottomRight(.screen) orelse return null;
+    const sel = Selection.init(screen_tl, screen_br, false);
+
+    var string_map: StringMap = undefined;
+    const text = try self.selectionString(alloc, .{
+        .sel = sel,
+        .trim = false,
+        .map = &string_map,
+    });
+    defer {
+        alloc.free(text);
+        alloc.free(string_map.string);
+        alloc.free(string_map.map);
+    }
+
+    if (byte_offset >= string_map.map.len) return null;
+
+    const pin = string_map.map[byte_offset];
+
+    // Convert pin to viewport coordinates. If the pin is outside
+    // the viewport we still return a position (extrapolated).
+    const vp_pt = self.pages.pointFromPin(.viewport, pin) orelse vp: {
+        const screen_pt = self.pages.pointFromPin(.screen, pin) orelse return null;
+        const vp_tl_pt = self.pages.pointFromPin(.screen, self.pages.getTopLeft(.viewport)) orelse return null;
+        break :vp point.Point{
+            .viewport = .{
+                .x = screen_pt.coord().x,
+                .y = @as(
+                    size.CellCountInt,
+                    @intCast(@as(i64, @intCast(screen_pt.coord().y)) - @as(i64, @intCast(vp_tl_pt.coord().y))),
+                ),
+            },
+        };
+    };
+
+    const coord = vp_pt.coord();
+
+    // Determine whether this is a wide character.
+    var wide = false;
+    const rac = pin.node.data.getRowAndCell(pin.x, pin.y);
+    if (rac.cell.wide == .wide) wide = true;
+
+    return .{
+        .col = coord.x,
+        .row = @intCast(coord.y),
+        .wide = wide,
+    };
+}
+
+/// Given viewport-relative grid coordinates, returns the byte offset
+/// of that cell in the full screen text.
+pub fn accessibilityOffsetForGrid(
+    self: *Screen,
+    alloc: Allocator,
+    col: size.CellCountInt,
+    row: size.CellCountInt,
+) !?usize {
+    // Resolve the viewport grid coordinate to a pin.
+    const target_pin = self.pages.pin(.{ .viewport = .{
+        .x = col,
+        .y = row,
+    } }) orelse return null;
+
+    // Convert target to an absolute screen row for comparison.
+    const target_screen_pt = self.pages.pointFromPin(.screen, target_pin) orelse return null;
+    const target_row = target_screen_pt.coord().y;
+    const target_col = target_pin.x;
+
+    // Generate full screen text with pin map.
+    const screen_tl = self.pages.getTopLeft(.screen);
+    const screen_br = self.pages.getBottomRight(.screen) orelse return null;
+    const sel = Selection.init(screen_tl, screen_br, false);
+
+    var string_map: StringMap = undefined;
+    const text = try self.selectionString(alloc, .{
+        .sel = sel,
+        .trim = false,
+        .map = &string_map,
+    });
+    defer {
+        alloc.free(text);
+        alloc.free(string_map.string);
+        alloc.free(string_map.map);
+    }
+
+    // Build node → cumulative-row-offset lookup.
+    var node_offsets = std.AutoHashMap(*PageList.List.Node, usize).init(alloc);
+    defer node_offsets.deinit();
+    {
+        var total: usize = 0;
+        var it = self.pages.pages.first;
+        while (it) |node| : (it = node.next) {
+            try node_offsets.put(node, total);
+            total += node.data.size.rows;
+        }
+    }
+
+    // Scan for the first byte at the target position. We look
+    // for an exact (row, col) match first, then fall back to the
+    // first byte on that row.
+    var row_start: ?usize = null;
+    for (string_map.map, 0..) |pin, i| {
+        const row_offset = node_offsets.get(pin.node) orelse continue;
+        const abs_row = row_offset + pin.y;
+        if (abs_row < target_row) continue;
+        if (abs_row > target_row) break;
+
+        // We're on the target row.
+        if (row_start == null) row_start = i;
+        if (pin.x == target_col) return i;
+    }
+
+    // No exact column match — return start of the row.
+    return row_start;
+}
+
 pub const SelectLine = struct {
     /// The pin of some part of the line to select.
     pin: Pin,
@@ -10349,4 +10585,259 @@ test "Screen: promptClickMove click right of input cursor on last char" {
 
     try testing.expectEqual(@as(usize, 1), result.right);
     try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+// ---------------------------------------------------------------
+// Accessibility tests
+// ---------------------------------------------------------------
+
+test "Screen: accessibilityText basic no scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld\nfoo");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("hello\nworld\nfoo", result.text);
+    // No scrollback: viewport == entire screen.
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(result.text.len, result.viewport_end);
+}
+
+test "Screen: accessibilityText scrollback viewport at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    // Write 5 lines into a 3-row screen: lines 0-1 go to scrollback,
+    // lines 2-4 are in the active/viewport area.
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    // Full text includes all 5 lines.
+    try testing.expectEqualStrings("line0\nline1\nline2\nline3\nline4", result.text);
+
+    // Viewport should cover lines 2-4 (the bottom 3 rows).
+    const vp_text = result.text[result.viewport_start..result.viewport_end];
+    try testing.expectEqualStrings("line2\nline3\nline4", vp_text);
+}
+
+test "Screen: accessibilityText scrollback scrolled up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    // Scroll up by 2 rows so viewport shows lines 0-2.
+    s.scroll(.{ .delta_row = -2 });
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("line0\nline1\nline2\nline3\nline4", result.text);
+
+    const vp_text = result.text[result.viewport_start..result.viewport_end];
+    // The trailing newline is included because the newline between
+    // the last visible row and the first non-visible row is still
+    // mapped to a pin within the viewport's row range.
+    try testing.expectEqualStrings("line0\nline1\nline2\n", vp_text);
+}
+
+test "Screen: accessibilityText wide characters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 2, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("A⚡B");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("A⚡B", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(result.text.len, result.viewport_end);
+}
+
+test "Screen: accessibilityText soft wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // 5 columns, so "1234567890" soft-wraps across 2 rows.
+    var s = try init(alloc, .{ .cols = 5, .rows = 2, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("1234567890");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    // Soft-wrapped lines do NOT produce a '\n' in the output.
+    try testing.expectEqualStrings("1234567890", result.text);
+}
+
+test "Screen: accessibilityText empty screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(@as(usize, 0), result.viewport_end);
+}
+
+test "Screen: accessibilityText partially filled" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("hello", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(result.text.len, result.viewport_end);
+}
+
+test "Screen: accessibilityGridForOffset basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld");
+
+    const cell = (try s.accessibilityGridForOffset(alloc, 0)).?;
+    try testing.expectEqual(@as(size.CellCountInt, 0), cell.col);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cell.row);
+    try testing.expect(!cell.wide);
+}
+
+test "Screen: accessibilityGridForOffset after newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld");
+
+    // "hello\n" = 6 bytes, so byte 6 is 'w' at (0, 1).
+    const cell = (try s.accessibilityGridForOffset(alloc, 6)).?;
+    try testing.expectEqual(@as(size.CellCountInt, 0), cell.col);
+    try testing.expectEqual(@as(size.CellCountInt, 1), cell.row);
+    try testing.expect(!cell.wide);
+}
+
+test "Screen: accessibilityGridForOffset wide character" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 2, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("A⚡B");
+
+    // "A" = 1 byte, so byte 1 is start of "⚡" at col 1.
+    const cell = (try s.accessibilityGridForOffset(alloc, 1)).?;
+    try testing.expectEqual(@as(size.CellCountInt, 1), cell.col);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cell.row);
+    try testing.expect(cell.wide);
+}
+
+test "Screen: accessibilityGridForOffset out of range" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 2, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello");
+
+    const result = try s.accessibilityGridForOffset(alloc, 999);
+    try testing.expect(result == null);
+}
+
+test "Screen: accessibilityGridForOffset with scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    // "line0\nline1\nline2\nline3\n" = 24 bytes
+    // byte 24 = 'l' of "line4" which is in viewport row 2.
+    const cell = (try s.accessibilityGridForOffset(alloc, 24)).?;
+    try testing.expectEqual(@as(size.CellCountInt, 0), cell.col);
+    try testing.expectEqual(@as(size.CellCountInt, 2), cell.row);
+}
+
+test "Screen: accessibilityOffsetForGrid basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld");
+
+    const offset = (try s.accessibilityOffsetForGrid(alloc, 0, 0)).?;
+    try testing.expectEqual(@as(usize, 0), offset);
+}
+
+test "Screen: accessibilityOffsetForGrid second row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld");
+
+    // "hello\n" = 6 bytes, col 2 of row 1 = 'r' = byte 8.
+    const offset = (try s.accessibilityOffsetForGrid(alloc, 2, 1)).?;
+    try testing.expectEqual(@as(usize, 8), offset);
+}
+
+test "Screen: accessibilityOffsetForGrid empty column fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hi\nworld");
+
+    // Row 0 has "hi" (cols 0-1), col 5 has no content.
+    // Should fall back to row start (byte 0).
+    const offset = (try s.accessibilityOffsetForGrid(alloc, 5, 0)).?;
+    try testing.expectEqual(@as(usize, 0), offset);
+}
+
+test "Screen: accessibility offset-grid round trip" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld\nfoo");
+
+    // For each starting offset, convert to grid, then back to offset.
+    const test_offsets = [_]usize{ 0, 3, 6, 9, 12 };
+    for (test_offsets) |original_offset| {
+        const cell = (try s.accessibilityGridForOffset(alloc, original_offset)).?;
+        const recovered = (try s.accessibilityOffsetForGrid(alloc, cell.col, cell.row)).?;
+        try testing.expectEqual(original_offset, recovered);
+    }
 }

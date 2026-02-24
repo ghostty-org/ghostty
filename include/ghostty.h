@@ -387,6 +387,20 @@ typedef struct {
   uintptr_t text_len;
 } ghostty_text_s;
 
+typedef struct {
+  const char* text;
+  uintptr_t text_len;
+  uintptr_t viewport_start;
+  uintptr_t viewport_end;
+} ghostty_ax_text_s;
+
+typedef struct {
+  double x;
+  double y;
+  double width;
+  double height;
+} ghostty_ax_bounds_s;
+
 typedef enum {
   GHOSTTY_POINT_ACTIVE,
   GHOSTTY_POINT_VIEWPORT,
@@ -1129,6 +1143,10 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+bool ghostty_surface_ax_text(ghostty_surface_t, ghostty_ax_text_s*);
+void ghostty_surface_ax_text_free(ghostty_surface_t, ghostty_ax_text_s*);
+bool ghostty_surface_ax_bounds(ghostty_surface_t, uintptr_t, ghostty_ax_bounds_s*);
+bool ghostty_surface_ax_offset(ghostty_surface_t, double, double, uintptr_t*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

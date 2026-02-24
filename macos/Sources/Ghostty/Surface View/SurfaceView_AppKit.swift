@@ -243,6 +243,15 @@ extension Ghostty {
         private(set) var cachedScreenContents: CachedValue<String>
         private(set) var cachedVisibleContents: CachedValue<String>
 
+        /// Cached screen text with viewport byte range for accessibility.
+        /// The viewport range identifies which character range within the
+        /// full text is currently visible on screen.
+        struct ScreenTextInfo {
+            let text: String
+            let viewportRange: NSRange
+        }
+        private(set) var cachedScreenTextInfo: CachedValue<ScreenTextInfo>
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
 
@@ -265,6 +274,9 @@ extension Ghostty {
             // fix at some point.
             self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
             self.cachedVisibleContents = self.cachedScreenContents
+            self.cachedScreenTextInfo = .init(duration: .milliseconds(500)) {
+                ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
+            }
 
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
@@ -311,6 +323,36 @@ extension Ghostty {
                 guard ghostty_surface_read_text(surface, sel, &text) else { return "" }
                 defer { ghostty_surface_free_text(surface, &text) }
                 return String(cString: text.text)
+            }
+
+            // Cache for screen text with viewport range (used by accessibility)
+            cachedScreenTextInfo = CachedValue<ScreenTextInfo>(duration: .milliseconds(500)) { [weak self] in
+                guard let self else {
+                    return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
+                }
+                guard let surface = self.surface else {
+                    return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
+                }
+                var axText = ghostty_ax_text_s()
+                guard ghostty_surface_ax_text(surface, &axText) else {
+                    return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
+                }
+                defer { ghostty_surface_ax_text_free(surface, &axText) }
+                let text = String(cString: axText.text)
+
+                // Convert byte offsets to an NSRange (UTF-16 code unit range).
+                let vpStart = Int(axText.viewport_start)
+                let vpEnd = Int(axText.viewport_end)
+
+                let utf8 = text.utf8
+                let clampedStart = min(vpStart, utf8.count)
+                let clampedEnd = min(vpEnd, utf8.count)
+
+                let startIdx = utf8.index(utf8.startIndex, offsetBy: clampedStart)
+                let endIdx = utf8.index(utf8.startIndex, offsetBy: clampedEnd)
+                let viewportRange = NSRange(startIdx..<endIdx, in: text)
+
+                return ScreenTextInfo(text: text, viewportRange: viewportRange)
             }
 
             // Set a timer to show the ghost emoji after 500ms if no title is set
@@ -2192,22 +2234,18 @@ extension Ghostty.SurfaceView {
     }
 
     override func accessibilityValue() -> Any? {
-        return cachedScreenContents.get()
+        return cachedScreenTextInfo.get().text
     }
 
     /// Returns the range of text that is currently selected in the terminal.
-    /// This allows VoiceOver and other assistive technologies to understand
-    /// what text the user has selected.
     override func accessibilitySelectedTextRange() -> NSRange {
         return selectedRange()
     }
 
     /// Returns the currently selected text as a string.
-    /// This allows assistive technologies to read the selected content.
     override func accessibilitySelectedText() -> String? {
         guard let surface = self.surface else { return nil }
 
-        // Attempt to read the selection
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
@@ -2217,49 +2255,38 @@ extension Ghostty.SurfaceView {
     }
 
     /// Returns the number of characters in the terminal content.
-    /// This helps assistive technologies understand the size of the content.
     override func accessibilityNumberOfCharacters() -> Int {
-        let content = cachedScreenContents.get()
-        return content.count
+        let info = cachedScreenTextInfo.get()
+        return (info.text as NSString).length
     }
 
-    /// Returns the visible character range for the terminal.
-    /// For terminals, we typically show all content as visible.
+    /// Returns only the visible viewport range within the full text,
+    /// not the entire scrollback buffer.
     override func accessibilityVisibleCharacterRange() -> NSRange {
-        let content = cachedScreenContents.get()
-        return NSRange(location: 0, length: content.count)
+        return cachedScreenTextInfo.get().viewportRange
     }
 
     /// Returns the line number for a given character index.
-    /// This helps assistive technologies navigate by line.
     override func accessibilityLine(for index: Int) -> Int {
-        let content = cachedScreenContents.get()
+        let content = cachedScreenTextInfo.get().text
         let substring = String(content.prefix(index))
         return substring.components(separatedBy: .newlines).count - 1
     }
 
     /// Returns a substring for the given range.
-    /// This allows assistive technologies to read specific portions of the content.
     override func accessibilityString(for range: NSRange) -> String? {
-        let content = cachedScreenContents.get()
+        let content = cachedScreenTextInfo.get().text
         guard let swiftRange = Range(range, in: content) else { return nil }
         return String(content[swiftRange])
     }
 
     /// Returns an attributed string for the given range.
-    ///
-    /// Note: right now this only applies font information. One day it'd be nice to extend
-    /// this to copy styling information as well but we need to augment Ghostty core to
-    /// expose that.
-    ///
-    /// This provides styling information to assistive technologies.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let surface = self.surface else { return nil }
         guard let plainString = accessibilityString(for: range) else { return nil }
 
         var attributes: [NSAttributedString.Key: Any] = [:]
 
-        // Try to get the font from the surface
         if let fontRaw = ghostty_surface_quicklook_font(surface) {
             let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
             attributes[.font] = font.takeUnretainedValue()
@@ -2267,6 +2294,143 @@ extension Ghostty.SurfaceView {
         }
 
         return NSAttributedString(string: plainString, attributes: attributes)
+    }
+
+    /// Returns the screen bounds (in screen coordinates) of the character(s) at the
+    /// given range. Used by AXBoundsForRange.
+    ///
+    /// For a single character, this returns the exact cell rect. For a multi-character
+    /// range, we compute the bounding box that encloses all characters in the range:
+    ///
+    /// - **Same line**: the rect spans from the first character's left edge to the last
+    ///   character's right edge, with the height of one cell. This is a tight fit.
+    ///
+    /// - **Multiple lines**: the rect spans the full content width of the view, from the
+    ///   top of the first character's line to the bottom of the last character's line.
+    ///   We use the full width because intermediate lines are fully occupied — a tight
+    ///   union of just the first and last character rects would miss content. For example,
+    ///   if the first character is at 2/3 across line N and the last character is at 1/3
+    ///   across line N+1, the tight union would exclude the right portion of line N and
+    ///   the left portion of line N+1. Using full width avoids this.
+    ///
+    ///   This matches the behavior of NSTextView and Terminal.app for multi-line ranges.
+    override func accessibilityFrame(for range: NSRange) -> NSRect {
+        guard let surface = self.surface else { return .zero }
+
+        let info = cachedScreenTextInfo.get()
+        let text = info.text
+
+        // Convert the NSRange character offset to a UTF-8 byte offset for the start.
+        guard let swiftRange = Range(range, in: text) else { return .zero }
+        let startByteOffset = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: swiftRange.lowerBound
+        )
+
+        // Get the bounds of the first character in the range.
+        var startBounds = ghostty_ax_bounds_s()
+        guard ghostty_surface_ax_bounds(surface, UInt(startByteOffset), &startBounds) else { return .zero }
+
+        // For single-character ranges, we can return immediately.
+        if range.length <= 1 {
+            let viewRect = NSRect(
+                x: startBounds.x,
+                y: frame.size.height - startBounds.y - startBounds.height,
+                width: startBounds.width,
+                height: startBounds.height
+            )
+            let winRect = self.convert(viewRect, to: nil)
+            guard let window = self.window else { return winRect }
+            return window.convertToScreen(winRect)
+        }
+
+        // For multi-character ranges, also get the bounds of the last character.
+        // We step back one character from the upper bound to find the last character
+        // in the range (upperBound is exclusive).
+        let lastCharIdx = text.index(before: swiftRange.upperBound)
+        let endByteOffset = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: lastCharIdx
+        )
+
+        var endBounds = ghostty_ax_bounds_s()
+        guard ghostty_surface_ax_bounds(surface, UInt(endByteOffset), &endBounds) else {
+            // Fall back to single-character rect if we can't get the end bounds.
+            let viewRect = NSRect(
+                x: startBounds.x,
+                y: frame.size.height - startBounds.y - startBounds.height,
+                width: startBounds.width,
+                height: startBounds.height
+            )
+            let winRect = self.convert(viewRect, to: nil)
+            guard let window = self.window else { return winRect }
+            return window.convertToScreen(winRect)
+        }
+
+        // Determine if the range spans a single line or multiple lines by comparing
+        // the Y coordinates (top-left origin, so same Y = same line).
+        let sameLine = startBounds.y == endBounds.y
+
+        let viewRect: NSRect
+        if sameLine {
+            // Same line: tight rect from start's left edge to end's right edge.
+            let x = startBounds.x
+            let width = (endBounds.x + endBounds.width) - startBounds.x
+            viewRect = NSRect(
+                x: x,
+                y: frame.size.height - startBounds.y - startBounds.height,
+                width: width,
+                height: startBounds.height
+            )
+        } else {
+            // Multiple lines: use the full view width. Intermediate lines span the
+            // entire content area, so a tight union of just the endpoint rects would
+            // miss content on partially-filled first/last lines.
+            let topY = startBounds.y
+            let bottomY = endBounds.y + endBounds.height
+            viewRect = NSRect(
+                x: 0,
+                y: frame.size.height - bottomY,
+                width: frame.size.width,
+                height: bottomY - topY
+            )
+        }
+
+        let winRect = self.convert(viewRect, to: nil)
+        guard let window = self.window else { return winRect }
+        return window.convertToScreen(winRect)
+    }
+
+    /// Returns the character range at a given screen coordinate.
+    /// Used by AXRangeForPosition.
+    override func accessibilityRange(for point: NSPoint) -> NSRange {
+        guard let surface = self.surface else { return .init(location: NSNotFound, length: 0) }
+
+        // Convert screen → window → view coordinates.
+        guard let window = self.window else { return .init(location: NSNotFound, length: 0) }
+        let windowPoint = window.convertPoint(fromScreen: point)
+        let viewPoint = self.convert(windowPoint, from: nil)
+
+        // Flip Y from AppKit bottom-left to top-left origin.
+        let flippedY = frame.size.height - viewPoint.y
+
+        // Ask Zig for the byte offset at this position.
+        var byteOffset: UInt = 0
+        guard ghostty_surface_ax_offset(surface, viewPoint.x, flippedY, &byteOffset) else {
+            return .init(location: NSNotFound, length: 0)
+        }
+
+        // Convert byte offset to an NSRange character offset.
+        let info = cachedScreenTextInfo.get()
+        let text = info.text
+        let utf8 = text.utf8
+        let clampedOffset = min(Int(byteOffset), utf8.count)
+        let idx = utf8.index(utf8.startIndex, offsetBy: clampedOffset)
+
+        // Find the end of this character (one Character forward).
+        let charStart = String.Index(idx, within: text) ?? text.startIndex
+        let charEnd = text.index(after: charStart)
+        return NSRange(charStart..<charEnd, in: text)
     }
 
 }
