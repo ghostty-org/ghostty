@@ -586,6 +586,7 @@ const Subprocess = struct {
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
     process: ?Process = null,
+    tty_name: ?[*:0]const u8 = null,
 
     rt_pre_exec_info: Command.RtPreExecInfo,
     rt_post_fork_info: Command.RtPostForkInfo,
@@ -914,6 +915,17 @@ const Subprocess = struct {
         // the process.
         defer if (!in_child and self.process != null) {
             if (comptime builtin.os.tag != .windows) {
+                // Save the tty name before closing the slave fd.
+                // Use ttyname_r (reentrant) for thread safety since
+                // ttyname uses a static buffer.
+                self.tty_name = tty_name: {
+                    var tty_buf: [256]u8 = undefined;
+                    if (c.ttyname_r(pty.slave, &tty_buf, tty_buf.len) != 0) break :tty_name null;
+                    const len = std.mem.indexOfScalar(u8, &tty_buf, 0) orelse break :tty_name null;
+                    const duped = self.arena.allocator().dupeZ(u8, tty_buf[0..len]) catch break :tty_name null;
+                    break :tty_name duped;
+                };
+
                 // Once our subcommand is started we can close the slave
                 // side. This prevents the slave fd from being leaked to
                 // future children.

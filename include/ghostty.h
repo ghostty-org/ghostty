@@ -1072,6 +1072,8 @@ ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t, gho
 void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
 bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
 bool ghostty_surface_process_exited(ghostty_surface_t);
+int32_t ghostty_surface_child_pid(ghostty_surface_t);
+const char* ghostty_surface_tty_name(ghostty_surface_t);
 void ghostty_surface_refresh(ghostty_surface_t);
 void ghostty_surface_draw(ghostty_surface_t);
 void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);

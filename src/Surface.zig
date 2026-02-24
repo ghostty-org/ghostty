@@ -936,6 +936,26 @@ pub fn needsConfirmQuit(self: *Surface) bool {
     };
 }
 
+/// Returns the PID of the child process, or -1 if not available.
+pub fn childPid(self: *Surface) i32 {
+    switch (self.io.backend) {
+        .exec => |*exec| {
+            const process = exec.subprocess.process orelse return -1;
+            switch (process) {
+                .fork_exec => |cmd| return if (cmd.pid) |p| @intCast(p) else -1,
+                .flatpak => return -1,
+            }
+        },
+    }
+}
+
+/// Returns the TTY device name (e.g. "/dev/ttys003"), or null if not available.
+pub fn ttyName(self: *Surface) ?[*:0]const u8 {
+    switch (self.io.backend) {
+        .exec => |*exec| return exec.subprocess.tty_name,
+    }
+}
+
 /// Called from the app thread to handle mailbox messages to our specific
 /// surface.
 pub fn handleMessage(self: *Surface, msg: Message) !void {

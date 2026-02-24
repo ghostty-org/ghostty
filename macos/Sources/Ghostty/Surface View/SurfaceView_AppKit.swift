@@ -178,6 +178,20 @@ extension Ghostty {
             return ghostty_surface_process_exited(surface)
         }
 
+        // Returns the PID of the child process, or nil if not available.
+        var childPID: Int32? {
+            guard let surface = self.surface else { return nil }
+            let pid = ghostty_surface_child_pid(surface)
+            return pid >= 0 ? pid : nil
+        }
+
+        // Returns the TTY device name (e.g. "/dev/ttys003"), or nil if not available.
+        var ttyName: String? {
+            guard let surface = self.surface else { return nil }
+            guard let ptr = ghostty_surface_tty_name(surface) else { return nil }
+            return String(cString: ptr)
+        }
+
         // Returns the inspector instance for this surface, or nil if the
         // surface has been closed or no inspector is active.
         var inspector: Ghostty.Inspector? {
