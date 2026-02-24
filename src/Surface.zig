@@ -2126,6 +2126,14 @@ fn offsetForPointLocked(
     );
 }
 
+/// Returns the byte offset of the cursor in the full screen text.
+/// Used by accessibilityInsertionPointLineNumber.
+pub fn cursorOffset(self: *Surface, alloc: Allocator) !?usize {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.io.terminal.screens.active.accessibilityCursorOffset(alloc);
+}
+
 /// Returns true if the terminal has a selection.
 pub fn hasSelection(self: *const Surface) bool {
     self.renderer_state.mutex.lock();

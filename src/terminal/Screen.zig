@@ -2721,6 +2721,13 @@ pub fn accessibilityOffsetForGrid(
     return row_start;
 }
 
+/// Returns the byte offset of the cursor position within the full screen text.
+/// This is a convenience wrapper that delegates to accessibilityOffsetForGrid
+/// using the current cursor coordinates.
+pub fn accessibilityCursorOffset(self: *Screen, alloc: Allocator) !?usize {
+    return self.accessibilityOffsetForGrid(alloc, self.cursor.x, self.cursor.y);
+}
+
 pub const SelectLine = struct {
     /// The pin of some part of the line to select.
     pin: Pin,
@@ -10845,4 +10852,73 @@ test "Screen: accessibility offset-grid round trip" {
         const recovered = (try s.accessibilityOffsetForGrid(alloc, cell.col, cell.row)).?;
         try testing.expectEqual(original_offset, recovered);
     }
+}
+
+test "Screen: accessibilityCursorOffset basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld\nfoo");
+
+    // After writing "foo", cursor is at col 3, row 2.
+    // "hello\nworld\n" = 12 bytes, so "foo" starts at byte 12,
+    // and col 3 maps to byte 12 (start of the row — no exact
+    // column match at col 3 since "foo" only occupies cols 0-2,
+    // but the cursor sits one past the last char).
+    // accessibilityOffsetForGrid falls back to row start when
+    // the exact column has no content.
+    const offset = (try s.accessibilityCursorOffset(alloc)).?;
+    try testing.expectEqual(@as(usize, 12), offset);
+}
+
+test "Screen: accessibilityCursorOffset at origin" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello");
+
+    // Move cursor to the start of the line.
+    s.cursor.x = 0;
+    s.cursor.y = 0;
+
+    const offset = (try s.accessibilityCursorOffset(alloc)).?;
+    try testing.expectEqual(@as(usize, 0), offset);
+}
+
+test "Screen: accessibilityCursorOffset mid-text" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld");
+
+    // Place cursor at 'r' in "world" (col 2, row 1).
+    s.cursor.x = 2;
+    s.cursor.y = 1;
+
+    // "hello\n" = 6 bytes, col 2 = 'r' = byte 8.
+    const offset = (try s.accessibilityCursorOffset(alloc)).?;
+    try testing.expectEqual(@as(usize, 8), offset);
+}
+
+test "Screen: accessibilityCursorOffset with scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    // After writing, cursor is at col 5, row 2 (viewport row 2 = "line4").
+    // Full text: "line0\nline1\nline2\nline3\nline4"
+    // "line0\nline1\nline2\nline3\n" = 24 bytes
+    // Cursor at col 5 on "line4" — "line4" has only 5 chars (cols 0-4),
+    // so col 5 has no content and falls back to row start = byte 24.
+    const offset = (try s.accessibilityCursorOffset(alloc)).?;
+    try testing.expectEqual(@as(usize, 24), offset);
 }

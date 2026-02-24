@@ -1769,6 +1769,21 @@ pub const CAPI = struct {
         return true;
     }
 
+    /// Returns the byte offset of the cursor in the full screen text.
+    /// Used by the Swift layer for accessibilityInsertionPointLineNumber.
+    export fn ghostty_surface_ax_cursor_offset(
+        surface: *Surface,
+        byte_offset: *usize,
+    ) bool {
+        byte_offset.* = surface.core_surface.cursorOffset(
+            global.alloc,
+        ) catch |err| {
+            log.warn("error computing cursor offset err={}", .{err});
+            return false;
+        } orelse return false;
+        return true;
+    }
+
     /// Tell the surface that it needs to schedule a render
     export fn ghostty_surface_refresh(surface: *Surface) void {
         surface.refresh();

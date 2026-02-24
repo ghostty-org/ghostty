@@ -255,6 +255,13 @@ extension Ghostty {
         }
         private(set) var cachedScreenTextInfo: CachedValue<ScreenTextInfo>
 
+        // Timer for polling accessibility content/selection changes.
+        // Fires every 500ms (matching cache TTL) to detect changes and
+        // post NSAccessibility notifications so VoiceOver stays in sync.
+        private var accessibilityChangeTimer: Timer?
+        private var lastNotifiedTextHash: Int = 0
+        private var lastNotifiedSelectionRange: NSRange = .init(location: NSNotFound, length: 0)
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
 
@@ -370,6 +377,13 @@ extension Ghostty {
                 }
             }
 
+            // Poll for content/selection changes so VoiceOver stays in sync.
+            // We match the 500ms cache TTL — fast enough for usable feedback,
+            // cheap because warm cache hits avoid any Zig calls.
+            accessibilityChangeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                self?.checkAccessibilityChanges()
+            }
+
             // Before we initialize the surface we want to register our notifications
             // so there is no window where we can't receive them.
             let center = NotificationCenter.default
@@ -480,8 +494,9 @@ extension Ghostty {
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
 
-            // Cancel progress report timer
+            // Cancel timers
             progressReportTimer?.invalidate()
+            accessibilityChangeTimer?.invalidate()
         }
 
         func focusDidChange(_ focused: Bool) {
@@ -2294,6 +2309,71 @@ extension Ghostty.SurfaceView {
         return substring.components(separatedBy: .newlines).count - 1
     }
 
+    /// Returns the character range for a given line number.
+    /// Inverse of `accessibilityLine(for:)`. Walks the text counting newlines
+    /// in UTF-16 space to find the start and end of the requested line.
+    /// Returns an NSRange excluding the trailing newline (matching NSTextView).
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        let content = cachedScreenTextInfo.get().text
+        let nsContent = content as NSString
+        let length = nsContent.length
+
+        // Walk through the text tracking line boundaries in UTF-16 code units.
+        var currentLine = 0
+        var lineStart = 0
+        var i = 0
+        while i < length {
+            if currentLine == line {
+                break
+            }
+            // Check for newline at UTF-16 index i.
+            if nsContent.character(at: i) == 0x0A {  // '\n'
+                currentLine += 1
+                lineStart = i + 1
+            }
+            i += 1
+        }
+
+        // If the requested line is beyond what we have, return empty range.
+        guard currentLine == line else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+
+        // Find the end of this line (next newline or end of text).
+        var lineEnd = lineStart
+        while lineEnd < length && nsContent.character(at: lineEnd) != 0x0A {
+            lineEnd += 1
+        }
+
+        return NSRange(location: lineStart, length: lineEnd - lineStart)
+    }
+
+    /// Returns the line number of the insertion point (cursor).
+    /// VoiceOver uses this to announce the cursor's line position.
+    override func accessibilityInsertionPointLineNumber() -> Int {
+        guard let surface = self.surface else { return 0 }
+
+        // Get the cursor's byte offset in the full screen text from the Zig core.
+        var byteOffset: UInt = 0
+        guard ghostty_surface_ax_cursor_offset(surface, &byteOffset) else { return 0 }
+
+        // Count newlines (0x0A) in the UTF-8 bytes up to the cursor offset.
+        // Newline is always a single byte (0x0A) in UTF-8, so a direct byte
+        // scan is safe — no multi-byte character contains 0x0A.
+        let info = cachedScreenTextInfo.get()
+        let text = info.text
+        let utf8 = text.utf8
+        let clampedOffset = min(Int(byteOffset), utf8.count)
+        var lineNumber = 0
+        var count = 0
+        for byte in utf8 {
+            if count >= clampedOffset { break }
+            if byte == 0x0A { lineNumber += 1 }
+            count += 1
+        }
+        return lineNumber
+    }
+
     /// Returns a substring for the given range.
     /// This allows assistive technologies to read specific portions of the content.
     override func accessibilityString(for range: NSRange) -> String? {
@@ -2472,6 +2552,24 @@ extension Ghostty.SurfaceView {
         return NSRange(charStart..<charEnd, in: text)
     }
 
+    /// Checks for content and selection changes and posts accessibility
+    /// notifications so VoiceOver stays in sync with terminal updates.
+    /// Called by `accessibilityChangeTimer` every 500ms.
+    func checkAccessibilityChanges() {
+        let info = cachedScreenTextInfo.get()
+        let textHash = info.text.hashValue
+
+        if textHash != lastNotifiedTextHash {
+            lastNotifiedTextHash = textHash
+            NSAccessibility.post(element: self, notification: .valueChanged)
+        }
+
+        let currentSelection = selectedRange()
+        if currentSelection != lastNotifiedSelectionRange {
+            lastNotifiedSelectionRange = currentSelection
+            NSAccessibility.post(element: self, notification: .selectedTextChanged)
+        }
+    }
 }
 
 /// Caches a value for some period of time, evicting it automatically when that time expires.

@@ -1147,6 +1147,7 @@ bool ghostty_surface_ax_text(ghostty_surface_t, ghostty_ax_text_s*);
 void ghostty_surface_ax_text_free(ghostty_surface_t, ghostty_ax_text_s*);
 bool ghostty_surface_ax_bounds(ghostty_surface_t, uintptr_t, ghostty_ax_bounds_s*);
 bool ghostty_surface_ax_offset(ghostty_surface_t, double, double, uintptr_t*);
+bool ghostty_surface_ax_cursor_offset(ghostty_surface_t, uintptr_t*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
