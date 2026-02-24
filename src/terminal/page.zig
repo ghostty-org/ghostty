@@ -1556,7 +1556,7 @@ pub const Page = struct {
     /// WARNING: This will NOT change the content_tag on the cells because
     /// there are scenarios where we want to move graphemes without changing
     /// the content tag. Callers beware but assertIntegrity should catch this.
-    inline fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
+    pub inline fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
         if (build_options.slow_runtime_safety) {
             assert(src.hasGrapheme());
             assert(!dst.hasGrapheme());

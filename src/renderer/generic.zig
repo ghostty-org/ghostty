@@ -756,6 +756,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .previous_cursor = @splat(0),
                     .current_cursor_color = @splat(0),
                     .previous_cursor_color = @splat(0),
+                    .current_cursor_style = 0,
+                    .previous_cursor_style = 0,
+                    .cursor_visible = 0,
                     .cursor_change_time = 0,
                     .time_focus = 0,
                     .focus = 1, // assume focused initially
@@ -2011,11 +2014,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Only update when terminal state is dirty.
             if (self.terminal_state.dirty == .false) return;
 
+            const uniforms: *shadertoy.Uniforms = &self.custom_shader_uniforms;
             const colors: *const terminal.RenderState.Colors = &self.terminal_state.colors;
 
             // 256-color palette
             for (colors.palette, 0..) |color, i| {
-                self.custom_shader_uniforms.palette[i] = .{
+                uniforms.palette[i] = .{
                     @as(f32, @floatFromInt(color.r)) / 255.0,
                     @as(f32, @floatFromInt(color.g)) / 255.0,
                     @as(f32, @floatFromInt(color.b)) / 255.0,
@@ -2024,7 +2028,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Background color
-            self.custom_shader_uniforms.background_color = .{
+            uniforms.background_color = .{
                 @as(f32, @floatFromInt(colors.background.r)) / 255.0,
                 @as(f32, @floatFromInt(colors.background.g)) / 255.0,
                 @as(f32, @floatFromInt(colors.background.b)) / 255.0,
@@ -2032,7 +2036,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             };
 
             // Foreground color
-            self.custom_shader_uniforms.foreground_color = .{
+            uniforms.foreground_color = .{
                 @as(f32, @floatFromInt(colors.foreground.r)) / 255.0,
                 @as(f32, @floatFromInt(colors.foreground.g)) / 255.0,
                 @as(f32, @floatFromInt(colors.foreground.b)) / 255.0,
@@ -2041,7 +2045,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Cursor color
             if (colors.cursor) |cursor_color| {
-                self.custom_shader_uniforms.cursor_color = .{
+                uniforms.cursor_color = .{
                     @as(f32, @floatFromInt(cursor_color.r)) / 255.0,
                     @as(f32, @floatFromInt(cursor_color.g)) / 255.0,
                     @as(f32, @floatFromInt(cursor_color.b)) / 255.0,
@@ -2055,7 +2059,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Cursor text color
             if (self.config.cursor_text) |cursor_text| {
-                self.custom_shader_uniforms.cursor_text = .{
+                uniforms.cursor_text = .{
                     @as(f32, @floatFromInt(cursor_text.color.r)) / 255.0,
                     @as(f32, @floatFromInt(cursor_text.color.g)) / 255.0,
                     @as(f32, @floatFromInt(cursor_text.color.b)) / 255.0,
@@ -2065,7 +2069,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Selection background color
             if (self.config.selection_background) |selection_bg| {
-                self.custom_shader_uniforms.selection_background_color = .{
+                uniforms.selection_background_color = .{
                     @as(f32, @floatFromInt(selection_bg.color.r)) / 255.0,
                     @as(f32, @floatFromInt(selection_bg.color.g)) / 255.0,
                     @as(f32, @floatFromInt(selection_bg.color.b)) / 255.0,
@@ -2075,13 +2079,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Selection foreground color
             if (self.config.selection_foreground) |selection_fg| {
-                self.custom_shader_uniforms.selection_foreground_color = .{
+                uniforms.selection_foreground_color = .{
                     @as(f32, @floatFromInt(selection_fg.color.r)) / 255.0,
                     @as(f32, @floatFromInt(selection_fg.color.g)) / 255.0,
                     @as(f32, @floatFromInt(selection_fg.color.b)) / 255.0,
                     1.0,
                 };
             }
+
+            // Cursor visibility
+            uniforms.cursor_visible = @intFromBool(self.terminal_state.cursor.visible);
+
+            // Cursor style
+            const cursor_style: renderer.CursorStyle = .fromTerminal(self.terminal_state.cursor.visual_style);
+            uniforms.previous_cursor_style = uniforms.current_cursor_style;
+            uniforms.current_cursor_style = @as(i32, @intFromEnum(cursor_style));
         }
 
         /// Update per-frame custom shader uniforms.
@@ -2091,7 +2103,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // We only need to do this if we have custom shaders.
             if (!self.has_custom_shaders) return;
 
-            const uniforms = &self.custom_shader_uniforms;
+            const uniforms: *shadertoy.Uniforms = &self.custom_shader_uniforms;
 
             const now = try std.time.Instant.now();
             defer self.last_frame_time = now;
@@ -2125,7 +2137,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 0,
             };
 
-            // Update custom cursor uniforms, if we have a cursor.
             if (self.cells.getCursorGlyph()) |cursor| {
                 const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);
                 const cursor_height: f32 = @floatFromInt(cursor.glyph_size[1]);

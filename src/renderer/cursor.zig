@@ -15,7 +15,7 @@ pub const Style = enum {
     lock,
 
     /// Create a cursor style from the terminal style request.
-    pub fn fromTerminal(term: terminal.CursorStyle) ?Style {
+    pub fn fromTerminal(term: terminal.CursorStyle) Style {
         return switch (term) {
             .bar => .bar,
             .block => .block,

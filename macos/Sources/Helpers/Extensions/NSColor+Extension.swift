@@ -24,6 +24,14 @@ extension NSColor {
         appleColorList?.allKeys.map { $0.lowercased() } ?? []
     }
 
+    /// Returns a new color with its saturation multiplied by the given factor, clamped to [0, 1].
+    func adjustingSaturation(by factor: CGFloat) -> NSColor {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        let hsbColor = self.usingColorSpace(.sRGB) ?? self
+        hsbColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return NSColor(hue: h, saturation: min(max(s * factor, 0), 1), brightness: b, alpha: a)
+    }
+
     /// Calculates the perceptual distance to another color in RGB space.
     func distance(to other: NSColor) -> Double {
         guard let a = self.usingColorSpace(.sRGB),

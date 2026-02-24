@@ -58,25 +58,33 @@ extension NSWindow {
         titlebarView?.firstDescendant(withClassName: "NSTabBar")
     }
 
-    /// Returns the index of the tab button at the given screen point, if any.
-    func tabIndex(atScreenPoint screenPoint: NSPoint) -> Int? {
+    /// Returns tab button views in visual order from left to right.
+    func tabButtonsInVisualOrder() -> [NSView] {
+        guard let tabBarView else { return [] }
+        return tabBarView
+            .descendants(withClassName: "NSTabButton")
+            .sorted { $0.frame.minX < $1.frame.minX }
+    }
+
+    /// Returns the visual tab index and matching tab button at the given screen point.
+    func tabButtonHit(atScreenPoint screenPoint: NSPoint) -> (index: Int, tabButton: NSView)? {
         guard let tabBarView else { return nil }
         let locationInWindow = convertPoint(fromScreen: screenPoint)
         let locationInTabBar = tabBarView.convert(locationInWindow, from: nil)
         guard tabBarView.bounds.contains(locationInTabBar) else { return nil }
 
-        // Find all tab buttons and sort by x position to get visual order.
-        // The view hierarchy order doesn't match the visual tab order.
-        let tabItemViews = tabBarView.descendants(withClassName: "NSTabButton")
-            .sorted { $0.frame.origin.x < $1.frame.origin.x }
-
-        for (index, tabItemView) in tabItemViews.enumerated() {
-            let locationInTab = tabItemView.convert(locationInWindow, from: nil)
-            if tabItemView.bounds.contains(locationInTab) {
-                return index
+        for (index, tabButton) in tabButtonsInVisualOrder().enumerated() {
+            let locationInTabButton = tabButton.convert(locationInWindow, from: nil)
+            if tabButton.bounds.contains(locationInTabButton) {
+                return (index, tabButton)
             }
         }
 
         return nil
+    }
+
+    /// Returns the index of the tab button at the given screen point, if any.
+    func tabIndex(atScreenPoint screenPoint: NSPoint) -> Int? {
+        tabButtonHit(atScreenPoint: screenPoint)?.index
     }
 }

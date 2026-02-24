@@ -1,41 +1,37 @@
-import AppKit
 import SwiftUI
 
 extension Ghostty {
     /// A grab handle overlay at the top of the surface for dragging the window.
-    /// Only appears when hovering in the top region of the surface.
     struct SurfaceGrabHandle: View {
-        private let handleHeight: CGFloat = 10
-
-        let surfaceView: SurfaceView
+        @ObservedObject var surfaceView: SurfaceView
 
         @State private var isHovering: Bool = false
         @State private var isDragging: Bool = false
 
-        var body: some View {
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(Color.primary.opacity(isHovering || isDragging ? 0.15 : 0))
-                    .frame(height: handleHeight)
-                    .overlay(alignment: .center) {
-                        if isHovering || isDragging {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.primary.opacity(0.5))
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .overlay {
-                        SurfaceDragSource(
-                            surfaceView: surfaceView,
-                            isDragging: $isDragging,
-                            isHovering: $isHovering
-                        )
-                    }
+        private var ellipsisVisible: Bool {
+            surfaceView.mouseOverSurface && surfaceView.cursorVisible
+        }
 
-                Spacer()
+        var body: some View {
+            ZStack {
+                SurfaceDragSource(
+                    surfaceView: surfaceView,
+                    isDragging: $isDragging,
+                    isHovering: $isHovering
+                )
+                .frame(width: 80, height: 12)
+                .contentShape(Rectangle())
+
+                if ellipsisVisible {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.primary.opacity(isHovering ? 0.8 : 0.3))
+                        .offset(y: -3)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 }

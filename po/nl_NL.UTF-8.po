@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
-"PO-Revision-Date: 2026-02-09 20:39+0100\n"
+"PO-Revision-Date: 2026-02-18 20:59+0100\n"
 "Last-Translator: Nico Geesink <geesinknico@gmail.com>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
 "Language: nl\n"
@@ -20,7 +20,7 @@ msgstr ""
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
-msgstr ""
+msgstr "Open in Ghostty"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -180,7 +180,7 @@ msgstr "Tabblad"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "Wijzig tabbladtitel…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -337,7 +337,7 @@ msgstr "Titel van de terminal wijzigen"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr ""
+msgstr "Wijzig tabbladtitel"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"

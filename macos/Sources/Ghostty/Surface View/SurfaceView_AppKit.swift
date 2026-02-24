@@ -116,6 +116,12 @@ extension Ghostty {
         // Whether the pointer should be visible or not
         @Published private(set) var pointerStyle: CursorStyle = .horizontalText
 
+        // Whether the mouse is currently over this surface
+        @Published private(set) var mouseOverSurface: Bool = false
+
+        // Whether the cursor is currently visible (not hidden by typing, etc.)
+        @Published private(set) var cursorVisible: Bool = true
+
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
 
@@ -533,6 +539,7 @@ extension Ghostty {
         }
 
         func setCursorVisibility(_ visible: Bool) {
+            cursorVisible = visible
             // Technically this action could be called anytime we want to
             // change the mouse visibility but at the time of writing this
             // mouse-hide-while-typing is the only use case so this is the
@@ -910,6 +917,7 @@ extension Ghostty {
         }
 
         override func mouseEntered(with event: NSEvent) {
+            mouseOverSurface = true
             super.mouseEntered(with: event)
 
             guard let surfaceModel else { return }
@@ -928,6 +936,7 @@ extension Ghostty {
         }
 
         override func mouseExited(with event: NSEvent) {
+            mouseOverSurface = false
             guard let surfaceModel else { return }
 
             // If the mouse is being dragged then we don't have to emit

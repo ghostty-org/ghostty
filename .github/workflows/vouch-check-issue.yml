@@ -14,7 +14,7 @@ jobs:
           app-id: ${{ secrets.VOUCH_APP_ID }}
           private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
 
-      - uses: mitchellh/vouch/action/check-issue@daa39f90448eb4054ad334d7f53959a7efb5005b # v1.4.0
+      - uses: mitchellh/vouch/action/check-issue@c6d80ead49839655b61b422700b7a3bc9d0804a9 # v1.4.2
         with:
           issue-number: ${{ github.event.issue.number }}
           auto-close: true

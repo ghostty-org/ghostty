@@ -190,6 +190,7 @@
 				Helpers/Private/CGS.swift,
 				Helpers/Private/Dock.swift,
 				Helpers/TabGroupCloseCoordinator.swift,
+				Helpers/TabTitleEditor.swift,
 				Helpers/VibrantLayer.m,
 				Helpers/Weak.swift,
 			);

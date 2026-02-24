@@ -8,12 +8,14 @@ const Properties = @import("props.zig").Properties;
 pub fn get(cp: u21) Properties {
     if (cp > uucode.config.max_code_point) return .{
         .width = 1,
+        .width_zero_in_grapheme = true,
         .grapheme_break = .other,
         .emoji_vs_base = false,
     };
 
     return .{
         .width = uucode.get(.width, cp),
+        .width_zero_in_grapheme = uucode.get(.wcwidth_zero_in_grapheme, cp),
         .grapheme_break = uucode.get(.grapheme_break_no_control, cp),
         .emoji_vs_base = uucode.get(.is_emoji_vs_base, cp),
     };
