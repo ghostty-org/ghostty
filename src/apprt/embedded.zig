@@ -1694,6 +1694,10 @@ pub const CAPI = struct {
     /// the currently visible viewport within it. This is used by
     /// accessibility to implement AXVisibleCharacterRange, AXValue,
     /// AXBoundsForRange, and AXRangeForPosition.
+    ///
+    /// Note: offsets are UTF-8 byte positions into `text`. Platform
+    /// layers that speak NSRange (UTF-16), such as macOS Accessibility,
+    /// must convert these offsets before exposing them.
     export fn ghostty_surface_ax_text(
         surface: *Surface,
         result: *AXText,

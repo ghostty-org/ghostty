@@ -10777,6 +10777,20 @@ test "Screen: accessibilityGridForOffset with scrollback" {
     try testing.expectEqual(@as(size.CellCountInt, 2), cell.row);
 }
 
+test "Screen: accessibilityGridForOffset scrollback cell outside viewport returns null" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    // Byte 0 is the first character of line0, which is in scrollback
+    // (outside the visible viewport showing lines 2-4).
+    const result = try s.accessibilityGridForOffset(alloc, 0);
+    try testing.expect(result == null);
+}
+
 test "Screen: accessibilityOffsetForGrid basic" {
     const testing = std.testing;
     const alloc = testing.allocator;

@@ -246,6 +246,9 @@ extension Ghostty {
         /// Cached screen text with viewport byte range for accessibility.
         /// The viewport range identifies which character range within the
         /// full text is currently visible on screen.
+        ///
+        /// Important: `viewportRange` is in UTF-16 code units (NSRange semantics),
+        /// while the core provides UTF-8 byte offsets.
         struct ScreenTextInfo {
             let text: String
             let viewportRange: NSRange
@@ -349,7 +352,9 @@ extension Ghostty {
 
                 let utf8 = text.utf8
                 let clampedStart = min(vpStart, utf8.count)
-                let clampedEnd = min(vpEnd, utf8.count)
+                // Keep the range ordered even if the backend ever returns
+                // surprising values due to a bug or transient race.
+                let clampedEnd = max(clampedStart, min(vpEnd, utf8.count))
 
                 let startIdx = utf8.index(utf8.startIndex, offsetBy: clampedStart)
                 let endIdx = utf8.index(utf8.startIndex, offsetBy: clampedEnd)
@@ -2246,9 +2251,11 @@ extension Ghostty.SurfaceView {
     }
 
     /// Returns the currently selected text as a string.
+    /// This allows assistive technologies to read the selected content.
     override func accessibilitySelectedText() -> String? {
         guard let surface = self.surface else { return nil }
 
+        // Attempt to read the selection.
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
@@ -2278,7 +2285,9 @@ extension Ghostty.SurfaceView {
     override func accessibilityLine(for index: Int) -> Int {
         let content = cachedScreenTextInfo.get().text
         let nsContent = content as NSString
-        let clampedIndex = min(index, nsContent.length)
+        // AX callers may pass out-of-range values (including -1 / NSNotFound),
+        // so clamp defensively before building NSRange.
+        let clampedIndex = max(0, min(index, nsContent.length))
         let nsRange = NSRange(location: 0, length: clampedIndex)
         guard let swiftRange = Range(nsRange, in: content) else { return 0 }
         let substring = String(content[..<swiftRange.upperBound])
@@ -2286,6 +2295,7 @@ extension Ghostty.SurfaceView {
     }
 
     /// Returns a substring for the given range.
+    /// This allows assistive technologies to read specific portions of the content.
     override func accessibilityString(for range: NSRange) -> String? {
         let content = cachedScreenTextInfo.get().text
         guard let swiftRange = Range(range, in: content) else { return nil }
@@ -2297,12 +2307,15 @@ extension Ghostty.SurfaceView {
     /// Note: right now this only applies font information. One day it'd be nice to extend
     /// this to copy styling information as well but we need to augment Ghostty core to
     /// expose that.
+    ///
+    /// This provides styling information to assistive technologies.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let surface = self.surface else { return nil }
         guard let plainString = accessibilityString(for: range) else { return nil }
 
         var attributes: [NSAttributedString.Key: Any] = [:]
 
+        // Try to get the font from the surface.
         if let fontRaw = ghostty_surface_quicklook_font(surface) {
             let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
             attributes[.font] = font.takeUnretainedValue()
@@ -2445,8 +2458,13 @@ extension Ghostty.SurfaceView {
         let clampedOffset = min(Int(byteOffset), utf8.count)
         let idx = utf8.index(utf8.startIndex, offsetBy: clampedOffset)
 
-        // Find the Character boundary and advance one Character forward.
-        let charStart = String.Index(idx, within: text) ?? text.startIndex
+        // Convert the UTF-8 index into a String.Index at a character boundary.
+        // We expect this to succeed because the core maps offsets to character starts.
+        guard let charStart = String.Index(idx, within: text) else {
+            return .init(location: NSNotFound, length: 0)
+        }
+
+        // Advance by one Character to return a 1-character NSRange.
         guard charStart < text.endIndex else {
             return .init(location: NSNotFound, length: 0)
         }
