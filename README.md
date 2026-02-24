@@ -202,3 +202,24 @@ SENTRY_DSN=https://e914ee84fd895c4fe324afa3e53dac76@o4507352570920960.ingest.us.
 > stack memory of each thread at the time of the crash. This information
 > is used to rebuild the stack trace but can also contain sensitive data
 > depending on when the crash occurred.
+
+## Windows Build and Installation
+
+Windows support is currently in early development. The Windows application is a
+native Win32 application.
+
+To build and run on Windows:
+
+1.  Install [Zig](https://ziglang.org/).
+2.  Clone the repository.
+3.  Run the build command:
+
+```powershell
+zig build run
+```
+
+To cross-compile for Windows from Linux or macOS:
+
+```bash
+zig build -Dtarget=x86_64-windows
+```
