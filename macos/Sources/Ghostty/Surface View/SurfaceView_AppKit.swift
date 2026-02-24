@@ -280,7 +280,6 @@ extension Ghostty {
         }
         private(set) var cachedScreenTextInfo: CachedValue<ScreenTextInfo>
 
-
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
 
