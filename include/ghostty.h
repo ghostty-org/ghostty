@@ -1144,6 +1144,7 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+
 bool ghostty_surface_ax_text(ghostty_surface_t, ghostty_ax_text_s*);
 void ghostty_surface_ax_text_free(ghostty_surface_t, ghostty_ax_text_s*);
 bool ghostty_surface_ax_bounds(ghostty_surface_t, uintptr_t, ghostty_ax_bounds_s*);

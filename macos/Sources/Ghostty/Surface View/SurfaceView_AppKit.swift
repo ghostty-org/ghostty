@@ -250,6 +250,8 @@ extension Ghostty {
         /// Important: `viewportRange` is in UTF-16 code units (NSRange semantics),
         /// while the core provides UTF-8 byte offsets.
         struct ScreenTextInfo {
+            static let empty = ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
+
             let text: String
             let viewportRange: NSRange
         }
@@ -279,7 +281,7 @@ extension Ghostty {
             self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
             self.cachedVisibleContents = self.cachedScreenContents
             self.cachedScreenTextInfo = .init(duration: .milliseconds(500)) {
-                ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
+                ScreenTextInfo.empty
             }
 
             // Initialize with some default frame size. The important thing is that this
@@ -334,16 +336,10 @@ extension Ghostty {
             // we convert these to an NSRange (UTF-16 code units) because macOS
             // Accessibility APIs use NSRange throughout (NSAccessibility, VoiceOver, etc.).
             cachedScreenTextInfo = CachedValue<ScreenTextInfo>(duration: .milliseconds(500)) { [weak self] in
-                guard let self else {
-                    return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
-                }
-                guard let surface = self.surface else {
-                    return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
-                }
+                guard let self else { return .empty }
+                guard let surface = self.surface else { return .empty }
                 var axText = ghostty_ax_text_s()
-                guard ghostty_surface_ax_text(surface, &axText) else {
-                    return ScreenTextInfo(text: "", viewportRange: NSRange(location: 0, length: 0))
-                }
+                guard ghostty_surface_ax_text(surface, &axText) else { return .empty }
                 defer { ghostty_surface_ax_text_free(surface, &axText) }
                 let text = String(cString: axText.text)
 
