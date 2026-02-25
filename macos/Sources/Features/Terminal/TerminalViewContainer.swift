@@ -118,9 +118,8 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
 @available(macOS 26.0, *)
 private class TerminalGlassView: NSView {
     private let glassEffectView: NSGlassEffectView
-    private var glassTopConstraint: NSLayoutConstraint?
+    private var topConstraint: NSLayoutConstraint!
     private let tintOverlay: NSView
-    private var tintTopConstraint: NSLayoutConstraint?
 
     init(topOffset: CGFloat) {
         self.glassEffectView = NSGlassEffectView()
@@ -132,36 +131,29 @@ private class TerminalGlassView: NSView {
         // Glass effect view fills this view.
         glassEffectView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glassEffectView)
-        glassTopConstraint = glassEffectView.topAnchor.constraint(
+        topConstraint = glassEffectView.topAnchor.constraint(
             equalTo: topAnchor,
             constant: topOffset
         )
-        if let glassTopConstraint {
-            NSLayoutConstraint.activate([
-                glassTopConstraint,
-                glassEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                glassEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
-                glassEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            ])
-        }
+        NSLayoutConstraint.activate([
+            topConstraint,
+            glassEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            glassEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
 
         // Tint overlay sits above the glass effect.
         tintOverlay.translatesAutoresizingMaskIntoConstraints = false
         tintOverlay.wantsLayer = true
         tintOverlay.alphaValue = 0
         addSubview(tintOverlay, positioned: .above, relativeTo: glassEffectView)
-        tintTopConstraint = tintOverlay.topAnchor.constraint(
-            equalTo: topAnchor,
-            constant: topOffset
-        )
-        if let tintTopConstraint {
-            NSLayoutConstraint.activate([
-                tintTopConstraint,
-                tintOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-                tintOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-                tintOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-            ])
-        }
+
+        NSLayoutConstraint.activate([
+            tintOverlay.topAnchor.constraint(equalTo: glassEffectView.topAnchor),
+            tintOverlay.leadingAnchor.constraint(equalTo: glassEffectView.leadingAnchor),
+            tintOverlay.bottomAnchor.constraint(equalTo: glassEffectView.bottomAnchor),
+            tintOverlay.trailingAnchor.constraint(equalTo: glassEffectView.trailingAnchor),
+        ])
     }
 
     @available(*, unavailable)
@@ -189,8 +181,7 @@ private class TerminalGlassView: NSView {
     /// Updates the top inset offset for both the glass effect and tint overlay.
     /// Call this when the safe area insets change (e.g., during layout).
     func updateTopInset(_ offset: CGFloat) {
-        glassTopConstraint?.constant = offset
-        tintTopConstraint?.constant = offset
+        topConstraint.constant = offset
     }
 
     /// Updates the tint overlay visibility based on window key status.
