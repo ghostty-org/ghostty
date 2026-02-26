@@ -33,10 +33,6 @@ class TerminalViewContainer: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
     /// To make ``TerminalController/DefaultSize/contentIntrinsicSize``
     /// work in ``TerminalController/windowDidLoad()``,
     /// we override this to provide the correct size.
@@ -53,27 +49,6 @@ class TerminalViewContainer: NSView {
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(ghosttyConfigDidChange(_:)),
-            name: .ghosttyConfigDidChange,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidBecomeKey(_:)),
-            name: NSWindow.didBecomeKeyNotification,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidResignKey(_:)),
-            name: NSWindow.didResignKeyNotification,
-            object: nil
-        )
     }
 
     override func viewDidMoveToWindow() {
@@ -98,26 +73,15 @@ class TerminalViewContainer: NSView {
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
-
-        // Add some delay to wait TerminalWindow to update first to ensure
-        // that some of our properties are updated. This is a HACK to ensure
-        // light/dark themes work, and we will come up with a better way
-        // in the future.
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + 0.05,
-            execute: updateGlassEffectIfNeeded)
+        DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
     }
+}
 
-    @objc private func windowDidBecomeKey(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow,
-              window == self.window else { return }
-        updateGlassTintOverlay(isKeyWindow: true)
-    }
+// MARK: - NSWindow + terminalViewContainer
 
-    @objc private func windowDidResignKey(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow,
-              window == self.window else { return }
-        updateGlassTintOverlay(isKeyWindow: false)
+extension NSWindow {
+    var terminalViewContainer: TerminalViewContainer? {
+        contentView as? TerminalViewContainer
     }
 }
 
