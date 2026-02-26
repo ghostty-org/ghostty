@@ -105,15 +105,3 @@ extension NSWindow {
         tabButtonHit(atScreenPoint: screenPoint)?.index
     }
 }
-
-// MARK: - Internal Properties
-
-extension NSWindow {
-    var defaultCornerRadius: CGFloat? {
-        guard responds(to: Selector(("_cornerRadius"))) else {
-            return nil
-        }
-
-        return value(forKey: "_cornerRadius") as? CGFloat
-    }
-}

@@ -7,8 +7,20 @@ class TerminalViewContainer: NSView {
     private let terminalView: NSView
 
     /// Combined glass effect and inactive tint overlay view
-    private var glassEffectView: NSView?
+    private(set) var glassEffectView: NSView?
     private var derivedConfig: DerivedConfig?
+
+    var windowThemeFrameView: NSView? {
+        window?.contentView?.superview
+    }
+
+    var windowCornerRadius: CGFloat? {
+        guard let window, window.responds(to: Selector(("_cornerRadius"))) else {
+            return nil
+        }
+
+        return window.value(forKey: "_cornerRadius") as? CGFloat
+    }
 
     init<Root: View>(@ViewBuilder rootView: () -> Root) {
         self.terminalView = NSHostingView(rootView: rootView())
@@ -79,7 +91,11 @@ class TerminalViewContainer: NSView {
         guard let config = notification.userInfo?[
             Notification.Name.GhosttyConfigChangeKey
         ] as? Ghostty.Config else { return }
-        let newValue = DerivedConfig(config: config, preferredBackgroundColor: (window as? TerminalWindow)?.preferredBackgroundColor, cornerRadius: window?.defaultCornerRadius)
+        ghosttyConfigDidChange(config, preferredBackgroundColor: (window as? TerminalWindow)?.preferredBackgroundColor)
+    }
+
+    func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
+        let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
 
@@ -167,9 +183,7 @@ private class TerminalGlassView: NSView {
     ) {
         glassEffectView.style = style
         glassEffectView.tintColor = backgroundColor.withAlphaComponent(backgroundOpacity)
-        if let cornerRadius {
-            glassEffectView.cornerRadius = cornerRadius
-        }
+        glassEffectView.cornerRadius = cornerRadius ?? 0
         updateKeyStatus(isKeyWindow, backgroundColor: backgroundColor)
     }
 
@@ -196,15 +210,15 @@ private class TerminalGlassView: NSView {
 }
 #endif // compiler(>=6.2)
 
-private extension TerminalViewContainer {
+extension TerminalViewContainer {
 #if compiler(>=6.2)
     @available(macOS 26.0, *)
-    func addGlassEffectViewIfNeeded() -> TerminalGlassView? {
+    private func addGlassEffectViewIfNeeded() -> TerminalGlassView? {
         if let existed = glassEffectView as? TerminalGlassView {
             updateGlassEffectTopInsetIfNeeded()
             return existed
         }
-        guard let themeFrameView = window?.contentView?.superview else {
+        guard let themeFrameView = windowThemeFrameView else {
             return nil
         }
         let effectView = TerminalGlassView(topOffset: -themeFrameView.safeAreaInsets.top)
@@ -220,7 +234,7 @@ private extension TerminalViewContainer {
     }
 #endif // compiler(>=6.2)
 
-    func updateGlassEffectIfNeeded() {
+    private func updateGlassEffectIfNeeded() {
 #if compiler(>=6.2)
         guard #available(macOS 26.0, *), let derivedConfig else {
             glassEffectView?.removeFromSuperview()
@@ -241,13 +255,12 @@ private extension TerminalViewContainer {
 #endif // compiler(>=6.2)
     }
 
-    func updateGlassEffectTopInsetIfNeeded() {
+    private func updateGlassEffectTopInsetIfNeeded() {
 #if compiler(>=6.2)
         guard
             #available(macOS 26.0, *),
             let effectView = glassEffectView as? TerminalGlassView,
-            let themeFrameView = window?.contentView?.superview,
-            let derivedConfig
+            let themeFrameView = windowThemeFrameView
         else {
             return
         }
