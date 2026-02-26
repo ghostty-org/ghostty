@@ -2,14 +2,14 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Satrio Bayu Aji <halosatrio@gmail.com>, 2025.
-# Mikail Muzakki <mikailmmuzakki@gmail.com>, 2025.
+# Mikail Muzakki <mikailmmuzakki@gmail.com>, 2026.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
-"PO-Revision-Date: 2025-08-01 10:15+0700\n"
+"PO-Revision-Date: 2026-02-17 10:15+0700\n"
 "Last-Translator: Mikail Muzakki <mikailmmuzakki@gmail.com>\n"
 "Language-Team: Indonesian <translation-team-id@lists.sourceforge.net>\n"
 "Language: id\n"
@@ -19,7 +19,7 @@ msgstr ""
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
-msgstr ""
+msgstr "Buka di Ghostty"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -91,23 +91,23 @@ msgstr "Ghostty: Inspektur terminal"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "Cari…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "Hasil sebelumnya"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "Hasil berikutnya"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "Oh, tidak."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "Tidak dapat memperoleh konteks OpenGL untuk perenderan."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -115,10 +115,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"Terminal sedang dalam mode hanya baca. Anda hanya bisa melihat, memilih, "
+"dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke "
+"aplikasi berjalan. "
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "Hanya baca"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:200
 msgid "Copy"
@@ -130,7 +133,7 @@ msgstr "Tempel"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "Beri tahu saat perintah berikutnya selesai"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
 msgid "Clear"
@@ -175,7 +178,7 @@ msgstr "Tab"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "Ubah judul tab…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -308,15 +311,15 @@ msgstr "Proses yang sedang berjalan dalam belahan ini akan diakhiri."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr ""
+msgstr "Perintah selesai"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "Perintah berhasil"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr ""
+msgstr "Perintah gagal"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
@@ -332,7 +335,7 @@ msgstr "Ubah judul terminal"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr ""
+msgstr "Ubah judul tab"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
