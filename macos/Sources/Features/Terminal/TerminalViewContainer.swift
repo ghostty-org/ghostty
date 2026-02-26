@@ -3,20 +3,15 @@ import SwiftUI
 
 /// Use this container to achieve a glass effect at the window level.
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
-class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
+class TerminalViewContainer: NSView {
     private let terminalView: NSView
 
     /// Combined glass effect and inactive tint overlay view
     private var glassEffectView: NSView?
     private var derivedConfig: DerivedConfig?
 
-    init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
-        self.derivedConfig = DerivedConfig(config: ghostty.config, preferredBackgroundColor: nil, cornerRadius: nil)
-        self.terminalView = NSHostingView(rootView: TerminalView(
-            ghostty: ghostty,
-            viewModel: viewModel,
-            delegate: delegate
-        ))
+    init<Root: View>(@ViewBuilder rootView: () -> Root) {
+        self.terminalView = NSHostingView(rootView: rootView())
         super.init(frame: .zero)
         setup()
     }

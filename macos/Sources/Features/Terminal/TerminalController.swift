@@ -1024,11 +1024,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = TerminalViewContainer(
-            ghostty: self.ghostty,
-            viewModel: self,
-            delegate: self,
-        )
+        window.contentView = TerminalViewContainer {
+            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+        }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {

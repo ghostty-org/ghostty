@@ -106,7 +106,6 @@ extension NSWindow {
     }
 }
 
-
 // MARK: - Internal Properties
 
 extension NSWindow {
