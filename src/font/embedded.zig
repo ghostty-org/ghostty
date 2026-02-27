@@ -47,3 +47,9 @@ pub const monaspace_neon = @embedFile("res/MonaspaceNeon-Regular.otf");
 
 /// Terminus TTF is a scalable font with bitmap glyphs at various sizes.
 pub const terminus_ttf = @embedFile("res/TerminusTTF-Regular.ttf");
+
+/// Spleen is a monospaced bitmap font available in multiple formats.
+/// Used for testing bitmap font support across different file formats.
+pub const spleen_bdf = @embedFile("res/spleen-8x16.bdf");
+pub const spleen_pcf = @embedFile("res/spleen-8x16.pcf");
+pub const spleen_otb = @embedFile("res/spleen-8x16.otb");

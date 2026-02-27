@@ -14,7 +14,14 @@ if [ -z "$XDG_DATA_HOME" ]; then
   export XDG_DATA_HOME="$SNAP_REAL_HOME/.local/share"
 fi
 
-source "$SNAP_USER_DATA/.last_revision" 2>/dev/null || true
+if [ -f "$SNAP_USER_DATA/.last_revision" ]; then
+  if ! source "$SNAP_USER_DATA/.last_revision" 2>/dev/null; then
+    # file exist but sourcing it fails, so it's likely
+    # not good anyway
+    rm -f "$SNAP_USER_DATA/.last_revision"
+  fi
+fi
+
 if [ "$LAST_REVISION" = "$SNAP_REVISION" ]; then
   needs_update=false
 else

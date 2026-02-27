@@ -1,36 +1,42 @@
 {
   lib,
   buildPythonPackage,
-  fetchPypi,
+  fetchFromGitHub,
   pythonOlder,
-  setuptools,
+  hatchling,
   # Dependencies
   blessed,
   wcwidth,
   pyyaml,
+  prettytable,
+  requests,
 }:
-buildPythonPackage rec {
+buildPythonPackage {
   pname = "ucs-detect";
-  version = "1.0.8";
+  version = "unstable-2026-02-23";
   pyproject = true;
 
   disabled = pythonOlder "3.8";
 
-  src = fetchPypi {
-    inherit version;
-    pname = "ucs_detect";
-    hash = "sha256-ihB+tZCd6ykdeXYxc6V1Q6xALQ+xdCW5yqSL7oppqJc=";
+  src = fetchFromGitHub {
+    owner = "jquast";
+    repo = "ucs-detect";
+    rev = "master";
+    hash = "sha256-x7BD14n1/mP9bzjM6DPqc5R1Fk/HLLycl4o41KV+xAE=";
   };
 
   dependencies = [
     blessed
     wcwidth
     pyyaml
+    prettytable
+    requests
   ];
 
-  nativeBuildInputs = [setuptools];
+  nativeBuildInputs = [hatchling];
 
   doCheck = false;
+  dontCheckRuntimeDeps = true;
 
   meta = with lib; {
     description = "Measures number of Terminal column cells of wide-character codes";

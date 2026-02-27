@@ -19,14 +19,22 @@ branch: []const u8,
 pub fn detect(b: *std.Build) !Version {
     // Execute a bunch of git commands to determine the automatic version.
     var code: u8 = 0;
-    const branch: []const u8 = b.runAllowFail(
-        &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "rev-parse", "--abbrev-ref", "HEAD" },
-        &code,
-        .Ignore,
-    ) catch |err| switch (err) {
-        error.FileNotFound => return error.GitNotFound,
-        error.ExitCodeFailure => return error.GitNotRepository,
-        else => return err,
+    const branch: []const u8 = b: {
+        const tmp: []u8 = b.runAllowFail(
+            &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "rev-parse", "--abbrev-ref", "HEAD" },
+            &code,
+            .Ignore,
+        ) catch |err| switch (err) {
+            error.FileNotFound => return error.GitNotFound,
+            error.ExitCodeFailure => return error.GitNotRepository,
+            else => return err,
+        };
+        // Replace any '/' with '-' as including slashes will mess up building
+        // the dist tarball - the tarball uses the branch as part of the
+        // name and including slashes means that the tarball will end up in
+        // subdirectories instead of where it's supposed to be.
+        std.mem.replaceScalar(u8, tmp, '/', '-');
+        break :b tmp;
     };
 
     const short_hash = short_hash: {

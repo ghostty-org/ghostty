@@ -1,0 +1,26 @@
+.{
+    .name = .dcimgui,
+    .version = "1.92.5", // -docking branch
+    .fingerprint = 0x1a25797442c6324f,
+    .paths = .{""},
+    .dependencies = .{
+        // The bindings and imgui versions below must match exactly.
+
+        .bindings = .{
+            // https://github.com/dearimgui/dear_bindings
+            .url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz",
+            .hash = "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr",
+            .lazy = true,
+        },
+
+        .imgui = .{
+            // https://github.com/ocornut/imgui
+            .url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz",
+            .hash = "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI",
+            .lazy = true,
+        },
+
+        .apple_sdk = .{ .path = "../apple-sdk" },
+        .freetype = .{ .path = "../freetype" },
+    },
+}

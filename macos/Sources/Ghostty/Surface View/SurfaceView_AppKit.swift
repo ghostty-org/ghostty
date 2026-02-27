@@ -27,7 +27,7 @@ extension Ghostty {
 
         // The current pwd of the surface as defined by the pty. This can be
         // changed with escape codes.
-        @Published var pwd: String? = nil
+        @Published var pwd: String?
 
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
@@ -40,13 +40,13 @@ extension Ghostty {
         @Published var healthy: Bool = true
 
         // Any error while initializing the surface.
-        @Published var error: Error? = nil
+        @Published var error: Error?
 
         // The hovered URL string
-        @Published var hoverUrl: String? = nil
+        @Published var hoverUrl: String?
 
         // The progress report (if any)
-        @Published var progressReport: Action.ProgressReport? = nil {
+        @Published var progressReport: Action.ProgressReport? {
             didSet {
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
@@ -69,7 +69,7 @@ extension Ghostty {
         @Published var keyTables: [String] = []
 
         // The current search state. When non-nil, the search overlay should be shown.
-        @Published var searchState: SearchState? = nil {
+        @Published var searchState: SearchState? {
             didSet {
                 if let searchState {
                     // I'm not a Combine expert so if there is a better way to do this I'm
@@ -107,21 +107,27 @@ extension Ghostty {
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
-        @Published var focusInstant: ContinuousClock.Instant? = nil
+        @Published var focusInstant: ContinuousClock.Instant?
 
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.
-        @Published var surfaceSize: ghostty_surface_size_s? = nil
+        @Published var surfaceSize: ghostty_surface_size_s?
 
         // Whether the pointer should be visible or not
         @Published private(set) var pointerStyle: CursorStyle = .horizontalText
+
+        // Whether the mouse is currently over this surface
+        @Published private(set) var mouseOverSurface: Bool = false
+
+        // Whether the cursor is currently visible (not hidden by typing, etc.)
+        @Published private(set) var cursorVisible: Bool = true
 
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
 
         /// The background color within the color palette of the surface. This is only set if it is
         /// dynamically updated. Otherwise, the background color is the default background color.
-        @Published private(set) var backgroundColor: Color? = nil
+        @Published private(set) var backgroundColor: Color?
 
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
@@ -134,7 +140,7 @@ extension Ghostty {
 
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
-        var initialSize: NSSize? = nil
+        var initialSize: NSSize?
 
         // A content size received through sizeDidChange that may in some cases
         // be different from the frame size.
@@ -151,7 +157,7 @@ extension Ghostty {
                 // We need to update our state within the SecureInput manager.
                 let input = SecureInput.shared
                 let id = ObjectIdentifier(self)
-                if (passwordInput) {
+                if passwordInput {
                     input.setScoped(id, focused: focused)
                 } else {
                     input.removeScoped(id)
@@ -173,16 +179,17 @@ extension Ghostty {
         }
 
         // Returns the inspector instance for this surface, or nil if the
-        // surface has been closed.
-        var inspector: ghostty_inspector_t? {
+        // surface has been closed or no inspector is active.
+        var inspector: Ghostty.Inspector? {
             guard let surface = self.surface else { return nil }
-            return ghostty_surface_inspector(surface)
+            guard let cInspector = ghostty_surface_inspector(surface) else { return nil }
+            return Ghostty.Inspector(cInspector: cInspector)
         }
 
         // True if the inspector should be visible
         @Published var inspectorVisible: Bool = false {
             didSet {
-                if (oldValue && !inspectorVisible) {
+                if oldValue && !inspectorVisible {
                     guard let surface = self.surface else { return }
                     ghostty_inspector_free(surface)
                 }
@@ -209,10 +216,10 @@ extension Ghostty {
         private var markedText: NSMutableAttributedString
         private(set) var focused: Bool = true
         private var prevPressureStage: Int = 0
-        private var appearanceObserver: NSKeyValueObservation? = nil
+        private var appearanceObserver: NSKeyValueObservation?
 
         // This is set to non-null during keyDown to accumulate insertText contents
-        private var keyTextAccumulator: [String]? = nil
+        private var keyTextAccumulator: [String]?
 
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
@@ -233,7 +240,7 @@ extension Ghostty {
         private(set) var cachedVisibleContents: CachedValue<String>
 
         /// Event monitor (see individual events for why)
-        private var eventMonitor: Any? = nil
+        private var eventMonitor: Any?
 
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
@@ -258,7 +265,7 @@ extension Ghostty {
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
-            super.init(frame: NSMakeRect(0, 0, 800, 600))
+            super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
             // Our cache of screen data
             cachedScreenContents = .init(duration: .milliseconds(500)) { [weak self] in
@@ -430,11 +437,11 @@ extension Ghostty {
             ghostty_surface_set_focus(surface, focused)
 
             // Update our secure input state if we are a password input
-            if (passwordInput) {
+            if passwordInput {
                 SecureInput.shared.setScoped(ObjectIdentifier(self), focused: focused)
             }
 
-            if (focused) {
+            if focused {
                 // On macOS 13+ we can store our continuous clock...
                 focusInstant = ContinuousClock.now
 
@@ -479,7 +486,7 @@ extension Ghostty {
         }
 
         func setCursorShape(_ shape: ghostty_action_mouse_shape_e) {
-            switch (shape) {
+            switch shape {
             case GHOSTTY_MOUSE_SHAPE_DEFAULT:
                 pointerStyle = .default
 
@@ -532,6 +539,7 @@ extension Ghostty {
         }
 
         func setCursorVisibility(_ visible: Bool) {
+            cursorVisible = visible
             // Technically this action could be called anytime we want to
             // change the mouse visibility but at the time of writing this
             // mouse-hide-while-typing is the only use case so this is the
@@ -655,7 +663,7 @@ extension Ghostty {
         private func localEventKeyUp(_ event: NSEvent) -> NSEvent? {
             // We only care about events with "command" because all others will
             // trigger the normal responder chain.
-            if (!event.modifierFlags.contains(.command)) { return event }
+            if !event.modifierFlags.contains(.command) { return event }
 
             // Command keyUp events are never sent to the normal responder chain
             // so we send them here.
@@ -721,7 +729,7 @@ extension Ghostty {
                 SwiftUI.Notification.Name.GhosttyColorChangeKey
             ] as? Ghostty.Action.ColorChange else { return }
 
-            switch (change.kind) {
+            switch change.kind {
             case .background:
                 DispatchQueue.main.async { [weak self] in
                     self?.backgroundColor = change.color
@@ -766,7 +774,7 @@ extension Ghostty {
 
         override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
-            if (result) { focusDidChange(true) }
+            if result { focusDidChange(true) }
             return result
         }
 
@@ -775,7 +783,7 @@ extension Ghostty {
 
             // We sometimes call this manually (see SplitView) as a way to force us to
             // yield our focus state.
-            if (result) { focusDidChange(false) }
+            if result { focusDidChange(false) }
 
             return result
         }
@@ -860,29 +868,28 @@ extension Ghostty {
 
         override func otherMouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            guard event.buttonNumber == 2 else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mods)
+            let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, button.cMouseButton, mods)
         }
 
         override func otherMouseUp(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            guard event.buttonNumber == 2 else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mods)
+            let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, button.cMouseButton, mods)
         }
-
 
         override func rightMouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return super.rightMouseDown(with: event) }
 
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            if (ghostty_surface_mouse_button(
+            if ghostty_surface_mouse_button(
                 surface,
                 GHOSTTY_MOUSE_PRESS,
                 GHOSTTY_MOUSE_RIGHT,
                 mods
-            )) {
+            ) {
                 // Consumed
                 return
             }
@@ -895,12 +902,12 @@ extension Ghostty {
             guard let surface = self.surface else { return super.rightMouseUp(with: event) }
 
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            if (ghostty_surface_mouse_button(
+            if ghostty_surface_mouse_button(
                 surface,
                 GHOSTTY_MOUSE_RELEASE,
                 GHOSTTY_MOUSE_RIGHT,
                 mods
-            )) {
+            ) {
                 // Handled
                 return
             }
@@ -910,6 +917,7 @@ extension Ghostty {
         }
 
         override func mouseEntered(with event: NSEvent) {
+            mouseOverSurface = true
             super.mouseEntered(with: event)
 
             guard let surfaceModel else { return }
@@ -928,6 +936,7 @@ extension Ghostty {
         }
 
         override func mouseExited(with event: NSEvent) {
+            mouseOverSurface = false
             guard let surfaceModel else { return }
 
             // If the mouse is being dragged then we don't have to emit
@@ -962,10 +971,9 @@ extension Ghostty {
             if let window,
                let controller = window.windowController as? BaseTerminalController,
                !controller.commandPaletteIsShowing,
-               (window.isKeyWindow &&
+               window.isKeyWindow &&
                     !self.focused &&
-                    controller.focusFollowsMouse)
-            {
+                    controller.focusFollowsMouse {
                 Ghostty.moveFocus(to: self)
             }
         }
@@ -991,8 +999,8 @@ extension Ghostty {
 
             if precision {
                 // We do a 2x speed multiplier. This is subjective, it "feels" better to me.
-                x *= 2;
-                y *= 2;
+                x *= 2
+                y *= 2
 
                 // TODO(mitchellh): do we have to scale the x/y here by window scale factor?
             }
@@ -1047,7 +1055,7 @@ extension Ghostty {
             // for exact states and set them.
             var translationMods = event.modifierFlags
             for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-                if (translationModsGhostty.contains(flag)) {
+                if translationModsGhostty.contains(flag) {
                     translationMods.insert(flag)
                 } else {
                     translationMods.remove(flag)
@@ -1060,7 +1068,7 @@ extension Ghostty {
             // this keeps things like Korean input working. There must be some object
             // equality happening in AppKit somewhere because this is required.
             let translationEvent: NSEvent
-            if (translationMods == event.modifierFlags) {
+            if translationMods == event.modifierFlags {
                 translationEvent = event
             } else {
                 translationEvent = NSEvent.keyEvent(
@@ -1092,7 +1100,7 @@ extension Ghostty {
             // We need to know the keyboard layout before below because some keyboard
             // input events will change our keyboard layout and we don't want those
             // going to the terminal.
-            let keyboardIdBefore: String? = if (!markedTextBefore) {
+            let keyboardIdBefore: String? = if !markedTextBefore {
                 KeyboardLayout.id
             } else {
                 nil
@@ -1107,7 +1115,7 @@ extension Ghostty {
 
             // If our keyboard changed from this we just assume an input method
             // grabbed it and do nothing.
-            if (!markedTextBefore && keyboardIdBefore != KeyboardLayout.id) {
+            if !markedTextBefore && keyboardIdBefore != KeyboardLayout.id {
                 return
             }
 
@@ -1181,16 +1189,9 @@ extension Ghostty {
 
         /// Special case handling for some control keys
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            switch (event.type) {
-            case .keyDown:
-                // Continue, we care about key down events
-                break
-
-            default:
-                // Any other key event we don't care about. I don't think its even
-                // possible to receive any other event type.
-                return false
-            }
+            // We only care about key down events. It might not even be possible
+            // to receive any other event type here.
+            guard event.type == .keyDown else { return false }
 
             // Only process events if we're focused. Some key events like C-/ macOS
             // appears to send to the first view in the hierarchy rather than the
@@ -1198,29 +1199,46 @@ extension Ghostty {
             // Besides C-/, its important we don't process key equivalents if unfocused
             // because there are other event listeners for that (i.e. AppDelegate's
             // local event handler).
-            if (!focused) {
+            if !focused {
                 return false
             }
 
-            // If this event as-is would result in a key binding then we send it.
-            if let surface {
+            // Get information about if this is a binding.
+            let bindingFlags = surfaceModel.flatMap { surface in
                 var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
-                let match = (event.characters ?? "").withCString { ptr in
+                return (event.characters ?? "").withCString { ptr in
                     ghosttyEvent.text = ptr
-                    return ghostty_surface_key_is_binding(surface, ghosttyEvent)
-                }
-                if match {
-                    self.keyDown(with: event)
-                    return true
+                    return surface.keyIsBinding(ghosttyEvent)
                 }
             }
 
+            // If this is a binding then we want to perform it.
+            if let bindingFlags {
+                // Attempt to trigger a menu item for this key binding. We only do this if:
+                //   - We're not in a key sequence or table (those are separate bindings)
+                //   - The binding is NOT `all` (menu uses FirstResponder chain)
+                //   - The binding is NOT `performable` (menu will always consume)
+                //   - The binding is `consumed` (unconsumed bindings should pass through
+                //     to the terminal, so we must not intercept them for the menu)
+                if keySequence.isEmpty,
+                   keyTables.isEmpty,
+                   bindingFlags.isDisjoint(with: [.all, .performable]),
+                   bindingFlags.contains(.consumed) {
+                    if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                        return true
+                    }
+                }
+
+                self.keyDown(with: event)
+                return true
+            }
+
             let equivalent: String
-            switch (event.charactersIgnoringModifiers) {
+            switch event.charactersIgnoringModifiers {
             case "\r":
                 // Pass C-<return> through verbatim
                 // (prevent the default context menu equivalent)
-                if (!event.modifierFlags.contains(.control)) {
+                if !event.modifierFlags.contains(.control) {
                     return false
                 }
 
@@ -1229,8 +1247,8 @@ extension Ghostty {
             case "/":
                 // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
                 // sound and we don't like the beep sound.
-                if (!event.modifierFlags.contains(.control) ||
-                    !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
+                if !event.modifierFlags.contains(.control) ||
+                    !event.modifierFlags.isDisjoint(with: [.shift, .command, .option]) {
                     return false
                 }
 
@@ -1254,8 +1272,8 @@ extension Ghostty {
 
                 // Ignore all other non-command events. This lets the event continue
                 // through the AppKit event systems.
-                if (!event.modifierFlags.contains(.command) &&
-                    !event.modifierFlags.contains(.control)) {
+                if !event.modifierFlags.contains(.command) &&
+                    !event.modifierFlags.contains(.control) {
                     // Reset since we got a non-command event.
                     lastPerformKeyEvent = nil
                     return false
@@ -1293,8 +1311,8 @@ extension Ghostty {
         }
 
         override func flagsChanged(with event: NSEvent) {
-            let mod: UInt32;
-            switch (event.keyCode) {
+            let mod: UInt32
+            switch event.keyCode {
             case 0x39: mod = GHOSTTY_MODS_CAPS.rawValue
             case 0x38, 0x3C: mod = GHOSTTY_MODS_SHIFT.rawValue
             case 0x3B, 0x3E: mod = GHOSTTY_MODS_CTRL.rawValue
@@ -1312,26 +1330,26 @@ extension Ghostty {
 
             // If the key that pressed this is active, its a press, else release.
             var action = GHOSTTY_ACTION_RELEASE
-            if (mods.rawValue & mod != 0) {
+            if mods.rawValue & mod != 0 {
                 // If the key is pressed, its slightly more complicated, because we
                 // want to check if the pressed modifier is the correct side. If the
                 // correct side is pressed then its a press event otherwise its a release
                 // event with the opposite modifier still held.
                 let sidePressed: Bool
-                switch (event.keyCode) {
+                switch event.keyCode {
                 case 0x3C:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0;
+                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0
                 case 0x3E:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK) != 0;
+                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK) != 0
                 case 0x3D:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK) != 0;
+                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK) != 0
                 case 0x36:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0;
+                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0
                 default:
                     sidePressed = true
                 }
 
-                if (sidePressed) {
+                if sidePressed {
                     action = GHOSTTY_ACTION_PRESS
                 }
             }
@@ -1378,7 +1396,7 @@ extension Ghostty {
             // since we always have a primary font. The only scenario this doesn't
             // work is if someone is using a non-CoreText build which would be
             // unofficial.
-            var attributes: [ NSAttributedString.Key : Any ] = [:];
+            var attributes: [ NSAttributedString.Key: Any ] = [:]
             if let fontRaw = ghostty_surface_quicklook_font(surface) {
                 // Memory management here is wonky: ghostty_surface_quicklook_font
                 // will create a copy of a CTFont, Swift will auto-retain the
@@ -1389,9 +1407,9 @@ extension Ghostty {
             }
 
             // Ghostty coordinate system is top-left, convert to bottom-left for AppKit
-            let pt = NSMakePoint(text.tl_px_x, frame.size.height - text.tl_px_y)
+            let pt = NSPoint(x: text.tl_px_x, y: frame.size.height - text.tl_px_y)
             let str = NSAttributedString.init(string: String(cString: text.text), attributes: attributes)
-            self.showDefinition(for: str, at: pt);
+            self.showDefinition(for: str, at: pt)
         }
 
         override func menu(for event: NSEvent) -> NSMenu? {
@@ -1472,7 +1490,7 @@ extension Ghostty {
         @IBAction func copy(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "copy_to_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1480,16 +1498,15 @@ extension Ghostty {
         @IBAction func paste(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
 
-
         @IBAction func pasteAsPlainText(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1497,7 +1514,7 @@ extension Ghostty {
         @IBAction func pasteSelection(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_selection"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1505,7 +1522,7 @@ extension Ghostty {
         @IBAction override func selectAll(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "select_all"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1513,7 +1530,23 @@ extension Ghostty {
         @IBAction func find(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "start_search"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        @IBAction func selectionForFind(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "search_selection"
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        @IBAction func scrollToSelection(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "scroll_to_selection"
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1521,7 +1554,7 @@ extension Ghostty {
         @IBAction func findNext(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "search:next"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1529,7 +1562,7 @@ extension Ghostty {
         @IBAction func findPrevious(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "search:previous"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1537,7 +1570,7 @@ extension Ghostty {
         @IBAction func findHide(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "end_search"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1545,7 +1578,7 @@ extension Ghostty {
         @IBAction func toggleReadonly(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "toggle_readonly"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1581,7 +1614,7 @@ extension Ghostty {
         @objc func resetTerminal(_ sender: Any) {
             guard let surface = self.surface else { return }
             let action = "reset"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1589,7 +1622,7 @@ extension Ghostty {
         @objc func toggleTerminalInspector(_ sender: Any) {
             guard let surface = self.surface else { return }
             let action = "inspector:toggle"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1599,14 +1632,17 @@ extension Ghostty {
         }
 
         /// Show a user notification and associate it with this surface
-        func showUserNotification(title: String, body: String) {
+        func showUserNotification(title: String, body: String, requireFocus: Bool = true) {
             let content = UNMutableNotificationContent()
             content.title = title
             content.subtitle = self.title
             content.body = body
             content.sound = UNNotificationSound.default
             content.categoryIdentifier = Ghostty.userNotificationCategory
-            content.userInfo = ["surface": self.id.uuidString]
+            content.userInfo = [
+                "surface": self.id.uuidString,
+                "requireFocus": requireFocus,
+            ]
 
             let uuid = UUID().uuidString
             let request = UNNotificationRequest(
@@ -1630,7 +1666,7 @@ extension Ghostty {
                 // If we're focused then we schedule to remove the notification
                 // after a few seconds. If we gain focus we automatically remove it
                 // in focusDidChange.
-                if (self.focused) {
+                if self.focused {
                     Task { @MainActor [weak self] in
                         try await Task.sleep(for: .seconds(3))
                         self?.notificationIdentifiers.remove(uuid)
@@ -1804,7 +1840,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // since we always have a primary font. The only scenario this doesn't
         // work is if someone is using a non-CoreText build which would be
         // unofficial.
-        var attributes: [ NSAttributedString.Key : Any ] = [:];
+        var attributes: [ NSAttributedString.Key: Any ] = [:]
         if let fontRaw = ghostty_surface_quicklook_font(surface) {
             // Memory management here is wonky: ghostty_surface_quicklook_font
             // will create a copy of a CTFont, Swift will auto-retain the
@@ -1823,7 +1859,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         guard let surface = self.surface else {
-            return NSMakeRect(frame.origin.x, frame.origin.y, 0, 0)
+            return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
         }
 
         // Ghostty will tell us where it thinks an IME keyboard should render.
@@ -1842,8 +1878,8 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             if ghostty_surface_read_selection(surface, &text) {
                 // The -2/+2 here is subjective. QuickLook seems to offset the rectangle
                 // a bit and I think these small adjustments make it look more natural.
-                x = text.tl_px_x - 2;
-                y = text.tl_px_y + 2;
+                x = text.tl_px_x - 2
+                y = text.tl_px_y + 2
 
                 // Free our text
                 ghostty_surface_free_text(surface, &text)
@@ -1865,11 +1901,11 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // when there's is no characters selected,
         // width should be 0 so that dictation indicator
         // can start in the right place
-        let viewRect = NSMakeRect(
-            x,
-            frame.size.height - y,
-            width,
-            max(height, cellSize.height))
+        let viewRect = NSRect(
+            x: x,
+            y: frame.size.height - y,
+            width: width,
+            height: max(height, cellSize.height))
 
         // Convert the point to the window coordinates
         let winRect = self.convert(viewRect, to: nil)
@@ -1886,7 +1922,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
 
         // We want the string view of the any value
         var chars = ""
-        switch (string) {
+        switch string {
         case let v as NSAttributedString:
             chars = v.string
         case let v as String:
@@ -1917,8 +1953,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // we send it back through the event system so it can be encoded.
         if let lastPerformKeyEvent,
            let current = NSApp.currentEvent,
-           lastPerformKeyEvent == current.timestamp
-        {
+           lastPerformKeyEvent == current.timestamp {
             NSApp.sendEvent(current)
             return
         }
@@ -2025,7 +2060,7 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
         guard let str = pboard.getOpinionatedStringContents() else { return false }
 
         let len = str.utf8CString.count
-        if (len == 0) { return true }
+        if len == 0 { return true }
         str.withCString { ptr in
             // len includes the null terminator so we do len - 1
             ghostty_surface_text(surface, ptr, UInt(len - 1))
@@ -2107,7 +2142,7 @@ extension Ghostty.SurfaceView {
             DispatchQueue.main.async {
                 self.insertText(
                     content,
-                    replacementRange: NSMakeRange(0, 0)
+                    replacementRange: NSRange(location: 0, length: 0)
                 )
             }
             return true
@@ -2216,7 +2251,7 @@ extension Ghostty.SurfaceView {
 
         return NSAttributedString(string: plainString, attributes: attributes)
     }
-    
+
 }
 
 /// Caches a value for some period of time, evicting it automatically when that time expires.

@@ -21,8 +21,7 @@ struct AboutView: View {
 
         init(material: NSVisualEffectView.Material,
              blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
-             isEmphasized: Bool = false)
-        {
+             isEmphasized: Bool = false) {
             self.material = material
             self.blendingMode = blendingMode
             self.isEmphasized = isEmphasized
@@ -44,10 +43,7 @@ struct AboutView: View {
 
     var body: some View {
         VStack(alignment: .center) {
-            ghosttyIconImage()
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(height: 128)
+            CyclingIconView()
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {

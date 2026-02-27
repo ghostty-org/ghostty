@@ -3,6 +3,7 @@ const Selection = @This();
 
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const Allocator = std.mem.Allocator;
 const page = @import("page.zig");
 const point = @import("point.zig");
 const PageList = @import("PageList.zig");
@@ -126,7 +127,7 @@ pub fn tracked(self: *const Selection) bool {
 
 /// Convert this selection a tracked selection. It is asserted this is
 /// an untracked selection. The tracked selection is returned.
-pub fn track(self: *const Selection, s: *Screen) !Selection {
+pub fn track(self: *const Selection, s: *Screen) Allocator.Error!Selection {
     assert(!self.tracked());
 
     // Track our pins

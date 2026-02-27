@@ -20,16 +20,6 @@
   wayland-scanner,
   pkgs,
 }: let
-  # The Zig hook has no way to select the release type without actual
-  # overriding of the default flags.
-  #
-  # TODO: Once
-  # https://github.com/ziglang/zig/issues/14281#issuecomment-1624220653 is
-  # ultimately acted on and has made its way to a nixpkgs implementation, this
-  # can probably be removed in favor of that.
-  zig_hook = zig_0_15.hook.overrideAttrs {
-    zig_default_flags = "-Dcpu=baseline -Doptimize=${optimize} --color off";
-  };
   gi_typelib_path = import ./build-support/gi-typelib-path.nix {
     inherit pkgs lib stdenv;
   };
@@ -73,7 +63,7 @@ in
         ncurses
         pandoc
         pkg-config
-        zig_hook
+        zig_0_15
         gobject-introspection
         wrapGAppsHook4
         blueprint-compiler
@@ -87,10 +77,11 @@ in
 
     buildInputs = buildInputs;
 
-    dontConfigure = true;
     dontStrip = !strip;
 
     GI_TYPELIB_PATH = gi_typelib_path;
+
+    dontSetZigDefaultFlags = true;
 
     zigBuildFlags = [
       "--system"
@@ -98,6 +89,8 @@ in
       "-Dversion-string=${finalAttrs.version}-${revision}-nix"
       "-Dgtk-x11=${lib.boolToString enableX11}"
       "-Dgtk-wayland=${lib.boolToString enableWayland}"
+      "-Dcpu=baseline"
+      "-Doptimize=${optimize}"
       "-Dstrip=${lib.boolToString strip}"
     ];
 

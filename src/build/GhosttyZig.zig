@@ -73,6 +73,9 @@ fn initVt(
     // We always need unicode tables
     deps.unicode_tables.addModuleImport(vt);
 
+    // We need uucode for grapheme break support
+    deps.addUucode(b, vt, cfg.target, cfg.optimize);
+
     // If SIMD is enabled, add all our SIMD dependencies.
     if (cfg.simd) {
         try SharedDeps.addSimd(b, vt, null);

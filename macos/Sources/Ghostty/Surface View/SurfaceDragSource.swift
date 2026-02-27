@@ -5,13 +5,13 @@ extension Ghostty {
     /// A preference key that propagates the ID of the SurfaceView currently being dragged,
     /// or nil if no surface is being dragged.
     struct DraggingSurfaceKey: PreferenceKey {
-        static var defaultValue: SurfaceView.ID? = nil
-        
+        static var defaultValue: SurfaceView.ID?
+
         static func reduce(value: inout SurfaceView.ID?, nextValue: () -> SurfaceView.ID?) {
             value = nextValue() ?? value
         }
     }
-    
+
     /// A SwiftUI view that provides drag source functionality for terminal surfaces.
     ///
     /// This view wraps an AppKit-based drag source to enable drag-and-drop reordering
@@ -24,13 +24,13 @@ extension Ghostty {
     struct SurfaceDragSource: View {
         /// The surface view that will be dragged.
         let surfaceView: SurfaceView
-        
+
         /// Binding that reflects whether a drag session is currently active.
         @Binding var isDragging: Bool
-        
+
         /// Binding that reflects whether the mouse is hovering over this view.
         @Binding var isHovering: Bool
-        
+
         var body: some View {
             SurfaceDragSourceViewRepresentable(
                 surfaceView: surfaceView,
@@ -46,7 +46,7 @@ extension Ghostty {
         let surfaceView: SurfaceView
         @Binding var isDragging: Bool
         @Binding var isHovering: Bool
-        
+
         func makeNSView(context: Context) -> SurfaceDragSourceView {
             let view = SurfaceDragSourceView()
             view.surfaceView = surfaceView
@@ -60,7 +60,7 @@ extension Ghostty {
             }
             return view
         }
-        
+
         func updateNSView(_ nsView: SurfaceDragSourceView, context: Context) {
             nsView.surfaceView = surfaceView
             nsView.onDragStateChanged = { dragging in
@@ -73,7 +73,7 @@ extension Ghostty {
             }
         }
     }
-    
+
     /// The underlying NSView that handles drag operations.
     ///
     /// This view manages mouse tracking and drag initiation for surface reordering.
@@ -82,29 +82,53 @@ extension Ghostty {
     fileprivate class SurfaceDragSourceView: NSView, NSDraggingSource {
         /// Scale factor applied to the surface snapshot for the drag preview image.
         private static let previewScale: CGFloat = 0.2
-        
+
         /// The surface view that will be dragged. Its UUID is encoded into the
         /// pasteboard for drop targets to identify which surface is being moved.
         var surfaceView: SurfaceView?
-        
+
         /// Callback invoked when the drag state changes. Called with `true` when
         /// a drag session begins, and `false` when it ends (completed or cancelled).
         var onDragStateChanged: ((Bool) -> Void)?
-        
+
         /// Callback invoked when the mouse enters or exits this view's bounds.
         /// Used to update the hover state for visual feedback in the parent view.
         var onHoverChanged: ((Bool) -> Void)?
-        
+
         /// Whether we are currently in a mouse tracking loop (between mouseDown
         /// and either mouseUp or drag initiation). Used to determine cursor state.
         private var isTracking: Bool = false
-        
+
+        /// Local event monitor to detect escape key presses during drag.
+        private var escapeMonitor: Any?
+
+        /// Whether the current drag was cancelled by pressing escape.
+        private var dragCancelledByEscape: Bool = false
+
+        deinit {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+            }
+        }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            // Ensure this view gets the mouse event before window dragging handlers
+            return true
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            // Consume the mouseDown event to prevent it from propagating to the
+            // window's drag handler. This fixes issue #10110 where grab handles
+            // would drag the window instead of initiating pane drags.
+            // Don't call super - the drag will be initiated in mouseDragged.
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
-            
+
             // To update our tracking area we just recreate it all.
             trackingAreas.forEach { removeTrackingArea($0) }
-            
+
             // Add our tracking area for mouse events
             addTrackingArea(NSTrackingArea(
                 rect: bounds,
@@ -113,26 +137,26 @@ extension Ghostty {
                 userInfo: nil
             ))
         }
-        
+
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: isTracking ? .closedHand : .openHand)
         }
-        
+
         override func mouseEntered(with event: NSEvent) {
             onHoverChanged?(true)
         }
-        
+
         override func mouseExited(with event: NSEvent) {
             onHoverChanged?(false)
         }
-        
+
         override func mouseDragged(with event: NSEvent) {
             guard !isTracking, let surfaceView = surfaceView else { return }
-            
+
             // Create our dragging item from our transferable
             guard let pasteboardItem = surfaceView.pasteboardItem() else { return }
             let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
-            
+
             // Create a scaled preview image from the surface snapshot
             if let snapshot = surfaceView.asImage {
                 let imageSize = NSSize(
@@ -148,7 +172,7 @@ extension Ghostty {
                     fraction: 1.0
                 )
                 scaledImage.unlockFocus()
-                
+
                 // Position the drag image so the mouse is at the center of the image.
                 // I personally like the top middle or top left corner best but
                 // this matches macOS native tab dragging behavior (at least, as of
@@ -163,41 +187,82 @@ extension Ghostty {
                     contents: scaledImage
                 )
             }
-            
+
             onDragStateChanged?(true)
-            beginDraggingSession(with: [item], event: event, source: self)
+            let session = beginDraggingSession(with: [item], event: event, source: self)
+
+            // We need to disable this so that endedAt happens immediately for our
+            // drags outside of any targets.
+            session.animatesToStartingPositionsOnCancelOrFail = false
         }
-        
+
         // MARK: NSDraggingSource
-        
+
         func draggingSession(
             _ session: NSDraggingSession,
             sourceOperationMaskFor context: NSDraggingContext
         ) -> NSDragOperation {
             return context == .withinApplication ? .move : []
         }
-        
+
         func draggingSession(
             _ session: NSDraggingSession,
             willBeginAt screenPoint: NSPoint
         ) {
             isTracking = true
+
+            // Reset our escape tracking
+            dragCancelledByEscape = false
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if event.keyCode == 53 { // Escape key
+                    self?.dragCancelledByEscape = true
+                }
+                return event
+            }
         }
-        
+
         func draggingSession(
             _ session: NSDraggingSession,
             movedTo screenPoint: NSPoint
         ) {
             NSCursor.closedHand.set()
         }
-        
+
         func draggingSession(
             _ session: NSDraggingSession,
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+                self.escapeMonitor = nil
+            }
+
+            if operation == [] && !dragCancelledByEscape {
+                let endsInWindow = NSApplication.shared.windows.contains { window in
+                    window.isVisible && window.frame.contains(screenPoint)
+                }
+                if !endsInWindow {
+                    NotificationCenter.default.post(
+                        name: .ghosttySurfaceDragEndedNoTarget,
+                        object: surfaceView,
+                        userInfo: [Foundation.Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey: screenPoint]
+                    )
+                }
+            }
+
             isTracking = false
             onDragStateChanged?(false)
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted when a surface drag session ends with no operation (the drag was
+    /// released outside a valid drop target) and was not cancelled by the user
+    /// pressing escape. The notification's object is the SurfaceView that was dragged.
+    static let ghosttySurfaceDragEndedNoTarget = Notification.Name("ghosttySurfaceDragEndedNoTarget")
+
+    /// Key for the screen point where the drag ended in the userInfo dictionary.
+    static let ghosttySurfaceDragEndedNoTargetPointKey = "endedAtPoint"
 }

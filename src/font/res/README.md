@@ -1,6 +1,6 @@
 # Fonts and Licenses
 
-This project uses several fonts which fall under the SIL Open Font License (OFL-1.1) and MIT License:
+This project uses several fonts which fall under the SIL Open Font License (OFL-1.1), MIT License, and BSD 2-Clause License:
 
 - Code New Roman (OFL-1.1)
   - [© 2014 Sam Radian. All Rights Reserved.](https://github.com/chrissimpkins/codeface/blob/master/fonts/code-new-roman/license.txt)
@@ -28,8 +28,12 @@ This project uses several fonts which fall under the SIL Open Font License (OFL-
 - Terminus TTF (OFL-1.1)
   - [Copyright (c) 2010-2020 Dimitar Toshkov Zhekov with Reserved Font Name "Terminus Font"](https://sourceforge.net/projects/terminus-font/)
   - [Copyright (c) 2011-2023 Tilman Blumenbach with Reserved Font Name "Terminus (TTF)"](https://files.ax86.net/terminus-ttf/)
+- Spleen (BSD 2-Clause)
+  - [Copyright (c) 2018-2024, Frederic Cambus](https://github.com/fcambus/spleen)
 
 A full copy of the OFL license can be found at [OFL.txt](./OFL.txt).
 An accompanying FAQ is also available at <https://openfontlicense.org/>.
 
 A full copy of the MIT license can be found at [MIT.txt](./MIT.txt).
+
+A full copy of the BSD 2-Clause license can be found at [BSD-2-Clause.txt](./BSD-2-Clause.txt).

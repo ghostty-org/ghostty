@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const color = @import("color.zig");
 const size = @import("size.zig");
 const charsets = @import("charsets.zig");
+const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
 const modespkg = @import("modes.zig");
 const Screen = @import("Screen.zig");
@@ -996,6 +997,10 @@ pub const PageFormatter = struct {
         // Our style for non-plain formats
         var style: Style = .{};
 
+        // Track hyperlink state for HTML output. We need to close </a> tags
+        // when the hyperlink changes or ends.
+        var current_hyperlink_id: ?hyperlink.Id = null;
+
         for (start_y..end_y + 1) |y_usize| {
             const y: size.CellCountInt = @intCast(y_usize);
             const row: *Row = self.page.getRow(y);
@@ -1042,6 +1047,13 @@ pub const PageFormatter = struct {
             }
 
             if (blank_rows > 0) {
+                // Reset style before emitting newlines to prevent background
+                // colors from bleeding into the next line's leading cells.
+                if (!style.default()) {
+                    try self.formatStyleClose(writer);
+                    style = .{};
+                }
+
                 const sequence: []const u8 = switch (self.opts.emit) {
                     // Plaintext just uses standard newlines because newlines
                     // on their own usually move the cursor back in anywhere
@@ -1114,13 +1126,26 @@ pub const PageFormatter = struct {
                 // If we have a zero value, then we accumulate a counter. We
                 // only want to turn zero values into spaces if we have a non-zero
                 // char sometime later.
-                if (!cell.hasText()) {
-                    blank_cells += 1;
-                    continue;
-                }
-                if (cell.codepoint() == ' ' and self.opts.trim) {
-                    blank_cells += 1;
-                    continue;
+                blank: {
+                    // If we're emitting styled output (not plaintext) and
+                    // the cell has some kind of styling or is not empty
+                    // then this isn't blank.
+                    if (self.opts.emit.styled() and
+                        (!cell.isEmpty() or cell.hasStyling())) break :blank;
+
+                    // Cells with no text are blank
+                    if (!cell.hasText()) {
+                        blank_cells += 1;
+                        continue;
+                    }
+
+                    // Trailing spaces are blank. We know it is trailing
+                    // because if we get a non-empty cell later we'll
+                    // fill the blanks.
+                    if (cell.codepoint() == ' ' and self.opts.trim) {
+                        blank_cells += 1;
+                        continue;
+                    }
                 }
 
                 // This cell is not blank. If we have accumulated blank cells
@@ -1158,63 +1183,121 @@ pub const PageFormatter = struct {
                     blank_cells = 0;
                 }
 
+                style: {
+                    // If we aren't emitting styled output then we don't
+                    // have to worry about styles.
+                    if (!self.opts.emit.styled()) break :style;
+
+                    // Get our cell style.
+                    const cell_style = self.cellStyle(cell);
+
+                    // If the style hasn't changed, don't bloat output.
+                    if (cell_style.eql(style)) break :style;
+
+                    // If we had a previous style, we need to close it,
+                    // because we've confirmed we have some new style
+                    // (which is maybe default).
+                    if (!style.default()) switch (self.opts.emit) {
+                        .html => try self.formatStyleClose(writer),
+
+                        // For VT, we only close if we're switching to a default
+                        // style because any non-default style will emit
+                        // a \x1b[0m as the start of a VT coloring sequence.
+                        .vt => if (cell_style.default()) try self.formatStyleClose(writer),
+
+                        // Unreachable because of the styled() check at the
+                        // top of this block.
+                        .plain => unreachable,
+                    };
+
+                    // At this point, we can copy our style over
+                    style = cell_style;
+
+                    // If we're just the default style now, we're done.
+                    if (cell_style.default()) break :style;
+
+                    // New style, emit it.
+                    try self.formatStyleOpen(
+                        writer,
+                        &style,
+                    );
+
+                    // If we have a point map, we map the style to
+                    // this cell.
+                    if (self.point_map) |*map| {
+                        var discarding: std.Io.Writer.Discarding = .init(&.{});
+                        try self.formatStyleOpen(
+                            &discarding.writer,
+                            &style,
+                        );
+                        for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                            .x = x,
+                            .y = y,
+                        }) catch return error.WriteFailed;
+                    }
+                }
+
+                // Hyperlink state
+                hyperlink: {
+                    // We currently only emit hyperlinks for HTML. In the
+                    // future we can support emitting OSC 8 hyperlinks for
+                    // VT output as well.
+                    if (self.opts.emit != .html) break :hyperlink;
+
+                    // Get the hyperlink ID. This ID is our internal ID,
+                    // not necessarily the OSC8 ID.
+                    const link_id_: ?u16 = if (cell.hyperlink)
+                        self.page.lookupHyperlink(cell)
+                    else
+                        null;
+
+                    // If our hyperlink IDs match (even null) then we have
+                    // identical hyperlink state and we do nothing.
+                    if (current_hyperlink_id == link_id_) break :hyperlink;
+
+                    // If our prior hyperlink ID was non-null, we need to
+                    // close it because the ID has changed.
+                    if (current_hyperlink_id != null) {
+                        try self.formatHyperlinkClose(writer);
+                        current_hyperlink_id = null;
+                    }
+
+                    // Set our current hyperlink ID
+                    const link_id = link_id_ orelse break :hyperlink;
+                    current_hyperlink_id = link_id;
+
+                    // Emit the opening hyperlink tag
+                    const uri = uri: {
+                        const link = self.page.hyperlink_set.get(
+                            self.page.memory,
+                            link_id,
+                        );
+                        break :uri link.uri.offset.ptr(self.page.memory)[0..link.uri.len];
+                    };
+                    try self.formatHyperlinkOpen(
+                        writer,
+                        uri,
+                    );
+
+                    // If we have a point map, we map the hyperlink to
+                    // this cell.
+                    if (self.point_map) |*map| {
+                        var discarding: std.Io.Writer.Discarding = .init(&.{});
+                        try self.formatHyperlinkOpen(
+                            &discarding.writer,
+                            uri,
+                        );
+                        for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                            .x = x,
+                            .y = y,
+                        }) catch return error.WriteFailed;
+                    }
+                }
+
                 switch (cell.content_tag) {
                     // We combine codepoint and graphemes because both have
                     // shared style handling. We use comptime to dup it.
                     inline .codepoint, .codepoint_grapheme => |tag| {
-                        // Handle closing our styling if we go back to unstyled
-                        // content.
-                        if (self.opts.emit.styled() and
-                            !cell.hasStyling() and
-                            !style.default())
-                        {
-                            try self.formatStyleClose(writer);
-                            style = .{};
-                        }
-
-                        // If we're emitting styling and we have styles, then
-                        // we need to load the style and emit any sequences
-                        // as necessary.
-                        if (self.opts.emit.styled() and cell.hasStyling()) style: {
-                            // Get the style.
-                            const cell_style = self.page.styles.get(
-                                self.page.memory,
-                                cell.style_id,
-                            );
-
-                            // If the style hasn't changed since our last
-                            // emitted style, don't bloat the output.
-                            if (cell_style.eql(style)) break :style;
-
-                            // We need to emit a closing tag if the style
-                            // was non-default before, which means we set
-                            // styles once.
-                            const closing = !style.default();
-
-                            // New style, emit it.
-                            style = cell_style.*;
-                            try self.formatStyleOpen(
-                                writer,
-                                &style,
-                                closing,
-                            );
-
-                            // If we have a point map, we map the style to
-                            // this cell.
-                            if (self.point_map) |*map| {
-                                var discarding: std.Io.Writer.Discarding = .init(&.{});
-                                try self.formatStyleOpen(
-                                    &discarding.writer,
-                                    &style,
-                                    closing,
-                                );
-                                for (0..discarding.count) |_| map.map.append(map.alloc, .{
-                                    .x = x,
-                                    .y = y,
-                                }) catch return error.WriteFailed;
-                            }
-                        }
-
                         try self.writeCell(tag, writer, cell);
 
                         // If we have a point map, all codepoints map to this
@@ -1229,16 +1312,24 @@ pub const PageFormatter = struct {
                         }
                     },
 
-                    // Unreachable since we do hasText() above
-                    .bg_color_palette,
-                    .bg_color_rgb,
-                    => unreachable,
+                    // Cells with only background color (no text). Emit a space
+                    // with the appropriate background color SGR sequence.
+                    .bg_color_palette, .bg_color_rgb => {
+                        try writer.writeByte(' ');
+                        if (self.point_map) |*map| map.map.append(
+                            map.alloc,
+                            .{ .x = x, .y = y },
+                        ) catch return error.WriteFailed;
+                    },
                 }
             }
         }
 
         // If the style is non-default, we need to close our style tag.
         if (!style.default()) try self.formatStyleClose(writer);
+
+        // Close any open hyperlink for HTML output
+        if (current_hyperlink_id != null) try self.formatHyperlinkClose(writer);
 
         // Close the monospace wrapper for HTML output
         if (self.opts.emit == .html) {
@@ -1265,6 +1356,14 @@ pub const PageFormatter = struct {
         writer: *std.Io.Writer,
         cell: *const Cell,
     ) !void {
+        // Blank cells get an empty space that isn't replaced by anything
+        // because it isn't really a space. We do this so that formatting
+        // is preserved if we're emitting styles.
+        if (!cell.hasText()) {
+            try writer.writeByte(' ');
+            return;
+        }
+
         try self.writeCodepointWithReplacement(writer, cell.content.codepoint);
         if (comptime tag == .codepoint_grapheme) {
             for (self.page.lookupGrapheme(cell).?) |cp| {
@@ -1348,18 +1447,49 @@ pub const PageFormatter = struct {
         }
     }
 
+    /// Returns the style for the given cell. If there is no styling this
+    /// will return the default style.
+    fn cellStyle(
+        self: *const PageFormatter,
+        cell: *const Cell,
+    ) Style {
+        return switch (cell.content_tag) {
+            inline .codepoint, .codepoint_grapheme => if (!cell.hasStyling())
+                .{}
+            else
+                self.page.styles.get(
+                    self.page.memory,
+                    cell.style_id,
+                ).*,
+
+            .bg_color_palette => .{
+                .bg_color = .{
+                    .palette = cell.content.color_palette,
+                },
+            },
+
+            .bg_color_rgb => .{
+                .bg_color = .{
+                    .rgb = .{
+                        .r = cell.content.color_rgb.r,
+                        .g = cell.content.color_rgb.g,
+                        .b = cell.content.color_rgb.b,
+                    },
+                },
+            },
+        };
+    }
+
+    /// Write a string with HTML escaping. Used for escaping href attributes
+    /// and other HTML attribute values.
     fn formatStyleOpen(
         self: PageFormatter,
         writer: *std.Io.Writer,
         style: *const Style,
-        closing: bool,
     ) std.Io.Writer.Error!void {
         switch (self.opts.emit) {
             .plain => unreachable,
 
-            // Note: we don't use closing on purpose because VT sequences
-            // always reset the prior style. Our formatter always emits a
-            // \x1b[0m before emitting a new style if necessary.
             .vt => {
                 var formatter = style.formatterVt();
                 formatter.palette = self.opts.palette;
@@ -1369,7 +1499,6 @@ pub const PageFormatter = struct {
             // We use `display: inline` so that the div doesn't impact
             // layout since we're primarily using it as a CSS wrapper.
             .html => {
-                if (closing) try writer.writeAll("</div>");
                 var formatter = style.formatterHtml();
                 formatter.palette = self.opts.palette;
                 try writer.print(
@@ -1388,6 +1517,49 @@ pub const PageFormatter = struct {
             .plain => return,
             .vt => "\x1b[0m",
             .html => "</div>",
+        };
+
+        try writer.writeAll(str);
+        if (self.point_map) |*m| {
+            assert(m.map.items.len > 0);
+            m.map.ensureUnusedCapacity(
+                m.alloc,
+                str.len,
+            ) catch return error.WriteFailed;
+            m.map.appendNTimesAssumeCapacity(
+                m.map.items[m.map.items.len - 1],
+                str.len,
+            );
+        }
+    }
+
+    fn formatHyperlinkOpen(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        uri: []const u8,
+    ) std.Io.Writer.Error!void {
+        switch (self.opts.emit) {
+            .plain, .vt => unreachable,
+
+            // layout since we're primarily using it as a CSS wrapper.
+            .html => {
+                try writer.writeAll("<a href=\"");
+                for (uri) |byte| try self.writeCodepoint(
+                    writer,
+                    byte,
+                );
+                try writer.writeAll("\">");
+            },
+        }
+    }
+
+    fn formatHyperlinkClose(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        const str: []const u8 = switch (self.opts.emit) {
+            .html => "</a>",
+            .plain, .vt => return,
         };
 
         try writer.writeAll(str);
@@ -3345,7 +3517,9 @@ test "Page VT multi-line with styles" {
 
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
-    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\r\n\x1b[0m\x1b[3msecond\x1b[0m", output);
+    // Note: style is reset before newline to prevent background colors from
+    // bleeding to the next line's leading cells.
+    try testing.expectEqualStrings("\x1b[0m\x1b[1mfirst\x1b[0m\r\n\x1b[0m\x1b[3msecond\x1b[0m", output);
 
     // Verify point map matches output length
     try testing.expectEqual(output.len, point_map.items.len);
@@ -5818,4 +5992,277 @@ test "Page codepoint_map empty map" {
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
     try testing.expectEqualStrings("hello world", output);
+}
+
+test "Page VT background color on trailing blank cells" {
+    // This test reproduces a bug where trailing cells with background color
+    // but no text are emitted as plain spaces without SGR sequences.
+    // This causes TUIs like htop to lose background colors on rehydration.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 20,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Simulate a TUI row: "CPU:" with text, then trailing cells with red background
+    // to end of line (no text after the colored region).
+    // \x1b[41m sets red background, then EL fills rest of row with that bg.
+    try s.nextSlice("CPU:\x1b[41m\x1b[K");
+    // Reset colors and move to next line with different content
+    try s.nextSlice("\x1b[0m\r\nline2");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.opts.trim = false; // Don't trim so we can see the trailing behavior
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // The output should preserve the red background SGR for trailing cells on line 1.
+    // Bug: the first row outputs "CPU:\r\n" only - losing the background color fill.
+    // The red background should appear BEFORE the newline, not after.
+
+    // Find position of CRLF
+    const crlf_pos = std.mem.indexOf(u8, output, "\r\n") orelse {
+        // No CRLF found, fail the test
+        return error.TestUnexpectedResult;
+    };
+
+    // Check that red background (48;5;1) appears BEFORE the newline (on line 1)
+    const line1 = output[0..crlf_pos];
+    const has_red_bg_line1 = std.mem.indexOf(u8, line1, "\x1b[41m") != null or
+        std.mem.indexOf(u8, line1, "\x1b[48;5;1m") != null;
+
+    // This should be true but currently fails due to the bug
+    try testing.expect(has_red_bg_line1);
+}
+
+test "Page HTML with hyperlinks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Start a hyperlink, write some text, end it
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\link text\x1b]8;;\x1b\\ normal");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<a href=\"https://example.com\">link text</a> normal" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page HTML with multiple hyperlinks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Two different hyperlinks
+    try s.nextSlice("\x1b]8;;https://first.com\x1b\\first\x1b]8;;\x1b\\ ");
+    try s.nextSlice("\x1b]8;;https://second.com\x1b\\second\x1b]8;;\x1b\\");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<a href=\"https://first.com\">first</a>" ++
+            " " ++
+            "<a href=\"https://second.com\">second</a>" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page HTML with hyperlink escaping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // URL with special characters that need escaping
+    try s.nextSlice("\x1b]8;;https://example.com?a=1&b=2\x1b\\link\x1b]8;;\x1b\\");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<a href=\"https://example.com?a=1&amp;b=2\">link</a>" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page HTML with styled hyperlink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Bold hyperlink
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\\x1b[1mbold link\x1b[0m\x1b]8;;\x1b\\");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<div style=\"display: inline;font-weight: bold;\">" ++
+            "<a href=\"https://example.com\">bold link</div></a>" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page HTML hyperlink closes style before anchor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Styled hyperlink followed by plain text
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\\x1b[1mbold\x1b[0m plain");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<div style=\"display: inline;font-weight: bold;\">" ++
+            "<a href=\"https://example.com\">bold</div> plain</a>" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page HTML hyperlink point map maps closing to previous cell" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ normal");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    const expected_output =
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+        "<a href=\"https://example.com\">link</a> normal" ++
+        "</div>";
+    try testing.expectEqualStrings(expected_output, output);
+    try testing.expectEqual(expected_output.len, point_map.items.len);
+
+    // The </a> closing tag bytes should all map to the last cell of the link
+    const closing_idx = comptime std.mem.indexOf(u8, expected_output, "</a>").?;
+    const expected_coord = point_map.items[closing_idx - 1];
+    for (closing_idx..closing_idx + "</a>".len) |i| {
+        try testing.expectEqual(expected_coord, point_map.items[i]);
+    }
 }

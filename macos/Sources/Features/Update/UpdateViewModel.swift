@@ -4,7 +4,7 @@ import Sparkle
 
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
-    
+
     /// The text to display for the current update state.
     /// Returns an empty string for idle state, progress percentages for downloading/extracting,
     /// or descriptive text for other states.
@@ -38,7 +38,7 @@ class UpdateViewModel: ObservableObject {
             return err.error.localizedDescription
         }
     }
-    
+
     /// The maximum width text for states that show progress.
     /// Used to prevent the pill from resizing as percentages change.
     var maxWidthText: String {
@@ -51,7 +51,7 @@ class UpdateViewModel: ObservableObject {
             return text
         }
     }
-    
+
     /// The SF Symbol icon name for the current update state.
     var iconName: String? {
         switch state {
@@ -75,7 +75,7 @@ class UpdateViewModel: ObservableObject {
             return "exclamationmark.triangle.fill"
         }
     }
-    
+
     /// A longer description for the current update state.
     /// Used in contexts like the command palette where more detail is helpful.
     var description: String {
@@ -100,7 +100,7 @@ class UpdateViewModel: ObservableObject {
             return "An error occurred during the update process"
         }
     }
-    
+
     /// A badge to display for the current update state.
     /// Returns version numbers, progress percentages, or nil.
     var badge: String? {
@@ -120,7 +120,7 @@ class UpdateViewModel: ObservableObject {
             return nil
         }
     }
-    
+
     /// The color to apply to the icon for the current update state.
     var iconColor: Color {
         switch state {
@@ -140,7 +140,7 @@ class UpdateViewModel: ObservableObject {
             return .orange
         }
     }
-    
+
     /// The background color for the update pill.
     var backgroundColor: Color {
         switch state {
@@ -156,7 +156,7 @@ class UpdateViewModel: ObservableObject {
             return Color(nsColor: .controlBackgroundColor)
         }
     }
-    
+
     /// The foreground (text) color for the update pill.
     var foregroundColor: Color {
         switch state {
@@ -184,27 +184,27 @@ enum UpdateState: Equatable {
     case downloading(Downloading)
     case extracting(Extracting)
     case installing(Installing)
-    
+
     var isIdle: Bool {
         if case .idle = self { return true }
         return false
     }
-    
+
     /// This is true if we're in a state that can be force installed. 
     var isInstallable: Bool {
-        switch (self) {
+        switch self {
         case .checking,
                 .updateAvailable,
                 .downloading,
                 .extracting,
                 .installing:
             return true
-            
+
         default:
             return false
         }
     }
-    
+
     func cancel() {
         switch self {
         case .checking(let checking):
@@ -221,7 +221,7 @@ enum UpdateState: Equatable {
             break
         }
     }
-    
+
     /// Confirms or accepts the current update state.
     /// - For available updates: begins installation
     /// - For ready-to-install: proceeds with installation
@@ -233,7 +233,7 @@ enum UpdateState: Equatable {
             break
         }
     }
-    
+
     static func == (lhs: UpdateState, rhs: UpdateState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle):
@@ -258,38 +258,38 @@ enum UpdateState: Equatable {
             return false
         }
     }
-    
+
     struct NotFound {
         let acknowledgement: () -> Void
     }
-    
+
     struct PermissionRequest {
         let request: SPUUpdatePermissionRequest
         let reply: @Sendable (SUUpdatePermissionResponse) -> Void
     }
-    
+
     struct Checking {
         let cancel: () -> Void
     }
-    
+
     struct UpdateAvailable {
         let appcastItem: SUAppcastItem
         let reply: @Sendable (SPUUserUpdateChoice) -> Void
-        
+
         var releaseNotes: ReleaseNotes? {
             let currentCommit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String
             return ReleaseNotes(displayVersionString: appcastItem.displayVersionString, currentCommit: currentCommit)
         }
     }
-    
+
     enum ReleaseNotes {
         case commit(URL)
         case compareTip(URL)
         case tagged(URL)
-        
+
         init?(displayVersionString: String, currentCommit: String?) {
             let version = displayVersionString
-            
+
             // Check for semantic version (x.y.z)
             if let semver = Self.extractSemanticVersion(from: version) {
                 let slug = semver.replacingOccurrences(of: ".", with: "-")
@@ -298,12 +298,12 @@ enum UpdateState: Equatable {
                     return
                 }
             }
-            
+
             // Fall back to git hash detection
             guard let newHash = Self.extractGitHash(from: version) else {
                 return nil
             }
-            
+
             if let currentHash = currentCommit, !currentHash.isEmpty,
                let url = URL(string: "https://github.com/ghostty-org/ghostty/compare/\(currentHash)...\(newHash)") {
                 self = .compareTip(url)
@@ -313,7 +313,7 @@ enum UpdateState: Equatable {
                 return nil
             }
         }
-        
+
         private static func extractSemanticVersion(from version: String) -> String? {
             let pattern = #"^\d+\.\d+\.\d+$"#
             if version.range(of: pattern, options: .regularExpression) != nil {
@@ -321,7 +321,7 @@ enum UpdateState: Equatable {
             }
             return nil
         }
-        
+
         private static func extractGitHash(from version: String) -> String? {
             let pattern = #"[0-9a-f]{7,40}"#
             if let range = version.range(of: pattern, options: .regularExpression) {
@@ -329,7 +329,7 @@ enum UpdateState: Equatable {
             }
             return nil
         }
-        
+
         var url: URL {
             switch self {
             case .commit(let url): return url
@@ -337,32 +337,32 @@ enum UpdateState: Equatable {
             case .tagged(let url): return url
             }
         }
-        
+
         var label: String {
-            switch (self) {
+            switch self {
             case .commit: return "View GitHub Commit"
             case .compareTip: return "Changes Since This Tip Release"
             case .tagged: return "View Release Notes"
             }
         }
     }
-    
+
     struct Error {
         let error: any Swift.Error
         let retry: () -> Void
         let dismiss: () -> Void
     }
-    
+
     struct Downloading {
         let cancel: () -> Void
         let expectedLength: UInt64?
         let progress: UInt64
     }
-    
+
     struct Extracting {
         let progress: Double
     }
-    
+
     struct Installing {
         /// True if this state is triggered by ``Ghostty/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
         var isAutoUpdate = false

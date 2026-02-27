@@ -20,6 +20,7 @@ const SharedGrid = @This();
 
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const tripwire = @import("../tripwire.zig");
 const Allocator = std.mem.Allocator;
 const renderer = @import("../renderer.zig");
 const font = @import("main.zig");
@@ -61,6 +62,12 @@ metrics: Metrics,
 /// to review call sites to ensure they are using the lock correctly.
 lock: std.Thread.RwLock,
 
+pub const init_tw = tripwire.module(enum {
+    codepoints_capacity,
+    glyphs_capacity,
+    reload_metrics,
+}, init);
+
 /// Initialize the grid.
 ///
 /// The resolver must have a collection that supports deferred loading
@@ -74,6 +81,8 @@ pub fn init(
     alloc: Allocator,
     resolver: CodepointResolver,
 ) !SharedGrid {
+    const tw = init_tw;
+
     // We need to support loading options since we use the size data
     assert(resolver.collection.load_options != null);
 
@@ -92,10 +101,15 @@ pub fn init(
 
     // We set an initial capacity that can fit a good number of characters.
     // This number was picked empirically based on my own terminal usage.
+    try tw.check(.codepoints_capacity);
     try result.codepoints.ensureTotalCapacity(alloc, 128);
+    errdefer result.codepoints.deinit(alloc);
+    try tw.check(.glyphs_capacity);
     try result.glyphs.ensureTotalCapacity(alloc, 128);
+    errdefer result.glyphs.deinit(alloc);
 
     // Initialize our metrics.
+    try tw.check(.reload_metrics);
     try result.reloadMetrics();
 
     return result;
@@ -232,6 +246,10 @@ pub fn renderCodepoint(
     return try self.renderGlyph(alloc, index, glyph_index, opts);
 }
 
+pub const renderGlyph_tw = tripwire.module(enum {
+    get_presentation,
+}, renderGlyph);
+
 /// Render a glyph index. This automatically determines the correct texture
 /// atlas to use and caches the result.
 pub fn renderGlyph(
@@ -241,6 +259,8 @@ pub fn renderGlyph(
     glyph_index: u32,
     opts: RenderOptions,
 ) !Render {
+    const tw = renderGlyph_tw;
+
     const key: GlyphKey = .{ .index = index, .glyph = glyph_index, .opts = opts };
 
     // Fast path: the cache has the value. This is almost always true and
@@ -257,8 +277,10 @@ pub fn renderGlyph(
 
     const gop = try self.glyphs.getOrPut(alloc, key);
     if (gop.found_existing) return gop.value_ptr.*;
+    errdefer self.glyphs.removeByPtr(gop.key_ptr);
 
     // Get the presentation to determine what atlas to use
+    try tw.check(.get_presentation);
     const p = try self.resolver.getPresentation(index, glyph_index);
     const atlas: *font.Atlas = switch (p) {
         .text => &self.atlas_grayscale,
@@ -424,5 +446,95 @@ test getIndex {
         const idx = (try grid.getIndex(alloc, @intCast(i), .regular, null)).?;
         try testing.expectEqual(Style.regular, idx.style);
         try testing.expectEqual(@as(Collection.Index.IndexInt, 0), idx.idx);
+    }
+}
+
+test "renderGlyph error after cache insert rolls back cache entry" {
+    // This test verifies that when renderGlyph fails after inserting a cache
+    // entry (via getOrPut), the errdefer properly removes the entry, preventing
+    // corrupted/uninitialized data from remaining in the cache.
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var grid = try testGrid(.normal, alloc, lib);
+    defer grid.deinit(alloc);
+
+    // Get the font index for 'A'
+    const idx = (try grid.getIndex(alloc, 'A', .regular, null)).?;
+
+    // Get the glyph index for 'A'
+    const glyph_index = glyph_index: {
+        grid.lock.lockShared();
+        defer grid.lock.unlockShared();
+        const face = try grid.resolver.collection.getFace(idx);
+        break :glyph_index face.glyphIndex('A').?;
+    };
+
+    const render_opts: RenderOptions = .{ .grid_metrics = grid.metrics };
+    const key: GlyphKey = .{ .index = idx, .glyph = glyph_index, .opts = render_opts };
+
+    // Verify the cache is empty for this glyph
+    try testing.expect(grid.glyphs.get(key) == null);
+
+    // Set up tripwire to fail after cache insert.
+    // We use OutOfMemory as it's a valid error in the renderGlyph error set.
+    const tw = renderGlyph_tw;
+    defer tw.end(.reset) catch {};
+    tw.errorAlways(.get_presentation, error.OutOfMemory);
+
+    // This should fail due to the tripwire
+    try testing.expectError(
+        error.OutOfMemory,
+        grid.renderGlyph(alloc, idx, glyph_index, render_opts),
+    );
+
+    // The errdefer should have removed the cache entry, leaving the cache clean.
+    // Without the errdefer fix, this would contain garbage/uninitialized data.
+    try testing.expect(grid.glyphs.get(key) == null);
+}
+
+test "init error" {
+    // Test every failure point in `init` and ensure that we don't
+    // leak memory (testing.allocator verifies) since we're exiting early.
+    //
+    // BUG: Currently this test will fail because init() is missing errdefer
+    // cleanup for codepoints and glyphs when late operations fail
+    // (ensureTotalCapacity, reloadMetrics).
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    for (std.meta.tags(init_tw.FailPoint)) |tag| {
+        const tw = init_tw;
+        defer tw.end(.reset) catch unreachable;
+        tw.errorAlways(tag, error.OutOfMemory);
+
+        // Create a resolver for testing - we need to set up a minimal one.
+        // The caller is responsible for cleaning up the resolver if init fails.
+        var lib = try Library.init(alloc);
+        defer lib.deinit();
+
+        var c = Collection.init();
+        c.load_options = .{ .library = lib };
+        _ = try c.add(alloc, try .init(
+            lib,
+            font.embedded.regular,
+            .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
+        ), .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
+
+        var resolver: CodepointResolver = .{ .collection = c };
+        defer resolver.deinit(alloc); // Caller cleans up on init failure
+
+        try testing.expectError(
+            error.OutOfMemory,
+            init(alloc, resolver),
+        );
     }
 }

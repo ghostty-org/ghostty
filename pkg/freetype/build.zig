@@ -90,7 +90,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         "-fno-sanitize=undefined",
     });
 
-    if (target.result.os.tag == .freebsd) {
+    if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
         try flags.append(b.allocator, "-fPIC");
     }
 

@@ -134,6 +134,16 @@ label.resize-overlay {
   border-style: solid;
 }
 
+.surface .readonly_overlay {
+  /* Should be the equivalent of the following SwiftUI color: */
+  /* Color(hue: 0.08, saturation: 0.5, brightness: 0.8) */
+  color: hsl(25 50 75);
+  padding: 8px 8px 8px 8px;
+  margin: 8px 8px 8px 8px;
+  border-radius: 6px 6px 6px 6px;
+  outline-style: solid;
+  outline-width: 1px;
+}
 /*
  * Command Palette
  */

@@ -1,15 +1,17 @@
 const std = @import("std");
 const oni = @import("oniguruma");
 
-/// Default URL regex. This is used to detect URLs in terminal output.
+/// Default URL/path regex. This is used to detect URLs and file paths in
+/// terminal output.
+///
 /// This is here in the config package because one day the matchers will be
 /// configurable and this will be a default.
 ///
-/// This regex is liberal in what it accepts after the scheme, with exceptions
-/// for URLs ending with . or ). Although such URLs are perfectly valid, it is
-/// common for text to contain URLs surrounded by parentheses (such as in
-/// Markdown links) or at the end of sentences. Therefore, this regex excludes
-/// them as follows:
+/// For scheme URLs, this regex is liberal in what it accepts after the scheme,
+/// with exceptions for URLs ending with . or ). Although such URLs are
+/// perfectly valid, it is common for text to contain URLs surrounded by
+/// parentheses (such as in Markdown links) or at the end of sentences.
+/// Therefore, this regex excludes them as follows:
 ///
 /// 1. Do not match regexes ending with .
 /// 2. Do not match regexes ending with ), except for ones which contain a (
@@ -22,12 +24,6 @@ const oni = @import("oniguruma");
 ///
 /// There are many complicated cases where these heuristics break down, but
 /// handling them well requires a non-regex approach.
-pub const regex =
-    "(?:" ++ url_schemes ++
-    \\)(?:
-    ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/|\/)(?:(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*(?: +(?= *$))?|(?![\w\-.~:\/?#@!$&*+,;=%]*\.)[\w\-.~:\/?#@!$&*+,;=%]+(?: [\w\-.~:\/?#@!$&*+,;=%]+)*(?: +(?= *$))?)
-    ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
 ;
@@ -35,6 +31,94 @@ const url_schemes =
 const ipv6_url_pattern =
     \\(?:\[[:0-9a-fA-F]+(?:[:0-9a-fA-F]*)+\](?::[0-9]+)?)
 ;
+
+const scheme_url_chars =
+    \\[\w\-.~:/?#@!$&*+,;=%]
+;
+
+const path_chars =
+    \\[\w\-.~:\/?#@!$&*+;=%]
+;
+
+const optional_bracketed_word_suffix =
+    \\(?:[\(\[]\w*[\)\]])?
+;
+
+const no_trailing_punctuation =
+    \\(?<![,.])
+;
+
+const no_trailing_colon =
+    \\(?<!:)
+;
+
+const trailing_spaces_at_eol =
+    \\(?: +(?= *$))?
+;
+
+const dotted_path_lookahead =
+    \\(?=[\w\-.~:\/?#@!$&*+;=%]*\.)
+;
+
+const non_dotted_path_lookahead =
+    \\(?![\w\-.~:\/?#@!$&*+;=%]*\.)
+;
+
+const dotted_path_space_segments =
+    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
+;
+
+const any_path_space_segments =
+    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]+)*
+;
+
+// Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
+const scheme_url_branch =
+    "(?:" ++ url_schemes ++ ")" ++
+    "(?:" ++ ipv6_url_pattern ++ "|" ++ scheme_url_chars ++ "+" ++ optional_bracketed_word_suffix ++ ")+" ++
+    no_trailing_punctuation;
+
+const rooted_or_relative_path_prefix =
+    \\(?:\.\.\/|\.\/|(?<!\w)~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<![\w~\/])\/(?!\/))
+;
+
+// Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
+// A dotted segment is treated as file-like, while the undotted case stays
+// broad to capture directory-like paths with spaces.
+const rooted_or_relative_path_branch =
+    rooted_or_relative_path_prefix ++
+    "(?:" ++
+    dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    dotted_path_space_segments ++
+    no_trailing_colon ++
+    trailing_spaces_at_eol ++
+    "|" ++
+    non_dotted_path_lookahead ++
+    path_chars ++ "+" ++
+    any_path_space_segments ++
+    no_trailing_colon ++
+    trailing_spaces_at_eol ++
+    ")";
+
+// Branch 3: Bare relative paths such as src/config/url.zig.
+const bare_relative_path_prefix =
+    \\(?<!\$\d*)(?<!\w)[\w][\w\-.]*\/
+;
+
+const bare_relative_path_branch =
+    dotted_path_lookahead ++
+    bare_relative_path_prefix ++
+    path_chars ++ "+" ++
+    no_trailing_colon ++
+    trailing_spaces_at_eol;
+
+pub const regex =
+    scheme_url_branch ++
+    "|" ++
+    rooted_or_relative_path_branch ++
+    "|" ++
+    bare_relative_path_branch;
 
 test "url regex" {
     const testing = std.testing;
@@ -77,7 +161,7 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
-            .input = "Link trailing colon https://example.com, more text.",
+            .input = "Link trailing comma https://example.com, more text.",
             .expect = "https://example.com",
         },
         .{
@@ -147,6 +231,10 @@ test "url regex" {
         .{
             .input = "match git://example.com git links",
             .expect = "git://example.com",
+        },
+        .{
+            .input = "/tmp/test.txt http://www.google.com",
+            .expect = "/tmp/test.txt",
         },
         .{
             .input = "match tel:+18005551234 tel links",
@@ -270,6 +358,128 @@ test "url regex" {
             .input = "/tmp/test folder/file.txt",
             .expect = "/tmp/test folder/file.txt",
         },
+        .{
+            .input = "/tmp/test  folder/file.txt",
+            .expect = "/tmp/test",
+        },
+        // unified diff lines
+        .{
+            .input = "diff --git a/src/font/shaper/harfbuzz.zig b/src/font/shaper/harfbuzz.zig",
+            .expect = "a/src/font/shaper/harfbuzz.zig",
+        },
+        // Two space-separated absolute paths should match only the first
+        .{
+            .input = "/tmp/foo /tmp/bar",
+            .expect = "/tmp/foo",
+        },
+        .{
+            .input = "/tmp/foo.txt /tmp/bar.txt",
+            .expect = "/tmp/foo.txt",
+        },
+        // Bare relative file paths (no ./ or ../ prefix)
+        .{
+            .input = "src/config/url.zig",
+            .expect = "src/config/url.zig",
+        },
+        .{
+            .input = "app/folder/file.rb:1",
+            .expect = "app/folder/file.rb:1",
+        },
+        .{
+            .input = "modified:   src/config/url.zig",
+            .expect = "src/config/url.zig",
+        },
+        .{
+            .input = "lib/ghostty/terminal.zig:42:10",
+            .expect = "lib/ghostty/terminal.zig:42:10",
+        },
+        .{
+            .input = "some-pkg/src/file.txt more text",
+            .expect = "some-pkg/src/file.txt",
+        },
+        // comma should match substrings
+        .{
+            .input = "src/foo.c,baz.txt",
+            .expect = "src/foo.c",
+        },
+        .{
+            .input = "~/foo/bar.txt",
+            .expect = "~/foo/bar.txt",
+        },
+        .{
+            .input = "open ~/Documents/notes.md please",
+            .expect = "~/Documents/notes.md",
+        },
+        .{
+            .input = "~/.config/ghostty/config",
+            .expect = "~/.config/ghostty/config",
+        },
+        .{
+            .input = "directory: ~/src/ghostty-org/ghostty",
+            .expect = "~/src/ghostty-org/ghostty",
+        },
+        .{
+            .input = "$HOME/src/config/url.zig",
+            .expect = "$HOME/src/config/url.zig",
+        },
+        .{
+            .input = "project dir: $PWD/src/ghostty/main.zig",
+            .expect = "$PWD/src/ghostty/main.zig",
+        },
+        // $VAR mid-path should match fully, not partially from the $
+        .{
+            .input = "foo/$BAR/baz",
+            .expect = "foo/$BAR/baz",
+        },
+        .{
+            .input = ".foo/bar/$VAR",
+            .expect = ".foo/bar/$VAR",
+        },
+        .{
+            .input = ".config/ghostty/config",
+            .expect = ".config/ghostty/config",
+        },
+        .{
+            .input = "loaded from .local/share/ghostty/state.db now",
+            .expect = ".local/share/ghostty/state.db",
+        },
+        .{
+            .input = "../some/where",
+            .expect = "../some/where",
+        },
+        // comma-separated file paths
+        .{
+            .input = "  - shared/src/foo/SomeItem.m:12, shared/src/",
+            .expect = "shared/src/foo/SomeItem.m:12",
+        },
+        // mid-string dot should not partially match but fully
+        .{
+            .input = "foo.local/share",
+            .expect = "foo.local/share",
+        },
+        // numeric directory should match fully
+        .{
+            .input = "2024/report.txt",
+            .expect = "2024/report.txt",
+        },
+        // comma should stop matching in spaced path segments
+        .{
+            .input = "./foo bar,baz",
+            .expect = "./foo bar",
+        },
+        .{
+            .input = "/tmp/foo bar,baz",
+            .expect = "/tmp/foo bar",
+        },
+        // trailing colon should not be part of the path
+        .{
+            .input = "./.config/ghostty: Needs upstream (main)",
+            .expect = "./.config/ghostty",
+        },
+        .{
+            .input = "./Downloads: Operation not permitted",
+            .expect = "./Downloads",
+        },
     };
 
     for (cases) |case| {
@@ -283,5 +493,31 @@ test "url regex" {
         try testing.expectEqual(@as(usize, case.num_matches), reg.count());
         const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
         try testing.expectEqualStrings(case.expect, match);
+    }
+
+    const no_match_cases = [_][]const u8{
+        // bare relative paths without any dot should not match as file paths
+        "input/output",
+        "foo/bar",
+        // $-numeric character should not match
+        "$10/bar",
+        "$10/$20",
+        "$10/bar.txt",
+        // comma should not let dot detection look past it
+        "foo/bar,baz.txt",
+        // $VAR should not match mid-word
+        "foo$BAR/baz.txt",
+        // ~ should not match mid-word
+        "foo~/bar.txt",
+        // double-slash comments are not paths
+        "// foo bar",
+        "//foo",
+    };
+    for (no_match_cases) |input| {
+        var result = re.search(input, .{});
+        if (result) |*reg| {
+            reg.deinit();
+            return error.TestUnexpectedResult;
+        } else |_| {}
     }
 }

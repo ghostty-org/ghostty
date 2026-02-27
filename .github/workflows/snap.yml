@@ -26,7 +26,7 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
       - name: Download Source Tarball Artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           run-id: ${{ inputs.source-run-id }}
           artifact-ids: ${{ inputs.source-artifact-id }}
@@ -38,7 +38,7 @@ jobs:
           tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@446d8f390563cd54ca27e8de5bdb816f63c0b706 # v1.2.21
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
         with:
           path: |
             /nix

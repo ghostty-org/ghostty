@@ -23,6 +23,7 @@ pub const args = @import("args.zig");
 pub const cgroup = @import("cgroup.zig");
 pub const hostname = @import("hostname.zig");
 pub const i18n = @import("i18n.zig");
+pub const mach = @import("mach.zig");
 pub const path = @import("path.zig");
 pub const passwd = @import("passwd.zig");
 pub const xdg = @import("xdg.zig");
@@ -73,5 +74,8 @@ test {
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;
+    } else if (comptime builtin.os.tag.isDarwin()) {
+        _ = mach;
+        _ = macos;
     }
 }

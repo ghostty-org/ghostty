@@ -8,7 +8,7 @@
     ./common.nix
   ];
 
-  services.xserver = {
+  services = {
     displayManager = {
       gdm = {
         enable = true;

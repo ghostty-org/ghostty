@@ -83,6 +83,14 @@
 in
   linkFarm name [
     {
+      name = "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr";
+      path = fetchZigArtifact {
+        name = "bindings";
+        url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz";
+        hash = "sha256-i/7FAOAJJvZ5hT7iPWfMOS08MYFzPKRwRzhlHT9wuqM=";
+      };
+    }
+    {
       name = "N-V-__8AALw2uwF_03u4JRkZwRLc3Y9hakkYV7NKRR9-RIZJ";
       path = fetchZigArtifact {
         name = "breakpad";
@@ -155,19 +163,19 @@ in
       };
     }
     {
-      name = "N-V-__8AAH0GaQC8a52s6vfIxg88OZgFgEW6DFxfSK4lX_l3";
+      name = "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI";
       path = fetchZigArtifact {
         name = "imgui";
-        url = "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz";
-        hash = "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA=";
+        url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz";
+        hash = "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs=";
       };
     }
     {
-      name = "N-V-__8AAIdIAwAOceDblkuOARUyuTKbDdGPjPClPLhMeIfU";
+      name = "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/ghostty-themes-release-20251222-150520-0add1e1.tgz";
-        hash = "sha256-cMIEDZFYdilCavhL5pWQ6jRerGUFSZIjLwbxNossSeg=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz";
+        hash = "sha256-FCALuGoMgUq2lgnVALKAs5a20uuDXt8Gdt5KeJwKqP0=";
       };
     }
     {
@@ -267,11 +275,11 @@ in
       };
     }
     {
-      name = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E";
+      name = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz";
-        hash = "sha256-SzpYGhgG4B6Luf8eT35sKLobCxjmwEuo1Twk0jeu9g4=";
+        url = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz";
+        hash = "sha256-0KvuD0+L1urjwFF3fhbnxC2JZKqqAVWRxOVlcD9GX5U=";
       };
     }
     {
@@ -310,7 +318,7 @@ in
       name = "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz";
+        url = "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz";
         hash = "sha256-afIdou/V7gk3/lXE0J5Ir8T7L5GgHvFnyMJ1rgRnl/c=";
       };
     }

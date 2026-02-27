@@ -121,7 +121,7 @@ _ghostty_deferred_init() {
             fi
         fi
 
-        builtin local mark1=$'%{\e]133;A\a%}'
+        builtin local mark1=$'%{\e]133;A;cl=line\a%}'
         if [[ -o prompt_percent ]]; then
             builtin typeset -g precmd_functions
             if [[ ${precmd_functions[-1]} == _ghostty_precmd ]]; then
@@ -132,6 +132,7 @@ _ghostty_deferred_init() {
                 # asynchronously from a `zle -F` handler might still remove our
                 # marks. Oh well.
                 builtin local mark2=$'%{\e]133;A;k=s\a%}'
+                builtin local markB=$'%{\e]133;B\a%}'
                 # Add marks conditionally to avoid a situation where we have
                 # several marks in place. These conditions can have false
                 # positives and false negatives though.
@@ -139,8 +140,17 @@ _ghostty_deferred_init() {
                 # - False positive (with prompt_percent): PS1="%(?.$mark1.)"
                 # - False negative (with prompt_subst):   PS1='$mark1'
                 [[ $PS1 == *$mark1* ]] || PS1=${mark1}${PS1}
+                [[ $PS1 == *$markB* ]] || PS1=${PS1}${markB}
+                # Handle multiline prompts by marking continuation lines as 
+                # secondary by replacing newlines with being prefixed
+                # with k=s
+                if [[ $PS1 == *$'\n'* ]]; then
+                    PS1=${PS1//$'\n'/$'\n'${mark2}}
+                fi
+
                 # PS2 mark is needed when clearing the prompt on resize
                 [[ $PS2 == *$mark2* ]] || PS2=${mark2}${PS2}
+                [[ $PS2 == *$markB* ]] || PS2=${PS2}${markB}
                 (( _ghostty_state = 2 ))
             else
                 # If our precmd hook is not the last, we cannot rely on prompt
@@ -178,8 +188,11 @@ _ghostty_deferred_init() {
         # our own prompt, user prompt, and our own prompt with user additions on
         # top. We cannot force prompt_subst on the user though, so we would
         # still need this code for the no_prompt_subst case.
-        PS1=${PS1//$'%{\e]133;A\a%}'}
+        PS1=${PS1//$'%{\e]133;A;cl=line\a%}'}
+        PS1=${PS1//$'%{\e]133;A;k=s\a%}'}
+        PS1=${PS1//$'%{\e]133;B\a%}'}
         PS2=${PS2//$'%{\e]133;A;k=s\a%}'}
+        PS2=${PS2//$'%{\e]133;B\a%}'}
 
         # This will work incorrectly in the presence of a preexec hook that
         # prints. For example, if MichaelAquilina/zsh-you-should-use installs
@@ -201,11 +214,11 @@ _ghostty_deferred_init() {
     _ghostty_report_pwd
 
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-      # Enable terminal title changes.
+      # Enable terminal title changes, formatted for user-friendly display.
       functions[_ghostty_precmd]+="
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(%):-%(4~|…/%3~|%~)}\"\$'\\a'"
       functions[_ghostty_preexec]+="
-          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(V)1}\"\$'\\a'"
+          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${1//[[:cntrl:]]}\"\$'\\a'"
     fi
 
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
@@ -214,14 +227,14 @@ _ghostty_deferred_init() {
       # executed from zle. For example, users of fzf-based widgets may find
       # themselves with a blinking block cursor within fzf.
       _ghostty_zle_line_init _ghostty_zle_line_finish _ghostty_zle_keymap_select() {
-	  case ${KEYMAP-} in
-	      # Blinking block cursor.
-	      vicmd|visual) builtin print -nu "$_ghostty_fd" '\e[1 q';;
-	      # Blinking bar cursor.
-	      *)            builtin print -nu "$_ghostty_fd" '\e[5 q';;
-	  esac
+        builtin local steady=0
+        [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:steady"* ]] && steady=1
+        case ${KEYMAP-} in
+            vicmd|visual) builtin print -nu "$_ghostty_fd" "\e[$(( 1 + steady )) q" ;; # block
+            *)            builtin print -nu "$_ghostty_fd" "\e[$(( 5 + steady )) q" ;; # bar
+        esac
       }
-      # Restore the blinking default shape before executing an external command
+      # Restore the default shape before executing an external command
       functions[_ghostty_preexec]+="
 	  builtin print -rnu $_ghostty_fd \$'\\e[0 q'"
     fi
@@ -302,7 +315,7 @@ _ghostty_deferred_init() {
                 ssh_cpath_dir=$(mktemp -d "/tmp/ghostty-ssh-$ssh_user.XXXXXX" 2>/dev/null) || ssh_cpath_dir="/tmp/ghostty-ssh-$ssh_user.$$"
                 ssh_cpath="$ssh_cpath_dir/socket"
 
-                if print "$ssh_terminfo" | command ssh "${ssh_opts[@]}" -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s "$@" '
+                if builtin print -r "$ssh_terminfo" | command ssh "${ssh_opts[@]}" -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s "$@" '
                   infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
                   command -v tic >/dev/null 2>&1 || exit 1
                   mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0

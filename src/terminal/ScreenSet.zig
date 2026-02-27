@@ -32,7 +32,7 @@ all: std.EnumMap(Key, *Screen),
 pub fn init(
     alloc: Allocator,
     opts: Screen.Options,
-) !ScreenSet {
+) Allocator.Error!ScreenSet {
     // We need to initialize our initial primary screen
     const screen = try alloc.create(Screen);
     errdefer alloc.destroy(screen);
@@ -64,7 +64,7 @@ pub fn getInit(
     alloc: Allocator,
     key: Key,
     opts: Screen.Options,
-) !*Screen {
+) Allocator.Error!*Screen {
     if (self.get(key)) |screen| return screen;
     const screen = try alloc.create(Screen);
     errdefer alloc.destroy(screen);

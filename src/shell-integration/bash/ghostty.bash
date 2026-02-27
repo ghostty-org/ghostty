@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # We need to be in interactive mode to proceed.
-if [[ "$-" != *i* ]] ; then builtin return; fi
+if [[ "$-" != *i* ]]; then builtin return; fi
 
 # When automatic shell integration is active, we were started in POSIX
 # mode and need to manually recreate the bash startup sequence.
@@ -49,7 +49,10 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
     if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
       [ -r /etc/profile ] && builtin source "/etc/profile"
       for __ghostty_rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
-        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
+        [ -r "$__ghostty_rcfile" ] && {
+          builtin source "$__ghostty_rcfile"
+          break
+        }
       done
     fi
   else
@@ -61,7 +64,10 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
       #  Void Linux uses /etc/bash/bashrc
       #  Nixos uses /etc/bashrc
       for __ghostty_rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
-        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
+        [ -r "$__ghostty_rcfile" ] && {
+          builtin source "$__ghostty_rcfile"
+          break
+        }
       done
       if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE="$HOME/.bashrc"; fi
       [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
@@ -101,9 +107,9 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
       fi
     done
     if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
-      builtin command sudo "$@";
+      builtin command sudo "$@"
     else
-      builtin command sudo --preserve-env=TERMINFO "$@";
+      builtin command sudo --preserve-env=TERMINFO "$@"
     fi
   }
 fi
@@ -127,8 +133,8 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
 
       while IFS=' ' read -r ssh_key ssh_value; do
         case "$ssh_key" in
-          user) ssh_user="$ssh_value" ;;
-          hostname) ssh_hostname="$ssh_value" ;;
+        user) ssh_user="$ssh_value" ;;
+        hostname) ssh_hostname="$ssh_value" ;;
         esac
         [[ -n "$ssh_user" && -n "$ssh_hostname" ]] && break
       done < <(builtin command ssh -G "$@" 2>/dev/null)
@@ -178,76 +184,124 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
   }
 fi
 
-# Import bash-preexec, safe to do multiple times
-builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
-
 # This is set to 1 when we're executing a command so that we don't
 # send prompt marks multiple times.
 _ghostty_executing=""
 _ghostty_last_reported_cwd=""
 
 function __ghostty_precmd() {
-    local ret="$?"
-    if test "$_ghostty_executing" != "0"; then
-      _GHOSTTY_SAVE_PS1="$PS1"
-      _GHOSTTY_SAVE_PS2="$PS2"
+  local ret="$?"
+  if test "$_ghostty_executing" != "0"; then
+    _GHOSTTY_SAVE_PS1="$PS1"
+    _GHOSTTY_SAVE_PS2="$PS2"
 
-      # Marks
-      PS1=$PS1'\[\e]133;B\a\]'
-      PS2=$PS2'\[\e]133;B\a\]'
+    # Marks. We need to do fresh line (A) at the beginning of the prompt
+    # since if the cursor is not at the beginning of a line, the terminal
+    # will emit a newline.
+    PS1='\[\e]133;A;redraw=last;cl=line;aid='"$BASHPID"'\a\]'$PS1'\[\e]133;B\a\]'
+    PS2='\[\e]133;A;k=s\a\]'$PS2'\[\e]133;B\a\]'
 
-      # bash doesn't redraw the leading lines in a multiline prompt so
-      # mark the last line as a secondary prompt (k=s) to prevent the
-      # preceding lines from being erased by ghostty after a resize.
-      if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
-        PS1=$PS1'\[\e]133;A;k=s\a\]'
-      fi
-
-      # Cursor
-      if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
-        [[ "$PS1" != *'\[\e[5 q\]'* ]] && PS1=$PS1'\[\e[5 q\]' # input
-        [[ "$PS0" != *'\[\e[0 q\]'* ]] && PS0=$PS0'\[\e[0 q\]' # reset
-      fi
-
-      # Title (working directory)
-      if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-        PS1=$PS1'\[\e]2;\w\a\]'
-      fi
+    # Bash doesn't redraw the leading lines in a multiline prompt so
+    # we mark the start of each line (after each newline) as a secondary
+    # prompt. This correctly handles multiline prompts by setting the first
+    # to primary and the subsequent lines to secondary.
+    if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
+      builtin local __ghostty_mark=$'\\[\\e]133;A;k=s\\a\\]'
+      PS1="${PS1//$'\n'/$'\n'$__ghostty_mark}"
+      PS1="${PS1//\\n/\\n$__ghostty_mark}"
     fi
 
-    if test "$_ghostty_executing" != ""; then
-      # End of current command. Report its status.
-      builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
+    # Cursor
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+      builtin local cursor=5  # blinking bar
+      [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:steady"* ]] && cursor=6  # steady bar
+
+      [[ "$PS1" != *"\[\e[${cursor} q\]"* ]] && PS1=$PS1"\[\e[${cursor} q\]"
+      [[ "$PS0" != *'\[\e[0 q\]'* ]] && PS0=$PS0'\[\e[0 q\]' # reset
     fi
 
-    # unfortunately bash provides no hooks to detect cwd changes
-    # in particular this means cwd reporting will not happen for a
-    # command like cd /test && cat. PS0 is evaluated before cd is run.
-    if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
-      _ghostty_last_reported_cwd="$PWD"
-      builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
+    # Title (working directory)
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+      PS1=$PS1'\[\e]2;\w\a\]'
     fi
+  fi
 
-    # Fresh line and start of prompt.
-    builtin printf "\e]133;A;aid=%s\a" "$BASHPID"
-    _ghostty_executing=0
+  if test "$_ghostty_executing" != ""; then
+    # End of current command. Report its status.
+    builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
+  fi
+
+  # unfortunately bash provides no hooks to detect cwd changes
+  # in particular this means cwd reporting will not happen for a
+  # command like cd /test && cat. PS0 is evaluated before cd is run.
+  if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
+    _ghostty_last_reported_cwd="$PWD"
+    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
+  fi
+
+  _ghostty_executing=0
 }
 
 function __ghostty_preexec() {
-    builtin local cmd="$1"
+  builtin local cmd="$1"
 
-    PS1="$_GHOSTTY_SAVE_PS1"
-    PS2="$_GHOSTTY_SAVE_PS2"
+  PS1="$_GHOSTTY_SAVE_PS1"
+  PS2="$_GHOSTTY_SAVE_PS2"
 
-    # Title (current command)
-    if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-      builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]}"
-    fi
+  # Title (current command)
+  if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+    builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]/}"
+  fi
 
-    # End of input, start of output.
-    builtin printf "\e]133;C;\a"
-    _ghostty_executing=1
+  # End of input, start of output.
+  builtin printf "\e]133;C;\a"
+  _ghostty_executing=1
 }
 
-preexec_functions+=(__ghostty_preexec)
-precmd_functions+=(__ghostty_precmd)
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+  __ghostty_preexec_hook() {
+    builtin local cmd
+    cmd=$(LC_ALL=C HISTTIMEFORMAT='' builtin history 1)
+    cmd="${cmd#*[[:digit:]][* ] }"  # remove leading history number
+    [[ -n "$cmd" ]] && __ghostty_preexec "$cmd"
+  }
+
+  # Use function substitution in 5.3+. Otherwise, use command substitution.
+  # Any output (including escape sequences) goes to the terminal.
+  if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
+    # shellcheck disable=SC2016
+    builtin readonly __ghostty_ps0='${ __ghostty_preexec_hook; }'
+  else
+    # shellcheck disable=SC2016
+    builtin readonly __ghostty_ps0='$(__ghostty_preexec_hook >/dev/tty)'
+  fi
+
+  __ghostty_hook() {
+    builtin local ret=$?
+    __ghostty_precmd "$ret"
+    if [[ "$PS0" != *"$__ghostty_ps0"* ]]; then
+      PS0=$PS0"${__ghostty_ps0}"
+    fi
+  }
+
+  # Append our hook to PROMPT_COMMAND, preserving its existing type.
+  if [[ ";${PROMPT_COMMAND[*]:-};" != *";__ghostty_hook;"* ]]; then
+    if [[ -z "${PROMPT_COMMAND[*]}" ]]; then
+      if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
+        PROMPT_COMMAND=(__ghostty_hook)
+      else
+        # shellcheck disable=SC2178
+        PROMPT_COMMAND="__ghostty_hook"
+      fi
+    elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a "* ]]; then
+      PROMPT_COMMAND+=(__ghostty_hook)
+    else
+      # shellcheck disable=SC2179
+      PROMPT_COMMAND+="; __ghostty_hook"
+    fi
+  fi
+else
+  builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
+  preexec_functions+=(__ghostty_preexec)
+  precmd_functions+=(__ghostty_precmd)
+fi

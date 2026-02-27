@@ -24,7 +24,19 @@ pub const Uniforms = extern struct {
     previous_cursor: [4]f32 align(16),
     current_cursor_color: [4]f32 align(16),
     previous_cursor_color: [4]f32 align(16),
+    current_cursor_style: i32 align(4),
+    previous_cursor_style: i32 align(4),
+    cursor_visible: i32 align(4),
     cursor_change_time: f32 align(4),
+    time_focus: f32 align(4),
+    focus: i32 align(4),
+    palette: [256][4]f32 align(16),
+    background_color: [4]f32 align(16),
+    foreground_color: [4]f32 align(16),
+    cursor_color: [4]f32 align(16),
+    cursor_text: [4]f32 align(16),
+    selection_background_color: [4]f32 align(16),
+    selection_foreground_color: [4]f32 align(16),
 };
 
 /// The target to load shaders for.
@@ -412,3 +424,4 @@ test "shadertoy to glsl" {
 
 const test_crt = @embedFile("shaders/test_shadertoy_crt.glsl");
 const test_invalid = @embedFile("shaders/test_shadertoy_invalid.glsl");
+const test_focus = @embedFile("shaders/test_shadertoy_focus.glsl");

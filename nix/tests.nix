@@ -91,6 +91,7 @@
           };
           programs.ssh = {
             enable = true;
+            enableDefaultConfig = false;
             extraOptionOverrides = {
               StrictHostKeyChecking = "accept-new";
               UserKnownHostsFile = "/dev/null";
@@ -274,7 +275,7 @@ in {
           client.succeed("${su "${ghostty} +new-window"}")
           client.wait_until_succeeds("${wm_class} | grep -q 'com.mitchellh.ghostty-debug'")
 
-      with subtest("SSH from client to server and verify that the Ghostty terminfo is copied.")
+      with subtest("SSH from client to server and verify that the Ghostty terminfo is copied."):
           client.sleep(2)
           client.send_chars("ssh ghostty@server\n")
           server.wait_for_file("${user.home}/.terminfo/x/xterm-ghostty", timeout=30)

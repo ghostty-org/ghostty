@@ -28,8 +28,6 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
         try writer.writeAll("set -l commands \"");
         var count: usize = 0;
         for (@typeInfo(Action).@"enum".fields) |field| {
-            if (std.mem.eql(u8, "help", field.name)) continue;
-            if (std.mem.eql(u8, "version", field.name)) continue;
             if (count > 0) try writer.writeAll(" ");
             try writer.writeAll("+");
             try writer.writeAll(field.name);
@@ -98,8 +96,6 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
         try writer.writeAll("complete -c ghostty -n \"string match -q -- '+*' (commandline -pt)\" -f -a \"");
         var count: usize = 0;
         for (@typeInfo(Action).@"enum".fields) |field| {
-            if (std.mem.eql(u8, "help", field.name)) continue;
-            if (std.mem.eql(u8, "version", field.name)) continue;
             if (count > 0) try writer.writeAll(" ");
             try writer.writeAll("+");
             try writer.writeAll(field.name);

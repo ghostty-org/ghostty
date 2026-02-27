@@ -19,4 +19,6 @@ pub const SplitTree = split_tree.SplitTree;
 
 test {
     @import("std").testing.refAllDecls(@This());
+
+    _ = @import("comparison.zig");
 }

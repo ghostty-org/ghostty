@@ -135,29 +135,28 @@ pub fn add(
     // Every exe needs the terminal options
     self.config.terminalOptions().add(b, step.root_module);
 
-    // Freetype
+    // Freetype. We always include this even if our font backend doesn't
+    // use it because Dear Imgui uses Freetype.
     _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
-    if (self.config.font_backend.hasFreetype()) {
-        if (b.lazyDependency("freetype", .{
-            .target = target,
-            .optimize = optimize,
-            .@"enable-libpng" = true,
-        })) |freetype_dep| {
-            step.root_module.addImport(
-                "freetype",
-                freetype_dep.module("freetype"),
-            );
+    if (b.lazyDependency("freetype", .{
+        .target = target,
+        .optimize = optimize,
+        .@"enable-libpng" = true,
+    })) |freetype_dep| {
+        step.root_module.addImport(
+            "freetype",
+            freetype_dep.module("freetype"),
+        );
 
-            if (b.systemIntegrationOption("freetype", .{})) {
-                step.linkSystemLibrary2("bzip2", dynamic_link_opts);
-                step.linkSystemLibrary2("freetype2", dynamic_link_opts);
-            } else {
-                step.linkLibrary(freetype_dep.artifact("freetype"));
-                try static_libs.append(
-                    b.allocator,
-                    freetype_dep.artifact("freetype").getEmittedBin(),
-                );
-            }
+        if (b.systemIntegrationOption("freetype", .{})) {
+            step.linkSystemLibrary2("bzip2", dynamic_link_opts);
+            step.linkSystemLibrary2("freetype2", dynamic_link_opts);
+        } else {
+            step.linkLibrary(freetype_dep.artifact("freetype"));
+            try static_libs.append(
+                b.allocator,
+                freetype_dep.artifact("freetype").getEmittedBin(),
+            );
         }
     }
 
@@ -413,14 +412,7 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    if (b.lazyDependency("uucode", .{
-        .target = target,
-        .optimize = optimize,
-        .tables_path = self.uucode_tables,
-        .build_config_path = b.path("src/build/uucode_config.zig"),
-    })) |dep| {
-        step.root_module.addImport("uucode", dep.module("uucode"));
-    }
+    self.addUucode(b, step.root_module, target, optimize);
     if (b.lazyDependency("zf", .{
         .target = target,
         .optimize = optimize,
@@ -479,15 +471,21 @@ pub fn add(
     }
 
     // cimgui
-    if (b.lazyDependency("cimgui", .{
+    if (b.lazyDependency("dcimgui", .{
         .target = target,
         .optimize = optimize,
-    })) |cimgui_dep| {
-        step.root_module.addImport("cimgui", cimgui_dep.module("cimgui"));
-        step.linkLibrary(cimgui_dep.artifact("cimgui"));
+        .freetype = true,
+        .@"backend-metal" = target.result.os.tag.isDarwin(),
+        .@"backend-osx" = target.result.os.tag == .macos,
+        // OpenGL3 backend should only be built on non-Apple targets.
+        // Apple platforms use Metal (and macOS may also use the OSX backend).
+        .@"backend-opengl3" = !target.result.os.tag.isDarwin(),
+    })) |dep| {
+        step.root_module.addImport("dcimgui", dep.module("dcimgui"));
+        step.linkLibrary(dep.artifact("dcimgui"));
         try static_libs.append(
             b.allocator,
-            cimgui_dep.artifact("cimgui").getEmittedBin(),
+            dep.artifact("dcimgui").getEmittedBin(),
         );
     }
 
@@ -873,6 +871,23 @@ pub fn gtkNgDistResources(
             .generated = resources_h,
         },
     };
+}
+
+pub fn addUucode(
+    self: *const SharedDeps,
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    if (b.lazyDependency("uucode", .{
+        .target = target,
+        .optimize = optimize,
+        .tables_path = self.uucode_tables,
+        .build_config_path = b.path("src/build/uucode_config.zig"),
+    })) |dep| {
+        module.addImport("uucode", dep.module("uucode"));
+    }
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by

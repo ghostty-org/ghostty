@@ -16,16 +16,16 @@ class QuickTerminalController: BaseTerminalController {
     /// The previously running application when the terminal is shown. This is NEVER Ghostty.
     /// If this is set then when the quick terminal is animated out then we will restore this
     /// application to the front.
-    private var previousApp: NSRunningApplication? = nil
+    private var previousApp: NSRunningApplication?
 
     // The active space when the quick terminal was last shown.
-    private var previousActiveSpace: CGSSpace? = nil
+    private var previousActiveSpace: CGSSpace?
 
     /// Cache for per-screen window state.
     let screenStateCache: QuickTerminalScreenStateCache
 
     /// Non-nil if we have hidden dock state.
-    private var hiddenDock: HiddenDock? = nil
+    private var hiddenDock: HiddenDock?
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
@@ -350,7 +350,7 @@ class QuickTerminalController: BaseTerminalController {
     // MARK: Methods
 
     func toggle() {
-        if (visible) {
+        if visible {
             animateOut()
         } else {
             animateIn()
@@ -374,8 +374,7 @@ class QuickTerminalController: BaseTerminalController {
         // we want to store it so we can restore state later.
         if !NSApp.isActive {
             if let previousApp = NSWorkspace.shared.frontmostApplication,
-               previousApp.bundleIdentifier != Bundle.main.bundleIdentifier
-            {
+               previousApp.bundleIdentifier != Bundle.main.bundleIdentifier {
                 self.previousApp = previousApp
             }
         }
@@ -476,7 +475,7 @@ class QuickTerminalController: BaseTerminalController {
         // If our dock position would conflict with our target location then
         // we autohide the dock.
         if position.conflictsWithDock(on: screen) {
-            if (hiddenDock == nil) {
+            if hiddenDock == nil {
                 hiddenDock = .init()
             }
 
@@ -714,10 +713,10 @@ class QuickTerminalController: BaseTerminalController {
         // We ignore the configured fullscreen style and always use non-native
         // because the way the quick terminal works doesn't support native.
         let mode: FullscreenMode
-        if (NSApp.isFrontmost) {
+        if NSApp.isFrontmost {
             // If we're frontmost and we have a notch then we keep padding
             // so all lines of the terminal are visible.
-            if (window?.screen?.hasNotch ?? false) {
+            if window?.screen?.hasNotch ?? false {
                 mode = .nonNativePaddedNotch
             } else {
                 mode = .nonNative

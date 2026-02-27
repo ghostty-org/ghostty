@@ -311,6 +311,7 @@ fn drainMailbox(
 
         log.debug("mailbox message={s}", .{@tagName(message)});
         switch (message) {
+            .color_scheme_report => |v| try io.colorSchemeReport(data, v.force),
             .crash => @panic("crash request, crashing intentionally"),
             .change_config => |config| {
                 defer config.alloc.destroy(config.ptr);
@@ -320,7 +321,7 @@ fn drainMailbox(
             .resize => |v| self.handleResize(cb, v),
             .size_report => |v| try io.sizeReport(data, v),
             .clear_screen => |v| try io.clearScreen(data, v.history),
-            .scroll_viewport => |v| try io.scrollViewport(v),
+            .scroll_viewport => |v| io.scrollViewport(v),
             .selection_scroll => |v| {
                 if (v) {
                     self.startScrollTimer(cb);

@@ -20,6 +20,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const fastmem = @import("../fastmem.zig");
+const tripwire = @import("../tripwire.zig");
 
 const log = std.log.scoped(.atlas);
 
@@ -91,7 +92,15 @@ pub const Region = extern struct {
 /// TODO: figure out optimal prealloc based on real world usage
 const node_prealloc: usize = 64;
 
+pub const init_tw = tripwire.module(enum {
+    alloc_data,
+    alloc_nodes,
+}, init);
+
 pub fn init(alloc: Allocator, size: u32, format: Format) Allocator.Error!Atlas {
+    const tw = init_tw;
+
+    try tw.check(.alloc_data);
     var result = Atlas{
         .data = try alloc.alloc(u8, size * size * format.depth()),
         .size = size,
@@ -101,6 +110,7 @@ pub fn init(alloc: Allocator, size: u32, format: Format) Allocator.Error!Atlas {
     errdefer result.deinit(alloc);
 
     // Prealloc some nodes.
+    try tw.check(.alloc_nodes);
     result.nodes = try .initCapacity(alloc, node_prealloc);
 
     // This sets up our initial state
@@ -115,6 +125,10 @@ pub fn deinit(self: *Atlas, alloc: Allocator) void {
     self.* = undefined;
 }
 
+pub const reserve_tw = tripwire.module(enum {
+    insert_node,
+}, reserve);
+
 /// Reserve a region within the atlas with the given width and height.
 ///
 /// May allocate to add a new rectangle into the internal list of rectangles.
@@ -125,6 +139,8 @@ pub fn reserve(
     width: u32,
     height: u32,
 ) (Allocator.Error || Error)!Region {
+    const tw = reserve_tw;
+
     // x, y are populated within :best_idx below
     var region: Region = .{ .x = 0, .y = 0, .width = width, .height = height };
 
@@ -162,11 +178,13 @@ pub fn reserve(
     };
 
     // Insert our new node for this rectangle at the exact best index
+    try tw.check(.insert_node);
     try self.nodes.insert(alloc, best_idx, .{
         .x = region.x,
         .y = region.y + height,
         .width = width,
     });
+    errdefer comptime unreachable;
 
     // Optimize our rectangles
     var i: usize = best_idx + 1;
@@ -287,15 +305,24 @@ pub fn setFromLarger(
     _ = self.modified.fetchAdd(1, .monotonic);
 }
 
+pub const grow_tw = tripwire.module(enum {
+    ensure_node_capacity,
+    alloc_data,
+}, grow);
+
 // Grow the texture to the new size, preserving all previously written data.
 pub fn grow(self: *Atlas, alloc: Allocator, size_new: u32) Allocator.Error!void {
+    const tw = grow_tw;
+
     assert(size_new >= self.size);
     if (size_new == self.size) return;
 
     // We reserve space ahead of time for the new node, so that we
     // won't have to handle any errors after allocating our new data.
+    try tw.check(.ensure_node_capacity);
     try self.nodes.ensureUnusedCapacity(alloc, 1);
 
+    try tw.check(.alloc_data);
     const data_new = try alloc.alloc(
         u8,
         size_new * size_new * self.format.depth(),
@@ -355,7 +382,7 @@ pub fn clear(self: *Atlas) void {
 ///       swapped because PPM expects RGB. This would be
 ///       easy enough to fix so next time someone needs
 ///       to debug a color atlas they should fix it.
-pub fn dump(self: Atlas, writer: *std.Io.Writer) !void {
+pub fn dump(self: Atlas, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print(
         \\P{c}
         \\{d} {d}
@@ -794,4 +821,69 @@ test "grow OOM" {
     try testing.expectEqual(@as(u8, 2), atlas.data[6]);
     try testing.expectEqual(@as(u8, 3), atlas.data[9]);
     try testing.expectEqual(@as(u8, 4), atlas.data[10]);
+}
+
+test "init error" {
+    // Test every failure point in `init` and ensure that we don't
+    // leak memory (testing.allocator verifies) since we're exiting early.
+    for (std.meta.tags(init_tw.FailPoint)) |tag| {
+        const tw = init_tw;
+        defer tw.end(.reset) catch unreachable;
+        tw.errorAlways(tag, error.OutOfMemory);
+        try testing.expectError(
+            error.OutOfMemory,
+            init(testing.allocator, 32, .grayscale),
+        );
+    }
+}
+
+test "reserve error" {
+    // Test every failure point in `reserve` and ensure that we don't
+    // leak memory (testing.allocator verifies) since we're exiting early.
+    for (std.meta.tags(reserve_tw.FailPoint)) |tag| {
+        const tw = reserve_tw;
+        defer tw.end(.reset) catch unreachable;
+
+        var atlas = try init(testing.allocator, 32, .grayscale);
+        defer atlas.deinit(testing.allocator);
+
+        tw.errorAlways(tag, error.OutOfMemory);
+        try testing.expectError(
+            error.OutOfMemory,
+            atlas.reserve(testing.allocator, 2, 2),
+        );
+    }
+}
+
+test "grow error" {
+    // Test every failure point in `grow` and ensure that we don't
+    // leak memory (testing.allocator verifies) since we're exiting early.
+    for (std.meta.tags(grow_tw.FailPoint)) |tag| {
+        const tw = grow_tw;
+        defer tw.end(.reset) catch unreachable;
+
+        var atlas = try init(testing.allocator, 4, .grayscale);
+        defer atlas.deinit(testing.allocator);
+
+        // Write some data to verify it's preserved after failed grow
+        const reg = try atlas.reserve(testing.allocator, 2, 2);
+        atlas.set(reg, &[_]u8{ 1, 2, 3, 4 });
+
+        const old_modified = atlas.modified.load(.monotonic);
+        const old_resized = atlas.resized.load(.monotonic);
+
+        tw.errorAlways(tag, error.OutOfMemory);
+        try testing.expectError(
+            error.OutOfMemory,
+            atlas.grow(testing.allocator, atlas.size + 1),
+        );
+
+        // Verify atlas state is unchanged after failed grow
+        try testing.expectEqual(old_modified, atlas.modified.load(.monotonic));
+        try testing.expectEqual(old_resized, atlas.resized.load(.monotonic));
+        try testing.expectEqual(@as(u8, 1), atlas.data[5]);
+        try testing.expectEqual(@as(u8, 2), atlas.data[6]);
+        try testing.expectEqual(@as(u8, 3), atlas.data[9]);
+        try testing.expectEqual(@as(u8, 4), atlas.data[10]);
+    }
 }

@@ -63,11 +63,6 @@ pub const Message = union(enum) {
     /// Health status change for the renderer.
     renderer_health: renderer.Health,
 
-    /// Report the color scheme. The bool parameter is whether to force or not.
-    /// If force is true, the color scheme should be reported even if mode
-    /// 2031 is not set.
-    report_color_scheme: bool,
-
     /// Tell the surface to present itself to the user. This may require raising
     /// a window and switching tabs.
     present_surface: void,
@@ -159,12 +154,28 @@ pub const Mailbox = struct {
     }
 };
 
+/// Context for new surface creation to determine inheritance behavior
+pub const NewSurfaceContext = enum(c_int) {
+    window = 0,
+    tab = 1,
+    split = 2,
+};
+
+pub fn shouldInheritWorkingDirectory(context: NewSurfaceContext, config: *const Config) bool {
+    return switch (context) {
+        .window => config.@"window-inherit-working-directory",
+        .tab => config.@"tab-inherit-working-directory",
+        .split => config.@"split-inherit-working-directory",
+    };
+}
+
 /// Returns a new config for a surface for the given app that should be
 /// used for any new surfaces. The resulting config should be deinitialized
 /// after the surface is initialized.
 pub fn newConfig(
     app: *const App,
     config: *const Config,
+    context: NewSurfaceContext,
 ) Allocator.Error!Config {
     // Create a shallow clone
     var copy = config.shallowClone(app.alloc);
@@ -175,7 +186,7 @@ pub fn newConfig(
     // Get our previously focused surface for some inherited values.
     const prev = app.focusedSurface();
     if (prev) |p| {
-        if (config.@"window-inherit-working-directory") {
+        if (shouldInheritWorkingDirectory(context, config)) {
             if (try p.pwd(alloc)) |pwd| {
                 copy.@"working-directory" = pwd;
             }

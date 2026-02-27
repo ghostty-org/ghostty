@@ -19,6 +19,7 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
+const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
@@ -29,7 +30,7 @@ const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
-const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
@@ -399,6 +400,25 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const readonly = struct {
+            pub const name = "readonly";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .getter = getReadonly,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -530,10 +550,6 @@ pub const Surface = extern struct {
     const Private = struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
-
-        /// The cgroup created for this surface. This will be created
-        /// if `Application.transient_cgroup_base` is set.
-        cgroup_path: ?[]const u8 = null,
 
         /// The default size for a window that embeds this surface.
         default_size: ?*Size = null,
@@ -671,6 +687,19 @@ pub const Surface = extern struct {
         error_page: *adw.StatusPage,
         terminal_page: *gtk.Overlay,
 
+        /// The context for this surface (window, tab, or split)
+        context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Whether primary paste (middle-click paste) is enabled.
+        gtk_enable_primary_paste: bool = true,
+
+        /// How much pending horizontal scroll do we have?
+        pending_horizontal_scroll: f64 = 0.0,
+
+        /// Timer to reset the amount of horizontal scroll if the user
+        /// stops scrolling.
+        pending_horizontal_scroll_reset: ?c_uint = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -696,6 +725,7 @@ pub const Surface = extern struct {
     pub fn setParent(
         self: *Self,
         parent: *CoreSurface,
+        context: apprt.surface.NewSurfaceContext,
     ) void {
         const priv = self.private();
 
@@ -705,6 +735,9 @@ pub const Surface = extern struct {
             log.warn("setParent called after surface is already realized", .{});
             return;
         }
+
+        // Store the context so initSurface can use it
+        priv.context = context;
 
         // Setup our font size
         const font_size_ptr = glib.ext.create(font.face.DesiredSize);
@@ -716,10 +749,8 @@ pub const Surface = extern struct {
         // Remainder needs a config. If there is no config we just assume
         // we aren't inheriting any of these values.
         if (priv.config) |config_obj| {
-            const config = config_obj.get();
-
-            // Setup our pwd if configured to inherit
-            if (config.@"window-inherit-working-directory") {
+            // Setup our cwd if configured to inherit
+            if (apprt.surface.shouldInheritWorkingDirectory(context, config_obj.get())) {
                 if (parent.rt_surface.surface.getPwd()) |pwd| {
                     priv.pwd = glib.ext.dupeZ(u8, pwd);
                     self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -1097,6 +1128,20 @@ pub const Surface = extern struct {
         return true;
     }
 
+    /// Get the readonly state from the core surface.
+    pub fn getReadonly(self: *Self) bool {
+        const priv: *Private = self.private();
+        const surface = priv.core_surface orelse return false;
+        return surface.readonly;
+    }
+
+    /// Notify anyone interested that the readonly status has changed.
+    pub fn setReadonly(self: *Self, _: apprt.Action.Value(.readonly)) bool {
+        self.as(gobject.Object).notifyByPspec(properties.readonly.impl.param_spec);
+
+        return true;
+    }
+
     /// Key press event (press or release).
     ///
     /// At a high level, we want to construct an `input.KeyEvent` and
@@ -1355,12 +1400,7 @@ pub const Surface = extern struct {
     /// Prompt for a manual title change for the surface.
     pub fn promptTitle(self: *Self) void {
         const priv = self.private();
-        const dialog = gobject.ext.newInstance(
-            TitleDialog,
-            .{
-                .@"initial-value" = priv.title_override orelse priv.title,
-            },
-        );
+        const dialog = TitleDialog.new(.surface, priv.title_override orelse priv.title);
         _ = TitleDialog.signals.set.connect(
             dialog,
             *Self,
@@ -1387,63 +1427,6 @@ pub const Surface = extern struct {
             .x = x * scale_factor,
             .y = y * scale_factor,
         };
-    }
-
-    /// Initialize the cgroup for this surface if it hasn't been
-    /// already. While this is `init`-prefixed, we prefer to call this
-    /// in the realize function because we don't need to create a cgroup
-    /// if we don't init a surface.
-    fn initCgroup(self: *Self) void {
-        const priv = self.private();
-
-        // If we already have a cgroup path then we don't do it again.
-        if (priv.cgroup_path != null) return;
-
-        const app = Application.default();
-        const alloc = app.allocator();
-        const base = app.cgroupBase() orelse return;
-
-        // For the unique group name we use the self pointer. This may
-        // not be a good idea for security reasons but not sure yet. We
-        // may want to change this to something else eventually to be safe.
-        var buf: [256]u8 = undefined;
-        const name = std.fmt.bufPrint(
-            &buf,
-            "surfaces/{X}.scope",
-            .{@intFromPtr(self)},
-        ) catch unreachable;
-
-        // Create the cgroup. If it fails, no big deal... just ignore.
-        internal_os.cgroup.create(base, name, null) catch |err| {
-            log.warn("failed to create surface cgroup err={}", .{err});
-            return;
-        };
-
-        // Success, save the cgroup path.
-        priv.cgroup_path = std.fmt.allocPrint(
-            alloc,
-            "{s}/{s}",
-            .{ base, name },
-        ) catch null;
-    }
-
-    /// Deletes the cgroup if set.
-    fn clearCgroup(self: *Self) void {
-        const priv = self.private();
-        const path = priv.cgroup_path orelse return;
-
-        internal_os.cgroup.remove(path) catch |err| {
-            // We don't want this to be fatal in any way so we just log
-            // and continue. A dangling empty cgroup is not a big deal
-            // and this should be rare.
-            log.warn(
-                "failed to remove cgroup for surface path={s} err={}",
-                .{ path, err },
-            );
-        };
-
-        Application.default().allocator().free(path);
-        priv.cgroup_path = null;
     }
 
     //---------------------------------------------------------------
@@ -1481,10 +1464,6 @@ pub const Surface = extern struct {
         return true;
     }
 
-    pub fn cgroupPath(self: *Self) ?[]const u8 {
-        return self.private().cgroup_path;
-    }
-
     pub fn getContentScale(self: *Self) apprt.ContentScale {
         const priv = self.private();
         const gl_area = priv.gl_area;
@@ -1506,19 +1485,17 @@ pub const Surface = extern struct {
         const xft_dpi_scale = xft_scale: {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-            const settings = gtk.Settings.getDefault() orelse break :xft_scale 1.0;
-            var value = std.mem.zeroes(gobject.Value);
-            defer value.unset();
-            _ = value.init(gobject.ext.typeFor(c_int));
-            settings.as(gobject.Object).getProperty("gtk-xft-dpi", &value);
-            const gtk_xft_dpi = value.getInt();
+            const gtk_xft_dpi = gsettings.get(.@"gtk-xft-dpi") orelse {
+                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                break :xft_scale 1.0;
+            };
 
             // Use a value of 1.0 for the XFT DPI scale if the setting is <= 0
             // See:
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/a7738a4d269bfdf4d8d5429ca73ccdd9b2450421
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/9759d3fd81129608dd78116001928f2aed974ead
             if (gtk_xft_dpi <= 0) {
-                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                log.warn("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
                 break :xft_scale 1.0;
             }
 
@@ -1548,9 +1525,16 @@ pub const Surface = extern struct {
     }
 
     pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
-        const alloc = Application.default().allocator();
+        const app = Application.default();
+        const alloc = app.allocator();
         var env = try internal_os.getEnvMap(alloc);
         errdefer env.deinit();
+
+        if (app.savedLanguage()) |language| {
+            try env.put("LANG", language);
+        } else {
+            env.remove("LANG");
+        }
 
         // Don't leak these GTK environment variables to child processes.
         env.remove("GDK_DEBUG");
@@ -1666,8 +1650,8 @@ pub const Surface = extern struct {
         self: *Self,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) !void {
-        try Clipboard.request(
+    ) !bool {
+        return try Clipboard.request(
             self,
             clipboard_type,
             state,
@@ -1762,6 +1746,9 @@ pub const Surface = extern struct {
         priv.im_composing = false;
         priv.im_len = 0;
 
+        // Read GTK primary paste setting
+        priv.gtk_enable_primary_paste = gsettings.get(.@"gtk-enable-primary-paste") orelse true;
+
         // Set up to handle items being dropped on our surface. Files can be dropped
         // from Nautilus and strings can be dropped from many programs. The order
         // of these types matter.
@@ -1837,6 +1824,13 @@ pub const Surface = extern struct {
             priv.idle_rechild = null;
         }
 
+        if (priv.pending_horizontal_scroll_reset) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove pending horizontal scroll reset source", .{});
+            }
+            priv.pending_horizontal_scroll_reset = null;
+        }
+
         // This works around a GTK double-free bug where if you bind
         // to a top-level template child, it frees twice if the widget is
         // also the root child of the template. By unsetting the child here,
@@ -1909,8 +1903,6 @@ pub const Surface = extern struct {
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
 
-        self.clearCgroup();
-
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
             self.as(Parent),
@@ -1923,6 +1915,24 @@ pub const Surface = extern struct {
     /// Returns the title property without a copy.
     pub fn getTitle(self: *Self) ?[:0]const u8 {
         return self.private().title;
+    }
+
+    /// Returns the effective title: the user-overridden title if set,
+    /// otherwise the terminal-set title.
+    pub fn getEffectiveTitle(self: *Self) ?[:0]const u8 {
+        const priv = self.private();
+        return priv.title_override orelse priv.title;
+    }
+
+    /// Copies the effective title to the clipboard.
+    pub fn copyTitleToClipboard(self: *Self) bool {
+        const title = self.getEffectiveTitle() orelse return false;
+        if (title.len == 0) return false;
+        self.setClipboard(.standard, &.{.{
+            .mime = "text/plain",
+            .data = title,
+        }}, false);
+        return true;
     }
 
     /// Set the title for this surface, copies the value. This should always
@@ -2086,7 +2096,7 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
     }
 
-    pub fn setSearchActive(self: *Self, active: bool) void {
+    pub fn setSearchActive(self: *Self, active: bool, needle: [:0]const u8) void {
         const priv = self.private();
         var value = gobject.ext.Value.newFrom(active);
         defer value.unset();
@@ -2095,6 +2105,10 @@ pub const Surface = extern struct {
             SearchOverlay.properties.active.name,
             &value,
         );
+
+        if (!std.mem.eql(u8, needle, "")) {
+            priv.search_overlay.setSearchContents(needle);
+        }
 
         if (active) {
             priv.search_overlay.grabFocus();
@@ -2676,6 +2690,11 @@ pub const Surface = extern struct {
 
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        if (button == .middle and !priv.gtk_enable_primary_paste) {
+            return;
+        }
+
         const consumed = consumed: {
             const gtk_mods = event.getModifierState();
             const mods = gtk_key.translateMods(gtk_mods);
@@ -2726,6 +2745,10 @@ pub const Surface = extern struct {
         const surface = priv.core_surface orelse return;
         const gtk_mods = event.getModifierState();
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        if (button == .middle and !priv.gtk_enable_primary_paste) {
+            return;
+        }
 
         const mods = gtk_key.translateMods(gtk_mods);
         const consumed = surface.mouseButtonCallback(
@@ -2823,27 +2846,27 @@ pub const Surface = extern struct {
         }
     }
 
-    fn ecMouseScrollPrecisionBegin(
+    fn ecMouseScrollVerticalPrecisionBegin(
         _: *gtk.EventControllerScroll,
         self: *Self,
     ) callconv(.c) void {
         self.private().precision_scroll = true;
     }
 
-    fn ecMouseScrollPrecisionEnd(
+    fn ecMouseScrollVerticalPrecisionEnd(
         _: *gtk.EventControllerScroll,
         self: *Self,
     ) callconv(.c) void {
         self.private().precision_scroll = false;
     }
 
-    fn ecMouseScroll(
+    fn ecMouseScrollVertical(
         _: *gtk.EventControllerScroll,
         x: f64,
         y: f64,
         self: *Self,
     ) callconv(.c) c_int {
-        const priv = self.private();
+        const priv: *Private = self.private();
         const surface = priv.core_surface orelse return 0;
 
         // Multiply precision scrolls by 10 to get a better response from
@@ -2868,6 +2891,57 @@ pub const Surface = extern struct {
         };
 
         return 1;
+    }
+
+    fn ecMouseScrollHorizontal(
+        ec: *gtk.EventControllerScroll,
+        x: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) c_int {
+        const priv: *Private = self.private();
+
+        switch (ec.getUnit()) {
+            .surface => {},
+            .wheel => return @intFromBool(false),
+            else => return @intFromBool(false),
+        }
+
+        priv.pending_horizontal_scroll += x;
+
+        if (@abs(priv.pending_horizontal_scroll) < 120) {
+            if (priv.pending_horizontal_scroll_reset) |v| {
+                _ = glib.Source.remove(v);
+                priv.pending_horizontal_scroll_reset = null;
+            }
+            priv.pending_horizontal_scroll_reset = glib.timeoutAdd(500, ecMouseScrollHorizontalReset, self);
+            return @intFromBool(true);
+        }
+
+        _ = self.as(gtk.Widget).activateAction(
+            if (priv.pending_horizontal_scroll < 0.0)
+                "tab.next-page"
+            else
+                "tab.previous-page",
+            null,
+        );
+
+        if (priv.pending_horizontal_scroll_reset) |v| {
+            _ = glib.Source.remove(v);
+            priv.pending_horizontal_scroll_reset = null;
+        }
+
+        priv.pending_horizontal_scroll = 0.0;
+
+        return @intFromBool(true);
+    }
+
+    fn ecMouseScrollHorizontalReset(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return @intFromBool(glib.SOURCE_REMOVE)));
+        const priv: *Private = self.private();
+        priv.pending_horizontal_scroll = 0.0;
+        priv.pending_horizontal_scroll_reset = null;
+        return @intFromBool(glib.SOURCE_REMOVE);
     }
 
     fn imPreeditStart(
@@ -3190,10 +3264,6 @@ pub const Surface = extern struct {
         const app = Application.default();
         const alloc = app.allocator();
 
-        // Initialize our cgroup if we can.
-        self.initCgroup();
-        errdefer self.clearCgroup();
-
         // Make our pointer to store our surface
         const surface = try alloc.create(CoreSurface);
         errdefer alloc.destroy(surface);
@@ -3206,6 +3276,7 @@ pub const Surface = extern struct {
         var config = try apprt.surface.newConfig(
             app.core(),
             priv.config.?.get(),
+            priv.context,
         );
         defer config.deinit();
 
@@ -3407,9 +3478,10 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("mouse_up", &gcMouseUp);
             class.bindTemplateCallback("mouse_motion", &ecMouseMotion);
             class.bindTemplateCallback("mouse_leave", &ecMouseLeave);
-            class.bindTemplateCallback("scroll", &ecMouseScroll);
-            class.bindTemplateCallback("scroll_begin", &ecMouseScrollPrecisionBegin);
-            class.bindTemplateCallback("scroll_end", &ecMouseScrollPrecisionEnd);
+            class.bindTemplateCallback("scroll_vertical", &ecMouseScrollVertical);
+            class.bindTemplateCallback("scroll_vertical_begin", &ecMouseScrollVerticalPrecisionBegin);
+            class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
+            class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
             class.bindTemplateCallback("drop", &dtDrop);
             class.bindTemplateCallback("gl_realize", &glareaRealize);
             class.bindTemplateCallback("gl_unrealize", &glareaUnrealize);
@@ -3456,6 +3528,7 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+                properties.readonly.impl,
 
                 // For Gtk.Scrollable
                 properties.hadjustment.impl,
@@ -3623,16 +3696,30 @@ const Clipboard = struct {
     /// Request data from the clipboard (read the clipboard). This
     /// completes asynchronously and will call the `completeClipboardRequest`
     /// core surface API when done.
+    ///
+    /// Returns true if the request was started, false if the clipboard
+    /// doesn't contain text (allowing performable keybinds to pass through).
     pub fn request(
         self: *Surface,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) Allocator.Error!void {
+    ) Allocator.Error!bool {
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
             clipboard_type,
-        ) orelse return;
+        ) orelse return false;
+
+        // For paste requests, check if clipboard has text format available.
+        // This is a synchronous check that allows performable keybinds to
+        // pass through when the clipboard contains non-text content (e.g., images).
+        if (state == .paste) {
+            const formats = clipboard.getFormats();
+            if (formats.containGtype(gobject.ext.types.string) == 0) {
+                log.debug("clipboard has no text format, not starting paste request", .{});
+                return false;
+            }
+        }
 
         // Allocate our userdata
         const alloc = Application.default().allocator();
@@ -3652,6 +3739,8 @@ const Clipboard = struct {
             clipboardReadText,
             ud,
         );
+
+        return true;
     }
 
     /// Paste explicit text directly into the surface, regardless of the

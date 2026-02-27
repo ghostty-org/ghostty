@@ -10,6 +10,7 @@
 zig-cache/
 .zig-cache/
 zig-out/
+/build.zig.zon.bak
 /result*
 /.nixos-test-history
 example/*.wasm

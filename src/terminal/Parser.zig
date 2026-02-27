@@ -359,7 +359,7 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             break :param null;
         },
         .osc_put => osc_put: {
-            self.osc_parser.next(c);
+            @call(.always_inline, osc.Parser.next, .{ &self.osc_parser, c });
             break :osc_put null;
         },
         .csi_dispatch => csi_dispatch: {

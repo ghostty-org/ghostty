@@ -11,7 +11,7 @@ const RefCountedSet = @import("ref_counted_set.zig").RefCountedSet;
 
 /// The unique identifier for a style. This is at most the number of cells
 /// that can fit into a terminal page.
-pub const Id = size.CellCountInt;
+pub const Id = size.StyleCountInt;
 
 /// The Id to use for default styling.
 pub const default_id: Id = 0;

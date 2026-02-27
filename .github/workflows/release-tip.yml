@@ -4,7 +4,11 @@ on:
     types: [completed]
     branches: [main]
 
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      pr:
+        type: number
+        required: false
 
 name: Release Tip
 
@@ -29,14 +33,19 @@ jobs:
       commit: ${{ steps.extract_build_info.outputs.commit }}
       commit_long: ${{ steps.extract_build_info.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
-      - uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31.9.0
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          path: |
+            /nix
+      - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -66,7 +75,7 @@ jobs:
     needs: [setup, build-macos]
     if: needs.setup.outputs.should_skip != 'true'
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Tip Tag
         run: |
           git config user.name "github-actions[bot]"
@@ -81,7 +90,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install sentry-cli
         run: |
@@ -104,7 +113,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install sentry-cli
         run: |
@@ -127,7 +136,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install sentry-cli
         run: |
@@ -159,17 +168,17 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@446d8f390563cd54ca27e8de5bdb816f63c0b706 # v1.2.21
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31.9.0
+      - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -215,18 +224,28 @@ jobs:
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -240,7 +259,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.3
+          SPARKLE_VERSION: 2.9.0
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -259,7 +278,9 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          xcodebuild -target Ghostty -configuration Release
+          xcodebuild -target Ghostty -configuration Release \
+            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
       # We inject the "build number" as simply the number of commits since HEAD.
       # This will be a monotonically always increasing build number that we use.
@@ -305,6 +326,7 @@ jobs:
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
           # Codesign the app bundle
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
@@ -424,12 +446,21 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
-      - name: Echo Release URLs
+      - name: Show and Save Release URLs
         run: |
-          echo "Release URLs:"
-          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip"
-          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip"
-          echo "  DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg"
+          cat << EOF | tee release-urls.txt
+          Release URLs:
+            App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip
+            Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip
+            DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg
+          EOF
+
+      - name: Upload Release URLs
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v6.0
+        with:
+          name: release-urls-${{ inputs.pr || '0' }}
+          path: release-urls.txt
+          retention-days: 2
 
   build-macos-debug-slow:
     needs: [setup]
@@ -449,18 +480,28 @@ jobs:
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -474,7 +515,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.3
+          SPARKLE_VERSION: 2.9.0
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -493,7 +534,9 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          xcodebuild -target Ghostty -configuration Release
+          xcodebuild -target Ghostty -configuration Release \
+            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
       # We inject the "build number" as simply the number of commits since HEAD.
       # This will be a monotonically always increasing build number that we use.
@@ -539,6 +582,7 @@ jobs:
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
           # Codesign the app bundle
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
@@ -633,18 +677,28 @@ jobs:
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
 
       # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -658,7 +712,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.7.3
+          SPARKLE_VERSION: 2.9.0
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -677,7 +731,9 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          xcodebuild -target Ghostty -configuration Release
+          xcodebuild -target Ghostty -configuration Release \
+            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
       # We inject the "build number" as simply the number of commits since HEAD.
       # This will be a monotonically always increasing build number that we use.
@@ -723,6 +779,7 @@ jobs:
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
           # Codesign the app bundle
           /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app

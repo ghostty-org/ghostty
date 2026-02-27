@@ -33,9 +33,15 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
-    
+
     /// Sets up our tab context menu
-    private var tabMenuObserver: NSObjectProtocol? = nil
+    private var tabMenuObserver: NSObjectProtocol?
+
+    /// Handles inline tab title editing for this host window.
+    private lazy var tabTitleEditor = TabTitleEditor(
+        hostWindow: self,
+        delegate: self
+    )
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -112,7 +118,7 @@ class TerminalWindow: NSWindow {
         }
 
         // If window decorations are disabled, remove our title
-        if (!config.windowDecorations) { styleMask.remove(.titled) }
+        if !config.windowDecorations { styleMask.remove(.titled) }
 
         // Set our window positioning to coordinates if config value exists, otherwise
         // fallback to original centering behavior
@@ -174,7 +180,16 @@ class TerminalWindow: NSWindow {
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
 
+    override func sendEvent(_ event: NSEvent) {
+        if tabTitleEditor.handleDoubleClick(event) {
+            return
+        }
+
+        super.sendEvent(event)
+    }
+
     override func close() {
+        tabTitleEditor.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
     }
@@ -194,7 +209,7 @@ class TerminalWindow: NSWindow {
 
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
-        if hasTabBar {
+        if tabBarView != nil {
             tabBarDidAppear()
         } else {
             tabBarDidDisappear()
@@ -205,6 +220,21 @@ class TerminalWindow: NSWindow {
     override func resignMain() {
         super.resignMain()
         viewModel.isMainWindow = false
+    }
+
+    @discardableResult
+    func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
+        tabTitleEditor.beginEditing(for: targetWindow)
+    }
+
+    @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
+        let targetWindow = sender.representedObject as? NSWindow ?? self
+        if beginInlineTabTitleEdit(for: targetWindow) {
+            return
+        }
+
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.promptTabTitle()
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -242,31 +272,6 @@ class TerminalWindow: NSWindow {
     /// This identifier is attached to the tab bar view controller when we detect it being
     /// added.
     static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
-
-    func findTitlebarView() -> NSView? {
-        // Find our tab bar. If it doesn't exist we don't do anything.
-        //
-        // In normal window, `NSTabBar` typically appears as a subview of `NSTitlebarView` within `NSThemeFrame`.
-        // In fullscreen, the system creates a dedicated fullscreen window and the view hierarchy changes;
-        // in that case, the `titlebarView` is only accessible via a reference on `NSThemeFrame`.
-        // ref: https://github.com/mozilla-firefox/firefox/blob/054e2b072785984455b3b59acad9444ba1eeffb4/widget/cocoa/nsCocoaWindow.mm#L7205
-        guard let themeFrameView = contentView?.rootView else { return nil }
-        let titlebarView = if themeFrameView.responds(to: Selector(("titlebarView"))) {
-            themeFrameView.value(forKey: "titlebarView") as? NSView
-        } else {
-            NSView?.none
-        }
-        return titlebarView
-    }
-
-    func findTabBar() -> NSView? {
-        findTitlebarView()?.firstDescendant(withClassName: "NSTabBar")
-    }
-
-    /// Returns true if there is a tab bar visible on this window.
-    var hasTabBar: Bool {
-        findTabBar() != nil
-    }
 
     var hasMoreThanOneTabs: Bool {
         /// accessing ``tabGroup?.windows`` here
@@ -320,7 +325,7 @@ class TerminalWindow: NSWindow {
 
     // MARK: Tab Key Equivalents
 
-    var keyEquivalent: String? = nil {
+    var keyEquivalent: String? {
         didSet {
             // When our key equivalent is set, we must update the tab label.
             guard let keyEquivalent else {
@@ -372,7 +377,7 @@ class TerminalWindow: NSWindow {
         button.toolTip = "Reset Zoom"
         button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
-        button.image = NSImage(named:"ResetZoom")
+        button.image = NSImage(named: "ResetZoom")
         button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -474,8 +479,7 @@ class TerminalWindow: NSWindow {
         let forceOpaque = terminalController?.isBackgroundOpaque ?? false
         if !styleMask.contains(.fullScreen) &&
             !forceOpaque &&
-            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle)
-        {
+            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle) {
             isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -484,7 +488,7 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // We don't need to set blur when using glass
-            if !surfaceConfig.backgroundBlur.isGlassStyle,  let appDelegate = NSApp.delegate as? AppDelegate {
+            if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
@@ -535,7 +539,7 @@ class TerminalWindow: NSWindow {
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
         guard x != nil, y != nil else {
-            if (!LastWindowPosition.shared.restore(self)) {
+            if !LastWindowPosition.shared.restore(self) {
                 center()
             }
 
@@ -569,7 +573,7 @@ class TerminalWindow: NSWindow {
             NotificationCenter.default.removeObserver(observer)
         }
     }
-    
+
     // MARK: Config
 
     struct DerivedConfig {
@@ -781,10 +785,11 @@ extension TerminalWindow {
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
 
-        // Change Title...
-        let changeTitleItem = NSMenuItem(title: "Change Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
+        // Rename Tab...
+        let changeTitleItem = NSMenuItem(title: "Rename Tab...", action: #selector(TerminalWindow.renameTabFromContextMenu(_:)), keyEquivalent: "")
         changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
-        changeTitleItem.target = target
+        changeTitleItem.target = self
+        changeTitleItem.representedObject = target?.window
         changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
         menu.addItem(changeTitleItem)
 
@@ -809,4 +814,43 @@ private func makeTabColorPaletteView(
     ))
     hostingView.frame.size = hostingView.intrinsicContentSize
     return hostingView
+}
+
+// MARK: - Inline Tab Title Editing
+
+extension TerminalWindow: TabTitleEditorDelegate {
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        canRenameTabFor targetWindow: NSWindow
+    ) -> Bool {
+        targetWindow.windowController is BaseTerminalController
+    }
+
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        titleFor targetWindow: NSWindow
+    ) -> String {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else {
+            return targetWindow.title
+        }
+
+        return targetController.titleOverride ?? targetWindow.title
+    }
+
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        didCommitTitle editedTitle: String,
+        for targetWindow: NSWindow
+    ) {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.titleOverride = editedTitle.isEmpty ? nil : editedTitle
+    }
+
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        performFallbackRenameFor targetWindow: NSWindow
+    ) {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.promptTabTitle()
+    }
 }

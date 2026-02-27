@@ -180,6 +180,15 @@ pub const Flattened = struct {
         };
     }
 
+    pub fn endPin(self: Flattened) Pin {
+        const slice = self.chunks.slice();
+        return .{
+            .node = slice.items(.node)[slice.len - 1],
+            .x = self.bot_x,
+            .y = slice.items(.end)[slice.len - 1] - 1,
+        };
+    }
+
     /// Convert to an Untracked highlight.
     pub fn untracked(self: Flattened) Untracked {
         // Note: we don't use startPin/endPin here because it is slightly

@@ -254,7 +254,7 @@ fn threadMain_(self: *Thread) !void {
     );
 
     // Start the draw timer
-    self.startDrawTimer();
+    self.syncDrawTimer();
 
     // Run
     log.debug("starting renderer thread", .{});
@@ -292,11 +292,28 @@ fn setQosClass(self: *const Thread) void {
     }
 }
 
-fn startDrawTimer(self: *Thread) void {
-    // If our renderer doesn't support animations then we never run this.
-    if (!@hasDecl(rendererpkg.Renderer, "hasAnimations")) return;
-    if (!self.renderer.hasAnimations()) return;
-    if (self.config.custom_shader_animation == .false) return;
+fn syncDrawTimer(self: *Thread) void {
+    skip: {
+        // If our renderer supports animations and has them, then we
+        // can apply draw timer based on custom shader animation configuration.
+        if (@hasDecl(rendererpkg.Renderer, "hasAnimations") and
+            self.renderer.hasAnimations())
+        {
+            // If our config says to always animate, we do so.
+            switch (self.config.custom_shader_animation) {
+                // Always animate
+                .always => break :skip,
+                // Only when focused
+                .true => if (self.flags.focused) break :skip,
+                // Never animate
+                .false => {},
+            }
+        }
+
+        // We're skipping the draw timer. Stop it on the next iteration.
+        self.draw_active = false;
+        return;
+    }
 
     // Set our active state so it knows we're running. We set this before
     // even checking the active state in case we have a pending shutdown.
@@ -314,11 +331,6 @@ fn startDrawTimer(self: *Thread) void {
         self,
         drawCallback,
     );
-}
-
-fn stopDrawTimer(self: *Thread) void {
-    // This will stop the draw on the next iteration.
-    self.draw_active = false;
 }
 
 /// Drain the mailbox.
@@ -377,12 +389,10 @@ fn drainMailbox(self: *Thread) !void {
                 // Set it on the renderer
                 try self.renderer.setFocus(v);
 
-                if (!v) {
-                    if (self.config.custom_shader_animation != .always) {
-                        // Stop the draw timer
-                        self.stopDrawTimer();
-                    }
+                // We always resync our draw timer (may disable it)
+                self.syncDrawTimer();
 
+                if (!v) {
                     // If we're not focused, then we stop the cursor blink
                     if (self.cursor_c.state() == .active and
                         self.cursor_c_cancel.state() == .dead)
@@ -397,9 +407,6 @@ fn drainMailbox(self: *Thread) !void {
                         );
                     }
                 } else {
-                    // Start the draw timer
-                    self.startDrawTimer();
-
                     // If we're focused, we immediately show the cursor again
                     // and then restart the timer.
                     if (self.cursor_c.state() != .active) {
@@ -446,8 +453,7 @@ fn drainMailbox(self: *Thread) !void {
 
                 // Stop and start the draw timer to capture the new
                 // hasAnimations value.
-                self.stopDrawTimer();
-                self.startDrawTimer();
+                self.syncDrawTimer();
             },
 
             .search_viewport_matches => |v| {
@@ -466,7 +472,9 @@ fn drainMailbox(self: *Thread) !void {
                 self.renderer.search_matches_dirty = true;
             },
 
-            .inspector => |v| self.flags.has_inspector = v,
+            .inspector => |v| {
+                self.flags.has_inspector = v;
+            },
 
             .macos_display_id => |v| {
                 if (@hasDecl(rendererpkg.Renderer, "setMacOSDisplayID")) {
@@ -597,11 +605,6 @@ fn renderCallback(
         log.warn("render callback fired without data set", .{});
         return .disarm;
     };
-
-    // If we have an inspector, let the app know we want to rerender that.
-    if (t.flags.has_inspector) {
-        _ = t.app_mailbox.push(.{ .redraw_inspector = t.surface }, .{ .instant = {} });
-    }
 
     // Update our frame data
     t.renderer.updateFrame(

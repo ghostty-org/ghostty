@@ -34,7 +34,7 @@ struct InputTextIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let surface = terminal.surfaceModel else {
             throw GhosttyIntentError.surfaceNotFound
         }
@@ -86,7 +86,7 @@ struct KeyEventIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let surface = terminal.surfaceModel else {
             throw GhosttyIntentError.surfaceNotFound
         }
@@ -95,7 +95,7 @@ struct KeyEventIntent: AppIntent {
         let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
             result.union(mod.ghosttyMod)
         }
-        
+
         let keyEvent = Ghostty.Input.KeyEvent(
             key: key,
             action: action,
@@ -150,7 +150,7 @@ struct MouseButtonIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let surface = terminal.surfaceModel else {
             throw GhosttyIntentError.surfaceNotFound
         }
@@ -159,7 +159,7 @@ struct MouseButtonIntent: AppIntent {
         let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
             result.union(mod.ghosttyMod)
         }
-        
+
         let mouseEvent = Ghostty.Input.MouseButtonEvent(
             action: action,
             button: button,
@@ -184,7 +184,7 @@ struct MousePosIntent: AppIntent {
     var x: Double
 
     @Parameter(
-        title: "Y Position", 
+        title: "Y Position",
         description: "The vertical position of the mouse cursor in pixels.",
         default: 0
     )
@@ -213,7 +213,7 @@ struct MousePosIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let surface = terminal.surfaceModel else {
             throw GhosttyIntentError.surfaceNotFound
         }
@@ -222,7 +222,7 @@ struct MousePosIntent: AppIntent {
         let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
             result.union(mod.ghosttyMod)
         }
-        
+
         let mousePosEvent = Ghostty.Input.MousePosEvent(
             x: x,
             y: y,
@@ -283,7 +283,7 @@ struct MouseScrollIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         guard let surface = terminal.surfaceModel else {
             throw GhosttyIntentError.surfaceNotFound
         }
@@ -306,16 +306,16 @@ enum KeyEventMods: String, AppEnum, CaseIterable {
     case control
     case option
     case command
-    
+
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Modifier Key")
-    
-    static var caseDisplayRepresentations: [KeyEventMods : DisplayRepresentation] = [
+
+    static var caseDisplayRepresentations: [KeyEventMods: DisplayRepresentation] = [
         .shift: "Shift",
         .control: "Control",
         .option: "Option",
         .command: "Command"
     ]
-    
+
     var ghosttyMod: Ghostty.Input.Mods {
         switch self {
         case .shift: .shift

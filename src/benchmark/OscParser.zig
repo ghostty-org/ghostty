@@ -100,8 +100,8 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
             error.ReadFailed => return error.BenchmarkFailed,
         };
 
-        for (osc_buf[0..len]) |c| self.parser.next(c);
-        _ = self.parser.end(std.ascii.control_code.bel);
+        for (osc_buf[0..len]) |c| @call(.always_inline, Parser.next, .{ &self.parser, c });
+        std.mem.doNotOptimizeAway(self.parser.end(std.ascii.control_code.bel));
         self.parser.reset();
     }
 }

@@ -1,0 +1,8 @@
+# ShellCheck <https://www.shellcheck.net/>
+# https://github.com/koalaman/shellcheck/wiki/Directive#shellcheckrc-file
+
+# Allow opening any 'source'd file, even if not specified as input
+external-sources=true
+
+# Assume bash by default
+shell=bash

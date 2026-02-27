@@ -358,7 +358,7 @@ test "history search, no active area" {
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
     try s.nextSlice("Buzz\r\nFizz");
 
-    try t.scrollViewport(.top);
+    t.scrollViewport(.top);
 
     var search: ViewportSearch = try .init(alloc, "Fizz");
     defer search.deinit();

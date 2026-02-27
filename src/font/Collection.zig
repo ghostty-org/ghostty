@@ -196,8 +196,18 @@ pub fn getFace(self: *Collection, index: Index) !*Face {
     return try self.getFaceFromEntry(try self.getEntry(index));
 }
 
+pub const EntryError = error{
+    /// Index represents a special font (built-in) and these don't
+    /// have an associated face. This should be caught upstream and use
+    /// alternate logic.
+    SpecialHasNoFace,
+
+    /// Invalid index.
+    IndexOutOfBounds,
+};
+
 /// Get the unaliased entry from an index
-pub fn getEntry(self: *Collection, index: Index) !*Entry {
+pub fn getEntry(self: *Collection, index: Index) EntryError!*Entry {
     if (index.special() != null) return error.SpecialHasNoFace;
     const list = self.faces.getPtr(index.style);
     if (index.idx >= list.len) return error.IndexOutOfBounds;

@@ -10,6 +10,7 @@
 const Tabstops = @This();
 
 const std = @import("std");
+const tripwire = @import("../tripwire.zig");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const assert = @import("../quirks.zig").inlineAssert;
@@ -58,7 +59,11 @@ inline fn index(col: usize) usize {
     return @mod(col, unit_bits);
 }
 
-pub fn init(alloc: Allocator, cols: usize, interval: usize) !Tabstops {
+pub fn init(
+    alloc: Allocator,
+    cols: usize,
+    interval: usize,
+) Allocator.Error!Tabstops {
     var res: Tabstops = .{};
     try res.resize(alloc, cols);
     res.reset(interval);
@@ -114,21 +119,36 @@ pub fn get(self: Tabstops, col: usize) bool {
     return unit & mask == mask;
 }
 
+const resize_tw = tripwire.module(enum {
+    dynamic_alloc,
+}, resize);
+
 /// Resize this to support up to cols columns.
 // TODO: needs interval to set new tabstops
-pub fn resize(self: *Tabstops, alloc: Allocator, cols: usize) !void {
-    // Set our new value
-    self.cols = cols;
+pub fn resize(
+    self: *Tabstops,
+    alloc: Allocator,
+    cols: usize,
+) Allocator.Error!void {
+    const tw = resize_tw;
 
     // Do nothing if it fits.
-    if (cols <= prealloc_columns) return;
+    if (cols <= prealloc_columns) {
+        self.cols = cols;
+        return;
+    }
 
     // What we need in the dynamic size
     const size = cols - prealloc_columns;
-    if (size < self.dynamic_stops.len) return;
+    if (size < self.dynamic_stops.len) {
+        self.cols = cols;
+        return;
+    }
 
     // Note: we can probably try to realloc here but I'm not sure it matters.
+    try tw.check(.dynamic_alloc);
     const new = try alloc.alloc(Unit, size);
+    errdefer comptime unreachable;
     @memset(new, 0);
     if (self.dynamic_stops.len > 0) {
         fastmem.copy(Unit, new, self.dynamic_stops);
@@ -136,6 +156,7 @@ pub fn resize(self: *Tabstops, alloc: Allocator, cols: usize) !void {
     }
 
     self.dynamic_stops = new;
+    self.cols = cols;
 }
 
 /// Return the maximum number of columns this can support currently.
@@ -229,4 +250,22 @@ test "Tabstops: count on 80" {
     };
 
     try testing.expectEqual(@as(usize, 9), count);
+}
+
+test "Tabstops: resize alloc failure preserves state" {
+    // This test verifies that if resize() fails during allocation,
+    // the original cols value is preserved (not corrupted).
+    var t: Tabstops = try init(testing.allocator, 80, 8);
+    defer t.deinit(testing.allocator);
+
+    const original_cols = t.cols;
+
+    // Trigger allocation failure when resizing beyond prealloc
+    resize_tw.errorAlways(.dynamic_alloc, error.OutOfMemory);
+    const result = t.resize(testing.allocator, prealloc_columns * 2);
+    try testing.expectError(error.OutOfMemory, result);
+    try resize_tw.end(.reset);
+
+    // cols should be unchanged after failed resize
+    try testing.expectEqual(original_cols, t.cols);
 }

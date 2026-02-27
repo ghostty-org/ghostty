@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// SplitTree represents a tree of views that can be divided.
 struct SplitTree<ViewType: NSView & Codable & Identifiable> {
@@ -121,10 +122,10 @@ extension SplitTree {
 
     /// Insert a new view at the given view point by creating a split in the given direction.
     /// This will always reset the zoomed state of the tree.
-    func insert(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
+    func inserting(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
         return .init(
-            root: try root.insert(view: view, at: at, direction: direction),
+            root: try root.inserting(view: view, at: at, direction: direction),
             zoomed: nil)
     }
     /// Find a node containing a view with the specified ID.
@@ -137,7 +138,7 @@ extension SplitTree {
 
     /// Remove a node from the tree. If the node being removed is part of a split,
     /// the sibling node takes the place of the parent split.
-    func remove(_ target: Node) -> Self {
+    func removing(_ target: Node) -> Self {
         guard let root else { return self }
 
         // If we're removing the root itself, return an empty tree
@@ -155,7 +156,7 @@ extension SplitTree {
     }
 
     /// Replace a node in the tree with a new node.
-    func replace(node: Node, with newNode: Node) throws -> Self {
+    func replacing(node: Node, with newNode: Node) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
 
         // Get the path to the node we want to replace
@@ -164,7 +165,7 @@ extension SplitTree {
         }
 
         // Replace the node
-        let newRoot = try root.replaceNode(at: path, with: newNode)
+        let newRoot = try root.replacingNode(at: path, with: newNode)
 
         // Update zoomed if it was the replaced node
         let newZoomed = (zoomed == node) ? newNode : zoomed
@@ -222,7 +223,7 @@ extension SplitTree {
             case .split:
                 // If the best candidate is a split node, use its the leaf/rightmost
                 // depending on our spatial direction.
-                return switch (spatialDirection) {
+                return switch spatialDirection {
                 case .up, .left: bestNode.node.leftmostLeaf()
                 case .down, .right: bestNode.node.rightmostLeaf()
                 }
@@ -232,7 +233,7 @@ extension SplitTree {
 
     /// Equalize all splits in the tree so that each split's ratio is based on the
     /// relative weight (number of leaves) of its children.
-    func equalize() -> Self {
+    func equalized() -> Self {
         guard let root else { return self }
         let newRoot = root.equalize()
         return .init(root: newRoot, zoomed: zoomed)
@@ -255,7 +256,7 @@ extension SplitTree {
     ///   - bounds: The bounds used to construct the spatial tree representation
     /// - Returns: A new SplitTree with the adjusted split ratios
     /// - Throws: SplitError.viewNotFound if the node is not found in the tree or no suitable parent split exists
-    func resize(node: Node, by pixels: UInt16, in direction: Spatial.Direction, with bounds: CGRect) throws -> Self {
+    func resizing(node: Node, by pixels: UInt16, in direction: Spatial.Direction, with bounds: CGRect) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
 
         // Find the path to the target node
@@ -327,7 +328,7 @@ extension SplitTree {
         )
 
         // Replace the split node with the new one
-        let newRoot = try root.replaceNode(at: splitPath, with: .split(newSplit))
+        let newRoot = try root.replacingNode(at: splitPath, with: .split(newSplit))
         return .init(root: newRoot, zoomed: nil)
     }
 
@@ -343,7 +344,7 @@ extension SplitTree {
 
 // MARK: SplitTree Codable
 
-fileprivate enum CodingKeys: String, CodingKey {
+private enum CodingKeys: String, CodingKey {
     case version
     case root
     case zoomed
@@ -422,7 +423,7 @@ extension SplitTree.Node {
 
     /// Returns the node in the tree that contains the given view.
     func node(view: ViewType) -> Node? {
-        switch (self) {
+        switch self {
         case .leaf(view):
             return self
 
@@ -508,7 +509,7 @@ extension SplitTree.Node {
     ///
     /// - Note: If the existing view (`at`) is not found in the tree, this method does nothing. We should
     /// maybe throw instead but at the moment we just do nothing.
-    func insert(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
+    func inserting(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
         // Get the path to our insertion point. If it doesn't exist we do
         // nothing.
         guard let path = path(to: .leaf(view: at)) else {
@@ -544,11 +545,11 @@ extension SplitTree.Node {
         ))
 
         // Replace the node at the path with the new split
-        return try replaceNode(at: path, with: newSplit)
+        return try replacingNode(at: path, with: newSplit)
     }
 
     /// Helper function to replace a node at the given path from the root
-    func replaceNode(at path: Path, with newNode: Self) throws -> Self {
+    func replacingNode(at path: Path, with newNode: Self) throws -> Self {
         // If path is empty, replace the root
         if path.isEmpty {
             return newNode
@@ -635,7 +636,7 @@ extension SplitTree.Node {
     /// Resize a split node to the specified ratio.
     /// For leaf nodes, this returns the node unchanged.
     /// For split nodes, this creates a new split with the updated ratio.
-    func resize(to ratio: Double) -> Self {
+    func resizing(to ratio: Double) -> Self {
         switch self {
         case .leaf:
             // Leaf nodes don't have a ratio to resize
@@ -727,7 +728,6 @@ extension SplitTree.Node {
             }
         }
     }
-
 
     /// Calculate the bounds of all views in this subtree based on split ratios
     func calculateViewBounds(in bounds: CGRect) -> [(view: ViewType, bounds: CGRect)] {
@@ -1213,6 +1213,57 @@ extension SplitTree: Collection {
     func index(after i: Int) -> Int {
         precondition(i < endIndex, "Cannot increment index beyond endIndex")
         return i + 1
+    }
+}
+
+// MARK: SplitTree Combine
+
+extension SplitTree {
+    /// Builds a publisher that emits current values for all leaf views keyed by view ID.
+    ///
+    /// The returned publisher emits a full `[ViewType.ID: Value]` snapshot whenever any leaf view
+    /// publishes through the provided publisher key path.
+    func valuesPublisher<Value>(
+        valueKeyPath: KeyPath<ViewType, Value>,
+        publisherKeyPath: KeyPath<ViewType, Published<Value>.Publisher>
+    ) -> AnyPublisher<[ViewType.ID: Value], Never> {
+        // Flatten the split tree into a list of current leaf views.
+        let views = map { $0 }
+        guard !views.isEmpty else {
+            // If there are no leaves, immediately publish an empty snapshot.
+            // `Just([:])` keeps the return type simple and makes downstream usage easy.
+            return Just([:]).eraseToAnyPublisher()
+        }
+
+        // Capture each view's current value up front.
+        // We key by `ViewType.ID` so updates can replace the correct entry later.
+        // This avoids waiting for all views to emit before consumers see data.
+        let initial = Dictionary(uniqueKeysWithValues: views.map { view in
+            (view.id, view[keyPath: valueKeyPath])
+        })
+
+        // Build one publisher per view from the requested key path.
+        // Each emission is mapped into `(id, value)` so we know which entry changed.
+        // `MergeMany` combines all per-view streams into a single update stream.
+        let updates = Publishers.MergeMany(views.map { view in
+            view[keyPath: publisherKeyPath]
+                .map { (view.id, $0) }
+                .eraseToAnyPublisher()
+        })
+
+        return updates
+            // Accumulate updates into a full "latest value per ID" dictionary.
+            // This turns incremental events into complete state snapshots.
+            .scan(initial) { state, update in
+                var state = state
+                state[update.0] = update.1
+                return state
+            }
+            // Emit the initial snapshot first so subscribers always get a
+            // complete value dictionary immediately upon subscription.
+            .prepend(initial)
+            // Hide implementation details and expose a stable API type.
+            .eraseToAnyPublisher()
     }
 }
 

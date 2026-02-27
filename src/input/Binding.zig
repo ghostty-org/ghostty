@@ -8,7 +8,9 @@ const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
+const deepEqual = @import("../datastruct/comparison.zig").deepEqual;
 const key = @import("key.zig");
+const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;
 
 /// The trigger that needs to be performed to execute the action.
@@ -44,6 +46,27 @@ pub const Flags = packed struct {
     /// performed. If the action can't be performed then the binding acts as
     /// if it doesn't exist.
     performable: bool = false,
+
+    /// C type
+    pub const C = u8;
+
+    /// Converts this to a C-compatible value.
+    ///
+    /// Sync with ghostty.h for enums.
+    pub fn cval(self: Flags) C {
+        const Backing = @typeInfo(Flags).@"struct".backing_integer.?;
+        return @as(Backing, @bitCast(self));
+    }
+
+    test "cval" {
+        const testing = std.testing;
+        try testing.expectEqual(@as(u8, 0b0001), (Flags{}).cval());
+        try testing.expectEqual(@as(u8, 0b0000), (Flags{ .consumed = false }).cval());
+        try testing.expectEqual(@as(u8, 0b0011), (Flags{ .all = true }).cval());
+        try testing.expectEqual(@as(u8, 0b0101), (Flags{ .global = true }).cval());
+        try testing.expectEqual(@as(u8, 0b1001), (Flags{ .performable = true }).cval());
+        try testing.expectEqual(@as(u8, 0b1111), (Flags{ .consumed = true, .all = true, .global = true, .performable = true }).cval());
+    }
 };
 
 /// Full binding parser. The binding parser is implemented as an iterator
@@ -368,6 +391,11 @@ pub const Action = union(enum) {
     /// If a previous search is active, it is replaced.
     search: []const u8,
 
+    /// Start a search for the current text selection. If there is no
+    /// selection, this does nothing. If a search is already active, this
+    /// changes the search terms.
+    search_selection,
+
     /// Navigate the search results. If there is no active search, this
     /// is not performed.
     navigate_search: NavigateSearch,
@@ -542,12 +570,9 @@ pub const Action = union(enum) {
     toggle_tab_overview,
 
     /// Change the title of the current focused surface via a pop-up prompt.
-    ///
-    /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
-    /// version can be found by running `ghostty +version`.
     prompt_surface_title,
 
-    /// Change the title of the current tab/window via a pop-up prompt. The
+    /// Change the title of the current tab via a pop-up prompt. The
     /// title set via this prompt overrides any title set by the terminal
     /// and persists across focus changes within the tab.
     prompt_tab_title,
@@ -826,6 +851,20 @@ pub const Action = union(enum) {
     /// if possible. See "undo" for more details on what can and cannot
     /// be undone or redone.
     redo,
+
+    /// End the currently active key sequence, if any, and flush the
+    /// keys up to this point to the terminal, excluding the key that
+    /// triggered this action.
+    ///
+    /// For example: `ctrl+w>escape=end_key_sequence` would encode
+    /// `ctrl+w` to the terminal and exit the key sequence.
+    ///
+    /// Normally, an invalid sequence will reset the key sequence and
+    /// flush all data including the invalid key. This action allows
+    /// you to flush only the prior keys, which is useful when you want
+    /// to bind something like a control key (`ctrl+w`) but not send
+    /// additional inputs.
+    end_key_sequence,
 
     /// Activate a named key table (see `keybind` configuration documentation).
     /// The named key table will remain active until `deactivate_key_table`
@@ -1270,6 +1309,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .search,
             .navigate_search,
+            .search_selection,
             .start_search,
             .end_search,
             .reset,
@@ -1316,6 +1356,7 @@ pub const Action = union(enum) {
             .activate_key_table_once,
             .deactivate_key_table,
             .deactivate_all_key_tables,
+            .end_key_sequence,
             .crash,
             => .surface,
 
@@ -1544,6 +1585,24 @@ pub const Action = union(enum) {
             },
         }
     }
+
+    /// Compares two actions for equality.
+    pub fn equal(self: Action, other: Action) bool {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
+        return switch (self) {
+            inline else => |field_self, tag| {
+                const field_other = @field(other, @tagName(tag));
+                return deepEqual(
+                    @TypeOf(field_self),
+                    field_self,
+                    field_other,
+                );
+            },
+        };
+    }
+
+    /// For the Set.Context
+    const bindingSetEqual = equal;
 };
 
 /// Trigger is the associated key state that can trigger an action.
@@ -1619,18 +1678,12 @@ pub const Trigger = struct {
             }
 
             // Alias modifiers
-            const alias_mods = .{
-                .{ "cmd", "super" },
-                .{ "command", "super" },
-                .{ "opt", "alt" },
-                .{ "option", "alt" },
-                .{ "control", "ctrl" },
-            };
-            inline for (alias_mods) |pair| {
+            inline for (key_mods.alias) |pair| {
                 if (std.mem.eql(u8, part, pair[0])) {
                     // Repeat not allowed
-                    if (@field(result.mods, pair[1])) return Error.InvalidFormat;
-                    @field(result.mods, pair[1]) = true;
+                    const field = @tagName(pair[1]);
+                    if (@field(result.mods, field)) return Error.InvalidFormat;
+                    @field(result.mods, field) = true;
                     continue :loop;
                 }
             }
@@ -1871,7 +1924,7 @@ pub const Trigger = struct {
     }
 
     /// Returns true if two triggers are equal.
-    pub fn eql(self: Trigger, other: Trigger) bool {
+    pub fn equal(self: Trigger, other: Trigger) bool {
         if (self.mods != other.mods) return false;
         const self_tag = std.meta.activeTag(self.key);
         const other_tag = std.meta.activeTag(other.key);
@@ -1882,6 +1935,26 @@ pub const Trigger = struct {
             .catch_all => true,
         };
     }
+
+    /// Returns true if two triggers are equal using folded codepoints.
+    pub fn foldedEqual(self: Trigger, other: Trigger) bool {
+        if (self.mods != other.mods) return false;
+        const self_tag = std.meta.activeTag(self.key);
+        const other_tag = std.meta.activeTag(other.key);
+        if (self_tag != other_tag) return false;
+        return switch (self.key) {
+            .physical => |v| v == other.key.physical,
+            .unicode => |v| deepEqual(
+                [3]u21,
+                foldedCodepoint(v),
+                foldedCodepoint(other.key.unicode),
+            ),
+            .catch_all => true,
+        };
+    }
+
+    /// For the Set.Context
+    const bindingSetEqual = foldedEqual;
 
     /// Convert the trigger to a C API compatible trigger.
     pub fn cval(self: Trigger) C {
@@ -1922,18 +1995,18 @@ pub const Trigger = struct {
 /// The use case is that this will be called on EVERY key input to look
 /// for an associated action so it must be fast.
 pub const Set = struct {
-    const HashMap = std.HashMapUnmanaged(
+    const HashMap = std.ArrayHashMapUnmanaged(
         Trigger,
         Value,
         Context(Trigger),
-        std.hash_map.default_max_load_percentage,
+        true,
     );
 
-    const ReverseMap = std.HashMapUnmanaged(
+    const ReverseMap = std.ArrayHashMapUnmanaged(
         Action,
         Trigger,
         Context(Action),
-        std.hash_map.default_max_load_percentage,
+        true,
     );
 
     /// The set of bindings.
@@ -2427,11 +2500,10 @@ pub const Set = struct {
             // update the reverse mapping to remove the old action.
             .leaf => if (track_reverse) {
                 const t_hash = t.hash();
-                var it = self.reverse.iterator();
-                while (it.next()) |reverse_entry| it: {
-                    if (t_hash == reverse_entry.value_ptr.hash()) {
-                        self.reverse.removeByPtr(reverse_entry.key_ptr);
-                        break :it;
+                for (0.., self.reverse.values()) |i, *value| {
+                    if (t_hash == value.hash()) {
+                        self.reverse.swapRemoveAt(i);
+                        break;
                     }
                 }
             },
@@ -2447,7 +2519,7 @@ pub const Set = struct {
             .action = action,
             .flags = flags,
         } };
-        errdefer _ = self.bindings.remove(t);
+        errdefer _ = self.bindings.swapRemove(t);
 
         if (track_reverse) try self.reverse.put(alloc, action, t);
         errdefer if (track_reverse) self.reverse.remove(action);
@@ -2587,7 +2659,7 @@ pub const Set = struct {
         self.chain_parent = null;
 
         var entry = self.bindings.get(t) orelse return;
-        _ = self.bindings.remove(t);
+        _ = self.bindings.swapRemove(t);
 
         switch (entry) {
             // For a leader removal, we need to deallocate our child set.
@@ -2637,7 +2709,7 @@ pub const Set = struct {
 
         // If our value is not the same as the old trigger, we can
         // ignore it because our reverse mapping points somewhere else.
-        if (!entry.value_ptr.eql(old)) return;
+        if (!entry.value_ptr.equal(old)) return;
 
         // It is the same trigger, so let's now go through our bindings
         // and try to find another trigger that maps to the same action.
@@ -2657,7 +2729,7 @@ pub const Set = struct {
 
         // No other trigger points to this action so we remove
         // the reverse mapping completely.
-        _ = self.reverse.remove(action);
+        _ = self.reverse.swapRemove(action);
     }
 
     /// Deep clone the set.
@@ -2690,9 +2762,8 @@ pub const Set = struct {
 
         // We need to clone the action keys in the reverse map since
         // they may contain allocated values.
-        {
-            var it = result.reverse.keyIterator();
-            while (it.next()) |action| action.* = try action.clone(alloc);
+        for (result.reverse.keys()) |*action| {
+            action.* = try action.clone(alloc);
         }
 
         return result;
@@ -2702,13 +2773,23 @@ pub const Set = struct {
     /// gets the hash key and checks for equality.
     fn Context(comptime KeyType: type) type {
         return struct {
-            pub fn hash(ctx: @This(), k: KeyType) u64 {
+            pub fn hash(ctx: @This(), k: KeyType) u32 {
                 _ = ctx;
-                return k.hash();
+                // This seems crazy at first glance but this is also how
+                // the Zig standard library handles hashing for array
+                // hash maps!
+                return @truncate(k.hash());
             }
 
-            pub fn eql(ctx: @This(), a: KeyType, b: KeyType) bool {
-                return ctx.hash(a) == ctx.hash(b);
+            pub fn eql(
+                ctx: @This(),
+                a: KeyType,
+                b: KeyType,
+                b_index: usize,
+            ) bool {
+                _ = ctx;
+                _ = b_index;
+                return a.bindingSetEqual(b);
             }
         };
     }
@@ -3073,63 +3154,63 @@ test "parse: all triggers" {
     }
 }
 
-test "Trigger: eql" {
+test "Trigger: equal" {
     const testing = std.testing;
 
     // Equal physical keys
     {
         const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
         const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
-        try testing.expect(t1.eql(t2));
+        try testing.expect(t1.equal(t2));
     }
 
     // Different physical keys
     {
         const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
         const t2: Trigger = .{ .key = .{ .physical = .arrow_down }, .mods = .{ .ctrl = true } };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // Different mods
     {
         const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
         const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true } };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // Equal unicode keys
     {
         const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
         const t2: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
-        try testing.expect(t1.eql(t2));
+        try testing.expect(t1.equal(t2));
     }
 
     // Different unicode keys
     {
         const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
         const t2: Trigger = .{ .key = .{ .unicode = 'b' }, .mods = .{} };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // Different key types
     {
         const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
         const t2: Trigger = .{ .key = .{ .physical = .key_a }, .mods = .{} };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // catch_all
     {
         const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
         const t2: Trigger = .{ .key = .catch_all, .mods = .{} };
-        try testing.expect(t1.eql(t2));
+        try testing.expect(t1.equal(t2));
     }
 
     // catch_all with different mods
     {
         const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
         const t2: Trigger = .{ .key = .catch_all, .mods = .{ .alt = true } };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 }
 

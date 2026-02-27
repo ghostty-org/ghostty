@@ -98,7 +98,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // no matter what. Note its safe to use "ghostty.config" directly here
         // because window restoration is only ever invoked on app start so we
         // don't have to deal with config reloads.
-        if (appDelegate.ghostty.config.windowSaveState == "never") {
+        if appDelegate.ghostty.config.windowSaveState == "never" {
             completionHandler(nil, nil)
             return
         }
@@ -131,13 +131,11 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // Find the focused surface in surfaceTree
         if let focusedStr = state.focusedSurface {
             var foundView: Ghostty.SurfaceView?
-            for view in c.surfaceTree {
-                if view.id.uuidString == focusedStr {
-                    foundView = view
-                    break
-                }
+            for view in c.surfaceTree where view.id.uuidString == focusedStr {
+                foundView = view
+                break
             }
-            
+
             if let view = foundView {
                 c.focusedSurface = view
                 restoreFocus(to: view, inWindow: window)
@@ -161,9 +159,9 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // For the first attempt, we schedule it immediately. Subsequent events wait a bit
         // so we don't just spin the CPU at 100%. Give up after some period of time.
         let after: DispatchTime
-        if (attempts == 0) {
+        if attempts == 0 {
             after = .now()
-        } else if (attempts > 40) {
+        } else if attempts > 40 {
             // 2 seconds, give up
             return
         } else {
@@ -185,11 +183,10 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             // If the window is main, then we also make sure it comes forward. This
             // prevents a bug found in #1177 where sometimes on restore the windows
             // would be behind other applications.
-            if (viewWindow.isMainWindow) {
+            if viewWindow.isMainWindow {
                 viewWindow.orderFront(nil)
             }
         }
     }
 }
-
 

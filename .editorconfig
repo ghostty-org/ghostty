@@ -1,6 +1,6 @@
 root = true
 
-[*.{sh,bash,elv}]
+[*.{sh,bash,elv,nu}]
 indent_size = 2
 indent_style = space
 

@@ -90,7 +90,6 @@ pub const Contents = struct {
 
         const bg_cells = try alloc.alloc(shaderpkg.CellBg, cell_count);
         errdefer alloc.free(bg_cells);
-
         @memset(bg_cells, .{ 0, 0, 0, 0 });
 
         // The foreground lists can hold 3 types of items:
@@ -106,32 +105,28 @@ pub const Contents = struct {
         // We have size.rows + 2 lists because indexes 0 and size.rows - 1 are
         // used for special lists containing the cursor cell which need to
         // be first and last in the buffer, respectively.
-        var fg_rows = try ArrayListCollection(shaderpkg.CellText).init(
+        var fg_rows: ArrayListCollection(shaderpkg.CellText) = try .init(
             alloc,
             size.rows + 2,
             size.columns * 3,
         );
         errdefer fg_rows.deinit(alloc);
 
-        alloc.free(self.bg_cells);
-        self.fg_rows.deinit(alloc);
-
-        self.bg_cells = bg_cells;
-        self.fg_rows = fg_rows;
-
         // We don't need 3*cols worth of cells for the cursor lists, so we can
         // replace them with smaller lists. This is technically a tiny bit of
         // extra work but resize is not a hot function so it's worth it to not
         // waste the memory.
-        self.fg_rows.lists[0].deinit(alloc);
-        self.fg_rows.lists[0] = try std.ArrayListUnmanaged(
-            shaderpkg.CellText,
-        ).initCapacity(alloc, 1);
+        fg_rows.lists[0].deinit(alloc);
+        fg_rows.lists[0] = try .initCapacity(alloc, 1);
+        fg_rows.lists[size.rows + 1].deinit(alloc);
+        fg_rows.lists[size.rows + 1] = try .initCapacity(alloc, 1);
 
-        self.fg_rows.lists[size.rows + 1].deinit(alloc);
-        self.fg_rows.lists[size.rows + 1] = try std.ArrayListUnmanaged(
-            shaderpkg.CellText,
-        ).initCapacity(alloc, 1);
+        // Perform the swap, no going back from here.
+        errdefer comptime unreachable;
+        alloc.free(self.bg_cells);
+        self.fg_rows.deinit(alloc);
+        self.bg_cells = bg_cells;
+        self.fg_rows = fg_rows;
     }
 
     /// Reset the cell contents to an empty state without resizing.

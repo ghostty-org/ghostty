@@ -189,6 +189,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Start a search if one isn't already active.",
         }},
 
+        .search_selection => comptime &.{.{
+            .action = .search_selection,
+            .title = "Search Selection",
+            .description = "Start a search for the current text selection.",
+        }},
+
         .end_search => comptime &.{.{
             .action = .end_search,
             .title = "End Search",
@@ -434,13 +440,13 @@ fn actionCommands(action: Action.Key) []const Command {
 
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
-            .title = "Change Terminal Title...",
+            .title = "Change Terminal Title…",
             .description = "Prompt for a new title for the current terminal.",
         }},
 
         .prompt_tab_title => comptime &.{.{
             .action = .prompt_tab_title,
-            .title = "Change Tab Title...",
+            .title = "Change Tab Title…",
             .description = "Prompt for a new title for the current tab.",
         }},
 
@@ -696,6 +702,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .activate_key_table_once,
         .deactivate_key_table,
         .deactivate_all_key_tables,
+        .end_key_sequence,
         .crash,
         => comptime &.{},
 

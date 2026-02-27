@@ -250,6 +250,13 @@ pub const SearchOverlay = extern struct {
         priv.active = active;
     }
 
+    // Set contents of search
+    pub fn setSearchContents(self: *Self, content: [:0]const u8) void {
+        const priv = self.private();
+        priv.search_entry.as(gtk.Editable).setText(content);
+        signals.@"search-changed".impl.emit(self, null, .{content}, null);
+    }
+
     /// Set the total number of search matches.
     pub fn setSearchTotal(self: *Self, total: ?usize) void {
         const priv = self.private();

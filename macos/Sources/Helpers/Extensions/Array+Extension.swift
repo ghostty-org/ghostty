@@ -2,7 +2,7 @@ extension Array {
     subscript(safe index: Int) -> Element? {
         return indices.contains(index) ? self[index] : nil
     }
-    
+
     /// Returns the index before i, with wraparound. Assumes i is a valid index.
     func indexWrapping(before i: Int) -> Int {
         if i == 0 {
@@ -35,7 +35,7 @@ extension Array where Element == String {
             if index == count {
                 return try body(accumulated)
             }
-            
+
             return try self[index].withCString { cStr in
                 var newAccumulated = accumulated
                 newAccumulated.append(cStr)

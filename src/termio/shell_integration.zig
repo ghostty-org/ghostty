@@ -14,6 +14,7 @@ pub const Shell = enum {
     bash,
     elvish,
     fish,
+    nushell,
     zsh,
 };
 
@@ -45,95 +46,42 @@ pub fn setup(
     env: *EnvMap,
     force_shell: ?Shell,
 ) !?ShellIntegration {
-    const exe = if (force_shell) |shell| switch (shell) {
-        .bash => "bash",
-        .elvish => "elvish",
-        .fish => "fish",
-        .zsh => "zsh",
-    } else switch (command) {
-        .direct => |v| std.fs.path.basename(v[0]),
-        .shell => |v| exe: {
-            // Shell strings can include spaces so we want to only
-            // look up to the space if it exists. No shell that we integrate
-            // has spaces.
-            const idx = std.mem.indexOfScalar(u8, v, ' ') orelse v.len;
-            break :exe std.fs.path.basename(v[0..idx]);
-        },
-    };
+    const shell: Shell = force_shell orelse
+        try detectShell(alloc_arena, command) orelse
+        return null;
 
-    const result = try setupShell(
-        alloc_arena,
-        resource_dir,
-        command,
-        env,
-        exe,
-    );
-
-    return result;
-}
-
-fn setupShell(
-    alloc_arena: Allocator,
-    resource_dir: []const u8,
-    command: config.Command,
-    env: *EnvMap,
-    exe: []const u8,
-) !?ShellIntegration {
-    if (std.mem.eql(u8, "bash", exe)) {
-        // Apple distributes their own patched version of Bash 3.2
-        // on macOS that disables the ENV-based POSIX startup path.
-        // This means we're unable to perform our automatic shell
-        // integration sequence in this specific environment.
-        //
-        // If we're running "/bin/bash" on Darwin, we can assume
-        // we're using Apple's Bash because /bin is non-writable
-        // on modern macOS due to System Integrity Protection.
-        if (comptime builtin.target.os.tag.isDarwin()) {
-            if (std.mem.eql(u8, "/bin/bash", switch (command) {
-                .direct => |v| v[0],
-                .shell => |v| v,
-            })) {
-                return null;
-            }
-        }
-
-        const new_command = try setupBash(
+    const new_command: config.Command = switch (shell) {
+        .bash => try setupBash(
             alloc_arena,
             command,
             resource_dir,
             env,
-        ) orelse return null;
-        return .{
-            .shell = .bash,
-            .command = new_command,
-        };
-    }
+        ),
 
-    if (std.mem.eql(u8, "elvish", exe)) {
-        if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
-        return .{
-            .shell = .elvish,
-            .command = try command.clone(alloc_arena),
-        };
-    }
+        .nushell => try setupNushell(
+            alloc_arena,
+            command,
+            resource_dir,
+            env,
+        ),
 
-    if (std.mem.eql(u8, "fish", exe)) {
-        if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
-        return .{
-            .shell = .fish,
-            .command = try command.clone(alloc_arena),
-        };
-    }
+        .zsh => try setupZsh(
+            alloc_arena,
+            command,
+            resource_dir,
+            env,
+        ),
 
-    if (std.mem.eql(u8, "zsh", exe)) {
-        if (!try setupZsh(resource_dir, env)) return null;
-        return .{
-            .shell = .zsh,
-            .command = try command.clone(alloc_arena),
-        };
-    }
+        .elvish, .fish => xdg: {
+            if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
+            break :xdg try command.clone(alloc_arena);
+        },
+    } orelse return null;
 
-    return null;
+    return .{
+        .shell = shell,
+        .command = new_command,
+    };
 }
 
 test "force shell" {
@@ -185,15 +133,68 @@ test "shell integration failure" {
     try testing.expectEqual(0, env.count());
 }
 
+fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
+    var arg_iter = try command.argIterator(alloc);
+    defer arg_iter.deinit();
+
+    const arg0 = arg_iter.next() orelse return null;
+    const exe = std.fs.path.basename(arg0);
+
+    if (std.mem.eql(u8, "bash", exe)) {
+        // Apple distributes their own patched version of Bash 3.2
+        // on macOS that disables the ENV-based POSIX startup path.
+        // This means we're unable to perform our automatic shell
+        // integration sequence in this specific environment.
+        //
+        // If we're running "/bin/bash" on Darwin, we can assume
+        // we're using Apple's Bash because /bin is non-writable
+        // on modern macOS due to System Integrity Protection.
+        if (comptime builtin.target.os.tag.isDarwin()) {
+            if (std.mem.eql(u8, "/bin/bash", arg0)) {
+                return null;
+            }
+        }
+        return .bash;
+    }
+
+    if (std.mem.eql(u8, "elvish", exe)) return .elvish;
+    if (std.mem.eql(u8, "fish", exe)) return .fish;
+    if (std.mem.eql(u8, "nu", exe)) return .nushell;
+    if (std.mem.eql(u8, "zsh", exe)) return .zsh;
+
+    return null;
+}
+
+test detectShell {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    try testing.expect(try detectShell(alloc, .{ .shell = "sh" }) == null);
+    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash" }));
+    try testing.expectEqual(.elvish, try detectShell(alloc, .{ .shell = "elvish" }));
+    try testing.expectEqual(.fish, try detectShell(alloc, .{ .shell = "fish" }));
+    try testing.expectEqual(.nushell, try detectShell(alloc, .{ .shell = "nu" }));
+    try testing.expectEqual(.zsh, try detectShell(alloc, .{ .shell = "zsh" }));
+
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        try testing.expect(try detectShell(alloc, .{ .shell = "/bin/bash" }) == null);
+    }
+
+    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash -c 'command'" }));
+    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "\"/a b/bash\"" }));
+}
+
 /// Set up the shell integration features environment variable.
 pub fn setupFeatures(
     env: *EnvMap,
     features: config.ShellIntegrationFeatures,
+    cursor_blink: bool,
 ) !void {
     const fields = @typeInfo(@TypeOf(features)).@"struct".fields;
     const capacity: usize = capacity: {
         comptime var n: usize = fields.len - 1; // commas
         inline for (fields) |field| n += field.name.len;
+        n += ":steady".len; // cursor value
         break :capacity n;
     };
 
@@ -222,6 +223,10 @@ pub fn setupFeatures(
         if (@field(features, name)) {
             if (writer.end > 0) try writer.writeByte(',');
             try writer.writeAll(name);
+
+            if (std.mem.eql(u8, name, "cursor")) {
+                try writer.writeAll(if (cursor_blink) ":blink" else ":steady");
+            }
         }
     }
 
@@ -242,8 +247,8 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true });
-        try testing.expectEqualStrings("cursor,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true, .path = true }, true);
+        try testing.expectEqualStrings("cursor:blink,path,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
     // Test: all features disabled
@@ -251,7 +256,7 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, std.mem.zeroes(config.ShellIntegrationFeatures));
+        try setupFeatures(&env, std.mem.zeroes(config.ShellIntegrationFeatures), true);
         try testing.expect(env.get("GHOSTTY_SHELL_FEATURES") == null);
     }
 
@@ -260,8 +265,24 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false });
+        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false, .path = false }, true);
         try testing.expectEqualStrings("ssh-env,sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
+    }
+
+    // Test: blinking cursor
+    {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+        try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, true);
+        try testing.expectEqualStrings("cursor:blink", env.get("GHOSTTY_SHELL_FEATURES").?);
+    }
+
+    // Test: steady cursor
+    {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+        try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, false);
+        try testing.expectEqualStrings("cursor:steady", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 }
 
@@ -382,11 +403,8 @@ fn setupBash(
         }
     }
 
-    // Get the command string from the builder, then copy it to the arena
-    // allocator. The stackFallback allocator's memory becomes invalid after
-    // this function returns, so we must copy to the arena.
-    const cmd_str = try cmd.toOwnedSlice();
-    return .{ .shell = try alloc.dupeZ(u8, cmd_str) };
+    // Return a copy of our modified command line to use as the shell command.
+    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
 }
 
 test "bash" {
@@ -603,7 +621,7 @@ test "bash: missing resources" {
 /// so that the shell can refer to it and safely remove this directory
 /// from `XDG_DATA_DIRS` when integration is complete.
 fn setupXdgDataDirs(
-    alloc_arena: Allocator,
+    alloc: Allocator,
     resource_dir: []const u8,
     env: *EnvMap,
 ) !bool {
@@ -631,7 +649,7 @@ fn setupXdgDataDirs(
     // 4K is a reasonable size for this for most cases. However, env
     // vars can be significantly larger so if we have to we fall
     // back to a heap allocated value.
-    var stack_alloc_state = std.heap.stackFallback(4096, alloc_arena);
+    var stack_alloc_state = std.heap.stackFallback(4096, alloc);
     const stack_alloc = stack_alloc_state.get();
 
     // If no XDG_DATA_DIRS set use the default value as specified.
@@ -691,6 +709,7 @@ test "xdg: existing XDG_DATA_DIRS" {
     defer env.deinit();
 
     try env.put("XDG_DATA_DIRS", "/opt/share");
+
     try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -723,13 +742,158 @@ test "xdg: missing resources" {
     try testing.expectEqual(0, env.count());
 }
 
+/// Set up automatic Nushell shell integration. This works by adding our
+/// shell resource directory to the `XDG_DATA_DIRS` environment variable,
+/// which Nushell will use to load `nushell/vendor/autoload/ghostty.nu`.
+///
+/// We then add `--execute 'use ghostty ...'` to the nu command line to
+/// automatically enable our shelll features.
+fn setupNushell(
+    alloc: Allocator,
+    command: config.Command,
+    resource_dir: []const u8,
+    env: *EnvMap,
+) !?config.Command {
+    // Add our XDG_DATA_DIRS entry (for nushell/vendor/autoload/). This
+    // makes our 'ghostty' module automatically available, even if any
+    // of the later checks abort the rest of our automatic integration.
+    if (!try setupXdgDataDirs(alloc, resource_dir, env)) return null;
+
+    var stack_fallback = std.heap.stackFallback(4096, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    defer cmd.deinit();
+
+    // Iterator that yields each argument in the original command line.
+    // This will allocate once proportionate to the command line length.
+    var iter = try command.argIterator(alloc);
+    defer iter.deinit();
+
+    // Start accumulating arguments with the executable and initial flags.
+    if (iter.next()) |exe| {
+        try cmd.appendArg(exe);
+    } else return null;
+
+    // Tell nu to immediately "use" all of the exported functions in our
+    // 'ghostty' module.
+    //
+    // We can consider making this more specific based on the set of
+    // enabled shell features (e.g. `use ghostty sudo`). At the moment,
+    // shell features are all runtime-guarded in the nushell script.
+    try cmd.appendArg("--execute 'use ghostty *'");
+
+    // Walk through the rest of the given arguments. If we see an option that
+    // would require complex or unsupported integration behavior, we bail out
+    // and skip loading our shell integration. Users can still manually source
+    // the shell integration module.
+    //
+    // Unsupported options:
+    //  -c / --command      -c is always non-interactive
+    //  --lsp               --lsp starts the language server
+    while (iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--command") or std.mem.eql(u8, arg, "--lsp")) {
+            return null;
+        } else if (arg.len > 1 and arg[0] == '-' and arg[1] != '-') {
+            if (std.mem.indexOfScalar(u8, arg, 'c') != null) {
+                return null;
+            }
+            try cmd.appendArg(arg);
+        } else if (std.mem.eql(u8, arg, "-") or std.mem.eql(u8, arg, "--")) {
+            // All remaining arguments should be passed directly to the shell
+            // command. We shouldn't perform any further option processing.
+            try cmd.appendArg(arg);
+            while (iter.next()) |remaining_arg| {
+                try cmd.appendArg(remaining_arg);
+            }
+            break;
+        } else {
+            try cmd.appendArg(arg);
+        }
+    }
+
+    // Return a copy of our modified command line to use as the shell command.
+    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+}
+
+test "nushell" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var res: TmpResourcesDir = try .init(alloc, .nushell);
+    defer res.deinit();
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    const command = try setupNushell(alloc, .{ .shell = "nu" }, res.path, &env);
+    try testing.expectEqualStrings("nu --execute 'use ghostty *'", command.?.shell);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectEqualStrings(
+        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
+    );
+    try testing.expectStringStartsWith(
+        env.get("XDG_DATA_DIRS").?,
+        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+    );
+}
+
+test "nushell: unsupported options" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var res: TmpResourcesDir = try .init(alloc, .nushell);
+    defer res.deinit();
+
+    const cmdlines = [_][:0]const u8{
+        "nu --command exit",
+        "nu --lsp",
+        "nu -c script.sh",
+        "nu -ic script.sh",
+    };
+
+    for (cmdlines) |cmdline| {
+        var env = EnvMap.init(alloc);
+        defer env.deinit();
+
+        try testing.expect(try setupNushell(alloc, .{ .shell = cmdline }, res.path, &env) == null);
+        try testing.expect(env.get("XDG_DATA_DIRS") != null);
+        try testing.expect(env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR") != null);
+    }
+}
+
+test "nushell: missing resources" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(resources_dir);
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    try testing.expect(try setupNushell(alloc, .{ .shell = "nu" }, resources_dir, &env) == null);
+    try testing.expectEqual(0, env.count());
+}
+
 /// Setup the zsh automatic shell integration. This works by setting
 /// ZDOTDIR to our resources dir so that zsh will load our config. This
 /// config then loads the true user config.
 fn setupZsh(
+    alloc: Allocator,
+    command: config.Command,
     resource_dir: []const u8,
     env: *EnvMap,
-) !bool {
+) !?config.Command {
     // Preserve an existing ZDOTDIR value. We're about to overwrite it.
     if (env.get("ZDOTDIR")) |old| {
         try env.put("GHOSTTY_ZSH_ZDOTDIR", old);
@@ -744,16 +908,20 @@ fn setupZsh(
     );
     var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
         log.warn("unable to open {s}: {}", .{ integ_path, err });
-        return false;
+        return null;
     };
     integ_dir.close();
     try env.put("ZDOTDIR", integ_path);
 
-    return true;
+    return try command.clone(alloc);
 }
 
 test "zsh" {
     const testing = std.testing;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     var res: TmpResourcesDir = try .init(testing.allocator, .zsh);
     defer res.deinit();
@@ -761,13 +929,18 @@ test "zsh" {
     var env = EnvMap.init(testing.allocator);
     defer env.deinit();
 
-    try testing.expect(try setupZsh(res.path, &env));
+    const command = try setupZsh(alloc, .{ .shell = "zsh" }, res.path, &env);
+    try testing.expectEqualStrings("zsh", command.?.shell);
     try testing.expectEqualStrings(res.shell_path, env.get("ZDOTDIR").?);
     try testing.expect(env.get("GHOSTTY_ZSH_ZDOTDIR") == null);
 }
 
 test "zsh: ZDOTDIR" {
     const testing = std.testing;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     var res: TmpResourcesDir = try .init(testing.allocator, .zsh);
     defer res.deinit();
@@ -777,7 +950,8 @@ test "zsh: ZDOTDIR" {
 
     try env.put("ZDOTDIR", "$HOME/.config/zsh");
 
-    try testing.expect(try setupZsh(res.path, &env));
+    const command = try setupZsh(alloc, .{ .shell = "zsh" }, res.path, &env);
+    try testing.expectEqualStrings("zsh", command.?.shell);
     try testing.expectEqualStrings(res.shell_path, env.get("ZDOTDIR").?);
     try testing.expectEqualStrings("$HOME/.config/zsh", env.get("GHOSTTY_ZSH_ZDOTDIR").?);
 }
@@ -797,7 +971,7 @@ test "zsh: missing resources" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    try testing.expect(!try setupZsh(resources_dir, &env));
+    try testing.expect(try setupZsh(alloc, .{ .shell = "zsh" }, resources_dir, &env) == null);
     try testing.expectEqual(0, env.count());
 }
 

@@ -3,28 +3,18 @@ import GhosttyKit
 extension Ghostty {
     /// `ghostty_command_s`
     struct Command: Sendable {
-        private let cValue: ghostty_command_s
-
         /// The title of the command.
-        var title: String {
-            String(cString: cValue.title)
-        }
+        let title: String
 
         /// Human-friendly description of what this command will do.
-        var description: String {
-            String(cString: cValue.description)
-        }
+        let description: String
 
         /// The full action that must be performed to invoke this command.
-        var action: String {
-            String(cString: cValue.action)
-        }
+        let action: String
 
         /// Only the key portion of the action so you can compare action types, e.g. `goto_split`
         /// instead of `goto_split:left`.
-        var actionKey: String {
-            String(cString: cValue.action_key)
-        }
+        let actionKey: String
 
         /// True if this can be performed on this target.
         var isSupported: Bool {
@@ -40,7 +30,10 @@ extension Ghostty {
         ]
 
         init(cValue: ghostty_command_s) {
-            self.cValue = cValue
+            self.title = String(cString: cValue.title)
+            self.description = String(cString: cValue.description)
+            self.action = String(cString: cValue.action)
+            self.actionKey = String(cString: cValue.action_key)
         }
     }
 }

@@ -53,10 +53,15 @@ Overlay terminal_page {
     }
 
     EventControllerScroll {
-      scroll => $scroll();
-      scroll-begin => $scroll_begin();
-      scroll-end => $scroll_end();
-      flags: both_axes;
+      scroll => $scroll_vertical();
+      scroll-begin => $scroll_vertical_begin();
+      scroll-end => $scroll_vertical_end();
+      flags: vertical;
+    }
+
+    EventControllerScroll {
+      scroll => $scroll_horizontal();
+      flags: horizontal;
     }
 
     EventControllerMotion {
@@ -70,6 +75,39 @@ Overlay terminal_page {
       button: 0;
     }
   };
+
+  [overlay]
+  Revealer {
+    reveal-child: bind template.readonly;
+    transition-type: crossfade;
+    transition-duration: 500;
+    // Revealers take up the full size, we need this to not capture events.
+    can-focus: false;
+    can-target: false;
+    focusable: false;
+
+    Box readonly_overlay {
+      styles [
+        "readonly_overlay",
+      ]
+
+      // TODO: the tooltip doesn't actually work, but keep it here for now so
+      // that we can get the tooltip text translated.
+      has-tooltip: true;
+      tooltip-text: _("This terminal is in read-only mode. You can still view, select, and scroll through the content, but no input events will be sent to the running application.");
+      halign: end;
+      valign: start;
+      spacing: 6;
+
+      Image {
+        icon-name: "changes-prevent-symbolic";
+      }
+
+      Label {
+        label: _("Read-only");
+      }
+    }
+  }
 
   [overlay]
   ProgressBar progress_bar_overlay {
@@ -282,6 +320,11 @@ menu context_menu_model {
 
     submenu {
       label: _("Tab");
+
+      item {
+        label: _("Change Tab Title…");
+        action: "tab.prompt-tab-title";
+      }
 
       item {
         label: _("New Tab");

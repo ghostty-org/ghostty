@@ -74,7 +74,7 @@ fn buildSpirvCross(
         "-fno-sanitize-trap=undefined",
     });
 
-    if (target.result.os.tag == .freebsd) {
+    if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
         try flags.append(b.allocator, "-fPIC");
     }
 
