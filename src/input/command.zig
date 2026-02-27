@@ -450,6 +450,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Prompt for a new title for the current tab.",
         }},
 
+        .prompt_window_title => comptime &.{.{
+            .action = .prompt_window_title,
+            .title = "Change Window Title…",
+            .description = "Prompt for a new title for the current window.",
+        }},
+
         .new_split => comptime &.{
             .{
                 .action = .{ .new_split = .left },

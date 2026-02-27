@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-17 23:16+0100\n"
+"POT-Creation-Date: 2026-02-27 08:58-0600\n"
 "PO-Revision-Date: 2025-02-18 10:20+0100\n"
 "Last-Translator: Ivan Bastrakov <bastaynav@proton.me>\n"
 "Language-Team: Russian <gnu@d07.ru>\n"
@@ -76,7 +76,7 @@ msgid "Ignore"
 msgstr "Игнорировать"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:305
 msgid "Reload Configuration"
 msgstr "Перезагрузить конфигурацию"
 
@@ -138,39 +138,39 @@ msgstr "Вставить"
 msgid "Notify on Next Command Finish"
 msgstr "Сообщить о завершении следующей команды"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
+#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:278
 msgid "Clear"
 msgstr "Очистить"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:278
+#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:283
 msgid "Reset"
 msgstr "Сброс"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:247
 msgid "Split"
 msgstr "Сплит"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
+#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Change Title…"
 msgstr "Переименовать…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
-#: src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.5/window.blp:255
 msgid "Split Up"
 msgstr "Сплит вверх"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
-#: src/apprt/gtk/ui/1.5/window.blp:255
+#: src/apprt/gtk/ui/1.5/window.blp:260
 msgid "Split Down"
 msgstr "Сплит вниз"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
-#: src/apprt/gtk/ui/1.5/window.blp:260
+#: src/apprt/gtk/ui/1.5/window.blp:265
 msgid "Split Left"
 msgstr "Сплит влево"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
-#: src/apprt/gtk/ui/1.5/window.blp:265
+#: src/apprt/gtk/ui/1.5/window.blp:270
 msgid "Split Right"
 msgstr "Сплит вправо"
 
@@ -178,17 +178,17 @@ msgstr "Сплит вправо"
 msgid "Tab"
 msgstr "Вкладка"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
-#: src/apprt/gtk/ui/1.5/window.blp:320
+#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/apprt/gtk/ui/1.5/window.blp:325
 msgid "Change Tab Title…"
 msgstr "Переименовать вкладку…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
-#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "New Tab"
 msgstr "Новая вкладка"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
+#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:239
 msgid "Close Tab"
 msgstr "Закрыть вкладку"
 
@@ -197,18 +197,22 @@ msgid "Window"
 msgstr "Окно"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
+msgid "Change Window Title…"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "New Window"
 msgstr "Новое окно"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
+#: src/apprt/gtk/ui/1.2/surface.blp:355 src/apprt/gtk/ui/1.5/window.blp:222
 msgid "Close Window"
 msgstr "Закрыть окно"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:358
+#: src/apprt/gtk/ui/1.2/surface.blp:363
 msgid "Config"
 msgstr "Конфигурация"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Open Configuration"
 msgstr "Открыть конфигурационный файл"
 
@@ -232,19 +236,19 @@ msgstr "Просмотреть открытые вкладки"
 msgid "Main Menu"
 msgstr "Главное меню"
 
-#: src/apprt/gtk/ui/1.5/window.blp:285
+#: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Command Palette"
 msgstr "Палитра команд"
 
-#: src/apprt/gtk/ui/1.5/window.blp:290
+#: src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Terminal Inspector"
 msgstr "Инспектор терминала"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+#: src/apprt/gtk/ui/1.5/window.blp:312 src/apprt/gtk/class/window.zig:1802
 msgid "About Ghostty"
 msgstr "О Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.5/window.blp:317
 msgid "Quit"
 msgstr "Выход"
 
@@ -312,15 +316,15 @@ msgstr "Все сессии терминала в этом окне будут �
 msgid "The currently running process in this split will be terminated."
 msgstr "Процесс, работающий в этой сплит-области, будет остановлен."
 
-#: src/apprt/gtk/class/surface.zig:1108
+#: src/apprt/gtk/class/surface.zig:1104
 msgid "Command Finished"
 msgstr "Команда завершилась"
 
-#: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface.zig:1105
 msgid "Command Succeeded"
 msgstr "Команда выполнена успешно"
 
-#: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface.zig:1106
 msgid "Command Failed"
 msgstr "Команда завершилась с ошибкой"
 
@@ -332,26 +336,30 @@ msgstr "Команда выполнена успешно"
 msgid "Command failed"
 msgstr "Команда завершилась с ошибкой"
 
-#: src/apprt/gtk/class/title_dialog.zig:225
+#: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
 msgstr "Переименовать терминал"
 
-#: src/apprt/gtk/class/title_dialog.zig:226
+#: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Tab Title"
 msgstr "Переименовать вкладку"
 
-#: src/apprt/gtk/class/window.zig:1007
+#: src/apprt/gtk/class/title_dialog.zig:229
+msgid "Change Window Title"
+msgstr ""
+
+#: src/apprt/gtk/class/window.zig:1030
 msgid "Reloaded the configuration"
 msgstr "Конфигурация перезагружена"
 
-#: src/apprt/gtk/class/window.zig:1566
+#: src/apprt/gtk/class/window.zig:1641
 msgid "Copied to clipboard"
 msgstr "Скопировано в буфер обмена"
 
-#: src/apprt/gtk/class/window.zig:1568
+#: src/apprt/gtk/class/window.zig:1643
 msgid "Cleared clipboard"
 msgstr "Буфер обмена очищен"
 
-#: src/apprt/gtk/class/window.zig:1708
+#: src/apprt/gtk/class/window.zig:1783
 msgid "Ghostty Developers"
 msgstr "Разработчики Ghostty"

@@ -577,6 +577,11 @@ pub const Action = union(enum) {
     /// and persists across focus changes within the tab.
     prompt_tab_title,
 
+    /// Change the title of the current window via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the tab.
+    prompt_window_title,
+
     /// Create a new split in the specified direction.
     ///
     /// Valid arguments:
@@ -1324,6 +1329,7 @@ pub const Action = union(enum) {
             .set_font_size,
             .prompt_surface_title,
             .prompt_tab_title,
+            .prompt_window_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,

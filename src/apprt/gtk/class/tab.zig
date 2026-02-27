@@ -161,7 +161,7 @@ pub const Tab = extern struct {
         /// The title of this tab. This is usually bound to the active surface.
         title: ?[:0]const u8 = null,
 
-        /// The manually overridden title from `promptTabTitle`.
+        /// The manually overridden title.
         title_override: ?[:0]const u8 = null,
 
         /// The tooltip of this tab. This is usually bound to the active surface.

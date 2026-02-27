@@ -579,6 +579,7 @@ pub const MouseVisibility = enum(c_int) {
 pub const PromptTitle = enum(c_int) {
     surface,
     tab,
+    window,
 };
 
 pub const MouseOverLink = struct {

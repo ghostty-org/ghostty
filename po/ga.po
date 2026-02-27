@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-05 10:23+0800\n"
+"POT-Creation-Date: 2026-02-27 08:58-0600\n"
 "PO-Revision-Date: 2026-02-18 14:32+0000\n"
 "Last-Translator: Aindriú Mac Giolla Eoin <aindriu80@yahoo.com>\n"
 "Language-Team: Irish <gaeilge-gnulinux@lists.sourceforge.net>\n"
@@ -16,7 +16,6 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=n==1 ? 0 : n==2 ? 1 : 2;\n"
-
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
@@ -75,7 +74,7 @@ msgid "Ignore"
 msgstr "Déan neamhaird de"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:305
 msgid "Reload Configuration"
 msgstr "Athlódáil cumraíocht"
 
@@ -136,39 +135,39 @@ msgstr "Greamaigh"
 msgid "Notify on Next Command Finish"
 msgstr "Seol fógra nuair a chríochnaíonn an chéad ordú eile"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
+#: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:278
 msgid "Clear"
 msgstr "Glan"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:278
+#: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:283
 msgid "Reset"
 msgstr "Athshocraigh"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:247
 msgid "Split"
 msgstr "Scoilt"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
+#: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Change Title…"
 msgstr "Athraigh teideal…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
-#: src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.5/window.blp:255
 msgid "Split Up"
 msgstr "Scoilt suas"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
-#: src/apprt/gtk/ui/1.5/window.blp:255
+#: src/apprt/gtk/ui/1.5/window.blp:260
 msgid "Split Down"
 msgstr "Scoilt síos"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
-#: src/apprt/gtk/ui/1.5/window.blp:260
+#: src/apprt/gtk/ui/1.5/window.blp:265
 msgid "Split Left"
 msgstr "Scoilt ar chlé"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
-#: src/apprt/gtk/ui/1.5/window.blp:265
+#: src/apprt/gtk/ui/1.5/window.blp:270
 msgid "Split Right"
 msgstr "Scoilt ar dheis"
 
@@ -176,17 +175,17 @@ msgstr "Scoilt ar dheis"
 msgid "Tab"
 msgstr "Táb"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
-#: src/apprt/gtk/ui/1.5/window.blp:320
+#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/apprt/gtk/ui/1.5/window.blp:325
 msgid "Change Tab Title…"
 msgstr "Athraigh teideal an táb…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
-#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "New Tab"
 msgstr "Táb nua"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
+#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:239
 msgid "Close Tab"
 msgstr "Dún táb"
 
@@ -195,18 +194,22 @@ msgid "Window"
 msgstr "Fuinneog"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
+msgid "Change Window Title…"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "New Window"
 msgstr "Fuinneog nua"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
+#: src/apprt/gtk/ui/1.2/surface.blp:355 src/apprt/gtk/ui/1.5/window.blp:222
 msgid "Close Window"
 msgstr "Dún fuinneog"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:358
+#: src/apprt/gtk/ui/1.2/surface.blp:363
 msgid "Config"
 msgstr "Cumraíocht"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Open Configuration"
 msgstr "Oscail cumraíocht"
 
@@ -230,19 +233,19 @@ msgstr "Féach ar na táib oscailte"
 msgid "Main Menu"
 msgstr "Príomh-Roghchlár"
 
-#: src/apprt/gtk/ui/1.5/window.blp:285
+#: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Command Palette"
 msgstr "Pailéad ordaithe"
 
-#: src/apprt/gtk/ui/1.5/window.blp:290
+#: src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Terminal Inspector"
 msgstr "Cigire teirminéil"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+#: src/apprt/gtk/ui/1.5/window.blp:312 src/apprt/gtk/class/window.zig:1802
 msgid "About Ghostty"
 msgstr "Maidir le Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.5/window.blp:317
 msgid "Quit"
 msgstr "Scoir"
 
@@ -311,15 +314,15 @@ msgid "The currently running process in this split will be terminated."
 msgstr ""
 "Cuirfear deireadh leis an bpróiseas atá ar siúl faoi láthair sa scoilt seo."
 
-#: src/apprt/gtk/class/surface.zig:1108
+#: src/apprt/gtk/class/surface.zig:1104
 msgid "Command Finished"
 msgstr "Ordú críochnaithe"
 
-#: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface.zig:1105
 msgid "Command Succeeded"
 msgstr "D’éirigh leis an ordú"
 
-#: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface.zig:1106
 msgid "Command Failed"
 msgstr "Theip ar an ordú"
 
@@ -331,26 +334,30 @@ msgstr "D'éirigh leis an ordú"
 msgid "Command failed"
 msgstr "Theip ar an ordú"
 
-#: src/apprt/gtk/class/title_dialog.zig:225
+#: src/apprt/gtk/class/title_dialog.zig:227
 msgid "Change Terminal Title"
 msgstr "Athraigh teideal teirminéil"
 
-#: src/apprt/gtk/class/title_dialog.zig:226
+#: src/apprt/gtk/class/title_dialog.zig:228
 msgid "Change Tab Title"
 msgstr "Athraigh teideal an táb"
 
-#: src/apprt/gtk/class/window.zig:1007
+#: src/apprt/gtk/class/title_dialog.zig:229
+msgid "Change Window Title"
+msgstr ""
+
+#: src/apprt/gtk/class/window.zig:1030
 msgid "Reloaded the configuration"
 msgstr "Tá an chumraíocht athlódáilte"
 
-#: src/apprt/gtk/class/window.zig:1566
+#: src/apprt/gtk/class/window.zig:1641
 msgid "Copied to clipboard"
 msgstr "Cóipeáilte chuig an ghearrthaisce"
 
-#: src/apprt/gtk/class/window.zig:1568
+#: src/apprt/gtk/class/window.zig:1643
 msgid "Cleared clipboard"
 msgstr "Gearrthaisce glanta"
 
-#: src/apprt/gtk/class/window.zig:1708
+#: src/apprt/gtk/class/window.zig:1783
 msgid "Ghostty Developers"
 msgstr "Forbróirí Ghostty"

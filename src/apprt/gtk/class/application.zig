@@ -2288,6 +2288,23 @@ const Action = struct {
                     },
                 }
             },
+            .window => {
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const win = ext.getAncestor(
+                            Window,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a window, ignoring prompt_window_title", .{});
+                            return false;
+                        };
+                        win.promptWindowTitle();
+                        return true;
+                    },
+                }
+            },
         }
     }
 
