@@ -585,7 +585,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Call this last in case it uses any of the properties above.
         window.syncAppearance(surfaceConfig)
-        window.terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: window.preferredBackgroundColor)
+        terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: window.preferredBackgroundColor)
     }
 
     /// Adjusts the given frame for the configured window position.
@@ -1147,12 +1147,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
-        window?.terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
     }
 
     override func windowDidResignKey(_ notification: Notification) {
         super.windowDidResignKey(notification)
-        window?.terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
     }
 
     override func windowDidMove(_ notification: Notification) {

@@ -159,7 +159,7 @@ class QuickTerminalController: BaseTerminalController {
         // applies if we can be seen.
         guard visible else { return }
 
-        window?.terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
 
         // Re-hide the dock if we were hiding it before.
         hiddenDock?.hide()
@@ -174,7 +174,7 @@ class QuickTerminalController: BaseTerminalController {
         // ensures we don't run logic twice.
         guard visible else { return }
 
-        window?.terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
 
         // We don't animate out if there is a modal sheet being shown currently.
         // This lets us show alerts without causing the window to disappear.
@@ -709,7 +709,7 @@ class QuickTerminalController: BaseTerminalController {
 
         syncAppearance()
 
-        window?.terminalViewContainer?.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        terminalViewContainer?.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
     }
 
     @objc private func onNewTab(notification: SwiftUI.Notification) {

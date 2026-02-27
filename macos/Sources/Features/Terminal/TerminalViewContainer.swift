@@ -77,11 +77,11 @@ class TerminalViewContainer: NSView {
     }
 }
 
-// MARK: - NSWindow + terminalViewContainer
+// MARK: - BaseTerminalController + terminalViewContainer
 
-extension NSWindow {
+extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
-        contentView as? TerminalViewContainer
+        window?.contentView as? TerminalViewContainer
     }
 }
 
