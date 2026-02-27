@@ -585,6 +585,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Call this last in case it uses any of the properties above.
         window.syncAppearance(surfaceConfig)
+        terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: window.preferredBackgroundColor)
     }
 
     /// Adjusts the given frame for the configured window position.
@@ -1024,11 +1025,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = TerminalViewContainer(
-            ghostty: self.ghostty,
-            viewModel: self,
-            delegate: self,
-        )
+        window.contentView = TerminalViewContainer {
+            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+        }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1148,6 +1147,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
+    }
+
+    override func windowDidResignKey(_ notification: Notification) {
+        super.windowDidResignKey(notification)
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
     }
 
     override func windowDidMove(_ notification: Notification) {

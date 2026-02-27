@@ -3,6 +3,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
+const lib = @import("../lib/main.zig");
 
 pub const Errors = error{
     /// The IPC failed. If a function returns this error, it's expected that
@@ -22,6 +23,10 @@ pub const Target = union(Key) {
     pub const Key = enum(c_int) {
         class,
         detect,
+
+        test "ghostty.h Target.Key" {
+            try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_TARGET_");
+        }
     };
 
     // Sync with: ghostty_ipc_target_u
@@ -106,8 +111,12 @@ pub const Action = union(enum) {
     };
 
     /// Sync with: ghostty_ipc_action_tag_e
-    pub const Key = enum(c_uint) {
+    pub const Key = enum(c_int) {
         new_window,
+
+        test "ghostty.h Action.Key" {
+            try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_ACTION_");
+        }
     };
 
     /// Sync with: ghostty_ipc_action_u

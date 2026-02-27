@@ -7,6 +7,7 @@ const input = @import("../input.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const CoreSurface = @import("../Surface.zig");
+const lib = @import("../lib/main.zig");
 
 /// The target for an action. This is generally the thing that had focus
 /// while the action was made but the concept of "focus" is not guaranteed
@@ -19,6 +20,10 @@ pub const Target = union(Key) {
     pub const Key = enum(c_int) {
         app,
         surface,
+
+        test "ghostty.h Target.Key" {
+            try lib.checkGhosttyHEnum(Key, "GHOSTTY_TARGET_");
+        }
     };
 
     // Sync with: ghostty_target_u
@@ -401,6 +406,10 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+
+        test "ghostty.h Action.Key" {
+            try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
+        }
     };
 
     /// Sync with: ghostty_action_u
@@ -482,6 +491,10 @@ pub const SplitDirection = enum(c_int) {
     down,
     left,
     up,
+
+    test "ghostty.h SplitDirection" {
+        try lib.checkGhosttyHEnum(SplitDirection, "GHOSTTY_SPLIT_DIRECTION_");
+    }
 };
 
 // This is made extern (c_int) to make interop easier with our embedded
@@ -494,6 +507,10 @@ pub const GotoSplit = enum(c_int) {
     left,
     down,
     right,
+
+    test "ghostty.h GotoSplit" {
+        try lib.checkGhosttyHEnum(GotoSplit, "GHOSTTY_GOTO_SPLIT_");
+    }
 };
 
 // This is made extern (c_int) to make interop easier with our embedded
@@ -501,6 +518,10 @@ pub const GotoSplit = enum(c_int) {
 pub const GotoWindow = enum(c_int) {
     previous,
     next,
+
+    test "ghostty.h GotoWindow" {
+        try lib.checkGhosttyHEnum(GotoWindow, "GHOSTTY_GOTO_WINDOW_");
+    }
 };
 
 /// The amount to resize the split by and the direction to resize it in.
@@ -513,6 +534,10 @@ pub const ResizeSplit = extern struct {
         down,
         left,
         right,
+
+        test "ghostty.h ResizeSplit.Direction" {
+            try lib.checkGhosttyHEnum(Direction, "GHOSTTY_RESIZE_SPLIT_");
+        }
     };
 };
 
@@ -528,6 +553,11 @@ pub const GotoTab = enum(c_int) {
     next = -2,
     last = -3,
     _,
+
+    // TODO: check non-exhaustive enums
+    // test "ghostty.h GotoTab" {
+    //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
+    // }
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.
@@ -539,18 +569,30 @@ pub const Fullscreen = enum(c_int) {
     macos_non_native,
     macos_non_native_visible_menu,
     macos_non_native_padded_notch,
+
+    test "ghostty.h Fullscreen" {
+        try lib.checkGhosttyHEnum(Fullscreen, "GHOSTTY_FULLSCREEN_");
+    }
 };
 
 pub const FloatWindow = enum(c_int) {
     on,
     off,
     toggle,
+
+    test "ghostty.h FloatWindow" {
+        try lib.checkGhosttyHEnum(FloatWindow, "GHOSTTY_FLOAT_WINDOW_");
+    }
 };
 
 pub const SecureInput = enum(c_int) {
     on,
     off,
     toggle,
+
+    test "ghostty.h SecureInput" {
+        try lib.checkGhosttyHEnum(SecureInput, "GHOSTTY_SECURE_INPUT_");
+    }
 };
 
 /// The inspector mode to toggle to if we're toggling the inspector.
@@ -558,27 +600,47 @@ pub const Inspector = enum(c_int) {
     toggle,
     show,
     hide,
+
+    test "ghostty.h Inspector" {
+        try lib.checkGhosttyHEnum(Inspector, "GHOSTTY_INSPECTOR_");
+    }
 };
 
 pub const QuitTimer = enum(c_int) {
     start,
     stop,
+
+    test "ghostty.h QuitTimer" {
+        try lib.checkGhosttyHEnum(QuitTimer, "GHOSTTY_QUIT_TIMER_");
+    }
 };
 
 pub const Readonly = enum(c_int) {
     off,
     on,
+
+    test "ghostty.h Readonly" {
+        try lib.checkGhosttyHEnum(Readonly, "GHOSTTY_READONLY_");
+    }
 };
 
 pub const MouseVisibility = enum(c_int) {
     visible,
     hidden,
+
+    test "ghostty.h MouseVisibility" {
+        try lib.checkGhosttyHEnum(MouseVisibility, "GHOSTTY_MOUSE_");
+    }
 };
 
 /// Whether to prompt for the surface title or tab title.
 pub const PromptTitle = enum(c_int) {
     surface,
     tab,
+
+    test "ghostty.h PromptTitle" {
+        try lib.checkGhosttyHEnum(PromptTitle, "GHOSTTY_PROMPT_TITLE_");
+    }
 };
 
 pub const MouseOverLink = struct {
@@ -782,6 +844,11 @@ pub const ColorKind = enum(c_int) {
 
     // 0+ values indicate a palette index
     _,
+
+    // TODO: check non-non-exhaustive enums
+    // test "ghostty.h ColorKind" {
+    //     try lib.checkGhosttyHEnum(ColorKind, "GHOSTTY_COLOR_KIND_");
+    // }
 };
 
 pub const ReloadConfig = extern struct {
@@ -832,6 +899,10 @@ pub const OpenUrl = struct {
 
         /// The URL is known to contain HTML content.
         html,
+
+        test "ghostty.h OpenUrl.Kind" {
+            try lib.checkGhosttyHEnum(Kind, "GHOSTTY_ACTION_OPEN_URL_KIND_");
+        }
     };
 
     // Sync with: ghostty_action_open_url_s
@@ -858,6 +929,10 @@ pub const CloseTabMode = enum(c_int) {
     other,
     /// Close all tabs to the right of the current tab.
     right,
+
+    test "ghostty.h CloseTabMode" {
+        try lib.checkGhosttyHEnum(CloseTabMode, "GHOSTTY_ACTION_CLOSE_TAB_MODE_");
+    }
 };
 
 pub const CommandFinished = struct {
@@ -922,3 +997,7 @@ pub const SearchSelected = struct {
         };
     }
 };
+
+test {
+    _ = std.testing.refAllDeclsRecursive(@This());
+}

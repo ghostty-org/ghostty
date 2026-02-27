@@ -117,3 +117,17 @@ enum BackportPointerStyle {
     }
     #endif
 }
+
+enum BackportNSGlassStyle {
+    case regular, clear
+
+    #if canImport(AppKit)
+    @available(macOS 26, *)
+    var official: NSGlassEffectView.Style {
+        switch self {
+        case .regular: return .regular
+        case .clear: return .clear
+        }
+    }
+    #endif
+}

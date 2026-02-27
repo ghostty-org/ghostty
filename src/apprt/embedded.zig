@@ -848,7 +848,7 @@ pub const Surface = struct {
         mods: input.Mods,
     ) void {
         // Convert our unscaled x/y to scaled.
-        self.cursor_pos = self.cursorPosToPixels(.{
+        const pos = self.cursorPosToPixels(.{
             .x = @floatCast(x),
             .y = @floatCast(y),
         }) catch |err| {
@@ -858,6 +858,19 @@ pub const Surface = struct {
             );
             return;
         };
+
+        // There are cases where the platform reports a mouse motion event
+        // without the cursor actually moving. For example, on macOS, updating
+        // the window title can trigger a phantom mouse-move event at the same
+        // coordinates. This can cause the mouse to incorrectly unhide when
+        // mouse-hide-while-typing is enabled (commonly seen with TUI apps
+        // like Zellij that frequently update the title). To prevent incorrect
+        // behavior, we only continue with callback logic if the cursor has
+        // actually moved.
+        if (@abs(self.cursor_pos.x - pos.x) < 1 and
+            @abs(self.cursor_pos.y - pos.y) < 1) return;
+
+        self.cursor_pos = pos;
 
         self.core_surface.cursorPosCallback(self.cursor_pos, mods) catch |err| {
             log.err("error in cursor pos callback err={}", .{err});

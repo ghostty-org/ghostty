@@ -37,22 +37,16 @@ With this, you're ready to localize!
 
 ## Locale names
 
-A locale name will always consist of a [two letter language
-code](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) (i.e.
+A locale name always consists of a [two letter language
+code](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) (e.g.
 `de`, `es`, `fr`). Sometimes, for languages that have regional variations
-(such as `zh` and `es`), the locale name will include a [two letter
+(such as `zh` and `es`), the locale name includes a [two letter
 country code](https://en.wikipedia.org/wiki/List_of_ISO_3166_country_codes).
 One example is `es_AR` for Spanish as spoken in Argentina.
 
 Full locale names are more complicated, but Ghostty does not use all parts. [The
 `gettext` documentation](https://www.gnu.org/software/gettext/manual/gettext.html#Locale-Names-1)
 has more information on locale names.
-
-## Localization team name
-
-Every locale will have a localization team that helps keep localizations up to
-date. Localization team names _always_ consist of a language code and a country
-code (e.g. `de_DE` or `zh_CN`).
 
 ## Translation file names
 
@@ -103,8 +97,9 @@ Lines beginning with `#` are comments, of which there are several kinds:
   affect translators in other locales.
 
 The first entry of the `.po` file has an empty `msgid`. This entry is special
-as it stores the metadata related to the `.po` file itself. You usually do
-not need to modify it.
+as it stores the metadata related to the `.po` file itself. You should update
+`PO-Revision-Date` and `Last-Translator` once you have finished your edits, but
+you normally do not need to modify other metadata.
 
 ## Creating new translation files
 
@@ -135,26 +130,87 @@ const locales = [_][]const u8{
 }
 ```
 
-You should then be able to run `zig build run` and see your translations in action!
+You should then be able to run `zig build run` and see your translations in
+action! See the ["Viewing translations" section](#viewing-translations) below.
 
 Before opening a pull request with the new translation file, you should also
-add your translation file to the `CODEOWNERS` file. Find the `# Localization`
-section near the bottom and add a line like so (where `X.po` is the name of the
-translation file that you created and `Y` is your [localization team name](#localization-team-name):
+update the `CODEOWNERS` file. This is described in more detail in the
+["Localization teams" section](#localization-teams)—don't forget to read that
+section before submitting a pull request!
+
+## Viewing translations
+
+> [!NOTE]
+> The localization system is not yet implemented for macOS, so it is not
+> possible to view your translations there.
+
+Simply run `zig build run`. Ghostty uses your system language by default; if
+your translations are of the language of your system, use
+`zig build run -- --language=X` (where `X` is your locale name). You can
+alternatively set the `LANGUAGE` environment variable to your locale name.
+
+On some desktop environments, such as KDE Plasma, Ghostty uses server-side
+decorations by default. This hides many strings from the UI, which is
+undesirable when viewing your translations. You can force Ghostty to use
+client-side decorations with `zig build run -- --window-decoration=client`.
+
+Some strings are present in multiple places! A notable example is the context
+menus: the hamburger menu in the header bar duplicates many strings present in
+the right click menu.
+
+## Localization teams
+
+Every locale has a localization team consisting of the locale's maintainers.
+These maintainers review contributions to their locale's translations, and are
+responsible for translating new strings when requested: occasionally, all locale
+maintainers are pinged and requested to translate missing strings.
+
+The primary purposes of being a locale maintainer are a declaration of
+_commitment_ to their upkeep, and being _informed_ of updates or update requests
+of the translations, via GitHub's review requests or @mentions.
+
+So that future updates to a locale are possible, each localization team must
+have at least two members. If you are introducing a new language, please
+**consider volunteering** to be a part of the localization team, by mentioning
+that you are willing to be a part of it in the pull request description! You,
+and all reviewers, will be offered to join the locale team before the pull
+request to add the new language is merged, but this denotes your dedication
+upfront—for a pull request adding a new language to be merged, it needs at least
+one review from a speaker of that language _and_ at least two localization team
+members. No one is _required_ to join a localization team, even if they
+introduced support for the language.
+
+### `CODEOWNERS`
+
+Localization teams are represented as teams in the Ghostty GitHub organization.
+GitHub reads a `CODEOWNERS` file, which maps files to teams, to determine
+identify relevant maintainers. When **introducing support for a language**, you
+should add the `.po` file to `CODEOWNERS`.
+
+To do this, find the `# Localization` section near the bottom of the file, and
+add a line like so:
 
 ```diff
  # Localization
  /po/README_TRANSLATORS.md @ghostty-org/localization
  /po/com.mitchellh.ghostty.pot @ghostty-org/localization
  /po/zh_CN.po @ghostty-org/zh_CN
-+/po/X.po @ghostty-org/Y
++/po/X.po @ghostty-org/yy_ZZ
 ```
 
-## Style Guide
+`X.po` here is the name of the translation file you created. Unlike the
+translation file's name, localization team names **always include a language and
+a country code**; `yy` here is the _language code_, and `ZZ` is the _country
+code_.
+
+When adding a new entry, try to keep the list in **alphabetical order** if
+possible.
+
+## Style guide
 
 These are general style guidelines for translations. Naturally, the specific
-recommended standards will differ based on the specific language/locale,
-but these should serve as a baseline for the tone and voice of any translation.
+recommended standards differ based on the specific language/locale, but these
+should serve as a baseline for the tone and voice of any translation.
 
 - **Prefer an instructive, yet professional tone.**
 
@@ -187,3 +243,45 @@ but these should serve as a baseline for the tone and voice of any translation.
   [GNOME Human Interface Guidelines](https://developer.gnome.org/hig/guidelines/writing-style.html)
   on Linux, and [Apple's Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/writing)
   on macOS.
+
+## Common issues
+
+Some mistakes are frequently made during translation. The most common ones are
+listed below.
+
+### Unicode ellipses
+
+English source strings use the ellipses character, `…`, instead of three full
+stops, `...`. If your language uses ellipses, use the ellipses character instead
+of three full stops in your translations. You can copy this character from the
+English source string itself.
+
+### Title case
+
+Title case is a feature of English writing where most words start with a capital
+letter: This Clause Is Written In Title Case. It is commonly found in titles,
+hence its name; however, English is one of the only languages that uses title
+case. If your language does not use title case, **do not use title case for the
+sake of copying the English source**. Please use the casing conventions of your
+language instead.
+
+### `X-Generator` field
+
+Many `.po` file editors add an `X-Generator` field to the metadata section.
+These should be removed as other translators might overwrite them when using
+a different editor, and some (such as Poedit) update the line when a different
+_version_ is used—this adds unnecessary changes to the diff.
+
+You can remove the `X-Generator` field by simply deleting that line from the
+file.
+
+### Updating metadata (revision date)
+
+It is very easy to overlook the `PO-Revision-Date` field in the metadata at the
+top of the file. Please update this when you are done modifying the
+translations!
+
+Depending on who last translated the file, the `Last-Translator` field might
+also need updating: make sure it has your name and email. Finally, if your name
+and email are not present in the copyright comment at the top of the file,
+consider adding it there.

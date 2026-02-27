@@ -226,7 +226,9 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
 
         if let sourceLabel {
             let labelFrame = tabButton.convert(sourceLabel.bounds, from: sourceLabel)
-            frame.origin.y = labelFrame.minY
+            /// The `labelFrame.minY` value changes unexpectedly after the first use,
+            /// I don't know exactly why, but `tabButton.bounds` appears stable enough to calculate the correct position reliably.
+            frame.origin.y = bounds.midY - labelFrame.height * 0.5
             frame.size.height = labelFrame.height
         }
 

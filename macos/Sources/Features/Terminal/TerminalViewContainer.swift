@@ -3,20 +3,27 @@ import SwiftUI
 
 /// Use this container to achieve a glass effect at the window level.
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
-class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
+class TerminalViewContainer: NSView {
     private let terminalView: NSView
 
     /// Combined glass effect and inactive tint overlay view
-    private var glassEffectView: NSView?
-    private var derivedConfig: DerivedConfig
+    private(set) var glassEffectView: NSView?
+    private var derivedConfig: DerivedConfig?
 
-    init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
-        self.derivedConfig = DerivedConfig(config: ghostty.config)
-        self.terminalView = NSHostingView(rootView: TerminalView(
-            ghostty: ghostty,
-            viewModel: viewModel,
-            delegate: delegate
-        ))
+    var windowThemeFrameView: NSView? {
+        window?.contentView?.superview
+    }
+
+    var windowCornerRadius: CGFloat? {
+        guard let window, window.responds(to: Selector(("_cornerRadius"))) else {
+            return nil
+        }
+
+        return window.value(forKey: "_cornerRadius") as? CGFloat
+    }
+
+    init<Root: View>(@ViewBuilder rootView: () -> Root) {
+        self.terminalView = NSHostingView(rootView: rootView())
         super.init(frame: .zero)
         setup()
     }
@@ -24,10 +31,6 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
     }
 
     /// To make ``TerminalController/DefaultSize/contentIntrinsicSize``
@@ -46,27 +49,6 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(ghosttyConfigDidChange(_:)),
-            name: .ghosttyConfigDidChange,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidBecomeKey(_:)),
-            name: NSWindow.didBecomeKeyNotification,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidResignKey(_:)),
-            name: NSWindow.didResignKeyNotification,
-            object: nil
-        )
     }
 
     override func viewDidMoveToWindow() {
@@ -84,29 +66,22 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
         guard let config = notification.userInfo?[
             Notification.Name.GhosttyConfigChangeKey
         ] as? Ghostty.Config else { return }
-        let newValue = DerivedConfig(config: config)
+        ghosttyConfigDidChange(config, preferredBackgroundColor: (window as? TerminalWindow)?.preferredBackgroundColor)
+    }
+
+    func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
+        let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
-
-        // Add some delay to wait TerminalWindow to update first to ensure
-        // that some of our properties are updated. This is a HACK to ensure
-        // light/dark themes work, and we will come up with a better way
-        // in the future.
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + 0.05,
-            execute: updateGlassEffectIfNeeded)
+        DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
     }
+}
 
-    @objc private func windowDidBecomeKey(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow,
-              window == self.window else { return }
-        updateGlassTintOverlay(isKeyWindow: true)
-    }
+// MARK: - BaseTerminalController + terminalViewContainer
 
-    @objc private func windowDidResignKey(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow,
-              window == self.window else { return }
-        updateGlassTintOverlay(isKeyWindow: false)
+extension BaseTerminalController {
+    var terminalViewContainer: TerminalViewContainer? {
+        window?.contentView as? TerminalViewContainer
     }
 }
 
@@ -118,9 +93,8 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
 @available(macOS 26.0, *)
 private class TerminalGlassView: NSView {
     private let glassEffectView: NSGlassEffectView
-    private var glassTopConstraint: NSLayoutConstraint?
+    private var topConstraint: NSLayoutConstraint!
     private let tintOverlay: NSView
-    private var tintTopConstraint: NSLayoutConstraint?
 
     init(topOffset: CGFloat) {
         self.glassEffectView = NSGlassEffectView()
@@ -132,36 +106,29 @@ private class TerminalGlassView: NSView {
         // Glass effect view fills this view.
         glassEffectView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glassEffectView)
-        glassTopConstraint = glassEffectView.topAnchor.constraint(
+        topConstraint = glassEffectView.topAnchor.constraint(
             equalTo: topAnchor,
             constant: topOffset
         )
-        if let glassTopConstraint {
-            NSLayoutConstraint.activate([
-                glassTopConstraint,
-                glassEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                glassEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
-                glassEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            ])
-        }
+        NSLayoutConstraint.activate([
+            topConstraint,
+            glassEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            glassEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
 
         // Tint overlay sits above the glass effect.
         tintOverlay.translatesAutoresizingMaskIntoConstraints = false
         tintOverlay.wantsLayer = true
         tintOverlay.alphaValue = 0
         addSubview(tintOverlay, positioned: .above, relativeTo: glassEffectView)
-        tintTopConstraint = tintOverlay.topAnchor.constraint(
-            equalTo: topAnchor,
-            constant: topOffset
-        )
-        if let tintTopConstraint {
-            NSLayoutConstraint.activate([
-                tintTopConstraint,
-                tintOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-                tintOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-                tintOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-            ])
-        }
+
+        NSLayoutConstraint.activate([
+            tintOverlay.topAnchor.constraint(equalTo: glassEffectView.topAnchor),
+            tintOverlay.leadingAnchor.constraint(equalTo: glassEffectView.leadingAnchor),
+            tintOverlay.bottomAnchor.constraint(equalTo: glassEffectView.bottomAnchor),
+            tintOverlay.trailingAnchor.constraint(equalTo: glassEffectView.trailingAnchor),
+        ])
     }
 
     @available(*, unavailable)
@@ -180,17 +147,14 @@ private class TerminalGlassView: NSView {
     ) {
         glassEffectView.style = style
         glassEffectView.tintColor = backgroundColor.withAlphaComponent(backgroundOpacity)
-        if let cornerRadius {
-            glassEffectView.cornerRadius = cornerRadius
-        }
+        glassEffectView.cornerRadius = cornerRadius ?? 0
         updateKeyStatus(isKeyWindow, backgroundColor: backgroundColor)
     }
 
     /// Updates the top inset offset for both the glass effect and tint overlay.
     /// Call this when the safe area insets change (e.g., during layout).
     func updateTopInset(_ offset: CGFloat) {
-        glassTopConstraint?.constant = offset
-        tintTopConstraint?.constant = offset
+        topConstraint.constant = offset
     }
 
     /// Updates the tint overlay visibility based on window key status.
@@ -210,15 +174,15 @@ private class TerminalGlassView: NSView {
 }
 #endif // compiler(>=6.2)
 
-private extension TerminalViewContainer {
+extension TerminalViewContainer {
 #if compiler(>=6.2)
     @available(macOS 26.0, *)
-    func addGlassEffectViewIfNeeded() -> TerminalGlassView? {
+    private func addGlassEffectViewIfNeeded() -> TerminalGlassView? {
         if let existed = glassEffectView as? TerminalGlassView {
             updateGlassEffectTopInsetIfNeeded()
             return existed
         }
-        guard let themeFrameView = window?.contentView?.superview else {
+        guard let themeFrameView = windowThemeFrameView else {
             return nil
         }
         let effectView = TerminalGlassView(topOffset: -themeFrameView.safeAreaInsets.top)
@@ -234,9 +198,9 @@ private extension TerminalViewContainer {
     }
 #endif // compiler(>=6.2)
 
-    func updateGlassEffectIfNeeded() {
+    private func updateGlassEffectIfNeeded() {
 #if compiler(>=6.2)
-        guard #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle else {
+        guard #available(macOS 26.0, *), let derivedConfig else {
             glassEffectView?.removeFromSuperview()
             glassEffectView = nil
             return
@@ -245,61 +209,60 @@ private extension TerminalViewContainer {
             return
         }
 
-        let style: NSGlassEffectView.Style
-        switch derivedConfig.backgroundBlur {
-        case .macosGlassRegular:
-            style = NSGlassEffectView.Style.regular
-        case .macosGlassClear:
-            style = NSGlassEffectView.Style.clear
-        default:
-            style = NSGlassEffectView.Style.regular
-        }
-        let backgroundColor = (window as? TerminalWindow)?.preferredBackgroundColor ?? NSColor(derivedConfig.backgroundColor)
-
-        var cornerRadius: CGFloat?
-        if let window, window.responds(to: Selector(("_cornerRadius"))) {
-            cornerRadius = window.value(forKey: "_cornerRadius") as? CGFloat
-        }
-
         effectView.configure(
-            style: style,
-            backgroundColor: backgroundColor,
+            style: derivedConfig.style.official,
+            backgroundColor: derivedConfig.backgroundColor,
             backgroundOpacity: derivedConfig.backgroundOpacity,
-            cornerRadius: cornerRadius,
+            cornerRadius: derivedConfig.cornerRadius,
             isKeyWindow: window?.isKeyWindow ?? true
         )
 #endif // compiler(>=6.2)
     }
 
-    func updateGlassEffectTopInsetIfNeeded() {
+    private func updateGlassEffectTopInsetIfNeeded() {
 #if compiler(>=6.2)
-        guard #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle else {
+        guard
+            #available(macOS 26.0, *),
+            let effectView = glassEffectView as? TerminalGlassView,
+            let themeFrameView = windowThemeFrameView
+        else {
             return
         }
-        guard glassEffectView != nil else { return }
-        guard let themeFrameView = window?.contentView?.superview else { return }
-        (glassEffectView as? TerminalGlassView)?.updateTopInset(-themeFrameView.safeAreaInsets.top)
+        effectView.updateTopInset(-themeFrameView.safeAreaInsets.top)
 #endif // compiler(>=6.2)
     }
 
     func updateGlassTintOverlay(isKeyWindow: Bool) {
 #if compiler(>=6.2)
-        guard #available(macOS 26.0, *) else { return }
-        guard glassEffectView != nil else { return }
-        let backgroundColor = (window as? TerminalWindow)?.preferredBackgroundColor ?? NSColor(derivedConfig.backgroundColor)
-        (glassEffectView as? TerminalGlassView)?.updateKeyStatus(isKeyWindow, backgroundColor: backgroundColor)
+        guard
+            #available(macOS 26.0, *),
+            let effectView = glassEffectView as? TerminalGlassView,
+            let derivedConfig
+        else {
+            return
+        }
+        effectView.updateKeyStatus(isKeyWindow, backgroundColor: derivedConfig.backgroundColor)
 #endif // compiler(>=6.2)
     }
 
     struct DerivedConfig: Equatable {
-        var backgroundOpacity: Double = 0
-        var backgroundBlur: Ghostty.Config.BackgroundBlur
-        var backgroundColor: Color = .clear
+        let style: BackportNSGlassStyle
+        let backgroundColor: NSColor
+        let backgroundOpacity: Double
+        let cornerRadius: CGFloat?
 
-        init(config: Ghostty.Config) {
-            self.backgroundBlur = config.backgroundBlur
+        init?(config: Ghostty.Config, preferredBackgroundColor: NSColor?, cornerRadius: CGFloat?) {
+            switch config.backgroundBlur {
+            case .macosGlassRegular:
+                style = .regular
+            case .macosGlassClear:
+                style = .clear
+            default:
+                return nil
+            }
+            self.backgroundColor = preferredBackgroundColor ?? NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
-            self.backgroundColor = config.backgroundColor
+            self.cornerRadius = cornerRadius
         }
     }
 }

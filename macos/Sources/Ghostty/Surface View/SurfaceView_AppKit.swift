@@ -678,7 +678,7 @@ extension Ghostty {
             guard let healthAny = notification.userInfo?["health"] else { return }
             guard let health = healthAny as? ghostty_action_renderer_health_e else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.healthy = health == GHOSTTY_RENDERER_HEALTH_OK
+                self?.healthy = health == GHOSTTY_RENDERER_HEALTH_HEALTHY
             }
         }
 
