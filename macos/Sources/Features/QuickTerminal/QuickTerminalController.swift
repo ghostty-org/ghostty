@@ -153,11 +153,10 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // Setup our content with tab support and glass effect
-        window.contentView = QuickTerminalViewContainer(
-            ghostty: self.ghostty,
-            controller: self,
-            tabManager: tabManager
-        )
+        window.contentView = TerminalViewContainer {
+            QuickTerminalView(ghostty: self.ghostty, controller: self, tabManager: tabManager)
+        }
+        terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: nil)
 
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
