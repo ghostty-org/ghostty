@@ -119,6 +119,34 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         end
     end
 
+    # Ensure $TERMINFO is set and `su` is not already a function or alias
+    if test -n "$TERMINFO"; and test file = (type -t su 2> /dev/null; or echo "x")
+        # Wrap `su` login shells so TERM is compatible when TERMINFO is dropped
+        function su -d "Wrap su login shells for terminfo fallback"
+            set --function su_login_shell no
+
+            for arg in $argv
+                if test "$arg" = "-"; or test "$arg" = "--login"; or string match -r -q -- '^-[^-]*l[^-]*$' "$arg"
+                    set su_login_shell yes
+                end
+
+                if test "$arg" = "--"
+                    break
+                end
+
+                if not string match -r -q -- '^-' "$arg"
+                    break
+                end
+            end
+
+            if test "$su_login_shell" = yes
+                TERM=xterm-256color command su $argv
+            else
+                command su $argv
+            end
+        end
+    end
+
     # SSH Integration
     set -l features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
     if contains ssh-env $features; or contains ssh-terminfo $features

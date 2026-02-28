@@ -112,6 +112,38 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
       builtin command sudo --preserve-env=TERMINFO "$@"
     fi
   }
+
+fi
+
+# su
+if [[ -n "$TERMINFO" && "$(type -t su 2>/dev/null)" == "file" ]]; then
+  # Wrap `su` login shells so they don't inherit xterm-ghostty without TERMINFO.
+  # Login `su` usually drops TERMINFO, which breaks readline key handling.
+  function su {
+    builtin local su_login_shell="no"
+    builtin local arg
+    for arg in "$@"; do
+      case "$arg" in
+      -|--login|-l|-[^-]*l[^-]*)
+        su_login_shell="yes"
+        ;;
+      --)
+        builtin break
+        ;;
+      -*)
+        ;;
+      *)
+        builtin break
+        ;;
+      esac
+    done
+
+    if [[ "$su_login_shell" == "yes" ]]; then
+      TERM="xterm-256color" builtin command su "$@"
+    else
+      builtin command su "$@"
+    fi
+  }
 fi
 
 # SSH Integration

@@ -99,6 +99,33 @@ export module ghostty {
 
     ^sudo ...$sudo_args
   }
+
+  # Wrap `su` login shells to use a compatible TERM when TERMINFO is dropped
+  export def --wrapped su [...args] {
+    mut su_login_shell = false
+
+    for arg in $args {
+      if ($arg == "-" or $arg == "--login" or ($arg =~ '^-[^-]*l[^-]*$')) {
+        $su_login_shell = true
+      }
+
+      if ($arg == "--") {
+        break
+      }
+
+      if not ($arg | str starts-with "-") {
+        break
+      }
+    }
+
+    if (($env.TERMINFO? | default "") | is-not-empty) and $su_login_shell {
+      with-env {TERM: "xterm-256color"} {
+        ^su ...$args
+      }
+    } else {
+      ^su ...$args
+    }
+  }
 }
 
 # Clean up XDG_DATA_DIRS by removing GHOSTTY_SHELL_INTEGRATION_XDG_DIR
