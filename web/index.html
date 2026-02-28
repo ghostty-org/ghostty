@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="">
   <script>
     (function() {
-      var colors = ['#e84855','#8b5cf6','#22d3ee','#f472b6','#f59e0b','#eab308','#38bdf8','#7c6f9c'];
+      var colors = ['#FF4136','#7C4DFF','#00BCD4','#FF80AB','#FF9800','#FFEB3B','#81D4FA','#7986CB'];
       var c = colors[Math.floor(Math.random() * colors.length)];
       var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
         + '<path d="M4 2h8v1h2v1h1v10h-1v-1h-1v-1h-1v2h-1v-2h-1v1h-1v1h-1v-2h-1v2h-1v-1h-1v1H4v-1H3V3h1z" fill="' + c + '"/>'
@@ -41,14 +41,168 @@
       padding: 24px;
     }
 
-    video {
+    /* --- Scene container --- */
+    .scene {
       width: 100%;
       max-width: 720px;
-      height: auto;
+      background: #1a1a2e;
       border-radius: 16px;
+      cursor: pointer;
+      overflow: hidden;
+      padding: 48px 32px 40px;
+      user-select: none;
+    }
+
+    /* --- Ghost grid (pyramid) --- */
+    .ghosts {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 48px;
+    }
+
+    .ghost-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .ghost {
+      width: 100px;
+      height: 100px;
+      opacity: 0;
+    }
+
+    .ghost svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* --- Entrance: each ghost flies in from a unique direction --- */
+    .animate .ghost {
+      animation: float 2.5s ease-in-out infinite alternate;
+    }
+
+    .animate .g0 { animation: entrance-g0 0.8s ease-out forwards, float-g0 2.4s ease-in-out 3.2s infinite alternate; }
+    .animate .g1 { animation: entrance-g1 0.8s 0.2s ease-out forwards, float-g1 2.8s ease-in-out 3.4s infinite alternate; }
+    .animate .g2 { animation: entrance-g2 0.8s 0.4s ease-out forwards, float-g2 3.1s ease-in-out 3.6s infinite alternate; }
+    .animate .g3 { animation: entrance-g3 0.8s 0.6s ease-out forwards, float-g3 2.6s ease-in-out 3.8s infinite alternate; }
+    .animate .g4 { animation: entrance-g4 0.8s 0.8s ease-out forwards, float-g4 3.3s ease-in-out 4.0s infinite alternate; }
+    .animate .g5 { animation: entrance-g5 0.8s 1.0s ease-out forwards, float-g5 2.9s ease-in-out 4.2s infinite alternate; }
+    .animate .g6 { animation: entrance-g6 0.8s 1.2s ease-out forwards, float-g6 3.5s ease-in-out 4.4s infinite alternate; }
+    .animate .g7 { animation: entrance-g7 0.8s 1.4s ease-out forwards, float-g7 2.7s ease-in-out 4.6s infinite alternate; }
+
+    @keyframes entrance-g0 { from { transform: translateY(-300px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes entrance-g1 { from { transform: translate(-300px, -150px); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
+    @keyframes entrance-g2 { from { transform: translate(300px, -150px); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
+    @keyframes entrance-g3 { from { transform: translate(-400px, 0); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
+    @keyframes entrance-g4 { from { transform: translateY(-350px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes entrance-g5 { from { transform: translate(400px, 0); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
+    @keyframes entrance-g6 { from { transform: translate(-250px, 200px); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
+    @keyframes entrance-g7 { from { transform: translate(250px, 200px); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
+
+    @keyframes float-g0 { from { transform: translate(0, -5px); }   to { transform: translate(1px, 4px); } }
+    @keyframes float-g1 { from { transform: translate(2px, -3px); } to { transform: translate(-2px, 5px); } }
+    @keyframes float-g2 { from { transform: translate(-1px, -4px); } to { transform: translate(2px, 3px); } }
+    @keyframes float-g3 { from { transform: translate(1px, -6px); } to { transform: translate(-1px, 3px); } }
+    @keyframes float-g4 { from { transform: translate(-2px, -3px); } to { transform: translate(1px, 5px); } }
+    @keyframes float-g5 { from { transform: translate(0, -4px); }   to { transform: translate(-2px, 4px); } }
+    @keyframes float-g6 { from { transform: translate(2px, -5px); } to { transform: translate(-1px, 4px); } }
+    @keyframes float-g7 { from { transform: translate(-1px, -3px); } to { transform: translate(2px, 6px); } }
+
+    /* --- Terminal text --- */
+    .terminal {
+      font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 2;
+      color: #E0E0E0;
+      padding-left: 8px;
+    }
+
+    .line {
+      overflow: hidden;
+      white-space: nowrap;
+      width: 0;
+      border-right: 2px solid transparent;
+    }
+
+    /* Typing animation per line */
+    .animate .line-1 {
+      animation: type-line1 0.6s steps(16) 3.0s forwards, blink-caret 0.6s step-end 3.0s 1;
+      border-right-color: #E0E0E0;
+    }
+
+    .animate .line-2 {
+      animation: type-line2 0.9s steps(25) 4.0s forwards, blink-caret 0.6s step-end 4.0s 1;
+      border-right-color: transparent;
+    }
+
+    .animate .line-2.caret-visible {
+      border-right-color: #E0E0E0;
+    }
+
+    .animate .line-3 {
+      animation: type-line3 1.5s steps(52) 5.3s forwards, blink-caret 0.53s step-end 5.3s infinite;
+      border-right-color: transparent;
+    }
+
+    .animate .line-3.caret-visible {
+      border-right-color: #E0E0E0;
+    }
+
+    @keyframes type-line1 {
+      from { width: 0; }
+      to   { width: 16ch; }
+    }
+
+    @keyframes type-line2 {
+      from { width: 0; }
+      to   { width: 25ch; }
+    }
+
+    @keyframes type-line3 {
+      from { width: 0; }
+      to   { width: 52ch; }
+    }
+
+    @keyframes blink-caret {
+      50% { border-color: transparent; }
+    }
+
+    .terminal a {
+      color: #E0E0E0;
+      text-decoration: none;
       cursor: pointer;
     }
 
+    .terminal a:hover {
+      text-decoration: underline;
+    }
+
+    /* --- Scatter (click to explode) --- */
+    .scatter .ghost {
+      animation: none !important;
+      transition: transform 0.6s ease-in, opacity 0.4s ease-in;
+    }
+
+    .scatter .g0 { transform: translate(0, -600px) scale(0.5); opacity: 0; }
+    .scatter .g1 { transform: translate(-500px, -400px) scale(0.5); opacity: 0; }
+    .scatter .g2 { transform: translate(500px, -400px) scale(0.5); opacity: 0; }
+    .scatter .g3 { transform: translate(-600px, 0) scale(0.5); opacity: 0; }
+    .scatter .g4 { transform: translate(0, -550px) scale(0.5); opacity: 0; }
+    .scatter .g5 { transform: translate(600px, 0) scale(0.5); opacity: 0; }
+    .scatter .g6 { transform: translate(-400px, 500px) scale(0.5); opacity: 0; }
+    .scatter .g7 { transform: translate(400px, 500px) scale(0.5); opacity: 0; }
+
+    .scatter .terminal {
+      transition: opacity 0.4s ease-in;
+      opacity: 0;
+    }
+
+    /* --- Footer --- */
     footer {
       position: fixed;
       bottom: 0;
@@ -78,17 +232,81 @@
       display: block;
     }
 
+    /* --- Mobile --- */
     @media (max-width: 480px) {
       body { padding: 16px; }
-      video { border-radius: 12px; }
+      .scene { border-radius: 12px; padding: 32px 20px 28px; }
+      .ghost { width: 64px; height: 64px; }
+      .ghost-row { gap: 6px; }
+      .ghosts { gap: 6px; margin-bottom: 28px; }
+      .terminal { font-size: 13px; }
       footer { padding: 12px 16px; font-size: 12px; }
     }
   </style>
 </head>
 <body>
-  <video autoplay muted playsinline poster="assets/poster.png">
-    <source src="assets/GhostiesAnimation.mp4" type="video/mp4">
-  </video>
+  <div class="scene animate">
+    <div class="ghosts">
+      <!-- Row 1: blinky (red) -->
+      <div class="ghost-row">
+        <div class="ghost g0">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#FF4136" shape-rendering="crispEdges">
+            <rect x="12" y="0" width="24" height="4"/><rect x="8" y="4" width="32" height="4"/><rect x="4" y="8" width="40" height="4"/><rect x="4" y="12" width="8" height="8"/><rect x="20" y="12" width="8" height="8"/><rect x="36" y="12" width="8" height="8"/><rect x="0" y="20" width="48" height="20"/><rect x="0" y="40" width="8" height="4"/><rect x="12" y="40" width="8" height="4"/><rect x="28" y="40" width="8" height="4"/><rect x="40" y="40" width="8" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="16" y="44" width="4" height="4"/><rect x="28" y="44" width="4" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+      </div>
+      <!-- Row 2: specter (purple), inky (cyan) -->
+      <div class="ghost-row">
+        <div class="ghost g1">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#7C4DFF" shape-rendering="crispEdges">
+            <rect x="12" y="0" width="24" height="4"/><rect x="4" y="4" width="40" height="4"/><rect x="0" y="8" width="48" height="4"/><rect x="0" y="12" width="8" height="4"/><rect x="16" y="12" width="16" height="4"/><rect x="40" y="12" width="8" height="4"/><rect x="0" y="16" width="4" height="4"/><rect x="16" y="16" width="16" height="4"/><rect x="44" y="16" width="4" height="4"/><rect x="0" y="20" width="48" height="20"/><rect x="0" y="40" width="8" height="4"/><rect x="16" y="40" width="16" height="4"/><rect x="40" y="40" width="8" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="20" y="44" width="8" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+        <div class="ghost g2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#00BCD4" shape-rendering="crispEdges">
+            <rect x="12" y="0" width="24" height="4"/><rect x="8" y="4" width="32" height="4"/><rect x="4" y="8" width="40" height="4"/><rect x="4" y="12" width="12" height="8"/><rect x="32" y="12" width="12" height="8"/><rect x="0" y="20" width="48" height="20"/><rect x="0" y="40" width="4" height="4"/><rect x="8" y="40" width="8" height="4"/><rect x="20" y="40" width="8" height="4"/><rect x="32" y="40" width="8" height="4"/><rect x="44" y="40" width="4" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="12" y="44" width="4" height="4"/><rect x="32" y="44" width="4" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+      </div>
+      <!-- Row 3: pinky (pink), clyde (orange), banshee (yellow) -->
+      <div class="ghost-row">
+        <div class="ghost g3">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#FF80AB" shape-rendering="crispEdges">
+            <rect x="16" y="0" width="16" height="4"/><rect x="8" y="4" width="32" height="4"/><rect x="4" y="8" width="40" height="4"/><rect x="4" y="12" width="4" height="8"/><rect x="16" y="12" width="16" height="8"/><rect x="40" y="12" width="4" height="8"/><rect x="0" y="20" width="48" height="20"/><rect x="0" y="40" width="12" height="4"/><rect x="20" y="40" width="8" height="4"/><rect x="36" y="40" width="12" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+        <div class="ghost g4">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#FF9800" shape-rendering="crispEdges">
+            <rect x="8" y="0" width="32" height="4"/><rect x="4" y="4" width="40" height="4"/><rect x="0" y="8" width="48" height="4"/><rect x="0" y="12" width="8" height="8"/><rect x="16" y="12" width="16" height="8"/><rect x="40" y="12" width="8" height="8"/><rect x="0" y="20" width="48" height="20"/><rect x="0" y="40" width="12" height="4"/><rect x="16" y="40" width="16" height="4"/><rect x="36" y="40" width="12" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="20" y="44" width="8" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+        <div class="ghost g5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#FFEB3B" shape-rendering="crispEdges">
+            <rect x="8" y="0" width="32" height="4"/><rect x="4" y="4" width="40" height="4"/><rect x="0" y="8" width="48" height="4"/><rect x="0" y="12" width="4" height="8"/><rect x="16" y="12" width="16" height="8"/><rect x="44" y="12" width="4" height="8"/><rect x="0" y="20" width="48" height="4"/><rect x="0" y="24" width="12" height="4"/><rect x="36" y="24" width="12" height="4"/><rect x="0" y="28" width="48" height="12"/><rect x="0" y="40" width="8" height="4"/><rect x="16" y="40" width="16" height="4"/><rect x="40" y="40" width="8" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="20" y="44" width="8" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+      </div>
+      <!-- Row 4: chill (light blue, round), dusk (muted purple) -->
+      <div class="ghost-row">
+        <div class="ghost g6">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#81D4FA" shape-rendering="crispEdges">
+            <rect x="16" y="0" width="16" height="4"/><rect x="8" y="4" width="32" height="4"/><rect x="4" y="8" width="40" height="4"/><rect x="0" y="12" width="48" height="4"/><rect x="0" y="16" width="12" height="8"/><rect x="20" y="16" width="8" height="8"/><rect x="36" y="16" width="12" height="8"/><rect x="0" y="24" width="48" height="12"/><rect x="4" y="36" width="40" height="4"/><rect x="8" y="40" width="32" height="4"/><rect x="16" y="44" width="16" height="4"/>
+          </svg>
+        </div>
+        <div class="ghost g7">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#7986CB" shape-rendering="crispEdges">
+            <rect x="8" y="0" width="32" height="4"/><rect x="4" y="4" width="40" height="4"/><rect x="0" y="8" width="48" height="4"/><rect x="0" y="12" width="12" height="4"/><rect x="20" y="12" width="28" height="4"/><rect x="0" y="16" width="8" height="4"/><rect x="20" y="16" width="28" height="4"/><rect x="0" y="20" width="12" height="4"/><rect x="20" y="20" width="28" height="4"/><rect x="0" y="24" width="48" height="16"/><rect x="0" y="40" width="8" height="4"/><rect x="16" y="40" width="16" height="4"/><rect x="40" y="40" width="8" height="4"/><rect x="0" y="44" width="4" height="4"/><rect x="20" y="44" width="8" height="4"/><rect x="44" y="44" width="4" height="4"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="line line-1">cd ~/ghostties</div>
+      <div class="line line-2">ghostties % install soon</div>
+      <div class="line line-3"><a class="gh-link" href="https://github.com/SeanSmithDesign/ghostties" target="_blank" rel="noopener">https://github.com/SeanSmithDesign/ghostties</a></div>
+    </div>
+  </div>
 
   <footer>
     <span>&copy; 2026</span>
@@ -105,33 +323,60 @@
   <script defer src="/_vercel/insights/script.js"></script>
 
   <script>
-    const video = document.querySelector('video');
-    const PAUSE_AT = 12.0; // Frame 144 at 12fps — URL done, well before scatter at 150
-    let paused = false;
-    let scattering = false;
+    const scene = document.querySelector('.scene');
+    const ghLink = document.querySelector('.gh-link');
+    const lines = document.querySelectorAll('.line');
+    let animating = false;
 
-    video.addEventListener('timeupdate', () => {
-      if (!paused && !scattering && video.currentTime >= PAUSE_AT) {
-        video.pause();
-        paused = true;
-      }
+    // Activate caret visibility at the right times
+    function activateCarets() {
+      const line2 = document.querySelector('.line-2');
+      const line3 = document.querySelector('.line-3');
+
+      // Line 2 caret appears when it starts typing (4s), disappears when line 3 starts (5.3s)
+      setTimeout(() => { line2.classList.add('caret-visible'); }, 4000);
+      setTimeout(() => { line2.classList.remove('caret-visible'); }, 5300);
+
+      // Line 3 caret appears when it starts typing and stays (blinking)
+      setTimeout(() => { line3.classList.add('caret-visible'); }, 5300);
+    }
+
+    // Initial caret activation
+    activateCarets();
+
+    // Click to scatter
+    scene.addEventListener('click', () => {
+      if (animating) return;
+      animating = true;
+      scene.classList.add('scatter');
     });
 
-    video.addEventListener('click', () => {
-      if (paused) {
-        // Let the scatter animation play out
-        paused = false;
-        scattering = true;
-        video.play();
-      }
+    // After scatter transition ends → restart the whole sequence
+    scene.addEventListener('transitionend', (e) => {
+      if (!scene.classList.contains('scatter')) return;
+      // Only react to ghost transitions (not terminal opacity)
+      if (!e.target.classList.contains('ghost')) return;
+
+      // Remove scatter
+      scene.classList.remove('scatter');
+
+      // Clear caret classes
+      document.querySelector('.line-2').classList.remove('caret-visible');
+      document.querySelector('.line-3').classList.remove('caret-visible');
+
+      // Reset animations: remove animate, force reflow, re-add
+      scene.classList.remove('animate');
+      void scene.offsetWidth;
+      scene.classList.add('animate');
+
+      // Re-activate carets for the new cycle
+      activateCarets();
+
+      animating = false;
     });
 
-    video.addEventListener('ended', () => {
-      // After scatter finishes, restart
-      scattering = false;
-      video.currentTime = 0;
-      video.play();
-    });
+    // Prevent scatter when clicking the GitHub link
+    ghLink.addEventListener('click', (e) => e.stopPropagation());
   </script>
 </body>
 </html>
