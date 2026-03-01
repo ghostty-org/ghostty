@@ -340,3 +340,340 @@ msgstr ""
 #: src/apprt/gtk/class/window.zig:1708
 msgid "Ghostty Developers"
 msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "File"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Edit"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "View"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Window"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Help"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Ghostty"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "About Ghostty"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Check for Updates..."
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Preferences…"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Secure Keyboard Entry"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Make Ghostty the Default Terminal"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Services"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Hide Ghostty"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Hide Others"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Show All"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Quit Ghostty"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "New Window"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "New Tab"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Right"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Left"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Down"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Up"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close Tab"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close Window"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close All Windows"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Undo"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Redo"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Copy"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Paste"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Paste Selection"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select All"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find..."
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find Next"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find Previous"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Hide Find Bar"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Use Selection for Find"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Jump to Selection"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Reset Font Size"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Increase Font Size"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Decrease Font Size"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Change Tab Title..."
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Change Terminal Title..."
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Terminal Read-only"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Terminal Inspector"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Quick Terminal"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Full Screen"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Ghostty Visibility"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Bring All to Front"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Zoom Split"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Previous Split"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Next Split"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Above"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Below"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Left"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Right"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Return to Default Size"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Float on Top"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Equalize Splits"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Up"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Down"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Left"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Right"
+msgstr ""
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Use as Default Terminal"
+msgstr ""
+
+#: macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+msgid "Reset Terminal"
+msgstr ""
+
+#: macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+msgid "Leave blank to restore the default."
+msgstr ""
+
+#: macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+msgid "OK"
+msgstr ""

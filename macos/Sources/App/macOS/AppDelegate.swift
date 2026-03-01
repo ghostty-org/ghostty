@@ -296,6 +296,7 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+        localizeMenus()
 
         // Setup signal handlers
         setupSignals()
@@ -591,6 +592,122 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+    }
+
+    /// Localize all menu item titles using Ghostty's gettext translation system.
+    ///
+    /// This is called once at application launch to replace the English strings
+    /// hardcoded in MainMenu.xib with the user's preferred language. We use
+    /// `ghostty_translate()` which wraps `dgettext()` against the same `.mo`
+    /// files used by the GTK frontend, ensuring consistent translations across
+    /// platforms.
+    private func localizeMenus() {
+        // Helper: translate a C string key via GhosttyKit and return a Swift String.
+        // If no translation exists, the original English string is returned unchanged.
+        func t(_ key: String) -> String {
+            return key.withCString { ptr in
+                String(cString: ghostty_translate(ptr))
+            }
+        }
+
+        // Helper: localize a single NSMenuItem title in place.
+        func localize(_ item: NSMenuItem?, key: String) {
+            guard let item else { return }
+            item.title = t(key)
+        }
+
+        // Helper: recursively localize all items in a menu and its submenus.
+        func localizeMenu(_ menu: NSMenu?) {
+            guard let menu else { return }
+            for item in menu.items {
+                let key = item.title
+                if !key.isEmpty {
+                    item.title = t(key)
+                }
+                if item.hasSubmenu {
+                    localizeMenu(item.submenu)
+                }
+            }
+        }
+
+        // Localize the top-level menu bar titles (File, Edit, View, Window, Help).
+        // These are NSMenu objects whose titles are separate from their NSMenuItem
+        // parent titles, so we must set both.
+        if let mainMenu = NSApp.mainMenu {
+            for item in mainMenu.items {
+                if !item.title.isEmpty {
+                    item.title = t(item.title)
+                }
+                if let sub = item.submenu, !sub.title.isEmpty {
+                    sub.title = t(sub.title)
+                }
+            }
+        }
+
+        // Localize every known @IBOutlet menu item explicitly so that items
+        // with dynamic titles (e.g. Undo/Redo) are also covered at launch.
+        localize(menuAbout,            key: "About Ghostty")
+        localize(menuCheckForUpdates,  key: "Check for Updates...")
+        localize(menuOpenConfig,       key: "Open Configuration")
+        localize(menuReloadConfig,     key: "Reload Configuration")
+        localize(menuSecureInput,      key: "Secure Keyboard Entry")
+        localize(menuQuit,             key: "Quit Ghostty")
+
+        localize(menuNewWindow,        key: "New Window")
+        localize(menuNewTab,           key: "New Tab")
+        localize(menuSplitRight,       key: "Split Right")
+        localize(menuSplitLeft,        key: "Split Left")
+        localize(menuSplitDown,        key: "Split Down")
+        localize(menuSplitUp,          key: "Split Up")
+        localize(menuClose,            key: "Close")
+        localize(menuCloseTab,         key: "Close Tab")
+        localize(menuCloseWindow,      key: "Close Window")
+        localize(menuCloseAllWindows,  key: "Close All Windows")
+
+        localize(menuUndo,             key: "Undo")
+        localize(menuRedo,             key: "Redo")
+        localize(menuCopy,             key: "Copy")
+        localize(menuPaste,            key: "Paste")
+        localize(menuPasteSelection,   key: "Paste Selection")
+        localize(menuSelectAll,        key: "Select All")
+        localize(menuFindParent,       key: "Find")
+        localize(menuFind,             key: "Find...")
+        localize(menuSelectionForFind, key: "Use Selection for Find")
+        localize(menuScrollToSelection,key: "Jump to Selection")
+        localize(menuFindNext,         key: "Find Next")
+        localize(menuFindPrevious,     key: "Find Previous")
+        localize(menuHideFindBar,      key: "Hide Find Bar")
+
+        localize(menuIncreaseFontSize, key: "Increase Font Size")
+        localize(menuDecreaseFontSize, key: "Decrease Font Size")
+        localize(menuResetFontSize,    key: "Reset Font Size")
+        localize(menuChangeTitle,      key: "Change Terminal Title...")
+        localize(menuChangeTabTitle,   key: "Change Tab Title...")
+        localize(menuReadonly,         key: "Terminal Read-only")
+        localize(menuCommandPalette,   key: "Command Palette")
+        localize(menuTerminalInspector,key: "Toggle Terminal Inspector")
+        localize(menuQuickTerminal,    key: "Toggle Quick Terminal")
+
+        localize(menuToggleFullScreen, key: "Toggle Full Screen")
+        localize(menuToggleVisibility, key: "Toggle Ghostty Visibility")
+        localize(menuBringAllToFront,  key: "Bring All to Front")
+        localize(menuZoomSplit,        key: "Zoom Split")
+        localize(menuPreviousSplit,    key: "Previous Split")
+        localize(menuNextSplit,        key: "Next Split")
+        localize(menuSelectSplitAbove, key: "Select Split Above")
+        localize(menuSelectSplitBelow, key: "Select Split Below")
+        localize(menuSelectSplitLeft,  key: "Select Split Left")
+        localize(menuSelectSplitRight, key: "Select Split Right")
+        localize(menuReturnToDefaultSize, key: "Return to Default Size")
+        localize(menuFloatOnTop,       key: "Float on Top")
+        localize(menuEqualizeSplits,   key: "Equalize Splits")
+        localize(menuMoveSplitDividerUp,    key: "Move Divider Up")
+        localize(menuMoveSplitDividerDown,  key: "Move Divider Down")
+        localize(menuMoveSplitDividerLeft,  key: "Move Divider Left")
+        localize(menuMoveSplitDividerRight, key: "Move Divider Right")
+
+        localize(menuUseAsDefault,         key: "Use as Default Terminal")
+        localize(menuSetAsDefaultTerminal,  key: "Make Ghostty the Default Terminal")
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

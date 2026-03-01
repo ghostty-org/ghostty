@@ -550,9 +550,13 @@ extension Ghostty {
         /// Set the title by prompting the user.
         func promptTitle() {
             // Create an alert dialog
+            func t(_ key: String) -> String {
+                return key.withCString { ptr in String(cString: ghostty_translate(ptr)) }
+            }
+
             let alert = NSAlert()
-            alert.messageText = "Change Terminal Title"
-            alert.informativeText = "Leave blank to restore the default."
+            alert.messageText = t("Change Terminal Title")
+            alert.informativeText = t("Leave blank to restore the default.")
             alert.alertStyle = .informational
 
             // Add a text field to the alert
@@ -561,8 +565,8 @@ extension Ghostty {
             alert.accessoryView = textField
 
             // Add buttons
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: t("OK"))
+            alert.addButton(withTitle: t("Cancel"))
 
             // Make the text field the first responder so it gets focus
             alert.window.initialFirstResponder = textField
@@ -1449,38 +1453,45 @@ extension Ghostty {
 
             let menu = NSMenu()
 
+            // Helper: translate a string key using Ghostty's gettext system.
+            func t(_ key: String) -> String {
+                return key.withCString { ptr in
+                    String(cString: ghostty_translate(ptr))
+                }
+            }
+
             // We just use a floating var so we can easily setup metadata on each item
             // in a row without storing it all.
             var item: NSMenuItem
 
             // If we have a selection, add copy
             if let text = self.accessibilitySelectedText(), text.count > 0 {
-                menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+                menu.addItem(withTitle: t("Copy"), action: #selector(copy(_:)), keyEquivalent: "")
             }
-            menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: t("Paste"), action: #selector(paste(_:)), keyEquivalent: "")
 
             menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Split Right", action: #selector(splitRight(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Split Right"), action: #selector(splitRight(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
-            item = menu.addItem(withTitle: "Split Left", action: #selector(splitLeft(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Split Left"), action: #selector(splitLeft(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
-            item = menu.addItem(withTitle: "Split Down", action: #selector(splitDown(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Split Down"), action: #selector(splitDown(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
-            item = menu.addItem(withTitle: "Split Up", action: #selector(splitUp(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Split Up"), action: #selector(splitUp(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
 
             menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Reset Terminal"), action: #selector(resetTerminal(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise")
-            item = menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Toggle Terminal Inspector"), action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "scope")
-            item = menu.addItem(withTitle: "Terminal Read-only", action: #selector(toggleReadonly(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Terminal Read-only"), action: #selector(toggleReadonly(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "eye.fill")
             item.state = readonly ? .on : .off
             menu.addItem(.separator())
-            item = menu.addItem(withTitle: "Change Tab Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Change Tab Title..."), action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "pencil.line")
-            item = menu.addItem(withTitle: "Change Terminal Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: t("Change Terminal Title..."), action: #selector(changeTitle(_:)), keyEquivalent: "")
 
             return menu
         }

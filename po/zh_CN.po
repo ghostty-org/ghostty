@@ -343,3 +343,341 @@ msgstr "已清空剪贴板"
 #: src/apprt/gtk/class/window.zig:1708
 msgid "Ghostty Developers"
 msgstr "Ghostty 开发团队"
+
+# macOS menu bar and context menu translations
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "File"
+msgstr "文件"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Edit"
+msgstr "编辑"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "View"
+msgstr "显示"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Window"
+msgstr "窗口"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Help"
+msgstr "帮助"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Ghostty"
+msgstr "Ghostty"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "About Ghostty"
+msgstr "关于 Ghostty"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Check for Updates..."
+msgstr "检查更新…"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Preferences…"
+msgstr "偏好设置…"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Secure Keyboard Entry"
+msgstr "安全键盘输入"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Make Ghostty the Default Terminal"
+msgstr "将 Ghostty 设为默认终端"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Services"
+msgstr "服务"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Hide Ghostty"
+msgstr "隐藏 Ghostty"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Hide Others"
+msgstr "隐藏其他"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Show All"
+msgstr "全部显示"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Quit Ghostty"
+msgstr "退出 Ghostty"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "New Window"
+msgstr "新建窗口"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "New Tab"
+msgstr "新建标签页"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Right"
+msgstr "向右分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Left"
+msgstr "向左分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Down"
+msgstr "向下分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Split Up"
+msgstr "向上分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close"
+msgstr "关闭"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close Tab"
+msgstr "关闭标签页"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close Window"
+msgstr "关闭窗口"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Close All Windows"
+msgstr "关闭所有窗口"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Undo"
+msgstr "撤销"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Redo"
+msgstr "重做"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Copy"
+msgstr "拷贝"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Paste"
+msgstr "粘贴"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Paste Selection"
+msgstr "粘贴选中内容"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select All"
+msgstr "全选"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find"
+msgstr "查找"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find..."
+msgstr "查找…"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find Next"
+msgstr "查找下一个"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Find Previous"
+msgstr "查找上一个"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Hide Find Bar"
+msgstr "隐藏搜索栏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Use Selection for Find"
+msgstr "用所选内容查找"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Jump to Selection"
+msgstr "跳转至所选内容"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Reset Font Size"
+msgstr "恢复默认字体大小"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Increase Font Size"
+msgstr "放大字体"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Decrease Font Size"
+msgstr "缩小字体"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Change Tab Title..."
+msgstr "更改标签页标题…"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Change Terminal Title..."
+msgstr "更改终端标题…"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Terminal Read-only"
+msgstr "终端只读模式"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Terminal Inspector"
+msgstr "显示/隐藏终端调试器"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Quick Terminal"
+msgstr "显示/隐藏快捷终端"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Full Screen"
+msgstr "进入/退出全屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Toggle Ghostty Visibility"
+msgstr "显示/隐藏 Ghostty"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Bring All to Front"
+msgstr "前置所有窗口"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Zoom Split"
+msgstr "缩放分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Previous Split"
+msgstr "上一个分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Next Split"
+msgstr "下一个分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Above"
+msgstr "选择上方分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Below"
+msgstr "选择下方分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Left"
+msgstr "选择左侧分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Select Split Right"
+msgstr "选择右侧分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Return to Default Size"
+msgstr "恢复默认窗口大小"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Float on Top"
+msgstr "悬浮置顶"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Equalize Splits"
+msgstr "均分分屏"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Up"
+msgstr "向上移动分割线"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Down"
+msgstr "向下移动分割线"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Left"
+msgstr "向左移动分割线"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Move Divider Right"
+msgstr "向右移动分割线"
+
+#: macos/Sources/App/macOS/AppDelegate.swift
+#: macos/Sources/App/macOS/MainMenu.xib
+msgid "Use as Default Terminal"
+msgstr "设为默认终端"
+
+#: macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+msgid "Reset Terminal"
+msgstr "重置终端"
+
+#: macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+msgid "Leave blank to restore the default."
+msgstr "留空以重置至默认标题。"
+
+#: macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+msgid "OK"
+msgstr "好"
