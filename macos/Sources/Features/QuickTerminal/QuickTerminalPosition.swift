@@ -1,6 +1,6 @@
 import Cocoa
 
-enum QuickTerminalPosition : String {
+enum QuickTerminalPosition: String {
     case top
     case bottom
     case left
@@ -64,7 +64,7 @@ enum QuickTerminalPosition : String {
 
     /// The initial point origin for this position.
     func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
-        switch (self) {
+        switch self {
         case .top:
             return .init(
                 x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
@@ -86,13 +86,13 @@ enum QuickTerminalPosition : String {
                 y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
 
         case .center:
-            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y:  screen.visibleFrame.height - window.frame.width)
+            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y: screen.visibleFrame.height - window.frame.width)
         }
     }
 
     /// The final point origin for this position.
     func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
-        switch (self) {
+        switch self {
         case .top:
             return .init(
                 x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
@@ -128,7 +128,7 @@ enum QuickTerminalPosition : String {
         // Depending on the orientation of the dock, we conflict if our quick terminal
         // would potentially "hit" the dock. In the future we should probably consider
         // the frame of the quick terminal.
-        return switch (orientation) {
+        return switch orientation {
         case .top: self == .top || self == .left || self == .right
         case .bottom: self == .bottom || self == .left || self == .right
         case .left: self == .top || self == .bottom
@@ -144,25 +144,25 @@ enum QuickTerminalPosition : String {
                 x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
                 y: window.frame.origin.y // Keep the same Y position
             )
-            
+
         case .bottom:
             return CGPoint(
                 x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
                 y: window.frame.origin.y // Keep the same Y position
             )
-            
+
         case .center:
             return CGPoint(
                 x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
                 y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
             )
-            
+
         case .left, .right:
             // For left/right positions, only adjust horizontal centering if needed
             return window.frame.origin
         }
     }
-    
+
     /// Calculate the vertically centered origin for side-positioned windows
     func verticallyCenteredOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         switch self {
@@ -171,13 +171,13 @@ enum QuickTerminalPosition : String {
                 x: window.frame.origin.x, // Keep the same X position
                 y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
             )
-            
+
         case .right:
             return CGPoint(
                 x: window.frame.origin.x, // Keep the same X position
                 y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
             )
-            
+
         case .top, .bottom, .center:
             // These positions don't need vertical recentering during resize
             return window.frame.origin

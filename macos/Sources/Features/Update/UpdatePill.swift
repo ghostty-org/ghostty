@@ -4,16 +4,16 @@ import SwiftUI
 struct UpdatePill: View {
     /// The update view model that provides the current state and information
     @ObservedObject var model: UpdateViewModel
-    
+
     /// Whether the update popover is currently visible
     @State private var showPopover = false
-    
+
     /// Task for auto-dismissing the "No Updates" state
     @State private var resetTask: Task<Void, Never>?
-    
+
     /// The font used for the pill text
     private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-    
+
     var body: some View {
         if !model.state.isIdle {
             pillButton
@@ -36,7 +36,7 @@ struct UpdatePill: View {
                 }
         }
     }
-    
+
     /// The pill-shaped button view that displays the update badge and text
     @ViewBuilder
     private var pillButton: some View {
@@ -47,11 +47,11 @@ struct UpdatePill: View {
             } else {
                 showPopover.toggle()
             }
-        }) {
+        }, label: {
             HStack(spacing: 6) {
                 UpdateBadge(model: model)
                     .frame(width: 14, height: 14)
-                
+
                 Text(model.text)
                     .font(Font(textFont))
                     .lineLimit(1)
@@ -66,12 +66,12 @@ struct UpdatePill: View {
             )
             .foregroundColor(model.foregroundColor)
             .contentShape(Capsule())
-        }
+        })
         .buttonStyle(.plain)
         .help(model.text)
         .accessibilityLabel(model.text)
     }
-    
+
     /// Calculated width for the text to prevent resizing during progress updates
     private var textWidth: CGFloat? {
         let attributes: [NSAttributedString.Key: Any] = [.font: textFont]

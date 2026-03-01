@@ -1,6 +1,7 @@
 const GhosttyLibVt = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const RunStep = std.Build.Step.Run;
 const GhosttyZig = @import("GhosttyZig.zig");
@@ -60,6 +61,26 @@ pub fn initShared(
         "ghostty",
         .{ .include_extensions = &.{".h"} },
     );
+
+    if (lib.rootModuleTarget().abi.isAndroid()) {
+        // Support 16kb page sizes, required for Android 15+.
+        lib.link_z_max_page_size = 16384; // 16kb
+
+        try @import("android_ndk").addPaths(b, lib);
+    }
+
+    if (lib.rootModuleTarget().os.tag.isDarwin()) {
+        // Self-hosted x86_64 doesn't work for darwin. It may not work
+        // for other platforms too but definitely darwin.
+        lib.use_llvm = true;
+
+        // This is required for codesign and dynamic linking to work.
+        lib.headerpad_max_install_names = true;
+
+        // If we're not cross compiling then we try to find the Apple
+        // SDK using standard Apple tooling.
+        if (builtin.os.tag.isDarwin()) try @import("apple_sdk").addPaths(b, lib);
+    }
 
     // Get our debug symbols
     const dsymutil: ?std.Build.LazyPath = dsymutil: {

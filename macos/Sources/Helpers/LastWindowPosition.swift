@@ -7,22 +7,28 @@ class LastWindowPosition {
     private let positionKey = "NSWindowLastPosition"
 
     func save(_ window: NSWindow) {
-        let origin = window.frame.origin
-        let point = [origin.x, origin.y]
-        UserDefaults.standard.set(point, forKey: positionKey)
+        let frame = window.frame
+        let rect = [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height]
+        UserDefaults.standard.set(rect, forKey: positionKey)
     }
 
     func restore(_ window: NSWindow) -> Bool {
-        guard let points = UserDefaults.standard.array(forKey: positionKey) as? [Double],
-              points.count == 2 else { return false }
+        guard let values = UserDefaults.standard.array(forKey: positionKey) as? [Double],
+              values.count >= 2 else { return false }
 
-        let lastPosition = CGPoint(x: points[0], y: points[1])
+        let lastPosition = CGPoint(x: values[0], y: values[1])
 
         guard let screen = window.screen ?? NSScreen.main else { return false }
         let visibleFrame = screen.visibleFrame
 
         var newFrame = window.frame
         newFrame.origin = lastPosition
+
+        if values.count >= 4 {
+            newFrame.size.width = min(values[2], visibleFrame.width)
+            newFrame.size.height = min(values[3], visibleFrame.height)
+        }
+
         if !visibleFrame.contains(newFrame.origin) {
             newFrame.origin.x = max(visibleFrame.minX, min(visibleFrame.maxX - newFrame.width, newFrame.origin.x))
             newFrame.origin.y = max(visibleFrame.minY, min(visibleFrame.maxY - newFrame.height, newFrame.origin.y))

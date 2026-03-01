@@ -20,13 +20,11 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     // false if all three traffic lights are missing/hidden, otherwise true
     private var hasWindowButtons: Bool {
-        get {
-            // if standardWindowButton(.theButton) == nil, the button isn't there, so coalesce to true
-            let closeIsHidden = standardWindowButton(.closeButton)?.isHiddenOrHasHiddenAncestor ?? true
-            let miniaturizeIsHidden = standardWindowButton(.miniaturizeButton)?.isHiddenOrHasHiddenAncestor ?? true
-            let zoomIsHidden = standardWindowButton(.zoomButton)?.isHiddenOrHasHiddenAncestor ?? true
-            return !(closeIsHidden && miniaturizeIsHidden && zoomIsHidden)
-        }
+        // if standardWindowButton(.theButton) == nil, the button isn't there, so coalesce to true
+        let closeIsHidden = standardWindowButton(.closeButton)?.isHiddenOrHasHiddenAncestor ?? true
+        let miniaturizeIsHidden = standardWindowButton(.miniaturizeButton)?.isHiddenOrHasHiddenAncestor ?? true
+        let zoomIsHidden = standardWindowButton(.zoomButton)?.isHiddenOrHasHiddenAncestor ?? true
+        return !(closeIsHidden && miniaturizeIsHidden && zoomIsHidden)
     }
 
     // MARK: NSWindow
@@ -159,7 +157,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
             titlebarColor = derivedConfig.backgroundColor.withAlphaComponent(derivedConfig.backgroundOpacity)
         }
 
-        if (isOpaque || themeChanged) {
+        if isOpaque || themeChanged {
             // If there is transparency, calling this will make the titlebar opaque
             // so we only call this if we are opaque.
             updateTabBar()
@@ -172,7 +170,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         backgroundColor.luminance < 0.05
     }
 
-    private var newTabButtonImageLayer: VibrantLayer? = nil
+    private var newTabButtonImageLayer: VibrantLayer?
 
     func updateTabBar() {
         newTabButtonImageLayer = nil
@@ -251,7 +249,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 		button.toolTip = "Reset Zoom"
 		button.contentTintColor = .controlAccentColor
 		button.state = .on
-		button.image = NSImage(named:"ResetZoom")
+		button.image = NSImage(named: "ResetZoom")
 		button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
 		button.translatesAutoresizingMaskIntoConstraints = false
 		button.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -286,9 +284,9 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     // MARK: - Titlebar Tabs
 
-    private var windowButtonsBackdrop: WindowButtonsBackdropView? = nil
+    private var windowButtonsBackdrop: WindowButtonsBackdropView?
 
-    private var windowDragHandle: WindowDragView? = nil
+    private var windowDragHandle: WindowDragView?
 
     // Used by the window controller to enable/disable titlebar tabs.
     var titlebarTabs = false {
@@ -340,7 +338,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
         }
     }
 
-
     // HACK: hide the "collapsed items" marker from the toolbar if it's present.
     // idk why it appears in macOS 15.0+ but it does... so... make it go away. (sigh)
     private func hideToolbarOverflowButton() {
@@ -359,7 +356,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
         let isTabBar = self.titlebarTabs && isTabBar(childViewController)
 
-        if (isTabBar) {
+        if isTabBar {
             // Ensure it has the right layoutAttribute to force it next to our titlebar
             childViewController.layoutAttribute = .right
 
@@ -374,7 +371,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
         super.addTitlebarAccessoryViewController(childViewController)
 
-        if (isTabBar) {
+        if isTabBar {
             pushTabsToTitlebar(childViewController)
         }
     }
@@ -382,7 +379,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     override func removeTitlebarAccessoryViewController(at index: Int) {
         let isTabBar = titlebarAccessoryViewControllers[index].identifier == Self.tabBarIdentifier
         super.removeTitlebarAccessoryViewController(at: index)
-        if (isTabBar) {
+        if isTabBar {
             resetCustomTabBarViews()
         }
     }
@@ -403,7 +400,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     private func pushTabsToTitlebar(_ tabBarController: NSTitlebarAccessoryViewController) {
         // We need a toolbar as a target for our titlebar tabs.
-        if (toolbar == nil) {
+        if toolbar == nil {
             generateToolbar()
         }
 
@@ -506,10 +503,10 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 }
 
 // Passes mouseDown events from this view to window.performDrag so that you can drag the window by it.
-fileprivate class WindowDragView: NSView {
+private class WindowDragView: NSView {
     override public func mouseDown(with event: NSEvent) {
         // Drag the window for single left clicks, double clicks should bypass the drag handle.
-        if (event.type == .leftMouseDown && event.clickCount == 1) {
+        if event.type == .leftMouseDown && event.clickCount == 1 {
             window?.performDrag(with: event)
             NSCursor.closedHand.set()
         } else {
@@ -535,7 +532,7 @@ fileprivate class WindowDragView: NSView {
 }
 
 // A view that matches the color of selected and unselected tabs in the adjacent tab bar.
-fileprivate class WindowButtonsBackdropView: NSView {
+private class WindowButtonsBackdropView: NSView {
     // This must be weak because the window has this view. Otherwise
     // a retain cycle occurs.
 	private weak var terminalWindow: TitlebarTabsVenturaTerminalWindow?
@@ -588,7 +585,7 @@ fileprivate class WindowButtonsBackdropView: NSView {
 
 // Custom NSToolbar subclass that displays a centered window title,
 // in order to accommodate the titlebar tabs feature.
-fileprivate class TerminalToolbar: NSToolbar, NSToolbarDelegate {
+private class TerminalToolbar: NSToolbar, NSToolbarDelegate {
     private let titleTextField = CenteredDynamicLabel(labelWithString: "👻 Ghostty")
 
     var titleText: String {
@@ -674,7 +671,7 @@ fileprivate class TerminalToolbar: NSToolbar, NSToolbarDelegate {
 }
 
 /// A label that expands to fit whatever text you put in it and horizontally centers itself in the current window.
-fileprivate class CenteredDynamicLabel: NSTextField {
+private class CenteredDynamicLabel: NSTextField {
     override func viewDidMoveToSuperview() {
         // Configure the text field
         isEditable = false

@@ -144,3 +144,101 @@ export fn ghostty_config_open_path() c.String {
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",
 };
+
+test "ghostty_config_get: bool" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.maximize = true;
+
+    var out = false;
+    const key = "maximize";
+    try testing.expect(ghostty_config_get(&cfg, &out, key, key.len));
+    try testing.expect(out);
+}
+
+test "ghostty_config_get: enum" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"window-theme" = .dark;
+
+    var out: [*:0]const u8 = undefined;
+    const key = "window-theme";
+    try testing.expect(ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+    const str = std.mem.sliceTo(out, 0);
+    try testing.expectEqualStrings("dark", str);
+}
+
+test "ghostty_config_get: optional null returns false" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"unfocused-split-fill" = null;
+
+    var out: Config.Color.C = undefined;
+    const key = "unfocused-split-fill";
+    try testing.expect(!ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+}
+
+test "ghostty_config_get: unknown key returns false" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    var out = false;
+    const key = "not-a-real-key";
+    try testing.expect(!ghostty_config_get(&cfg, &out, key, key.len));
+}
+
+test "ghostty_config_get: optional string null returns true" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.title = null;
+
+    var out: ?[*:0]const u8 = undefined;
+    const key = "title";
+    try testing.expect(ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+    try testing.expect(out == null);
+}
+
+test "ghostty_config_get: float" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"background-opacity" = 0.42;
+
+    var out: f64 = 0;
+    const key = "background-opacity";
+    try testing.expect(ghostty_config_get(&cfg, &out, key, key.len));
+    try testing.expectApproxEqAbs(@as(f64, 0.42), out, 0.000001);
+}
+
+test "ghostty_config_get: struct cval conversion" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.background = .{ .r = 12, .g = 34, .b = 56 };
+
+    var out: Config.Color.C = undefined;
+    const key = "background";
+    try testing.expect(ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+    try testing.expectEqual(@as(u8, 12), out.r);
+    try testing.expectEqual(@as(u8, 34), out.g);
+    try testing.expectEqual(@as(u8, 56), out.b);
+}

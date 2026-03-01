@@ -39,6 +39,7 @@ pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
 const KeyRemapSet = @import("../input/key_mods.zig").RemapSet;
+const string = @import("string.zig");
 
 // We do this instead of importing all of terminal/main.zig to
 // limit the dependency graph. This is important because some things
@@ -95,10 +96,9 @@ pub const compatibility = std.StaticStringMap(
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
-/// system default language. The language must be fully specified, including the
-/// encoding. For example:
+/// system default language. For example:
 ///
-///     language = de_DE.UTF-8
+///     language = de
 ///
 /// will force the strings in Ghostty's graphical user interface to be in German
 /// rather than the system default.
@@ -802,11 +802,35 @@ palette: Palette = .{},
 /// look. Colors that have been explicitly set via `palette` are never
 /// overwritten.
 ///
+/// The default value is false (disabled), because many legacy programs
+/// using the 256-color palette hardcode assumptions about what these
+/// colors are (mostly assuming the xterm 256 color palette). However, this
+/// is still a very useful tool for theme authors and users who want
+/// to customize their palette without having to specify all 256 colors.
+///
 /// For more information on how the generation works, see here:
 /// https://gist.github.com/jake-stewart/0a8ea46159a7da2c808e5be2177e1783
 ///
 /// Available since: 1.3.0
-@"palette-generate": bool = true,
+@"palette-generate": bool = false,
+
+/// Invert the palette colors generated when `palette-generate` is enabled,
+/// so that the colors go in reverse order. This allows palette-based
+/// applications to work well in both light and dark mode since the
+/// palettes are always relatively good colors.
+///
+/// This defaults to off because some legacy terminal applications
+/// hardcode the assumption that palette indices 16–231 are ordered from
+/// darkest to lightest, so enabling this would make them unreadable.
+/// This is not a generally good assumption and we encourage modern
+/// terminal applications to use the indices in a more semantic way.
+///
+/// This has no effect if `palette-generate` is disabled.
+///
+/// For more information see `palette-generate`.
+///
+/// Available since: 1.3.0
+@"palette-harmonious": bool = false,
 
 /// The color of the cursor. If this is not set, a default will be chosen.
 ///
@@ -906,7 +930,7 @@ palette: Palette = .{},
 ///   anything but modifiers or keybinds that are processed by Ghostty).
 ///
 /// - `output` If set, scroll the surface to the bottom if there is new data
-///   to display. (Currently unimplemented.)
+///   to display (e.g., when new lines are printed to the terminal).
 ///
 /// The default is `keystroke, no-output`.
 @"scroll-to-bottom": ScrollToBottom = .default,
@@ -1188,8 +1212,6 @@ command: ?Command = null,
 /// notifications for a single command, overriding the `never` and `unfocused`
 /// options.
 ///
-/// GTK only.
-///
 /// Available since 1.3.0.
 @"notify-on-command-finish": NotifyOnCommandFinish = .never,
 
@@ -1203,8 +1225,6 @@ command: ?Command = null,
 ///
 /// Options can be combined by listing them as a comma separated list. Options
 /// can be negated by prefixing them with `no-`. For example `no-bell,notify`.
-///
-/// GTK only.
 ///
 /// Available since 1.3.0.
 @"notify-on-command-finish-action": NotifyOnCommandFinishAction = .{
@@ -1242,8 +1262,6 @@ command: ?Command = null,
 ///
 /// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
 /// value larger than this will be clamped to the maximum value.
-///
-/// GTK only.
 ///
 /// Available since 1.3.0
 @"notify-on-command-finish-after": Duration = .{ .duration = 5 * std.time.ns_per_s },
@@ -1428,10 +1446,27 @@ maximize: bool = false,
 /// does not apply to tabs, splits, etc. However, this setting will apply to all
 /// new windows, not just the first one.
 ///
-/// On macOS, this setting does not work if window-decoration is set to
-/// "none", because native fullscreen on macOS requires window decorations
-/// to be set.
-fullscreen: bool = false,
+/// Allowable values are:
+///
+///   * `false` - Don't start in fullscreen (default)
+///   * `true` - Start in native fullscreen
+///   * `non-native` - (macOS only) Start in non-native fullscreen, hiding the
+///     menu bar. This is faster than native fullscreen since it doesn't use
+///     animations. On non-macOS platforms, this behaves the same as `true`.
+///   * `non-native-visible-menu` - (macOS only) Start in non-native fullscreen,
+///     keeping the menu bar visible. On non-macOS platforms, behaves like `true`.
+///   * `non-native-padded-notch` - (macOS only) Start in non-native fullscreen,
+///     hiding the menu bar but padding for the notch on applicable devices.
+///     On non-macOS platforms, behaves like `true`.
+///
+/// Important: tabs DO NOT WORK with non-native fullscreen modes. Non-native
+/// fullscreen removes the titlebar and macOS native tabs require the titlebar.
+/// If you use tabs, use `true` (native) instead.
+///
+/// On macOS, `true` (native fullscreen) does not work if `window-decoration`
+/// is set to `false`, because native fullscreen on macOS requires window
+/// decorations.
+fullscreen: Fullscreen = .false,
 
 /// The title Ghostty will use for the window. This will force the title of the
 /// window to be this title at all times and Ghostty will ignore any set title
@@ -1821,6 +1856,12 @@ class: ?[:0]const u8 = null,
 ///   * Key sequences work within tables: `foo/ctrl+a>ctrl+b=new_window`.
 ///     If an invalid key is pressed, the sequence ends but the table remains
 ///     active.
+///
+///   * Chain actions work within tables, the `chain` keyword applies to
+///     the most recently defined binding in the table. e.g. if you set
+///     `table/ctrl+a=new_window` you can chain by using `chain=text:hello`.
+///     Important: chain itself doesn't get prefixed with the table name,
+///     since it applies to the most recent binding in any table.
 ///
 ///   * Prefixes like `global:` work within tables:
 ///     `foo/global:ctrl+a=new_window`.
@@ -2903,6 +2944,20 @@ keybind: Keybinds = .{},
 ///  * `vec4 iCurrentCursorColor` - Color of the terminal cursor.
 ///
 ///  * `vec4 iPreviousCursorColor` - Color of the previous terminal cursor.
+///
+///  * `vec4 iCurrentCursorStyle` - Style of the terminal cursor
+///
+///    Macros simplified use are defined for the various cursor styles:
+///
+///    - `CURSORSTYLE_BLOCK` or `0`
+///    - `CURSORSTYLE_BLOCK_HOLLOW` or `1`
+///    - `CURSORSTYLE_BAR` or `2`
+///    - `CURSORSTYLE_UNDERLINE` or `3`
+///    - `CURSORSTYLE_LOCK` or `4`
+///
+///  * `vec4 iPreviousCursorStyle` - Style of the previous terminal cursor
+///
+///  * `vec4 iCursorVisible` - Visibility of the terminal cursor.
 ///
 ///  * `float iTimeCursorChange` - Timestamp of terminal cursor change.
 ///
@@ -5136,6 +5191,17 @@ pub const NonNativeFullscreen = enum(c_int) {
     @"padded-notch",
 };
 
+/// Valid values for fullscreen config option
+/// c_int because it needs to be extern compatible
+/// If this is changed, you must also update ghostty.h
+pub const Fullscreen = enum(c_int) {
+    false,
+    true,
+    @"non-native",
+    @"non-native-visible-menu",
+    @"non-native-padded-notch",
+};
+
 pub const WindowPaddingColor = enum {
     background,
     extend,
@@ -5578,7 +5644,7 @@ pub const Palette = struct {
 
     /// ghostty_config_palette_s
     pub const C = extern struct {
-        colors: [265]Color.C,
+        colors: [256]Color.C,
     };
 
     pub fn cval(self: Self) Palette.C {
@@ -5919,22 +5985,15 @@ pub const SelectionWordChars = struct {
     pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
         const value = input orelse return error.ValueRequired;
 
-        // Parse UTF-8 string into codepoints
+        // Parse string with Zig escape sequence support into codepoints
         var list: std.ArrayList(u21) = .empty;
         defer list.deinit(alloc);
 
         // Always include null as first boundary
         try list.append(alloc, 0);
 
-        // Parse the UTF-8 string
-        const utf8_view = std.unicode.Utf8View.init(value) catch {
-            // Invalid UTF-8, just use null boundary
-            self.codepoints = try list.toOwnedSlice(alloc);
-            return;
-        };
-
-        var utf8_it = utf8_view.iterator();
-        while (utf8_it.nextCodepoint()) |codepoint| {
+        var it = string.codepointIterator(value);
+        while (it.next() catch return error.InvalidValue) |codepoint| {
             try list.append(alloc, codepoint);
         }
 
@@ -5986,6 +6045,56 @@ pub const SelectionWordChars = struct {
         try testing.expectEqual(@as(u21, '\t'), chars.codepoints[2]);
         try testing.expectEqual(@as(u21, ';'), chars.codepoints[3]);
         try testing.expectEqual(@as(u21, ','), chars.codepoints[4]);
+    }
+
+    test "parseCLI escape sequences" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        // \t escape should be parsed as tab
+        var chars: Self = .{};
+        try chars.parseCLI(alloc, " \\t;,");
+
+        try testing.expectEqual(@as(usize, 5), chars.codepoints.len);
+        try testing.expectEqual(@as(u21, 0), chars.codepoints[0]);
+        try testing.expectEqual(@as(u21, ' '), chars.codepoints[1]);
+        try testing.expectEqual(@as(u21, '\t'), chars.codepoints[2]);
+        try testing.expectEqual(@as(u21, ';'), chars.codepoints[3]);
+        try testing.expectEqual(@as(u21, ','), chars.codepoints[4]);
+    }
+
+    test "parseCLI backslash escape" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        // \\ should be parsed as a single backslash
+        var chars: Self = .{};
+        try chars.parseCLI(alloc, "\\\\;");
+
+        try testing.expectEqual(@as(usize, 3), chars.codepoints.len);
+        try testing.expectEqual(@as(u21, 0), chars.codepoints[0]);
+        try testing.expectEqual(@as(u21, '\\'), chars.codepoints[1]);
+        try testing.expectEqual(@as(u21, ';'), chars.codepoints[2]);
+    }
+
+    test "parseCLI unicode escape" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        // \u{2502} should be parsed as │
+        var chars: Self = .{};
+        try chars.parseCLI(alloc, "\\u{2502};");
+
+        try testing.expectEqual(@as(usize, 3), chars.codepoints.len);
+        try testing.expectEqual(@as(u21, 0), chars.codepoints[0]);
+        try testing.expectEqual(@as(u21, '│'), chars.codepoints[1]);
+        try testing.expectEqual(@as(u21, ';'), chars.codepoints[2]);
     }
 };
 
@@ -6123,6 +6232,15 @@ pub const Keybinds = struct {
     /// which allows all table names to be available without reservation.
     tables: std.StringArrayHashMapUnmanaged(inputpkg.Binding.Set) = .empty,
 
+    /// The most recent binding target for `chain=` additions.
+    ///
+    /// This is intentionally tracked at the Keybinds level so that chains can
+    /// apply across table boundaries according to parse order.
+    chain_target: union(enum) {
+        root,
+        table: []const u8,
+    } = .root,
+
     pub fn init(self: *Keybinds, alloc: Allocator) !void {
         // We don't clear the memory because it's in the arena and unlikely
         // to be free-able anyways (since arenas can only clear the last
@@ -6130,6 +6248,7 @@ pub const Keybinds = struct {
         // will be freed when the config is freed.
         self.set = .{};
         self.tables = .empty;
+        self.chain_target = .root;
 
         // keybinds for opening and reloading config
         try self.set.put(
@@ -6912,6 +7031,7 @@ pub const Keybinds = struct {
             log.info("config has 'keybind = clear', all keybinds cleared", .{});
             self.set = .{};
             self.tables = .empty;
+            self.chain_target = .root;
             return;
         }
 
@@ -6949,16 +7069,39 @@ pub const Keybinds = struct {
             if (binding.len == 0) {
                 log.debug("config has 'keybind = {s}/', table cleared", .{table_name});
                 gop.value_ptr.* = .{};
+                self.chain_target = .root;
                 return;
+            }
+
+            // Chains are only allowed at the root level. Their target is
+            // tracked globally by parse order in `self.chain_target`.
+            if (std.mem.startsWith(u8, binding, "chain=")) {
+                return error.InvalidFormat;
             }
 
             // Parse and add the binding to the table
             try gop.value_ptr.parseAndPut(alloc, binding);
+            self.chain_target = .{ .table = gop.key_ptr.* };
+            return;
+        }
+
+        if (std.mem.startsWith(u8, value, "chain=")) {
+            switch (self.chain_target) {
+                .root => try self.set.parseAndPut(alloc, value),
+                .table => |table_name| {
+                    const table = self.tables.getPtr(table_name) orelse {
+                        self.chain_target = .root;
+                        return error.InvalidFormat;
+                    };
+                    try table.parseAndPut(alloc, value);
+                },
+            }
             return;
         }
 
         // Parse into default set
         try self.set.parseAndPut(alloc, value);
+        self.chain_target = .root;
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -7398,6 +7541,63 @@ pub const Keybinds = struct {
         try testing.expectEqual(0, keybinds.set.bindings.count());
         try testing.expectEqual(1, keybinds.tables.count());
         try testing.expect(keybinds.tables.contains("mytable"));
+    }
+
+    test "parseCLI chain without prior parsed binding is invalid" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try testing.expectError(
+            error.InvalidFormat,
+            keybinds.parseCLI(alloc, "chain=new_tab"),
+        );
+    }
+
+    test "parseCLI table chain syntax is invalid" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "foo/a=text:hello");
+        try testing.expectError(
+            error.InvalidFormat,
+            keybinds.parseCLI(alloc, "foo/chain=deactivate_key_table"),
+        );
+    }
+
+    test "parseCLI chain applies to most recent table binding" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "ctrl+n=activate_key_table:foo");
+        try keybinds.parseCLI(alloc, "foo/a=text:hello");
+        try keybinds.parseCLI(alloc, "chain=deactivate_key_table");
+
+        const root_entry = keybinds.set.get(.{
+            .mods = .{ .ctrl = true },
+            .key = .{ .unicode = 'n' },
+        }).?.value_ptr.*;
+        try testing.expect(root_entry == .leaf);
+        try testing.expect(root_entry.leaf.action == .activate_key_table);
+
+        const foo_entry = keybinds.tables.get("foo").?.get(.{
+            .key = .{ .unicode = 'a' },
+        }).?.value_ptr.*;
+        try testing.expect(foo_entry == .leaf_chained);
+        try testing.expectEqual(@as(usize, 2), foo_entry.leaf_chained.actions.items.len);
+        try testing.expect(foo_entry.leaf_chained.actions.items[0] == .text);
+        try testing.expect(foo_entry.leaf_chained.actions.items[1] == .deactivate_key_table);
     }
 
     test "clone with tables" {

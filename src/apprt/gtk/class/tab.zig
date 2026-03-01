@@ -330,6 +330,10 @@ pub const Tab = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
+        if (priv.title_override) |v| {
+            glib.free(@ptrCast(@constCast(v)));
+            priv.title_override = null;
+        }
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,

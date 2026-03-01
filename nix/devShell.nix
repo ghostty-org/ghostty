@@ -66,6 +66,7 @@
   poop,
   typos,
   shellcheck,
+  swiftlint,
   uv,
   wayland,
   wayland-scanner,
@@ -198,6 +199,9 @@ in
 
         # for benchmarking
         poop
+      ]
+      ++ lib.optionals stdenv.hostPlatform.isDarwin [
+        swiftlint
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

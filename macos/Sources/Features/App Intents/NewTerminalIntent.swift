@@ -152,7 +152,7 @@ enum NewTerminalLocation: String {
     case splitRight = "split:right"
     case splitUp = "split:up"
     case splitDown = "split:down"
-    
+
     var splitDirection: SplitTree<Ghostty.SurfaceView>.NewDirection? {
         switch self {
         case .splitLeft: return .left

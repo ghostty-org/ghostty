@@ -47,6 +47,13 @@ on a system of trust, and AI has unfortunately made it so we can no
 longer trust-by-default because it makes it too trivial to generate
 plausible-looking but actually low-quality contributions.
 
+## Contributors Prior to the Vouch System
+
+If you contributed to Ghostty prior to the introduction
+of the vouch system and wish to continue contributing, you were not
+automatically added to the [list of vouched users](.github/VOUCHED.td). You will need to follow the same
+process as a first-time contributor to be vouched.
+
 ## Denouncement System
 
 If you repeatedly break the rules of this document or repeatedly

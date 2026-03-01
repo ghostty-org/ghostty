@@ -31,6 +31,7 @@ pub const ScreenSize = size.ScreenSize;
 pub const GridSize = size.GridSize;
 pub const Padding = size.Padding;
 pub const cursorStyle = cursor.style;
+pub const lib = @import("lib/main.zig");
 
 /// The implementation to use for the renderer. This is comptime chosen
 /// so that every build has exactly one renderer implementation.
@@ -44,8 +45,12 @@ pub const Renderer = switch (build_config.renderer) {
 /// renderers even if some states aren't reachable so that our API users
 /// can use the same enum for all renderers.
 pub const Health = enum(c_int) {
-    healthy = 0,
-    unhealthy = 1,
+    healthy,
+    unhealthy,
+
+    test "ghostty.h Health" {
+        try lib.checkGhosttyHEnum(Health, "GHOSTTY_RENDERER_HEALTH_");
+    }
 };
 
 test {

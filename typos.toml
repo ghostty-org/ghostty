@@ -26,6 +26,8 @@ extend-exclude = [
   "*.icns",
   # Valgrind nonsense
   "valgrind.supp",
+  # Fuzz corpus (binary test inputs)
+  "test/fuzz-libghostty/corpus/*",
   # Other
   "*.pdf",
   "*.data",
@@ -42,6 +44,8 @@ extend-ignore-re = [
   "draw[0-9A-F]+(_[0-9A-F]+)?\\(",
   # Ignore test data in src/input/paste.zig
   "\"hel\\\\x",
+  # Ignore long hex-like IDs such as 815E26BA2EF1E00F005C67B1
+  "[0-9A-F]{12,}",
 ]
 
 [default.extend-words]

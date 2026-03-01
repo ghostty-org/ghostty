@@ -80,6 +80,7 @@
           packageOverrides = pyfinal: pyprev: {
             blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
             ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
+            wcwidth = pyfinal.callPackage ./nix/pkgs/wcwidth.nix {};
           };
         };
       };

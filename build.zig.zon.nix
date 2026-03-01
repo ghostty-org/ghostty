@@ -171,11 +171,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAKlTAwClvdUfsAoiLgM6sb2NPZNnS6wzCiIs252Z";
+      name = "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260202-151632-49169e9.tgz";
-        hash = "sha256-xN+3iQaN3uIJ/BzkgFxLojgHqeuz1htNcVjcjWR7Qjg=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz";
+        hash = "sha256-FCALuGoMgUq2lgnVALKAs5a20uuDXt8Gdt5KeJwKqP0=";
       };
     }
     {
@@ -275,11 +275,11 @@ in
       };
     }
     {
-      name = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E";
+      name = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz";
-        hash = "sha256-SzpYGhgG4B6Luf8eT35sKLobCxjmwEuo1Twk0jeu9g4=";
+        url = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz";
+        hash = "sha256-0KvuD0+L1urjwFF3fhbnxC2JZKqqAVWRxOVlcD9GX5U=";
       };
     }
     {
@@ -318,7 +318,7 @@ in
       name = "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz";
+        url = "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz";
         hash = "sha256-afIdou/V7gk3/lXE0J5Ir8T7L5GgHvFnyMJ1rgRnl/c=";
       };
     }

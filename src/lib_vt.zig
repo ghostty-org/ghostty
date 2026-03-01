@@ -32,6 +32,7 @@ pub const modes = terminal.modes;
 pub const page = terminal.page;
 pub const parse_table = terminal.parse_table;
 pub const search = terminal.search;
+pub const sgr = terminal.sgr;
 pub const size = terminal.size;
 pub const x11_color = terminal.x11_color;
 

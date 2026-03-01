@@ -1,5 +1,6 @@
 const std = @import("std");
 const build_options = @import("terminal_options");
+const lib = @import("../lib/main.zig");
 
 /// The possible cursor shapes. Not all app runtimes support these shapes.
 /// The shapes are always based on the W3C supported cursor styles so we
@@ -63,6 +64,10 @@ pub const MouseShape = enum(c_int) {
             .none => void,
         };
     };
+
+    test "ghostty.h MouseShape" {
+        try lib.checkGhosttyHEnum(MouseShape, "GHOSTTY_MOUSE_SHAPE_");
+    }
 };
 
 const string_map = std.StaticStringMap(MouseShape).initComptime(.{
@@ -130,4 +135,8 @@ const string_map = std.StaticStringMap(MouseShape).initComptime(.{
 test "cursor shape from string" {
     const testing = std.testing;
     try testing.expectEqual(MouseShape.default, MouseShape.fromString("default").?);
+}
+
+test {
+    _ = std.testing.refAllDeclsRecursive(@This());
 }

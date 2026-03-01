@@ -312,6 +312,7 @@ const DerivedConfig = struct {
     mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
+    fullscreen: configpkg.Fullscreen,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
@@ -389,6 +390,7 @@ const DerivedConfig = struct {
             .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
+            .fullscreen = config.fullscreen,
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
@@ -1174,7 +1176,7 @@ fn selectionScrollTick(self: *Surface) !void {
     }
 
     // Scroll the viewport as required
-    try t.scrollViewport(.{ .delta = delta });
+    t.scrollViewport(.{ .delta = delta });
 
     // Next, trigger our drag behavior
     const pin = t.screens.active.pages.pin(.{
@@ -2779,7 +2781,7 @@ pub fn keyCallback(
             try self.setSelection(null);
         }
 
-        if (self.config.scroll_to_bottom.keystroke) try self.io.terminal.scrollViewport(.bottom);
+        if (self.config.scroll_to_bottom.keystroke) self.io.terminal.scrollViewport(.bottom);
 
         try self.queueRender();
     }
@@ -2971,6 +2973,9 @@ fn maybeHandleBinding(
         // If our action was "ignore" then we return the special input
         // effect of "ignored".
         for (actions) |action| if (action == .ignore) {
+            // If we're in a sequence, clear it.
+            self.endKeySequence(.drop, .retain);
+
             return .ignored;
         };
     }
@@ -3532,7 +3537,7 @@ pub fn scrollCallback(
             // Modify our viewport, this requires a lock since it affects
             // rendering. We have to switch signs here because our delta
             // is negative down but our viewport is positive down.
-            try self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+            self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
         }
     }
 
@@ -5063,7 +5068,7 @@ pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordin
 ///
 /// Precondition: the render_state mutex must be held.
 fn scrollToBottom(self: *Surface) !void {
-    try self.io.terminal.scrollViewport(.{ .bottom = {} });
+    self.io.terminal.scrollViewport(.{ .bottom = {} });
     try self.queueRender();
 }
 

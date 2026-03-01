@@ -1092,7 +1092,7 @@ test "cursor state out of viewport" {
     try testing.expectEqual(1, state.cursor.viewport.?.y);
 
     // Scroll the viewport
-    try t.scrollViewport(.top);
+    t.scrollViewport(.top);
     try state.update(alloc, &t);
 
     // Set a style on the cursor

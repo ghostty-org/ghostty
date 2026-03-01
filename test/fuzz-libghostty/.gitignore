@@ -1,0 +1,9 @@
+# Build artifacts
+.zig-cache/
+zig-out/
+
+# AFL++ outputs
+afl-out/
+
+# Corpus trace files
+corpus/**/.traces/

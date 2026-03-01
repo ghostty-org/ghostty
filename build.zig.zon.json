@@ -54,10 +54,10 @@
     "url": "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz",
     "hash": "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs="
   },
-  "N-V-__8AAKlTAwClvdUfsAoiLgM6sb2NPZNnS6wzCiIs252Z": {
+  "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF": {
     "name": "iterm2_themes",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260202-151632-49169e9.tgz",
-    "hash": "sha256-xN+3iQaN3uIJ/BzkgFxLojgHqeuz1htNcVjcjWR7Qjg="
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz",
+    "hash": "sha256-FCALuGoMgUq2lgnVALKAs5a20uuDXt8Gdt5KeJwKqP0="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",
@@ -119,10 +119,10 @@
     "url": "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732",
     "hash": "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8="
   },
-  "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E": {
+  "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9": {
     "name": "uucode",
-    "url": "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
-    "hash": "sha256-SzpYGhgG4B6Luf8eT35sKLobCxjmwEuo1Twk0jeu9g4="
+    "url": "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz",
+    "hash": "sha256-0KvuD0+L1urjwFF3fhbnxC2JZKqqAVWRxOVlcD9GX5U="
   },
   "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS": {
     "name": "vaxis",
@@ -146,7 +146,7 @@
   },
   "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ": {
     "name": "z2d",
-    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz",
+    "url": "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz",
     "hash": "sha256-afIdou/V7gk3/lXE0J5Ir8T7L5GgHvFnyMJ1rgRnl/c="
   },
   "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh": {

@@ -2,8 +2,8 @@ import SwiftUI
 
 struct SecureInputOverlay: View {
     // Animations
-    @State private var shadowAngle: Angle = .degrees(0)
-    @State private var shadowWidth: CGFloat = 6
+    @State private var gradientAngle: Angle = .degrees(0)
+    @State private var gradientOpacity: CGFloat = 0.5
 
     // Popover explainer text
     @State private var isPopover = false
@@ -20,18 +20,32 @@ struct SecureInputOverlay: View {
                     .foregroundColor(.primary)
                     .padding(5)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
+                        Rectangle()
                             .fill(.background)
-                            .innerShadow(
-                                using: RoundedRectangle(cornerRadius: 12),
-                                 stroke: AngularGradient(
-                                     gradient: Gradient(colors: [.cyan, .blue, .yellow, .blue, .cyan]),
-                                     center: .center,
-                                     angle: shadowAngle
-                                 ),
-                                 width: shadowWidth
+                            .overlay(
+                                Rectangle()
+                                    .fill(
+                                        AngularGradient(
+                                            gradient: Gradient(
+                                                colors: [.cyan, .blue, .yellow, .blue, .cyan]
+                                            ),
+                                            center: .center,
+                                            angle: gradientAngle
+                                        )
+                                    )
+                                    .blur(radius: 4, opaque: true)
+                                    .mask(
+                                        RadialGradient(
+                                            colors: [.clear, .black],
+                                            center: .center,
+                                            startRadius: 0,
+                                            endRadius: 25
+                                        )
+                                    )
+                                    .opacity(gradientOpacity)
                              )
                     )
+                    .mask(RoundedRectangle(cornerRadius: 12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(Color.gray, lineWidth: 1)
@@ -44,9 +58,9 @@ struct SecureInputOverlay: View {
                     .padding(.trailing, 10)
                     .popover(isPresented: $isPopover, arrowEdge: .bottom) {
                         Text("""
-                        Secure Input is active. Secure Input is a macOS security feature that 
-                        prevents applications from reading keyboard events. This is enabled 
-                        automatically whenever Ghostty detects a password prompt in the terminal, 
+                        Secure Input is active. Secure Input is a macOS security feature that
+                        prevents applications from reading keyboard events. This is enabled
+                        automatically whenever Ghostty detects a password prompt in the terminal,
                         or at all times if `Ghostty > Secure Keyboard Entry` is active.
                         """)
                         .padding(.all)
@@ -57,11 +71,11 @@ struct SecureInputOverlay: View {
         }
         .onAppear {
             withAnimation(Animation.linear(duration: 2).repeatForever(autoreverses: false)) {
-                shadowAngle = .degrees(360)
+                gradientAngle = .degrees(360)
             }
 
             withAnimation(Animation.linear(duration: 2).repeatForever(autoreverses: true)) {
-                shadowWidth = 12
+                gradientOpacity = 1
             }
         }
     }

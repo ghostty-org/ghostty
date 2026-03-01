@@ -10,7 +10,7 @@ struct MetalView<V: MTKView>: View {
     }
 }
 
-fileprivate struct MetalViewRepresentable<V: MTKView>: NSViewRepresentable {
+private struct MetalViewRepresentable<V: MTKView>: NSViewRepresentable {
     @Binding var metalView: V
 
     func makeNSView(context: Context) -> some NSView {

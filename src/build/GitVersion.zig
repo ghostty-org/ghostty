@@ -39,7 +39,7 @@ pub fn detect(b: *std.Build) !Version {
 
     const short_hash = short_hash: {
         const output = b.runAllowFail(
-            &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "log", "--pretty=format:%h", "-n", "1" },
+            &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "-c", "log.showSignature=false", "log", "--pretty=format:%h", "-n", "1" },
             &code,
             .Ignore,
         ) catch |err| switch (err) {

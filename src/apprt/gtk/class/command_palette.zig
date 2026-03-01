@@ -691,12 +691,12 @@ const Command = extern struct {
                 defer surface.unref();
 
                 const alloc = priv.arena.allocator();
-                const surface_title = surface.getTitle() orelse "Untitled";
+                const effective_title = surface.getEffectiveTitle() orelse "Untitled";
 
                 j.title = std.fmt.allocPrintSentinel(
                     alloc,
                     "Focus: {s}",
-                    .{surface_title},
+                    .{effective_title},
                     0,
                 ) catch null;
 
@@ -717,8 +717,7 @@ const Command = extern struct {
                 defer surface.unref();
 
                 const alloc = priv.arena.allocator();
-
-                const title = surface.getTitle() orelse "Untitled";
+                const title = surface.getEffectiveTitle() orelse "Untitled";
                 const pwd = surface.getPwd();
 
                 if (pwd) |p| {

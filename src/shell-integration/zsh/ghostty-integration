@@ -315,7 +315,7 @@ _ghostty_deferred_init() {
                 ssh_cpath_dir=$(mktemp -d "/tmp/ghostty-ssh-$ssh_user.XXXXXX" 2>/dev/null) || ssh_cpath_dir="/tmp/ghostty-ssh-$ssh_user.$$"
                 ssh_cpath="$ssh_cpath_dir/socket"
 
-                if print "$ssh_terminfo" | command ssh "${ssh_opts[@]}" -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s "$@" '
+                if builtin print -r "$ssh_terminfo" | command ssh "${ssh_opts[@]}" -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s "$@" '
                   infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
                   command -v tic >/dev/null 2>&1 || exit 1
                   mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0

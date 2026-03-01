@@ -1,0 +1,10 @@
+.{
+    .name = .android_ndk,
+    .version = "0.0.2",
+    .fingerprint = 0xee68d62c5a97b68b,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

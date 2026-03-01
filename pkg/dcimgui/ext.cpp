@@ -27,4 +27,27 @@ CIMGUI_API void ImGuiStyle_ImGuiStyle(cimgui::ImGuiStyle* self)
     ::ImGuiStyle defaults;
     *reinterpret_cast<::ImGuiStyle*>(self) = defaults;
 }
+
+// Perform the OpenGL3 backend shutdown and then zero out the imgl3w
+// function pointer table. ImGui_ImplOpenGL3_Shutdown() calls
+// imgl3wShutdown() which dlcloses the GL library handles but does not
+// zero out the function pointers. A subsequent ImGui_ImplOpenGL3_Init()
+// sees the stale (non-null) pointers, skips loader re-initialization,
+// and crashes when calling through them. Zeroing the table forces the
+// next Init to reload the GL function pointers via imgl3wInit().
+#ifndef IMGUI_DISABLE
+#if __has_include("backends/imgui_impl_opengl3.h")
+#ifdef ZIGPKG_IMGUI_ENABLE_OPENGL3
+#include "backends/imgui_impl_opengl3.h"
+#include "backends/imgui_impl_opengl3_loader.h"
+
+CIMGUI_API void ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup()
+{
+    ::ImGui_ImplOpenGL3_Shutdown();
+    memset(&imgl3wProcs, 0, sizeof(imgl3wProcs));
+}
+#endif // ZIGPKG_IMGUI_ENABLE_OPENGL3
+#endif // __has_include("backends/imgui_impl_opengl3.h")
+#endif // IMGUI_DISABLE
+
 }

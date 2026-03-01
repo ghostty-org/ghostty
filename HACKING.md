@@ -186,6 +186,31 @@ shellcheck \
     $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
 ```
 
+### SwiftLint
+
+Swift code is linted using [SwiftLint](https://github.com/realm/SwiftLint). A
+SwiftLint CI check will fail builds with improper formatting. Therefore, if you
+are modifying Swift code, you may want to install it locally and run this from
+the repo root before you commit:
+
+```
+swiftlint lint --fix
+```
+
+Make sure your SwiftLint version matches the version in [devShell.nix](https://github.com/ghostty-org/ghostty/blob/main/nix/devShell.nix).
+
+Nix users can use the following command to format with SwiftLint:
+
+```
+nix develop -c swiftlint lint --fix
+```
+
+To check for violations without auto-fixing:
+
+```
+nix develop -c swiftlint lint --strict
+```
+
 ### Updating the Zig Cache Fixed-Output Derivation Hash
 
 The Nix package depends on a [fixed-output

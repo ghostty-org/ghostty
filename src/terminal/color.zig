@@ -90,14 +90,31 @@ pub fn generate256Color(
     skip: PaletteMask,
     bg: RGB,
     fg: RGB,
+    harmonious: bool,
 ) Palette {
     // Convert the background, foreground, and 8 base theme colors into
     // CIELAB space so that all interpolation is perceptually uniform.
-    const bg_lab: LAB = .fromRgb(bg);
-    const fg_lab: LAB = .fromRgb(fg);
     const base8_lab: [8]LAB = base8: {
-        var base8: [8]LAB = undefined;
-        for (0..8) |i| base8[i] = .fromRgb(base[i]);
+        var base8: [8]LAB = .{
+            .fromRgb(bg),
+            LAB.fromRgb(base[1]),
+            LAB.fromRgb(base[2]),
+            LAB.fromRgb(base[3]),
+            LAB.fromRgb(base[4]),
+            LAB.fromRgb(base[5]),
+            LAB.fromRgb(base[6]),
+            .fromRgb(fg),
+        };
+
+        // For light themes (where the foreground is darker than the
+        // background), the cube's dark-to-light orientation is inverted
+        // relative to the base color mapping. When `harmonious` is false,
+        // swap bg and fg so the cube still runs from black (16) to
+        // white (231).
+        const is_light_theme = base8[7].l < base8[0].l;
+        const invert = is_light_theme and !harmonious;
+        if (invert) std.mem.swap(LAB, &base8[0], &base8[7]);
+
         break :base8 base8;
     };
 
@@ -115,10 +132,10 @@ pub fn generate256Color(
     for (0..6) |ri| {
         // R-axis corners: blend base colors along the red dimension.
         const tr = @as(f32, @floatFromInt(ri)) / 5.0;
-        const c0: LAB = .lerp(tr, bg_lab, base8_lab[1]);
+        const c0: LAB = .lerp(tr, base8_lab[0], base8_lab[1]);
         const c1: LAB = .lerp(tr, base8_lab[2], base8_lab[3]);
         const c2: LAB = .lerp(tr, base8_lab[4], base8_lab[5]);
-        const c3: LAB = .lerp(tr, base8_lab[6], fg_lab);
+        const c3: LAB = .lerp(tr, base8_lab[6], base8_lab[7]);
         for (0..6) |gi| {
             // G-axis edges: blend the R-interpolated corners along green.
             const tg = @as(f32, @floatFromInt(gi)) / 5.0;
@@ -147,7 +164,7 @@ pub fn generate256Color(
     for (0..24) |i| {
         const t = @as(f32, @floatFromInt(i + 1)) / 25.0;
         if (!skip.isSet(idx)) {
-            const c: LAB = .lerp(t, bg_lab, fg_lab);
+            const c: LAB = .lerp(t, base8_lab[0], base8_lab[7]);
             result[idx] = c.toRgb();
         }
         idx += 1;
@@ -926,7 +943,7 @@ test "generate256Color: base16 preserved" {
 
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const palette = generate256Color(default, .initEmpty(), bg, fg);
+    const palette = generate256Color(default, .initEmpty(), bg, fg, false);
 
     // The first 16 colors (base16) must remain unchanged.
     for (0..16) |i| {
@@ -939,7 +956,7 @@ test "generate256Color: cube corners match base colors" {
 
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const palette = generate256Color(default, .initEmpty(), bg, fg);
+    const palette = generate256Color(default, .initEmpty(), bg, fg, false);
 
     // Index 16 is cube (0,0,0) which should equal bg.
     try testing.expectEqual(bg, palette[16]);
@@ -948,12 +965,43 @@ test "generate256Color: cube corners match base colors" {
     try testing.expectEqual(fg, palette[231]);
 }
 
+test "generate256Color: cube corners black/white with harmonious=false" {
+    const testing = std.testing;
+
+    const black = RGB{ .r = 0, .g = 0, .b = 0 };
+    const white = RGB{ .r = 255, .g = 255, .b = 255 };
+
+    // Dark theme: bg=black, fg=white.
+    const dark = generate256Color(default, .initEmpty(), black, white, false);
+    try testing.expectEqual(black, dark[16]);
+    try testing.expectEqual(white, dark[231]);
+
+    // Light theme: bg=white, fg=black. The bg/red swap ensures
+    // the cube still runs from black (16) to white (231).
+    const light = generate256Color(default, .initEmpty(), white, black, false);
+    try testing.expectEqual(black, light[16]);
+    try testing.expectEqual(white, light[231]);
+}
+
+test "generate256Color: light theme cube corners with harmonious=true" {
+    const testing = std.testing;
+
+    const white = RGB{ .r = 255, .g = 255, .b = 255 };
+    const black = RGB{ .r = 0, .g = 0, .b = 0 };
+
+    // harmonious=true skips the bg/fg swap, so the cube preserves the
+    // original orientation: (0,0,0)=bg=white, (5,5,5)=fg=black.
+    const palette = generate256Color(default, .initEmpty(), white, black, true);
+    try testing.expectEqual(white, palette[16]);
+    try testing.expectEqual(black, palette[231]);
+}
+
 test "generate256Color: grayscale ramp monotonic luminance" {
     const testing = std.testing;
 
     const bg = RGB{ .r = 0, .g = 0, .b = 0 };
     const fg = RGB{ .r = 255, .g = 255, .b = 255 };
-    const palette = generate256Color(default, .initEmpty(), bg, fg);
+    const palette = generate256Color(default, .initEmpty(), bg, fg, false);
 
     // The grayscale ramp (232–255) should have monotonically increasing
     // luminance from near-black to near-white.
@@ -977,13 +1025,80 @@ test "generate256Color: skip mask preserves original colors" {
     skip.set(100);
     skip.set(240);
 
-    const palette = generate256Color(default, skip, bg, fg);
+    const palette = generate256Color(default, skip, bg, fg, false);
     try testing.expectEqual(default[20], palette[20]);
     try testing.expectEqual(default[100], palette[100]);
     try testing.expectEqual(default[240], palette[240]);
 
     // A non-skipped index in the cube should differ from the default.
     try testing.expect(!palette[21].eql(default[21]));
+}
+
+test "generate256Color: dark theme harmonious has no effect" {
+    const testing = std.testing;
+
+    // For a dark theme (fg lighter than bg), harmonious should not change
+    // the output because the inversion is only relevant for light themes.
+    const bg = RGB{ .r = 0, .g = 0, .b = 0 };
+    const fg = RGB{ .r = 255, .g = 255, .b = 255 };
+    const normal = generate256Color(default, .initEmpty(), bg, fg, false);
+    const harmonious = generate256Color(default, .initEmpty(), bg, fg, true);
+
+    for (16..256) |i| {
+        try testing.expectEqual(normal[i], harmonious[i]);
+    }
+}
+
+test "generate256Color: light theme harmonious skips inversion" {
+    const testing = std.testing;
+
+    // For a light theme (fg darker than bg), harmonious=true skips the
+    // bg/red swap, producing different cube colors than harmonious=false.
+    const bg = RGB{ .r = 255, .g = 255, .b = 255 };
+    const fg = RGB{ .r = 0, .g = 0, .b = 0 };
+    const inverted = generate256Color(default, .initEmpty(), bg, fg, false);
+    const harmonious = generate256Color(default, .initEmpty(), bg, fg, true);
+
+    // Cube origin (0,0,0) at index 16: without harmonious, bg and red are
+    // swapped so it becomes the red base; with harmonious it stays as bg.
+    try testing.expectEqual(bg, harmonious[16]);
+    try testing.expect(!inverted[16].eql(bg));
+
+    // At least some cube colors should differ between the two modes.
+    var differ: usize = 0;
+    for (16..232) |i| {
+        if (!inverted[i].eql(harmonious[i])) differ += 1;
+    }
+    try testing.expect(differ > 0);
+}
+
+test "generate256Color: light theme harmonious grayscale ramp" {
+    const testing = std.testing;
+
+    const bg = RGB{ .r = 255, .g = 255, .b = 255 };
+    const fg = RGB{ .r = 0, .g = 0, .b = 0 };
+
+    // harmonious=false swaps bg/fg, so the ramp runs black→white (increasing).
+    {
+        const palette = generate256Color(default, .initEmpty(), bg, fg, false);
+        var prev_lum: f64 = 0.0;
+        for (232..256) |i| {
+            const lum = palette[i].luminance();
+            try testing.expect(lum >= prev_lum);
+            prev_lum = lum;
+        }
+    }
+
+    // harmonious=true keeps original order, so the ramp runs white→black (decreasing).
+    {
+        const palette = generate256Color(default, .initEmpty(), bg, fg, true);
+        var prev_lum: f64 = 1.0;
+        for (232..256) |i| {
+            const lum = palette[i].luminance();
+            try testing.expect(lum <= prev_lum);
+            prev_lum = lum;
+        }
+    }
 }
 
 test "LAB.toRgb" {

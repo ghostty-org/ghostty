@@ -21,7 +21,7 @@
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz",
+            .url = "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz",
             .hash = "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ",
             .lazy = true,
         },
@@ -39,8 +39,8 @@
         },
         .uucode = .{
             // jacobsandlund/uucode
-            .url = "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
-            .hash = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
+            .url = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz",
+            .hash = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
@@ -115,9 +115,10 @@
 
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
+        .android_ndk = .{ .path = "./pkg/android-ndk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260202-151632-49169e9.tgz",
-            .hash = "N-V-__8AAKlTAwClvdUfsAoiLgM6sb2NPZNnS6wzCiIs252Z",
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz",
+            .hash = "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF",
             .lazy = true,
         },
     },

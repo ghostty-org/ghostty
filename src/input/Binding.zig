@@ -570,12 +570,9 @@ pub const Action = union(enum) {
     toggle_tab_overview,
 
     /// Change the title of the current focused surface via a pop-up prompt.
-    ///
-    /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
-    /// version can be found by running `ghostty +version`.
     prompt_surface_title,
 
-    /// Change the title of the current tab/window via a pop-up prompt. The
+    /// Change the title of the current tab via a pop-up prompt. The
     /// title set via this prompt overrides any title set by the terminal
     /// and persists across focus changes within the tab.
     prompt_tab_title,

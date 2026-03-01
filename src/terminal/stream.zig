@@ -1188,7 +1188,10 @@ pub fn Stream(comptime Handler: type) type {
                         return;
                     },
 
-                    1 => if (input.intermediates[0] == '?' and input.params[0] == 5) {
+                    1 => if (input.intermediates[0] == '?' and
+                        input.params.len == 1 and
+                        input.params[0] == 5)
+                    {
                         try self.handler.vt(.tab_reset, {});
                     } else log.warn("invalid cursor tabulation control: {f}", .{input}),
 
@@ -2048,6 +2051,7 @@ pub fn Stream(comptime Handler: type) type {
                 .conemu_run_process,
                 .kitty_text_sizing,
                 .kitty_clipboard_protocol,
+                .context_signal,
                 => {
                     log.debug("unimplemented OSC callback: {}", .{cmd});
                 },

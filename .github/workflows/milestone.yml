@@ -19,8 +19,7 @@ jobs:
         if: github.event.pull_request.merged == true
         with:
           action: bind-pr # `bind-pr` is the default action
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Bind milestone to closed issue that has a merged PR fix
       - name: Set Milestone for Issue
@@ -28,5 +27,4 @@ jobs:
         if: github.event.issue.state == 'closed'
         with:
           action: bind-issue
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,6 @@
+# Hand-written seed corpus: binary files, track as-is
+corpus/initial/** binary
+
+# Generated/minimized corpora: binary, mark as generated
+corpus/vt-parser-cmin/** binary linguist-generated=true
+corpus/vt-parser-min/** binary linguist-generated=true

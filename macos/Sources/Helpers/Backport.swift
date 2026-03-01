@@ -48,7 +48,7 @@ extension Backport where Content: View {
         return content
         #endif
     }
-    
+
     /// Backported onKeyPress that works on macOS 14+ and is a no-op on macOS 13.
     func onKeyPress(_ key: KeyEquivalent, action: @escaping (EventModifiers) -> BackportKeyPressResult) -> some View {
         #if canImport(AppKit)
@@ -113,6 +113,20 @@ enum BackportPointerStyle {
         case .resizeDown: return .frameResize(position: .top, directions: [.inward])
         case .resizeUpDown: return .frameResize(position: .top)
         case .resizeLeftRight: return .frameResize(position: .trailing)
+        }
+    }
+    #endif
+}
+
+enum BackportNSGlassStyle {
+    case regular, clear
+
+    #if canImport(AppKit)
+    @available(macOS 26, *)
+    var official: NSGlassEffectView.Style {
+        switch self {
+        case .regular: return .regular
+        case .clear: return .clear
         }
     }
     #endif

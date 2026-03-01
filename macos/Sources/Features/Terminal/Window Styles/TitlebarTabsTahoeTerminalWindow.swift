@@ -8,7 +8,7 @@ import SwiftUI
 class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSToolbarDelegate {
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
-    
+
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
@@ -58,13 +58,13 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Check if we have a tab bar and set it up if we have to. See the comment
         // on this function to learn why we need to check this here.
         setupTabBar()
-        
+
         viewModel.isMainWindow = true
     }
 
     override func resignMain() {
         super.resignMain()
-        
+
         viewModel.isMainWindow = false
     }
 
@@ -84,18 +84,18 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             super.sendEvent(event)
             return
         }
-        
+
         guard let tabBarView else {
             super.sendEvent(event)
             return
         }
-        
+
         let locationInTabBar = tabBarView.convert(event.locationInWindow, from: nil)
         guard tabBarView.bounds.contains(locationInTabBar) else {
             super.sendEvent(event)
             return
         }
-        
+
         tabBarView.rightMouseDown(with: event)
     }
 
@@ -107,7 +107,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             // After dragging a tab into a new window, `hasTabBar` needs to be
             // updated to properly review window title
             viewModel.hasTabBar = false
-            
+
             super.addTitlebarAccessoryViewController(childViewController)
             return
         }
@@ -116,7 +116,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // system will also try to add tab bar to this window, so we want to reset observer,
         // to put tab bar where we want again
         tabBarObserver = nil
-        
+
         // Some setup needs to happen BEFORE it is added, such as layout. If
         // we don't do this before the call below, we'll trigger an AppKit
         // assertion.
@@ -189,7 +189,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard let clipView = tabBarView.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
-        
+
         // Make sure tabBar's height won't be stretched
         guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
         tabBarView.frame.size.height = newTabButton.frame.width
@@ -199,7 +199,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         // The padding for the tab bar. If we're showing window buttons then
         // we need to offset the window buttons.
-        let leftPadding: CGFloat = switch(self.derivedConfig.macosWindowButtons) {
+        let leftPadding: CGFloat = switch self.derivedConfig.macosWindowButtons {
         case .hidden: 0
         case .visible: 70
         }
@@ -282,7 +282,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             // This is the documented way to avoid the glass view on an item.
             // We don't want glass on our title.
             item.isBordered = false
-            
+
             return item
         default:
             return NSToolbarItem(itemIdentifier: itemIdentifier)
@@ -327,7 +327,7 @@ extension TitlebarTabsTahoeTerminalWindow {
                 Color.clear.frame(width: 1, height: 1)
             }
         }
-        
+
         @ViewBuilder
         var titleText: some View {
             Text(title)

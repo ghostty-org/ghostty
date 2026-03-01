@@ -844,7 +844,7 @@ pub const Image = union(enum) {
     /// Converts the image data to a format that can be uploaded to the GPU.
     /// If the data is already in a format that can be uploaded, this is a
     /// no-op.
-    pub fn convert(self: *Image, alloc: Allocator) wuffs.Error!void {
+    fn convert(self: *Image, alloc: Allocator) wuffs.Error!void {
         const p = self.getPendingPointer().?;
         // As things stand, we currently convert all images to RGBA before
         // uploading to the GPU. This just makes things easier. In the future
@@ -867,7 +867,7 @@ pub const Image = union(enum) {
 
     /// Prepare the pending image data for upload to the GPU.
     /// This doesn't need GPU access so is safe to call any time.
-    pub fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
+    fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
         assert(self.isPending());
         try self.convert(alloc);
     }

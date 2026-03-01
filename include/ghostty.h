@@ -509,6 +509,15 @@ typedef struct {
   ghostty_quick_terminal_size_s secondary;
 } ghostty_config_quick_terminal_size_s;
 
+// config.Fullscreen
+typedef enum {
+  GHOSTTY_CONFIG_FULLSCREEN_FALSE,
+  GHOSTTY_CONFIG_FULLSCREEN_TRUE,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
+} ghostty_config_fullscreen_e;
+
 // apprt.Target.Key
 typedef enum {
   GHOSTTY_TARGET_APP,
@@ -577,9 +586,9 @@ typedef enum {
 // apprt.action.Fullscreen
 typedef enum {
   GHOSTTY_FULLSCREEN_NATIVE,
-  GHOSTTY_FULLSCREEN_NON_NATIVE,
-  GHOSTTY_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
-  GHOSTTY_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
+  GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE,
+  GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_VISIBLE_MENU,
+  GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_PADDED_NOTCH,
 } ghostty_action_fullscreen_e;
 
 // apprt.action.FloatWindow
@@ -709,7 +718,7 @@ typedef struct {
 
 // renderer.Health
 typedef enum {
-  GHOSTTY_RENDERER_HEALTH_OK,
+  GHOSTTY_RENDERER_HEALTH_HEALTHY,
   GHOSTTY_RENDERER_HEALTH_UNHEALTHY,
 } ghostty_action_renderer_health_e;
 
