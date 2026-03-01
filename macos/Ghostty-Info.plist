@@ -98,6 +98,26 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh_CN</string>
+		<string>zh-Hans</string>
+		<string>fr</string>
+		<string>de</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>ru</string>
+		<string>es</string>
+		<string>pt_BR</string>
+		<string>it</string>
+		<string>nl</string>
+		<string>pl</string>
+		<string>tr</string>
+		<string>uk</string>
+		<string>nb</string>
+		<string>id</string>
+	</array>
 	<key>SUEnableAutomaticChecks</key>
 	<false/>
 	<key>SUPublicEDKey</key>

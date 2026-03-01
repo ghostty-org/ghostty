@@ -1,0 +1,248 @@
+/* Class = "NSMenu"; title = "Main Menu"; ObjectID = "AYu-sK-qS6"; */
+"AYu-sK-qS6.title" = "Main Menu";
+
+/* Class = "NSMenuItem"; title = "Ghostty"; ObjectID = "1Xt-HY-uBw"; */
+"1Xt-HY-uBw.title" = "Ghostty";
+
+/* Class = "NSMenu"; title = "Ghostty"; ObjectID = "uQy-DD-JDr"; */
+"uQy-DD-JDr.title" = "Ghostty";
+
+/* Class = "NSMenuItem"; title = "About Ghostty"; ObjectID = "5kV-Vb-QxS"; */
+"5kV-Vb-QxS.title" = "About Ghostty";
+
+/* Class = "NSMenuItem"; title = "Check for Updates..."; ObjectID = "GEA-5y-yzH"; */
+"GEA-5y-yzH.title" = "Check for Updates...";
+
+/* Class = "NSMenuItem"; title = "Preferences…"; ObjectID = "BOF-NM-1cW"; */
+"BOF-NM-1cW.title" = "Preferences\U2026";
+
+/* Class = "NSMenuItem"; title = "Secure Keyboard Entry"; ObjectID = "oC6-w4-qI7"; */
+"oC6-w4-qI7.title" = "Secure Keyboard Entry";
+
+/* Class = "NSMenuItem"; title = "Make Ghostty the Default Terminal"; ObjectID = "b1t-oB-7MI"; */
+"b1t-oB-7MI.title" = "Make Ghostty the Default Terminal";
+
+/* Class = "NSMenu"; title = "Services"; ObjectID = "aQe-vS-j8Q"; */
+"aQe-vS-j8Q.title" = "Services";
+
+/* Class = "NSMenuItem"; title = "Services"; ObjectID = "rJe-5J-bwL"; */
+"rJe-5J-bwL.title" = "Services";
+
+/* Class = "NSMenuItem"; title = "Hide Ghostty"; ObjectID = "Olw-nP-bQN"; */
+"Olw-nP-bQN.title" = "Hide Ghostty";
+
+/* Class = "NSMenuItem"; title = "Hide Others"; ObjectID = "Vdr-fp-XzO"; */
+"Vdr-fp-XzO.title" = "Hide Others";
+
+/* Class = "NSMenuItem"; title = "Show All"; ObjectID = "Kd2-mp-pUS"; */
+"Kd2-mp-pUS.title" = "Show All";
+
+/* Class = "NSMenuItem"; title = "Quit Ghostty"; ObjectID = "4sb-4s-VLi"; */
+"4sb-4s-VLi.title" = "Quit Ghostty";
+
+/* Class = "NSMenuItem"; title = "File"; ObjectID = "dMs-cI-mzQ"; */
+"dMs-cI-mzQ.title" = "File";
+
+/* Class = "NSMenu"; title = "File"; ObjectID = "bib-Uj-vzu"; */
+"bib-Uj-vzu.title" = "File";
+
+/* Class = "NSMenuItem"; title = "New Window"; ObjectID = "Was-JA-tGl"; */
+"Was-JA-tGl.title" = "New Window";
+
+/* Class = "NSMenuItem"; title = "New Tab"; ObjectID = "uTG-Vz-hJU"; */
+"uTG-Vz-hJU.title" = "New Tab";
+
+/* Class = "NSMenuItem"; title = "Split Right"; ObjectID = "VUR-Ld-nLx"; */
+"VUR-Ld-nLx.title" = "Split Right";
+
+/* Class = "NSMenuItem"; title = "Split Left"; ObjectID = "Ppv-GP-lQU"; */
+"Ppv-GP-lQU.title" = "Split Left";
+
+/* Class = "NSMenuItem"; title = "Split Down"; ObjectID = "UDZ-4y-6xL"; */
+"UDZ-4y-6xL.title" = "Split Down";
+
+/* Class = "NSMenuItem"; title = "Split Up"; ObjectID = "Ggp-7N-GbX"; */
+"Ggp-7N-GbX.title" = "Split Up";
+
+/* Class = "NSMenuItem"; title = "Close"; ObjectID = "DVo-aG-piG"; */
+"DVo-aG-piG.title" = "Close";
+
+/* Class = "NSMenuItem"; title = "Close Tab"; ObjectID = "Obb-Mk-j8J"; */
+"Obb-Mk-j8J.title" = "Close Tab";
+
+/* Class = "NSMenuItem"; title = "Close Window"; ObjectID = "W5w-UZ-crk"; */
+"W5w-UZ-crk.title" = "Close Window";
+
+/* Class = "NSMenuItem"; title = "Close All Windows"; ObjectID = "yKr-Vi-Yqw"; */
+"yKr-Vi-Yqw.title" = "Close All Windows";
+
+/* Class = "NSMenuItem"; title = "Edit"; ObjectID = "ZUG-Nx-Wkj"; */
+"ZUG-Nx-Wkj.title" = "Edit";
+
+/* Class = "NSMenu"; title = "Edit"; ObjectID = "iU4-OB-ccf"; */
+"iU4-OB-ccf.title" = "Edit";
+
+/* Class = "NSMenuItem"; title = "Undo"; ObjectID = "r83-CV-syt"; */
+"r83-CV-syt.title" = "Undo";
+
+/* Class = "NSMenuItem"; title = "Redo"; ObjectID = "EX8-lB-4s7"; */
+"EX8-lB-4s7.title" = "Redo";
+
+/* Class = "NSMenuItem"; title = "Copy"; ObjectID = "Jqf-pv-Zcu"; */
+"Jqf-pv-Zcu.title" = "Copy";
+
+/* Class = "NSMenuItem"; title = "Paste"; ObjectID = "i27-pK-umN"; */
+"i27-pK-umN.title" = "Paste";
+
+/* Class = "NSMenuItem"; title = "Paste Selection"; ObjectID = "akq-ov-Jjh"; */
+"akq-ov-Jjh.title" = "Paste Selection";
+
+/* Class = "NSMenuItem"; title = "Select All"; ObjectID = "q2h-lq-e4r"; */
+"q2h-lq-e4r.title" = "Select All";
+
+/* Class = "NSMenuItem"; title = "Find"; ObjectID = "cE3-Bt-FcH"; */
+"cE3-Bt-FcH.title" = "Find";
+
+/* Class = "NSMenu"; title = "Find"; ObjectID = "vPo-Sd-cTP"; */
+"vPo-Sd-cTP.title" = "Find";
+
+/* Class = "NSMenuItem"; title = "Find..."; ObjectID = "nwE-0w-30h"; */
+"nwE-0w-30h.title" = "Find\U2026";
+
+/* Class = "NSMenuItem"; title = "Find Next"; ObjectID = "XqU-X8-q32"; */
+"XqU-X8-q32.title" = "Find Next";
+
+/* Class = "NSMenuItem"; title = "Find Previous"; ObjectID = "1hd-2Z-wVm"; */
+"1hd-2Z-wVm.title" = "Find Previous";
+
+/* Class = "NSMenuItem"; title = "Hide Find Bar"; ObjectID = "xzC-AG-HAc"; */
+"xzC-AG-HAc.title" = "Hide Find Bar";
+
+/* Class = "NSMenuItem"; title = "Use Selection for Find"; ObjectID = "TDN-42-Bu7"; */
+"TDN-42-Bu7.title" = "Use Selection for Find";
+
+/* Class = "NSMenuItem"; title = "Jump to Selection"; ObjectID = "1rN-4k-Dz3"; */
+"1rN-4k-Dz3.title" = "Jump to Selection";
+
+/* Class = "NSMenuItem"; title = "View"; ObjectID = "3L3-2p-Joi"; */
+"3L3-2p-Joi.title" = "View";
+
+/* Class = "NSMenu"; title = "View"; ObjectID = "m6z-2H-VW7"; */
+"m6z-2H-VW7.title" = "View";
+
+/* Class = "NSMenuItem"; title = "Increase Font Size"; ObjectID = "CIH-ey-Z6x"; */
+"CIH-ey-Z6x.title" = "Increase Font Size";
+
+/* Class = "NSMenuItem"; title = "Decrease Font Size"; ObjectID = "kzb-SZ-dOA"; */
+"kzb-SZ-dOA.title" = "Decrease Font Size";
+
+/* Class = "NSMenuItem"; title = "Reset Font Size"; ObjectID = "Jah-MY-aLX"; */
+"Jah-MY-aLX.title" = "Reset Font Size";
+
+/* Class = "NSMenuItem"; title = "Change Tab Title..."; ObjectID = "iac-lh-Cl7"; */
+"iac-lh-Cl7.title" = "Change Tab Title\U2026";
+
+/* Class = "NSMenuItem"; title = "Change Terminal Title..."; ObjectID = "24I-xg-qIq"; */
+"24I-xg-qIq.title" = "Change Terminal Title\U2026";
+
+/* Class = "NSMenuItem"; title = "Terminal Read-only"; ObjectID = "xpe-ia-Yjw"; */
+"xpe-ia-Yjw.title" = "Terminal Read-only";
+
+/* Class = "NSMenuItem"; title = "Terminal Inspector"; ObjectID = "QwP-M5-fvh"; */
+"QwP-M5-fvh.title" = "Terminal Inspector";
+
+/* Class = "NSMenuItem"; title = "Command Palette"; ObjectID = "et6-de-Mh7"; */
+"et6-de-Mh7.title" = "Command Palette";
+
+/* Class = "NSMenuItem"; title = "Quick Terminal"; ObjectID = "1pv-LF-NBJ"; */
+"1pv-LF-NBJ.title" = "Quick Terminal";
+
+/* Class = "NSMenuItem"; title = "Toggle Full Screen"; ObjectID = "8kY-Pi-KaY"; */
+"8kY-Pi-KaY.title" = "Toggle Full Screen";
+
+/* Class = "NSMenuItem"; title = "Show/Hide All Terminals"; ObjectID = "DOX-wA-ilh"; */
+"DOX-wA-ilh.title" = "Show/Hide All Terminals";
+
+/* Class = "NSMenuItem"; title = "Window"; ObjectID = "aUF-d1-5bR"; */
+"aUF-d1-5bR.title" = "Window";
+
+/* Class = "NSMenu"; title = "Window"; ObjectID = "Td7-aD-5lo"; */
+"Td7-aD-5lo.title" = "Window";
+
+/* Class = "NSMenuItem"; title = "Minimize"; ObjectID = "OY7-WF-poV"; */
+"OY7-WF-poV.title" = "Minimize";
+
+/* Class = "NSMenuItem"; title = "Zoom"; ObjectID = "R4o-n2-Eq4"; */
+"R4o-n2-Eq4.title" = "Zoom";
+
+/* Class = "NSMenuItem"; title = "Return To Default Size"; ObjectID = "Gbx-Vi-OGC"; */
+"Gbx-Vi-OGC.title" = "Return to Default Size";
+
+/* Class = "NSMenuItem"; title = "Float on Top"; ObjectID = "uRj-7z-1Nh"; */
+"uRj-7z-1Nh.title" = "Float on Top";
+
+/* Class = "NSMenuItem"; title = "Bring All to Front"; ObjectID = "LE2-aR-0XJ"; */
+"LE2-aR-0XJ.title" = "Bring All to Front";
+
+/* Class = "NSMenuItem"; title = "Zoom Split"; ObjectID = "oPd-mn-IEH"; */
+"oPd-mn-IEH.title" = "Zoom Split";
+
+/* Class = "NSMenuItem"; title = "Equalize Splits"; ObjectID = "3gH-VD-vL9"; */
+"3gH-VD-vL9.title" = "Equalize Splits";
+
+/* Class = "NSMenuItem"; title = "Select Split"; ObjectID = "dos-9S-LXC"; */
+"dos-9S-LXC.title" = "Select Split";
+
+/* Class = "NSMenu"; title = "Select Split"; ObjectID = "8tg-60-ZSU"; */
+"8tg-60-ZSU.title" = "Select Split";
+
+/* Class = "NSMenuItem"; title = "Select Split Above"; ObjectID = "0yU-hC-8xF"; */
+"0yU-hC-8xF.title" = "Select Split Above";
+
+/* Class = "NSMenuItem"; title = "Select Split Below"; ObjectID = "QDz-d9-CBr"; */
+"QDz-d9-CBr.title" = "Select Split Below";
+
+/* Class = "NSMenuItem"; title = "Select Split Left"; ObjectID = "cTK-oy-KuV"; */
+"cTK-oy-KuV.title" = "Select Split Left";
+
+/* Class = "NSMenuItem"; title = "Select Split Right"; ObjectID = "upj-mc-L7X"; */
+"upj-mc-L7X.title" = "Select Split Right";
+
+/* Class = "NSMenuItem"; title = "Select Previous Split"; ObjectID = "Lic-px-1wg"; */
+"Lic-px-1wg.title" = "Select Previous Split";
+
+/* Class = "NSMenuItem"; title = "Select Next Split"; ObjectID = "bD7-ei-wKU"; */
+"bD7-ei-wKU.title" = "Select Next Split";
+
+/* Class = "NSMenuItem"; title = "Resize Split"; ObjectID = "BJO-3W-fkO"; */
+"BJO-3W-fkO.title" = "Resize Split";
+
+/* Class = "NSMenu"; title = "Resize Split"; ObjectID = "t7T-Ti-0im"; */
+"t7T-Ti-0im.title" = "Resize Split";
+
+/* Class = "NSMenuItem"; title = "Move Divider Up"; ObjectID = "h9Y-40-3oo"; */
+"h9Y-40-3oo.title" = "Move Divider Up";
+
+/* Class = "NSMenuItem"; title = "Move Divider Down"; ObjectID = "Zj7-2W-fdF"; */
+"Zj7-2W-fdF.title" = "Move Divider Down";
+
+/* Class = "NSMenuItem"; title = "Move Divider Left"; ObjectID = "wSR-ny-j1a"; */
+"wSR-ny-j1a.title" = "Move Divider Left";
+
+/* Class = "NSMenuItem"; title = "Move Divider Right"; ObjectID = "CcX-ql-QU4"; */
+"CcX-ql-QU4.title" = "Move Divider Right";
+
+/* Class = "NSMenuItem"; title = "Use as Default"; ObjectID = "TrB-O8-g8H"; */
+"TrB-O8-g8H.title" = "Use as Default";
+
+/* Class = "NSMenuItem"; title = "Reload Configuration"; ObjectID = "KKH-XX-5py"; */
+"KKH-XX-5py.title" = "Reload Configuration";
+
+/* Class = "NSMenuItem"; title = "Help"; ObjectID = "wpr-3q-Mcd"; */
+"wpr-3q-Mcd.title" = "Help";
+
+/* Class = "NSMenu"; title = "Help"; ObjectID = "F2S-fz-NVQ"; */
+"F2S-fz-NVQ.title" = "Help";
+
+/* Class = "NSMenuItem"; title = "Ghostty Help"; ObjectID = "FKE-Sm-Kum"; */
+"FKE-Sm-Kum.title" = "Ghostty Help";

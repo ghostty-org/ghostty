@@ -1,0 +1,248 @@
+/* Class = "NSMenu"; title = "Main Menu"; ObjectID = "AYu-sK-qS6"; */
+"AYu-sK-qS6.title" = "主菜单";
+
+/* Class = "NSMenuItem"; title = "Ghostty"; ObjectID = "1Xt-HY-uBw"; */
+"1Xt-HY-uBw.title" = "Ghostty";
+
+/* Class = "NSMenu"; title = "Ghostty"; ObjectID = "uQy-DD-JDr"; */
+"uQy-DD-JDr.title" = "Ghostty";
+
+/* Class = "NSMenuItem"; title = "About Ghostty"; ObjectID = "5kV-Vb-QxS"; */
+"5kV-Vb-QxS.title" = "关于 Ghostty";
+
+/* Class = "NSMenuItem"; title = "Check for Updates..."; ObjectID = "GEA-5y-yzH"; */
+"GEA-5y-yzH.title" = "检查更新\U2026";
+
+/* Class = "NSMenuItem"; title = "Preferences…"; ObjectID = "BOF-NM-1cW"; */
+"BOF-NM-1cW.title" = "偏好设置\U2026";
+
+/* Class = "NSMenuItem"; title = "Secure Keyboard Entry"; ObjectID = "oC6-w4-qI7"; */
+"oC6-w4-qI7.title" = "安全键盘输入";
+
+/* Class = "NSMenuItem"; title = "Make Ghostty the Default Terminal"; ObjectID = "b1t-oB-7MI"; */
+"b1t-oB-7MI.title" = "将 Ghostty 设为默认终端";
+
+/* Class = "NSMenu"; title = "Services"; ObjectID = "aQe-vS-j8Q"; */
+"aQe-vS-j8Q.title" = "服务";
+
+/* Class = "NSMenuItem"; title = "Services"; ObjectID = "rJe-5J-bwL"; */
+"rJe-5J-bwL.title" = "服务";
+
+/* Class = "NSMenuItem"; title = "Hide Ghostty"; ObjectID = "Olw-nP-bQN"; */
+"Olw-nP-bQN.title" = "隐藏 Ghostty";
+
+/* Class = "NSMenuItem"; title = "Hide Others"; ObjectID = "Vdr-fp-XzO"; */
+"Vdr-fp-XzO.title" = "隐藏其他";
+
+/* Class = "NSMenuItem"; title = "Show All"; ObjectID = "Kd2-mp-pUS"; */
+"Kd2-mp-pUS.title" = "全部显示";
+
+/* Class = "NSMenuItem"; title = "Quit Ghostty"; ObjectID = "4sb-4s-VLi"; */
+"4sb-4s-VLi.title" = "退出 Ghostty";
+
+/* Class = "NSMenuItem"; title = "File"; ObjectID = "dMs-cI-mzQ"; */
+"dMs-cI-mzQ.title" = "文件";
+
+/* Class = "NSMenu"; title = "File"; ObjectID = "bib-Uj-vzu"; */
+"bib-Uj-vzu.title" = "文件";
+
+/* Class = "NSMenuItem"; title = "New Window"; ObjectID = "Was-JA-tGl"; */
+"Was-JA-tGl.title" = "新建窗口";
+
+/* Class = "NSMenuItem"; title = "New Tab"; ObjectID = "uTG-Vz-hJU"; */
+"uTG-Vz-hJU.title" = "新建标签页";
+
+/* Class = "NSMenuItem"; title = "Split Right"; ObjectID = "VUR-Ld-nLx"; */
+"VUR-Ld-nLx.title" = "向右分屏";
+
+/* Class = "NSMenuItem"; title = "Split Left"; ObjectID = "Ppv-GP-lQU"; */
+"Ppv-GP-lQU.title" = "向左分屏";
+
+/* Class = "NSMenuItem"; title = "Split Down"; ObjectID = "UDZ-4y-6xL"; */
+"UDZ-4y-6xL.title" = "向下分屏";
+
+/* Class = "NSMenuItem"; title = "Split Up"; ObjectID = "Ggp-7N-GbX"; */
+"Ggp-7N-GbX.title" = "向上分屏";
+
+/* Class = "NSMenuItem"; title = "Close"; ObjectID = "DVo-aG-piG"; */
+"DVo-aG-piG.title" = "关闭";
+
+/* Class = "NSMenuItem"; title = "Close Tab"; ObjectID = "Obb-Mk-j8J"; */
+"Obb-Mk-j8J.title" = "关闭标签页";
+
+/* Class = "NSMenuItem"; title = "Close Window"; ObjectID = "W5w-UZ-crk"; */
+"W5w-UZ-crk.title" = "关闭窗口";
+
+/* Class = "NSMenuItem"; title = "Close All Windows"; ObjectID = "yKr-Vi-Yqw"; */
+"yKr-Vi-Yqw.title" = "关闭所有窗口";
+
+/* Class = "NSMenuItem"; title = "Edit"; ObjectID = "ZUG-Nx-Wkj"; */
+"ZUG-Nx-Wkj.title" = "编辑";
+
+/* Class = "NSMenu"; title = "Edit"; ObjectID = "iU4-OB-ccf"; */
+"iU4-OB-ccf.title" = "编辑";
+
+/* Class = "NSMenuItem"; title = "Undo"; ObjectID = "r83-CV-syt"; */
+"r83-CV-syt.title" = "撤销";
+
+/* Class = "NSMenuItem"; title = "Redo"; ObjectID = "EX8-lB-4s7"; */
+"EX8-lB-4s7.title" = "重做";
+
+/* Class = "NSMenuItem"; title = "Copy"; ObjectID = "Jqf-pv-Zcu"; */
+"Jqf-pv-Zcu.title" = "拷贝";
+
+/* Class = "NSMenuItem"; title = "Paste"; ObjectID = "i27-pK-umN"; */
+"i27-pK-umN.title" = "粘贴";
+
+/* Class = "NSMenuItem"; title = "Paste Selection"; ObjectID = "akq-ov-Jjh"; */
+"akq-ov-Jjh.title" = "粘贴所选内容";
+
+/* Class = "NSMenuItem"; title = "Select All"; ObjectID = "q2h-lq-e4r"; */
+"q2h-lq-e4r.title" = "全选";
+
+/* Class = "NSMenuItem"; title = "Find"; ObjectID = "cE3-Bt-FcH"; */
+"cE3-Bt-FcH.title" = "查找";
+
+/* Class = "NSMenu"; title = "Find"; ObjectID = "vPo-Sd-cTP"; */
+"vPo-Sd-cTP.title" = "查找";
+
+/* Class = "NSMenuItem"; title = "Find..."; ObjectID = "nwE-0w-30h"; */
+"nwE-0w-30h.title" = "查找\U2026";
+
+/* Class = "NSMenuItem"; title = "Find Next"; ObjectID = "XqU-X8-q32"; */
+"XqU-X8-q32.title" = "查找下一个";
+
+/* Class = "NSMenuItem"; title = "Find Previous"; ObjectID = "1hd-2Z-wVm"; */
+"1hd-2Z-wVm.title" = "查找上一个";
+
+/* Class = "NSMenuItem"; title = "Hide Find Bar"; ObjectID = "xzC-AG-HAc"; */
+"xzC-AG-HAc.title" = "隐藏搜索栏";
+
+/* Class = "NSMenuItem"; title = "Use Selection for Find"; ObjectID = "TDN-42-Bu7"; */
+"TDN-42-Bu7.title" = "用所选内容搜索";
+
+/* Class = "NSMenuItem"; title = "Jump to Selection"; ObjectID = "1rN-4k-Dz3"; */
+"1rN-4k-Dz3.title" = "跳转到所选内容";
+
+/* Class = "NSMenuItem"; title = "View"; ObjectID = "3L3-2p-Joi"; */
+"3L3-2p-Joi.title" = "显示";
+
+/* Class = "NSMenu"; title = "View"; ObjectID = "m6z-2H-VW7"; */
+"m6z-2H-VW7.title" = "显示";
+
+/* Class = "NSMenuItem"; title = "Increase Font Size"; ObjectID = "CIH-ey-Z6x"; */
+"CIH-ey-Z6x.title" = "放大字体";
+
+/* Class = "NSMenuItem"; title = "Decrease Font Size"; ObjectID = "kzb-SZ-dOA"; */
+"kzb-SZ-dOA.title" = "缩小字体";
+
+/* Class = "NSMenuItem"; title = "Reset Font Size"; ObjectID = "Jah-MY-aLX"; */
+"Jah-MY-aLX.title" = "还原字体大小";
+
+/* Class = "NSMenuItem"; title = "Change Tab Title..."; ObjectID = "iac-lh-Cl7"; */
+"iac-lh-Cl7.title" = "更改标签页标题\U2026";
+
+/* Class = "NSMenuItem"; title = "Change Terminal Title..."; ObjectID = "24I-xg-qIq"; */
+"24I-xg-qIq.title" = "更改终端标题\U2026";
+
+/* Class = "NSMenuItem"; title = "Terminal Read-only"; ObjectID = "xpe-ia-Yjw"; */
+"xpe-ia-Yjw.title" = "终端只读模式";
+
+/* Class = "NSMenuItem"; title = "Terminal Inspector"; ObjectID = "QwP-M5-fvh"; */
+"QwP-M5-fvh.title" = "终端调试器";
+
+/* Class = "NSMenuItem"; title = "Command Palette"; ObjectID = "et6-de-Mh7"; */
+"et6-de-Mh7.title" = "命令面板";
+
+/* Class = "NSMenuItem"; title = "Quick Terminal"; ObjectID = "1pv-LF-NBJ"; */
+"1pv-LF-NBJ.title" = "快捷终端";
+
+/* Class = "NSMenuItem"; title = "Toggle Full Screen"; ObjectID = "8kY-Pi-KaY"; */
+"8kY-Pi-KaY.title" = "进入/退出全屏";
+
+/* Class = "NSMenuItem"; title = "Show/Hide All Terminals"; ObjectID = "DOX-wA-ilh"; */
+"DOX-wA-ilh.title" = "显示/隐藏所有终端";
+
+/* Class = "NSMenuItem"; title = "Window"; ObjectID = "aUF-d1-5bR"; */
+"aUF-d1-5bR.title" = "窗口";
+
+/* Class = "NSMenu"; title = "Window"; ObjectID = "Td7-aD-5lo"; */
+"Td7-aD-5lo.title" = "窗口";
+
+/* Class = "NSMenuItem"; title = "Minimize"; ObjectID = "OY7-WF-poV"; */
+"OY7-WF-poV.title" = "最小化";
+
+/* Class = "NSMenuItem"; title = "Zoom"; ObjectID = "R4o-n2-Eq4"; */
+"R4o-n2-Eq4.title" = "缩放";
+
+/* Class = "NSMenuItem"; title = "Return To Default Size"; ObjectID = "Gbx-Vi-OGC"; */
+"Gbx-Vi-OGC.title" = "恢复默认窗口大小";
+
+/* Class = "NSMenuItem"; title = "Float on Top"; ObjectID = "uRj-7z-1Nh"; */
+"uRj-7z-1Nh.title" = "悬浮置顶";
+
+/* Class = "NSMenuItem"; title = "Bring All to Front"; ObjectID = "LE2-aR-0XJ"; */
+"LE2-aR-0XJ.title" = "前置所有窗口";
+
+/* Class = "NSMenuItem"; title = "Zoom Split"; ObjectID = "oPd-mn-IEH"; */
+"oPd-mn-IEH.title" = "缩放分屏";
+
+/* Class = "NSMenuItem"; title = "Equalize Splits"; ObjectID = "3gH-VD-vL9"; */
+"3gH-VD-vL9.title" = "均分分屏";
+
+/* Class = "NSMenuItem"; title = "Select Split"; ObjectID = "dos-9S-LXC"; */
+"dos-9S-LXC.title" = "选择分屏";
+
+/* Class = "NSMenu"; title = "Select Split"; ObjectID = "8tg-60-ZSU"; */
+"8tg-60-ZSU.title" = "选择分屏";
+
+/* Class = "NSMenuItem"; title = "Select Split Above"; ObjectID = "0yU-hC-8xF"; */
+"0yU-hC-8xF.title" = "选择上方分屏";
+
+/* Class = "NSMenuItem"; title = "Select Split Below"; ObjectID = "QDz-d9-CBr"; */
+"QDz-d9-CBr.title" = "选择下方分屏";
+
+/* Class = "NSMenuItem"; title = "Select Split Left"; ObjectID = "cTK-oy-KuV"; */
+"cTK-oy-KuV.title" = "选择左侧分屏";
+
+/* Class = "NSMenuItem"; title = "Select Split Right"; ObjectID = "upj-mc-L7X"; */
+"upj-mc-L7X.title" = "选择右侧分屏";
+
+/* Class = "NSMenuItem"; title = "Select Previous Split"; ObjectID = "Lic-px-1wg"; */
+"Lic-px-1wg.title" = "上一个分屏";
+
+/* Class = "NSMenuItem"; title = "Select Next Split"; ObjectID = "bD7-ei-wKU"; */
+"bD7-ei-wKU.title" = "下一个分屏";
+
+/* Class = "NSMenuItem"; title = "Resize Split"; ObjectID = "BJO-3W-fkO"; */
+"BJO-3W-fkO.title" = "调整分屏大小";
+
+/* Class = "NSMenu"; title = "Resize Split"; ObjectID = "t7T-Ti-0im"; */
+"t7T-Ti-0im.title" = "调整分屏大小";
+
+/* Class = "NSMenuItem"; title = "Move Divider Up"; ObjectID = "h9Y-40-3oo"; */
+"h9Y-40-3oo.title" = "向上移动分割线";
+
+/* Class = "NSMenuItem"; title = "Move Divider Down"; ObjectID = "Zj7-2W-fdF"; */
+"Zj7-2W-fdF.title" = "向下移动分割线";
+
+/* Class = "NSMenuItem"; title = "Move Divider Left"; ObjectID = "wSR-ny-j1a"; */
+"wSR-ny-j1a.title" = "向左移动分割线";
+
+/* Class = "NSMenuItem"; title = "Move Divider Right"; ObjectID = "CcX-ql-QU4"; */
+"CcX-ql-QU4.title" = "向右移动分割线";
+
+/* Class = "NSMenuItem"; title = "Use as Default"; ObjectID = "TrB-O8-g8H"; */
+"TrB-O8-g8H.title" = "设为默认终端";
+
+/* Class = "NSMenuItem"; title = "Reload Configuration"; ObjectID = "KKH-XX-5py"; */
+"KKH-XX-5py.title" = "重新加载配置";
+
+/* Class = "NSMenuItem"; title = "Help"; ObjectID = "wpr-3q-Mcd"; */
+"wpr-3q-Mcd.title" = "帮助";
+
+/* Class = "NSMenu"; title = "Help"; ObjectID = "F2S-fz-NVQ"; */
+"F2S-fz-NVQ.title" = "帮助";
+
+/* Class = "NSMenuItem"; title = "Ghostty Help"; ObjectID = "FKE-Sm-Kum"; */
+"FKE-Sm-Kum.title" = "Ghostty 帮助";
