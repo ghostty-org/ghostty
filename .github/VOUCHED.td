@@ -26,6 +26,7 @@ adrum
 aindriu80
 alanmoyano
 alexfeijoo44
+alexjuca
 amadeus
 andrejdaskalov
 atomk
