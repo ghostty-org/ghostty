@@ -1,9 +1,19 @@
 # AFL++ Fuzzer for Libghostty
 
-This directory contains an [AFL++](https://aflplus.plus/) fuzzing harness for
-libghostty-vt (Zig module). At the time of writing this README, it only
-fuzzes the VT parser, but it can be extended to cover other components of
-libghostty as well.
+This directory contains [AFL++](https://aflplus.plus/) fuzzing harnesses for
+libghostty-vt (Zig module).
+
+## Fuzz Targets
+
+| Target   | Binary        | Description                                             |
+| -------- | ------------- | ------------------------------------------------------- |
+| `parser` | `fuzz-parser` | VT parser only (`Parser.next` byte-at-a-time)           |
+| `stream` | `fuzz-stream` | Full terminal stream (`nextSlice` + `next` via handler) |
+
+The stream target creates a small `Terminal` and exercises the readonly
+`Stream` handler, covering printing, CSI dispatch, OSC, DCS, SGR, cursor
+movement, scrolling regions, and more. The first byte of each input selects
+between the slice path (SIMD fast-path) and the scalar path.
 
 ## Prerequisites
 
@@ -21,27 +31,24 @@ From this directory (`test/fuzz-libghostty`):
 zig build
 ```
 
-This compiles a Zig static library (with the fuzz harness in `src/lib.zig`),
-emits LLVM bitcode, then links it with `src/main.c` using `afl-cc` to produce
-the instrumented binary at `zig-out/bin/ghostty-fuzz`.
+This compiles Zig static libraries for each fuzz target, emits LLVM bitcode,
+then links each with `afl.c` using `afl-cc` to produce instrumented binaries
+at `zig-out/bin/fuzz-parser` and `zig-out/bin/fuzz-stream`.
 
 ## Running the Fuzzer
 
-The build system has a convenience step that invokes `afl-fuzz` with the
-correct arguments:
+Each target has its own run step:
 
 ```sh
-zig build run
+zig build run-parser    # Run the VT parser fuzzer
+zig build run-stream    # Run the VT stream fuzzer
 ```
 
-This is equivalent to:
+Or invoke `afl-fuzz` directly:
 
 ```sh
-afl-fuzz -i corpus/initial -o afl-out -- zig-out/bin/ghostty-fuzz @@
+afl-fuzz -i corpus/stream-initial -o afl-out/stream -- zig-out/bin/fuzz-stream @@
 ```
-
-You may want to run `afl-fuzz` directly with different options
-for your own experimentation.
 
 The fuzzer runs indefinitely. Let it run for as long as you like; meaningful
 coverage is usually reached within a few hours, but longer runs can find
@@ -49,15 +56,13 @@ deeper bugs. Press `ctrl+c` to stop the fuzzer when you're done.
 
 ## Finding Crashes and Hangs
 
-After (or during) a run, results are written to `afl-out/default/`:
+After (or during) a run, results are written to `afl-out/<target>/default/`:
 
 ```
-
-afl-out/default/
+afl-out/stream/default/
 ├── crashes/ # Inputs that triggered crashes
-├── hangs/ # Inputs that triggered hangs/timeouts
-└── queue/ # All interesting inputs (the evolved corpus)
-
+├── hangs/   # Inputs that triggered hangs/timeouts
+└── queue/   # All interesting inputs (the evolved corpus)
 ```
 
 Each file in `crashes/` or `hangs/` is a raw byte file that triggered the
@@ -69,12 +74,12 @@ issue. The filename encodes metadata about how it was found (e.g.
 Replay any crashing input by piping it into the harness:
 
 ```sh
-cat afl-out/default/crashes/<filename> | zig-out/bin/ghostty-fuzz
+cat afl-out/stream/default/crashes/<filename> | zig-out/bin/fuzz-stream
 ```
 
 ## Corpus Management
 
-After a fuzzing run, the queue in `afl-out/default/queue/` typically
+After a fuzzing run, the queue in `afl-out/<target>/default/queue/` typically
 contains many redundant inputs. Use `afl-cmin` to find the smallest
 subset that preserves full edge coverage, and `afl-tmin` to shrink
 individual test cases.
@@ -90,38 +95,19 @@ Reduce the evolved queue to a minimal set covering all discovered edges:
 
 ```sh
 AFL_NO_FORKSRV=1 afl-cmin.bash \
-  -i afl-out/default/queue \
-  -o corpus/vt-parser-cmin \
-  -- zig-out/bin/ghostty-fuzz
+  -i afl-out/stream/default/queue \
+  -o corpus/stream-cmin \
+  -- zig-out/bin/fuzz-stream
 ```
 
 `AFL_NO_FORKSRV=1` is required because the Python `afl-cmin` wrapper has
 a bug in AFL++ 4.35c. Use the `afl-cmin.bash` script instead (typically
 found in AFL++'s `libexec` directory).
 
-### Test case minimization (`afl-tmin`)
-
-Shrink each file in the minimized corpus to the smallest input that
-preserves its unique coverage:
-
-```sh
-mkdir -p corpus/vt-parser-min
-for f in corpus/vt-parser-cmin/*; do
-  AFL_NO_FORKSRV=1 afl-tmin \
-    -i "$f" \
-    -o "corpus/vt-parser-min/$(basename "$f")" \
-    -- zig-out/bin/ghostty-fuzz
-done
-```
-
-This is slow (hundreds of executions per file) but produces the most
-compact corpus. It can be skipped if you only need edge-level
-deduplication from `afl-cmin`.
-
 ### Windows compatibility
 
 AFL++ output filenames contain colons (e.g., `id:000024,time:0,...`), which
-are invalid on Windows (NTFS). After running `afl-cmin` or `afl-tmin`,
+are invalid on Windows (NTFS). After running `afl-cmin`,
 rename the output files to replace colons with underscores before committing:
 
 ```sh
@@ -132,6 +118,7 @@ rename the output files to replace colons with underscores before committing:
 
 | Directory                | Contents                                        |
 | ------------------------ | ----------------------------------------------- |
-| `corpus/initial/`        | Hand-written seed inputs for `afl-fuzz -i`      |
-| `corpus/vt-parser-cmin/` | Output of `afl-cmin` (edge-deduplicated corpus) |
-| `corpus/vt-parser-min/`  | Output of `afl-tmin` (individually minimized)   |
+| `corpus/parser-initial/` | Hand-written seed inputs for vt-parser          |
+| `corpus/parser-cmin/`    | Output of `afl-cmin` (edge-deduplicated corpus) |
+| `corpus/stream-initial/` | Hand-written seed inputs for vt-stream          |
+| `corpus/stream-cmin/`    | Output of `afl-cmin` (edge-deduplicated corpus) |

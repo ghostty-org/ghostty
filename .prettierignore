@@ -19,3 +19,7 @@ website/.next
 
 # shaders
 *.frag
+
+# fuzz corpus files
+test/fuzz-libghostty/corpus/
+test/fuzz-libghostty/afl-out/

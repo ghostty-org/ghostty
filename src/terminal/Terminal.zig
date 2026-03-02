@@ -2166,6 +2166,12 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
     // xterm does.
     self.screens.active.cursor.pending_wrap = false;
 
+    // If we're given a zero then we do nothing. The rest of this function
+    // assumes count > 0 and will crash if zero so return early. Note that
+    // this shouldn't be possible with real CSI sequences because the value
+    // is clamped to 1 min.
+    if (count == 0) return;
+
     // If our cursor is outside the margins then do nothing. We DO reset
     // wrap state still so this must remain below the above logic.
     if (self.screens.active.cursor.x < self.scrolling_region.left or
@@ -9406,6 +9412,25 @@ test "Terminal: DECALN resets graphemes with protected mode" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("EEE\nEEE\nEEE", str);
+    }
+}
+
+test "Terminal: insertBlanks zero" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 5, .rows = 2 });
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    try t.print('B');
+    try t.print('C');
+    t.setCursorPos(1, 1);
+
+    t.insertBlanks(0);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC", str);
     }
 }
 

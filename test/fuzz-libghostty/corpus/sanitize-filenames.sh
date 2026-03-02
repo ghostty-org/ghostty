@@ -3,14 +3,14 @@
 # Colons are invalid on Windows (NTFS).
 #
 # Usage: ./sanitize-filenames.sh [directory ...]
-# Defaults to vt-parser-cmin and vt-parser-min in the same directory as this script.
+# Defaults to parser-cmin and parser-min in the same directory as this script.
 
 cd "$(dirname "$0")" || exit 1
 
 if [ $# -gt 0 ]; then
   set -- "$@"
 else
-  set -- vt-parser-cmin vt-parser-min
+  set -- parser-cmin stream-cmin
 fi
 
 for dir in "$@"; do

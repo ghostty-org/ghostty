@@ -1,59 +1,72 @@
 const std = @import("std");
 const afl = @import("afl");
 
+/// Possible fuzz targets. Each fuzz target is implemented in
+/// src/fuzz_<name>.zig and has an initial corpus in corpus/<name>-initial.
+const Fuzzer = struct {
+    name: []const u8,
+
+    pub fn source(comptime self: Fuzzer) []const u8 {
+        return "src/fuzz_" ++ self.name ++ ".zig";
+    }
+
+    pub fn corpus(comptime self: Fuzzer) []const u8 {
+        // Change this suffix to use cmin vs initial corpus
+        return "corpus/" ++ self.name ++ "-cmin";
+    }
+};
+
+const fuzzers: []const Fuzzer = &.{
+    .{ .name = "parser" },
+    .{ .name = "stream" },
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const run_step = b.step("run", "Run the fuzzer with afl-fuzz");
 
-    // Create the C ABI library from Zig source that exports the
-    // API that the `afl-cc` main.c entrypoint can call into. This
-    // lets us just use standard `afl-cc` to fuzz test our library without
-    // needing to write any Zig-specific fuzzing harnesses.
-    const lib = lib: {
-        // Zig module
+    const ghostty_dep = b.lazyDependency("ghostty", .{
+        .simd = false,
+    });
+
+    inline for (fuzzers) |fuzzer| {
+        const run_step = b.step(
+            b.fmt("run-{s}", .{fuzzer.name}),
+            b.fmt("Run {s} with afl-fuzz", .{fuzzer.name}),
+        );
+
         const lib_mod = b.createModule(.{
-            .root_source_file = b.path("src/lib.zig"),
+            .root_source_file = b.path(fuzzer.source()),
             .target = target,
             .optimize = optimize,
         });
-        if (b.lazyDependency("ghostty", .{
-            .simd = false,
-        })) |dep| {
+        if (ghostty_dep) |dep| {
             lib_mod.addImport(
                 "ghostty-vt",
                 dep.module("ghostty-vt"),
             );
         }
 
-        // C lib
         const lib = b.addLibrary(.{
-            .name = "ghostty-fuzz",
+            .name = fuzzer.name,
             .root_module = lib_mod,
         });
-
-        // Required to build properly with afl-cc
         lib.root_module.stack_check = false;
         lib.root_module.fuzz = true;
 
-        break :lib lib;
-    };
+        const exe = afl.addInstrumentedExe(b, lib);
+        const run = afl.addFuzzerRun(
+            b,
+            exe,
+            b.path(fuzzer.corpus()),
+            b.path(b.fmt("afl-out/{s}", .{fuzzer.name})),
+        );
+        run_step.dependOn(&run.step);
 
-    // Build a C entrypoint with afl-cc that links against the generated
-    // static Zig library. afl-cc is expected to be on the PATH.
-    const exe = afl.addInstrumentedExe(b, lib);
-
-    // Runner to simplify running afl-fuzz.
-    // Use the cmin corpus (edge-deduplicated from prior runs) so that each
-    // fuzzing session starts from full coverage. Switch to "corpus/initial"
-    // if you don't have a cmin corpus yet.
-    const run = afl.addFuzzerRun(b, exe, b.path("corpus/vt-parser-cmin"), b.path("afl-out"));
-
-    // Install
-    b.installArtifact(lib);
-    const exe_install = b.addInstallBinFile(exe, "ghostty-fuzz");
-    b.getInstallStep().dependOn(&exe_install.step);
-
-    // Run
-    run_step.dependOn(&run.step);
+        const exe_install = b.addInstallBinFile(
+            exe,
+            "fuzz-" ++ fuzzer.name,
+        );
+        b.getInstallStep().dependOn(&exe_install.step);
+    }
 }
