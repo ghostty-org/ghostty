@@ -89,6 +89,15 @@ class BaseTerminalController: NSWindowController,
     /// Cancellable for aggregating bell state across all surfaces in this controller.
     private var bellStateCancellable: AnyCancellable?
 
+    /// Shared field editor for the search text field. Intercepts key
+    /// equivalents that match ghostty bindings (including performable ones)
+    /// and dispatches them directly to the surface.
+    private lazy var searchFieldEditor: GhosttySearchFieldEditor = {
+        let editor = GhosttySearchFieldEditor()
+        editor.isFieldEditor = true
+        return editor
+    }()
+
     /// An override title for the tab/window set by the user via prompt_tab_title.
     /// When set, this takes precedence over the computed title from the terminal.
     var titleOverride: String? {
@@ -1273,6 +1282,15 @@ class BaseTerminalController: NSWindowController,
         return appDelegate.undoManager
     }
 
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        if let textField = client as? NSTextField,
+           textField.accessibilityIdentifier() == Ghostty.searchFieldIdentifier {
+            searchFieldEditor.surfaceView = focusedSurface
+            return searchFieldEditor
+        }
+        return nil
+    }
+
     // MARK: First Responder
 
     @IBAction func close(_ sender: Any) {
@@ -1415,7 +1433,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func findPrevious(_ sender: Any) {
-        focusedSurface?.findNext(sender)
+        focusedSurface?.findPrevious(sender)
     }
 
     @IBAction func findHide(_ sender: Any) {

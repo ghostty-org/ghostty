@@ -1604,11 +1604,19 @@ extension Ghostty {
         }
 
         @IBAction func findNext(_ sender: Any?) {
-            _ = self.navigateSearchToNext()
+            guard let surface = self.surface else { return }
+            let action = "navigate_search:next"
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
         }
 
         @IBAction func findPrevious(_ sender: Any?) {
-            _ = navigateSearchToPrevious()
+            guard let surface = self.surface else { return }
+            let action = "navigate_search:previous"
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
         }
 
         @IBAction func findHide(_ sender: Any?) {
