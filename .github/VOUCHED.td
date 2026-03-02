@@ -72,6 +72,7 @@ icodesign
 jacobsandlund
 jake-stewart
 jcollie
+jguthmiller
 johnslavik
 josephmart
 jparise
