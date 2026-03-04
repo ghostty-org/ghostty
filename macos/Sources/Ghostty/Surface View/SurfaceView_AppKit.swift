@@ -240,8 +240,15 @@ extension Ghostty {
         private var titleFromTerminal: String?
 
         // The cached contents of the screen.
-        private(set) var cachedScreenContents: CachedValue<String>
-        private(set) var cachedVisibleContents: CachedValue<String>
+        /// Full screen text, derived from the cached accessibility context.
+        var screenContents: String { cachedScreenTextInfo.get().text }
+
+        /// Visible viewport text, extracted from the cached accessibility context.
+        var visibleContents: String {
+            let info = cachedScreenTextInfo.get()
+            guard let range = Range(info.viewportRange, in: info.text) else { return "" }
+            return String(info.text[range])
+        }
 
         /// Wraps the opaque Zig accessibility context pointer so ARC
         /// automatically frees it when the owning ScreenTextInfo is
@@ -312,8 +319,6 @@ extension Ghostty {
             // We need to initialize this so it does something but we want to set
             // it back up later so we can reference `self`. This is a hack we should
             // fix at some point.
-            self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
-            self.cachedVisibleContents = self.cachedScreenContents
             self.cachedScreenTextInfo = .init(duration: .milliseconds(500)) {
                 ScreenTextInfo.empty
             }
@@ -323,49 +328,7 @@ extension Ghostty {
             // can do SOMETHING.
             super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-            // Our cache of screen data
-            cachedScreenContents = .init(duration: .milliseconds(500)) { [weak self] in
-                guard let self else { return "" }
-                guard let surface = self.surface else { return "" }
-                var text = ghostty_text_s()
-                let sel = ghostty_selection_s(
-                    top_left: ghostty_point_s(
-                        tag: GHOSTTY_POINT_SCREEN,
-                        coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                        x: 0,
-                        y: 0),
-                    bottom_right: ghostty_point_s(
-                        tag: GHOSTTY_POINT_SCREEN,
-                        coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                        x: 0,
-                        y: 0),
-                    rectangle: false)
-                guard ghostty_surface_read_text(surface, sel, &text) else { return "" }
-                defer { ghostty_surface_free_text(surface, &text) }
-                return String(cString: text.text)
-            }
-            cachedVisibleContents = .init(duration: .milliseconds(500)) { [weak self] in
-                guard let self else { return "" }
-                guard let surface = self.surface else { return "" }
-                var text = ghostty_text_s()
-                let sel = ghostty_selection_s(
-                    top_left: ghostty_point_s(
-                        tag: GHOSTTY_POINT_VIEWPORT,
-                        coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                        x: 0,
-                        y: 0),
-                    bottom_right: ghostty_point_s(
-                        tag: GHOSTTY_POINT_VIEWPORT,
-                        coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                        x: 0,
-                        y: 0),
-                    rectangle: false)
-                guard ghostty_surface_read_text(surface, sel, &text) else { return "" }
-                defer { ghostty_surface_free_text(surface, &text) }
-                return String(cString: text.text)
-            }
-
-            // Cache for screen text with viewport range, used by accessibility.
+            // Cache for screen text with viewport range and pre-computed grid mappings.
             // Creates a Zig accessibility context that pre-computes all grid
             // mappings; subsequent bounds/offset/cursor queries use this context
             // for O(1) lookups instead of rebuilding the PinMap each time.
