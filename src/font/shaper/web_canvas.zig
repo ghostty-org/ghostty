@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const itijah = @import("itijah");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
 const unicode = @import("../../unicode/main.zig");
@@ -36,6 +37,9 @@ pub const Shaper = struct {
     /// The shared memory used for storing information about a run.
     run_buf: RunBuf,
 
+    /// Scratch reused for terminal bidi layout resolution.
+    bidi_layout_scratch: itijah.VisualLayoutScratch = .{},
+
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.
     pub fn init(alloc: Allocator, opts: font.shape.Options) !Shaper {
@@ -50,6 +54,7 @@ pub const Shaper = struct {
 
     pub fn deinit(self: *Shaper) void {
         self.run_buf.deinit(self.alloc);
+        self.bidi_layout_scratch.deinit(self.alloc);
         self.* = undefined;
     }
 
@@ -224,6 +229,10 @@ pub const Shaper = struct {
 
         pub fn finalize(self: RunIteratorHook) !void {
             _ = self;
+        }
+
+        pub fn bidiLayoutScratch(self: RunIteratorHook) *itijah.VisualLayoutScratch {
+            return &self.shaper.bidi_layout_scratch;
         }
     };
 };

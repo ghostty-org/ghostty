@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const harfbuzz = @import("harfbuzz");
+const itijah = @import("itijah");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
 const unicode = @import("../../unicode/main.zig");
@@ -37,6 +38,9 @@ pub const Shaper = struct {
     /// these separately because after shaping, HarfBuzz replaces codepoints
     /// with glyph indices in the buffer.
     codepoints: std.ArrayListUnmanaged(Codepoint) = .{},
+
+    /// Scratch reused for terminal bidi layout resolution.
+    bidi_layout_scratch: itijah.VisualLayoutScratch = .{},
 
     const Codepoint = struct {
         cluster: u32,
@@ -97,6 +101,7 @@ pub const Shaper = struct {
         self.cell_buf.deinit(self.alloc);
         self.alloc.free(self.hb_feats);
         self.codepoints.deinit(self.alloc);
+        self.bidi_layout_scratch.deinit(self.alloc);
     }
 
     pub fn endFrame(self: *const Shaper) void {
@@ -307,6 +312,10 @@ pub const Shaper = struct {
 
         pub fn finalize(self: RunIteratorHook) void {
             self.shaper.hb_buf.guessSegmentProperties();
+        }
+
+        pub fn bidiLayoutScratch(self: RunIteratorHook) *itijah.VisualLayoutScratch {
+            return &self.shaper.bidi_layout_scratch;
         }
     };
 

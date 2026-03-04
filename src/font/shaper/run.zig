@@ -89,10 +89,14 @@ pub const RunIterator = struct {
             bidi_codepoints[i] = bidiCodepoint(cell);
         }
 
-        var layout = try itijah.resolveVisualLayout(alloc, bidi_codepoints, .{
-            .base_dir = .ltr,
-        });
-        defer layout.deinit();
+        const layout = try itijah.resolveVisualLayoutScratch(
+            alloc,
+            self.hooks.bidiLayoutScratch(),
+            bidi_codepoints,
+            .{
+                .base_dir = .ltr,
+            },
+        );
         const visual_runs = layout.runs;
         if (visual_runs.len == 0) return null;
 
