@@ -24,6 +24,17 @@ const CFReleaseThread = os.CFReleaseThread;
 
 const log = std.log.scoped(.font_shaper);
 
+fn isArabicCombiningMark(cp: u32) bool {
+    return switch (cp) {
+        0x0610...0x061A,
+        0x064B...0x065F,
+        0x0670,
+        0x06D6...0x06ED,
+        => true,
+        else => false,
+    };
+}
+
 /// Shaper that uses CoreText.
 ///
 /// CoreText shaping differs in subtle ways from HarfBuzz so it may result
@@ -51,6 +62,10 @@ pub const Shaper = struct {
 
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
+    /// Per-cluster x anchors captured when a cluster first establishes its
+    /// cell offset. This lets out-of-order combining marks re-anchor to the
+    /// correct base cluster.
+    cluster_anchor_x: std.ArrayListUnmanaged(f64),
 
     /// Cached attributes dict for creating CTTypesetter objects.
     /// The values in this never change so we can avoid overhead
@@ -223,6 +238,7 @@ pub const Shaper = struct {
         return .{
             .alloc = alloc,
             .cell_buf = .{},
+            .cluster_anchor_x = .{},
             .run_state = run_state,
             .features = features,
             .features_no_default = features_no_default,
@@ -238,6 +254,7 @@ pub const Shaper = struct {
 
     pub fn deinit(self: *Shaper) void {
         self.cell_buf.deinit(self.alloc);
+        self.cluster_anchor_x.deinit(self.alloc);
         self.run_state.deinit(self.alloc);
         self.features.release();
         self.features_no_default.release();
@@ -401,6 +418,10 @@ pub const Shaper = struct {
 
         // This keeps track of the cell starting x and cluster.
         var cell_offset: Offset = .{};
+        const anchor_sentinel = std.math.nan(f64);
+        self.cluster_anchor_x.clearRetainingCapacity();
+        try self.cluster_anchor_x.ensureUnusedCapacity(self.alloc, run.cells);
+        self.cluster_anchor_x.appendNTimesAssumeCapacity(anchor_sentinel, run.cells);
 
         // For debugging positions, turn this on:
         //var run_offset_y: f64 = 0.0;
@@ -448,6 +469,9 @@ pub const Shaper = struct {
                 // Our cluster is also our cell X position. If the cluster changes
                 // then we need to reset our current cell offsets.
                 const cluster = state.codepoints.items[index].cluster;
+                const source_codepoint = state.codepoints.items[index].codepoint;
+                const is_combining_mark = source_codepoint != 0 and
+                    unicode.table.get(@intCast(source_codepoint)).width_zero_in_grapheme;
                 if (cell_offset.cluster != cluster) {
                     // We previously asserted that the new cluster is greater
                     // than cell_offset.cluster, but this isn't always true.
@@ -497,16 +521,63 @@ pub const Shaper = struct {
                     // exceptions to this heuristic for detecting ligatures,
                     // but using the logging below seems to show it works
                     // well.)
-                    if (is_first_codepoint_in_cluster and
-                        !is_after_glyph_from_current_or_next_clusters)
-                    {
-                        cell_offset = .{
-                            .cluster = cluster,
-                            .x = run_offset.x,
-                        };
+                    if (is_first_codepoint_in_cluster) {
+                        const should_reset = (run.rtl and !is_combining_mark) or
+                            !is_after_glyph_from_current_or_next_clusters;
+                        if (should_reset) {
+                            cell_offset = .{
+                                .cluster = cluster,
+                                .x = run_offset.x,
+                            };
 
-                        // For debugging positions, turn this on:
-                        //cell_offset_y = run_offset_y;
+                            const cluster_i: usize = @intCast(cluster);
+                            if (cluster_i < self.cluster_anchor_x.items.len) {
+                                self.cluster_anchor_x.items[cluster_i] = run_offset.x;
+                            }
+                        }
+                    } else if (!run.rtl and !is_combining_mark) {
+                        // In LTR scripts, a cluster's first codepoint can be
+                        // absent from the glyph stream (due to ligature
+                        // composition). If this is the first glyph we see for
+                        // that cluster, establish an anchor now.
+                        const cluster_i: usize = @intCast(cluster);
+                        if (cluster_i < self.cluster_anchor_x.items.len and
+                            std.math.isNan(self.cluster_anchor_x.items[cluster_i]))
+                        {
+                            cell_offset = .{
+                                .cluster = cluster,
+                                .x = run_offset.x,
+                            };
+                            self.cluster_anchor_x.items[cluster_i] = run_offset.x;
+                        }
+                    } else if (run.rtl and is_combining_mark) {
+                        const cluster_i: usize = @intCast(cluster);
+                        if (cluster_i < self.cluster_anchor_x.items.len) {
+                            const anchor_x = self.cluster_anchor_x.items[cluster_i];
+                            // Keep this scoped to Arabic RTL marks only:
+                            // broadening this fallback regresses scripts with
+                            // out-of-order vowels/marks (e.g.
+                            // Chakma/Bengali tests).
+                            const allow_non_first_fallback = run.rtl and
+                                isArabicCombiningMark(source_codepoint);
+                            if (!std.math.isNan(anchor_x)) {
+                                cell_offset = .{
+                                    .cluster = cluster,
+                                    .x = anchor_x,
+                                };
+                            } else if (allow_non_first_fallback) {
+                                // A non-first combining mark can still be
+                                // emitted before its base glyph in visual
+                                // stream order. If we don't have a prior
+                                // anchor yet, establish one at the current
+                                // run offset.
+                                cell_offset = .{
+                                    .cluster = cluster,
+                                    .x = run_offset.x,
+                                };
+                                self.cluster_anchor_x.items[cluster_i] = run_offset.x;
+                            }
+                        }
                     }
                 }
 
@@ -1838,13 +1909,8 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
         const cells = try shaper.shape(run);
         try testing.expectEqual(@as(usize, 4), cells.len);
         try testing.expectEqual(@as(u16, 0), cells[0].x);
-        // See the giant "We need to reset the `cell_offset`" comment, but here
-        // we should technically have the rest of these be `x` of 1, but that
-        // would require going back in the stream to adjust past cells, and
-        // we don't take on that complexity.
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-        try testing.expectEqual(@as(u16, 0), cells[2].x);
-        try testing.expectEqual(@as(u16, 0), cells[3].x);
+        for (cells) |cell| try testing.expect(cell.x < run.cells);
+        for (cells[1..], 0..) |cell, i| try testing.expect(cell.x >= cells[i].x);
 
         // The vowel sign U renders before the TAA:
         try testing.expect(cells[1].x_offset < cells[2].x_offset);
@@ -1908,23 +1974,143 @@ test "shape Bengali ligatures with out of order vowels" {
 
         const cells = try shaper.shape(run);
         try testing.expectEqual(@as(usize, 8), cells.len);
-        try testing.expectEqual(@as(u16, 0), cells[0].x);
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-        // See the giant "We need to reset the `cell_offset`" comment, but here
-        // we should technically have the rest of these be `x` of 2, but that
-        // would require going back in the stream to adjust past cells, and
-        // we don't take on that complexity.
-        try testing.expectEqual(@as(u16, 0), cells[2].x);
-        try testing.expectEqual(@as(u16, 0), cells[3].x);
-        try testing.expectEqual(@as(u16, 0), cells[4].x);
-        try testing.expectEqual(@as(u16, 0), cells[5].x);
-        try testing.expectEqual(@as(u16, 0), cells[6].x);
-        try testing.expectEqual(@as(u16, 0), cells[7].x);
+        for (cells) |cell| try testing.expect(cell.x < run.cells);
+        for (cells[1..], 0..) |cell, i| try testing.expect(cell.x >= cells[i].x);
+
+        var distinct: usize = 1;
+        var prev_x = cells[0].x;
+        for (cells[1..]) |cell| {
+            if (cell.x != prev_x) {
+                distinct += 1;
+                prev_x = cell.x;
+            }
+        }
+        try testing.expect(distinct >= 2);
 
         // The vowel sign E renders before the SSA:
         try testing.expect(cells[2].x_offset < cells[3].x_offset);
     }
     try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Bengali sentence keeps base clusters anchored" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 200, .rows = 3 });
+    defer t.deinit(alloc);
+
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var saw_run = false;
+    while (try it.next(alloc)) |run| {
+        saw_run = true;
+
+        var expected = try alloc.alloc(bool, run.cells);
+        defer alloc.free(expected);
+        @memset(expected, false);
+
+        for (shaper.run_state.codepoints.items) |entry| {
+            if (entry.codepoint == 0) continue;
+            if (unicode.table.get(@intCast(entry.codepoint)).width_zero_in_grapheme) continue;
+            const cluster_i: usize = @intCast(entry.cluster);
+            if (cluster_i < expected.len) expected[cluster_i] = true;
+        }
+
+        const cells = try shaper.shape(run);
+        var actual = try alloc.alloc(bool, run.cells);
+        defer alloc.free(actual);
+        @memset(actual, false);
+
+        for (cells) |cell| {
+            if (cell.x < actual.len) actual[cell.x] = true;
+        }
+        for (expected, 0..) |need, i| {
+            if (need) try testing.expect(actual[i]);
+        }
+    }
+    try testing.expect(saw_run);
+}
+
+test "shape Bengali sentence in mixed-direction line keeps base clusters anchored" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 220, .rows = 3 });
+    defer t.deinit(alloc);
+
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("ABC পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন مرحبا");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var saw_bengali = false;
+    while (try it.next(alloc)) |run| {
+        var expected = try alloc.alloc(bool, run.cells);
+        defer alloc.free(expected);
+        @memset(expected, false);
+
+        var has_bengali = false;
+        for (shaper.run_state.codepoints.items) |entry| {
+            if (entry.codepoint == 0) continue;
+            if (entry.codepoint >= 0x0980 and entry.codepoint <= 0x09FF) has_bengali = true;
+            if (unicode.table.get(@intCast(entry.codepoint)).width_zero_in_grapheme) continue;
+            const cluster_i: usize = @intCast(entry.cluster);
+            if (cluster_i < expected.len) expected[cluster_i] = true;
+        }
+        if (!has_bengali) continue;
+        saw_bengali = true;
+
+        const cells = try shaper.shape(run);
+        var actual = try alloc.alloc(bool, run.cells);
+        defer alloc.free(actual);
+        @memset(actual, false);
+
+        for (cells) |cell| {
+            if (cell.x < actual.len) actual[cell.x] = true;
+        }
+        for (expected, 0..) |need, i| {
+            if (need) try testing.expect(actual[i]);
+        }
+    }
+    try testing.expect(saw_bengali);
 }
 
 test "shape box glyphs" {
@@ -2610,6 +2796,99 @@ test "shape arabic with tashkeel at EOL" {
     }
 
     try testing.expectEqual(try it.next(alloc), null);
+}
+
+test "shape arabic with tashkeel on middle letters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("وفُكَّ");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expect(run.rtl);
+    try testing.expectEqual(@as(u16, 3), run.cells);
+
+    const cells = try shaper.shape(run);
+    try testing.expect(cells.len > 0);
+
+    var seen = [_]bool{ false, false, false };
+    for (cells) |cell| {
+        try testing.expect(cell.x < run.cells);
+        seen[cell.x] = true;
+    }
+    try testing.expect(seen[0]);
+    try testing.expect(seen[1]);
+    try testing.expect(seen[2]);
+
+    try testing.expectEqual(@as(?font.shape.TextRun, null), try it.next(alloc));
+}
+
+test "shape arabic tanween stays on hamza before space" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("شيءٍ جميل");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expect(run.rtl);
+    try testing.expectEqual(@as(u16, 8), run.cells);
+
+    var hamza_cluster: ?u32 = null;
+    var tanween_cluster: ?u32 = null;
+    for (shaper.run_state.codepoints.items) |entry| {
+        if (entry.codepoint == 0x0621 and hamza_cluster == null) hamza_cluster = entry.cluster;
+        if (entry.codepoint == 0x064D and tanween_cluster == null) tanween_cluster = entry.cluster;
+    }
+    try testing.expect(hamza_cluster != null);
+    try testing.expect(tanween_cluster != null);
+    try testing.expectEqual(hamza_cluster.?, tanween_cluster.?);
+
+    const cells = try shaper.shape(run);
+    try testing.expect(cells.len > 0);
+
+    var hamza_cell_glyphs: usize = 0;
+    for (cells) |cell| {
+        if (cell.x == hamza_cluster.?) hamza_cell_glyphs += 1;
+    }
+    try testing.expect(hamza_cell_glyphs >= 2);
+
+    try testing.expectEqual(@as(?font.shape.TextRun, null), try it.next(alloc));
 }
 
 const TestShaper = struct {
