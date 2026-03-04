@@ -736,6 +736,9 @@ class BaseTerminalController: NSWindowController,
     @objc private func ghosttySurfaceDragEndedNoTarget(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
+        guard let position = notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint else {
+            return
+        }
 
         // If our tree isn't split, then we never create a new window, because
         // it is already a single split.
@@ -765,7 +768,7 @@ class BaseTerminalController: NSWindowController,
         _ = TerminalController.newWindow(
             ghostty,
             tree: newTree,
-            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
+            position: position,
             confirmUndo: false)
     }
 
