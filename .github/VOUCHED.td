@@ -43,6 +43,7 @@ brentschroeter
 cespare
 charliie-dev
 chernetskyi
+cmwetherell
 craziestowl
 curtismoncoq
 d-dudas
