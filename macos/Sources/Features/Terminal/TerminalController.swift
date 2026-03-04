@@ -208,11 +208,43 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    // The preferred parent terminal controller.
-    static var preferredParent: TerminalController? {
-        all.first {
-            $0.window?.isMainWindow ?? false
-        } ?? lastMain ?? all.last
+    // The preferred parent terminal controller for new window.
+    private static var preferredNewWindowParent: TerminalController? {
+        preferredParent(on: .main)
+    }
+
+    // The preferred parent terminal controller for new tab.
+    static var preferredNewTabParent: TerminalController? {
+        // We choose a proper window on the current screen first.
+        // If none is found, we use existing windows on another screen.
+        // This could be changed to match `preferredNewWindowParent`,
+        // but for now, we always use an existing window.
+        preferredParent(on: .main) ?? preferredParent(on: nil)
+    }
+
+    // The preferred parent terminal controller for new split.
+    static var preferredNewSplitParent: TerminalController? {
+        preferredNewTabParent
+    }
+
+    /// Preferred parent terminal controller on specified screen
+    private static func preferredParent(on screen: NSScreen?) -> TerminalController? {
+        guard let screen else {
+            return all.first {
+                $0.window?.isMainWindow ?? false
+            } ?? lastMain ?? all.last
+        }
+        return all.last {
+            // find last main window in the screen first
+            $0.window?.screen == screen && $0.window?.isMainWindow == true
+        } ?? all.last {
+            // if no main window was found(typically out of focus)
+            // then just find the last visible window in the screen
+            // AppKit will store closed window for a while,
+            // We want to keep the first visible window
+            // in the same spot
+            $0.window?.screen == screen && $0.window?.isVisible == true
+        }
     }
 
     // The last controller to be main. We use this when paired with "preferredParent"
@@ -221,7 +253,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // by something like an App Intent) then we prefer the most previous main.
     static private(set) weak var lastMain: TerminalController?
 
-    /// The "new window" action.
+    /// Creates and presents a new terminal window.
+    ///
+    /// The new window cascades from and inherits the style of the parent window.
+    /// If the parent window is fullscreen, the new window will also enter fullscreen.
+    /// If no parent is specified, the most recently focused window on the current screen is used.
+    ///
+    /// - Parameters:
+    ///   - ghostty: The Ghostty application instance used to configure the new window.
+    ///   - baseConfig: An optional surface configuration to apply to the new terminal surface.
+    ///     If `nil`, the default configuration is used.
+    ///   - explicitParent: The parent window from which the new window should cascade and inherit its style.
+    ///     If `nil`, the last main window on the current screen is used.
+    /// - Returns: The newly created `TerminalController` managing the new window.
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
@@ -231,7 +275,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
-        let parent: NSWindow? = explicitParent ?? preferredParent?.window
+        let parent: NSWindow? = explicitParent ?? preferredNewWindowParent?.window
 
         if let parent, parent.styleMask.contains(.fullScreen) {
             // If our previous window was fullscreen then we want our new window to
@@ -295,7 +339,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     _ = TerminalController.newWindow(
                         ghostty,
                         withBaseConfig: baseConfig,
-                        withParent: explicitParent)
+                        withParent: explicitParent,
+                    )
                 }
             }
         }
