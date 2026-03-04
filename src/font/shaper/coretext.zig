@@ -55,6 +55,8 @@ pub const Shaper = struct {
     /// The values in this never change so we can avoid overhead
     /// by just creating it once and saving it for reuse.
     typesetter_attr_dict: *macos.foundation.Dictionary,
+    /// Same as above but with embedding level 1 (RTL).
+    typesetter_attr_dict_rtl: *macos.foundation.Dictionary,
 
     /// List where we cache fonts, so we don't have to remake them for
     /// every single shaping operation.
@@ -172,27 +174,16 @@ pub const Shaper = struct {
         var run_state = RunState.init();
         errdefer run_state.deinit(alloc);
 
-        // For now we only support LTR text. If we shape RTL text then
-        // rendering will be very wrong so we need to explicitly force
-        // LTR no matter what.
+        // Use kCTTypesetterOptionForcedEmbeddingLevel to control BiDi
+        // embedding. We force embedding level 0 (LTR) for LTR runs and
+        // embedding level 1 (RTL) for RTL runs. Our run iterator already
+        // splits runs at direction boundaries, so each run is guaranteed
+        // to be single-direction.
         //
         // See: https://github.com/mitchellh/ghostty/issues/1737
         // See: https://github.com/mitchellh/ghostty/issues/1442
-        //
-        // We used to do this by setting the writing direction attribute
-        // on the attributed string we used, but it seems like that will
-        // still allow some weird results, for example a single space at
-        // the end of a line composed of RTL characters will be cause it
-        // to output a run containing just that space, BEFORE it outputs
-        // the rest of the line as a separate run, very weirdly with the
-        // "right to left" flag set in the single space run's run status...
-        //
-        // So instead what we do is use a CTTypesetter to create our line,
-        // using the kCTTypesetterOptionForcedEmbeddingLevel attribute to
-        // force CoreText not to try doing any sort of BiDi, instead just
-        // treat all text as embedding level 0 (left to right).
         const typesetter_attr_dict = dict: {
-            const num = try macos.foundation.Number.create(.int, &0);
+            const num = try macos.foundation.Number.create(.int, &@as(c_int, 0));
             defer num.release();
             break :dict try macos.foundation.Dictionary.create(
                 &.{macos.c.kCTTypesetterOptionForcedEmbeddingLevel},
@@ -200,6 +191,16 @@ pub const Shaper = struct {
             );
         };
         errdefer typesetter_attr_dict.release();
+
+        const typesetter_attr_dict_rtl = dict: {
+            const num = try macos.foundation.Number.create(.int, &@as(c_int, 1));
+            defer num.release();
+            break :dict try macos.foundation.Dictionary.create(
+                &.{macos.c.kCTTypesetterOptionForcedEmbeddingLevel},
+                &.{num},
+            );
+        };
+        errdefer typesetter_attr_dict_rtl.release();
 
         // Create the CF release thread.
         var cf_release_thread = try alloc.create(CFReleaseThread);
@@ -222,6 +223,7 @@ pub const Shaper = struct {
             .features = features,
             .features_no_default = features_no_default,
             .typesetter_attr_dict = typesetter_attr_dict,
+            .typesetter_attr_dict_rtl = typesetter_attr_dict_rtl,
             .cached_fonts = .{},
             .cached_font_grid = 0,
             .cf_release_pool = .{},
@@ -236,6 +238,7 @@ pub const Shaper = struct {
         self.features.release();
         self.features_no_default.release();
         self.typesetter_attr_dict.release();
+        self.typesetter_attr_dict_rtl.release();
 
         {
             for (self.cached_fonts.items) |ft| {
@@ -370,12 +373,16 @@ pub const Shaper = struct {
         );
         self.cf_release_pool.appendAssumeCapacity(attr_str);
 
-        // Create a typesetter from the attributed string and the cached
-        // attr dict. (See comment in init for more info on the attr dict.)
+        // Create a typesetter from the attributed string. Use the RTL
+        // embedding level dict for RTL runs so CoreText shapes correctly.
+        const ts_dict = if (run.rtl)
+            self.typesetter_attr_dict_rtl
+        else
+            self.typesetter_attr_dict;
         const typesetter =
             try macos.text.Typesetter.createWithAttributedStringAndOptions(
                 attr_str,
-                self.typesetter_attr_dict,
+                ts_dict,
             );
         self.cf_release_pool.appendAssumeCapacity(typesetter);
 
@@ -521,7 +528,7 @@ pub const Shaper = struct {
         }
 
         // If our buffer contains some non-ltr sections we need to sort it :/
-        if (non_ltr) {
+        if (non_ltr or run.rtl) {
             // This is EXCEPTIONALLY rare. Only happens for languages with
             // complex shaping which we don't even really support properly
             // right now, so are very unlikely to be used heavily by users
@@ -2515,6 +2522,87 @@ test "shape high plane sprite font codepoint" {
     try testing.expectEqual(null, try it.next(alloc));
 }
 
+test "shape LTR neutral RTL splits and sets direction" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    // "Hello مرحبا" — LTR "Hello" then neutral space then RTL Arabic.
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Hello مرحبا");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var runs: [10]font.shape.TextRun = undefined;
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        if (count < runs.len) runs[count] = run;
+        count += 1;
+    }
+
+    try testing.expectEqual(@as(usize, 2), count);
+    try testing.expect(!runs[0].rtl);
+    try testing.expectEqual(@as(u16, 0), runs[0].offset);
+    try testing.expect(runs[1].rtl);
+    try testing.expect(runs[1].offset > 0);
+}
+
+test "shape arabic with tashkeel at EOL" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("مرحباً");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expect(run.rtl);
+    try testing.expectEqual(@as(u16, 5), run.cells);
+    const cells = try shaper.shape(run);
+    try testing.expect(cells.len > 1);
+
+    var prev_x: u16 = cells[0].x;
+    for (cells[1..]) |cell| {
+        try testing.expect(cell.x >= prev_x);
+        prev_x = cell.x;
+    }
+    for (cells) |cell| {
+        try testing.expect(cell.x < run.cells);
+    }
+
+    try testing.expectEqual(try it.next(alloc), null);
+}
+
 const TestShaper = struct {
     alloc: Allocator,
     shaper: Shaper,
@@ -2530,6 +2618,7 @@ const TestShaper = struct {
 };
 
 const TestFont = enum {
+    arabic,
     code_new_roman,
     geist_mono,
     inconsolata,
@@ -2547,6 +2636,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
     const testEmoji = font.embedded.emoji;
     const testEmojiText = font.embedded.emoji_text;
     const testFont = switch (font_req) {
+        .arabic => font.embedded.arabic,
         .code_new_roman => font.embedded.code_new_roman,
         .inconsolata => font.embedded.inconsolata,
         .geist_mono => font.embedded.geist_mono,
