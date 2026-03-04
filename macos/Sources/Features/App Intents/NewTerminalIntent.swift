@@ -94,8 +94,6 @@ struct NewTerminalIntent: AppIntent {
             }
 
             parent = view
-        } else if let preferred = TerminalController.preferredParent {
-            parent = preferred.focusedSurface ?? preferred.surfaceTree.root?.leftmostLeaf()
         } else {
             parent = nil
         }
@@ -116,22 +114,29 @@ struct NewTerminalIntent: AppIntent {
             }
 
         case .tab:
+            /// If no parent is specified,
+            /// we find the last window in this screen as parent
+            let parentWindow = parent?.window ?? TerminalController.preferredNewTabParent?.window
             let newController = TerminalController.newTab(
                 ghostty,
-                from: parent?.window,
+                from: parentWindow,
                 withBaseConfig: config)
             if let view = newController?.surfaceTree.root?.leftmostLeaf() {
                 return .result(value: TerminalEntity(view))
             }
 
         case .splitLeft, .splitRight, .splitUp, .splitDown:
-            guard let parent,
-                  let controller = parent.window?.windowController as? BaseTerminalController else {
+            // split parent is like tab parent
+            let splitParent = parent ??
+                TerminalController.preferredNewSplitParent?.focusedSurface ??
+                TerminalController.preferredNewSplitParent?.surfaceTree.root?.leftmostLeaf()
+            guard let splitParent,
+                  let controller = splitParent.window?.windowController as? BaseTerminalController else {
                 throw GhosttyIntentError.surfaceNotFound
             }
 
             if let view = controller.newSplit(
-                at: parent,
+                at: splitParent,
                 direction: location.splitDirection!,
                 baseConfig: config
             ) {
