@@ -128,6 +128,12 @@ pub const Shaper = struct {
     ///
     /// If there is not enough space in the cell buffer, an error is returned.
     pub fn shape(self: *Shaper, run: font.shape.TextRun) ![]const font.shape.Cell {
+        // Set run direction before shaping so HarfBuzz applies the
+        // correct script-direction shaping behavior.
+        if (run.rtl) {
+            self.hb_buf.setDirection(.rtl);
+        }
+
         // We only do shaping if the font is not a special-case. For special-case
         // fonts, the codepoint == glyph_index so we don't need to run any shaping.
         if (run.font_index.special() == null) {
@@ -255,6 +261,14 @@ pub const Shaper = struct {
         }
         //log.warn("----------------", .{});
 
+        if (run.rtl) {
+            std.mem.sort(font.shape.Cell, self.cell_buf.items, {}, struct {
+                fn lt(_: void, a: font.shape.Cell, b: font.shape.Cell) bool {
+                    return a.x < b.x;
+                }
+            }.lt);
+        }
+
         return self.cell_buf.items;
     }
 
@@ -274,9 +288,7 @@ pub const Shaper = struct {
 
             self.shaper.codepoints.clearRetainingCapacity();
 
-            // We don't support RTL text because RTL in terminals is messy.
-            // Its something we want to improve. For now, we force LTR because
-            // our renderers assume a strictly increasing X value.
+            // Default to LTR. RTL runs are switched to RTL in shape().
             self.shaper.hb_buf.setDirection(.ltr);
         }
 
@@ -716,11 +728,7 @@ test "shape monaspace ligs" {
     }
 }
 
-// Ghostty doesn't currently support RTL and our renderers assume
-// that cells are in strict LTR order. This means that we need to
-// force RTL text to be LTR for rendering. This test ensures that
-// we are correctly forcing RTL text to be LTR.
-test "shape arabic forced LTR" {
+test "shape arabic RTL" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -746,18 +754,92 @@ test "shape arabic forced LTR" {
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
         count += 1;
-        try testing.expectEqual(@as(usize, 25), run.cells);
+        try testing.expect(run.rtl);
 
         const cells = try shaper.shape(run);
-        try testing.expectEqual(@as(usize, 25), cells.len);
+        try testing.expect(cells.len > 1);
 
         var x: u16 = cells[0].x;
         for (cells[1..]) |cell| {
-            try testing.expectEqual(x + 1, cell.x);
+            try testing.expect(cell.x >= x);
             x = cell.x;
         }
     }
     try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape LTR then RTL splits at direction boundary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Hello مرحبا");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var runs: [10]font.shape.TextRun = undefined;
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        if (count < runs.len) runs[count] = run;
+        count += 1;
+    }
+
+    try testing.expectEqual(@as(usize, 2), count);
+    try testing.expect(!runs[0].rtl);
+    try testing.expectEqual(@as(u16, 0), runs[0].offset);
+    try testing.expect(runs[1].rtl);
+    try testing.expect(runs[1].offset > 0);
+}
+
+test "shape digits between RTL split into LTR run" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("عدد 123 نص");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run1 = (try it.next(alloc)).?;
+    try testing.expect(run1.rtl);
+
+    const run2 = (try it.next(alloc)).?;
+    try testing.expect(!run2.rtl);
+
+    const run3 = (try it.next(alloc)).?;
+    try testing.expect(run3.rtl);
+
+    try testing.expectEqual(try it.next(alloc), null);
 }
 
 test "shape emoji width" {

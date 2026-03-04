@@ -88,6 +88,10 @@ pub const tables = [_]config.Table{
         .fields = &.{
             d.field("is_emoji_presentation"),
             d.field("case_folding_full"),
+            d.field("bidi_class"),
+            d.field("bidi_paired_bracket"),
+            d.field("joining_type"),
+            d.field("is_bidi_mirrored"),
         },
     },
     .{
