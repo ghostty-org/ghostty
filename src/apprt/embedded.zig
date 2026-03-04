@@ -1292,18 +1292,14 @@ pub const CAPI = struct {
         }
     };
 
-    // ghostty_ax_text_s
+    // ghostty_ax_text_s — text info read from an AccessibilityContext.
+    // The text pointer is borrowed from the context; the caller must
+    // not free it separately.
     const AXText = extern struct {
         text: ?[*:0]const u8,
         text_len: usize,
         viewport_start: usize,
         viewport_end: usize,
-
-        pub fn deinit(self: *AXText) void {
-            if (self.text) |ptr| {
-                global.alloc.free(ptr[0..self.text_len :0]);
-            }
-        }
     };
 
     // ghostty_ax_bounds_s
@@ -1690,55 +1686,69 @@ pub const CAPI = struct {
         ptr.deinit();
     }
 
-    /// Returns the terminal text along with the byte range of
-    /// the currently visible viewport within it. This is used by
-    /// accessibility to implement AXVisibleCharacterRange, AXValue,
-    /// AXBoundsForRange, and AXRangeForPosition.
-    ///
-    /// Note: offsets are UTF-8 byte positions into `text`. Platform
-    /// layers that speak NSRange (UTF-16), such as macOS Accessibility,
-    /// must convert these offsets before exposing them.
-    export fn ghostty_surface_ax_text(
+    /// Creates a pre-computed accessibility context containing
+    /// the terminal text, viewport range, cursor offset, and
+    /// grid-to-offset mapping. The context is self-contained and
+    /// can be used for subsequent queries without rebuilding the
+    /// PinMap. Free with ghostty_surface_ax_context_free.
+    export fn ghostty_surface_ax_context_new(
         surface: *Surface,
-        result: *AXText,
-    ) bool {
-        const ax_text = surface.core_surface.accessibilityText(
+    ) ?*anyopaque {
+        const ctx = surface.core_surface.createAccessibilityContext(
             global.alloc,
         ) catch |err| {
-            log.warn("error reading accessibility text err={}", .{err});
-            return false;
+            log.warn("error creating accessibility context err={}", .{err});
+            return null;
         };
+        return ctx;
+    }
 
+    export fn ghostty_surface_ax_context_free(ctx_raw: *anyopaque) void {
+        const ctx: *CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        ctx.deinit();
+    }
+
+    /// Reads text and viewport info from a pre-built context.
+    /// The text pointer is borrowed — it remains valid until the
+    /// context is freed.
+    export fn ghostty_ax_context_info(
+        ctx_raw: *anyopaque,
+        result: *AXText,
+    ) bool {
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
         result.* = .{
-            .text = ax_text.text.ptr,
-            .text_len = ax_text.text.len,
-            .viewport_start = ax_text.viewport_start,
-            .viewport_end = ax_text.viewport_end,
+            .text = ctx.text.ptr,
+            .text_len = ctx.text.len,
+            .viewport_start = ctx.viewport_start,
+            .viewport_end = ctx.viewport_end,
         };
-
         return true;
     }
 
-    export fn ghostty_surface_ax_text_free(_: *Surface, ptr: *AXText) void {
-        ptr.deinit();
+    /// Returns the cursor byte offset from a pre-built context.
+    export fn ghostty_ax_context_cursor_offset(
+        ctx_raw: *anyopaque,
+        byte_offset: *usize,
+    ) bool {
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        byte_offset.* = ctx.cursor_offset orelse return false;
+        return true;
     }
 
-    /// Given a byte offset into the terminal text (as returned
-    /// by ghostty_surface_ax_text), returns the view-local bounds
-    /// of the cell at that position. Coordinates are in points
+    /// Given a pre-built context and a byte offset, returns the
+    /// view-local bounds of the cell. Coordinates are in points
     /// with a top-left origin.
     export fn ghostty_surface_ax_bounds(
         surface: *Surface,
+        ctx_raw: *anyopaque,
         byte_offset: usize,
         result: *AXBounds,
     ) bool {
-        const bounds = surface.core_surface.boundsForOffset(
-            global.alloc,
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        const bounds = surface.core_surface.boundsForOffsetCtx(
+            ctx,
             byte_offset,
-        ) catch |err| {
-            log.warn("error computing bounds for offset err={}", .{err});
-            return false;
-        } orelse return false;
+        ) orelse return false;
 
         result.* = .{
             .x = bounds.x,
@@ -1749,38 +1759,21 @@ pub const CAPI = struct {
         return true;
     }
 
-    /// Given a view-local point (in points, top-left origin),
-    /// returns the byte offset of the character at that position
-    /// in the terminal text.
+    /// Given a pre-built context and a view-local point, returns
+    /// the byte offset of the character at that position.
     export fn ghostty_surface_ax_offset(
         surface: *Surface,
+        ctx_raw: *anyopaque,
         x: f64,
         y: f64,
         byte_offset: *usize,
     ) bool {
-        byte_offset.* = surface.core_surface.offsetForPoint(
-            global.alloc,
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        byte_offset.* = surface.core_surface.offsetForPointCtx(
+            ctx,
             x,
             y,
-        ) catch |err| {
-            log.warn("error computing offset for point err={}", .{err});
-            return false;
-        } orelse return false;
-        return true;
-    }
-
-    /// Returns the byte offset of the cursor in the terminal text.
-    /// Used by the Swift layer for accessibilityInsertionPointLineNumber.
-    export fn ghostty_surface_ax_cursor_offset(
-        surface: *Surface,
-        byte_offset: *usize,
-    ) bool {
-        byte_offset.* = surface.core_surface.cursorOffset(
-            global.alloc,
-        ) catch |err| {
-            log.warn("error computing cursor offset err={}", .{err});
-            return false;
-        } orelse return false;
+        ) orelse return false;
         return true;
     }
 

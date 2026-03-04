@@ -1145,11 +1145,13 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
 
-bool ghostty_surface_ax_text(ghostty_surface_t, ghostty_ax_text_s*);
-void ghostty_surface_ax_text_free(ghostty_surface_t, ghostty_ax_text_s*);
-bool ghostty_surface_ax_bounds(ghostty_surface_t, uintptr_t, ghostty_ax_bounds_s*);
-bool ghostty_surface_ax_offset(ghostty_surface_t, double, double, uintptr_t*);
-bool ghostty_surface_ax_cursor_offset(ghostty_surface_t, uintptr_t*);
+typedef void* ghostty_ax_context_t;
+ghostty_ax_context_t ghostty_surface_ax_context_new(ghostty_surface_t);
+void ghostty_surface_ax_context_free(ghostty_ax_context_t);
+bool ghostty_ax_context_info(ghostty_ax_context_t, ghostty_ax_text_s*);
+bool ghostty_ax_context_cursor_offset(ghostty_ax_context_t, uintptr_t*);
+bool ghostty_surface_ax_bounds(ghostty_surface_t, ghostty_ax_context_t, uintptr_t, ghostty_ax_bounds_s*);
+bool ghostty_surface_ax_offset(ghostty_surface_t, ghostty_ax_context_t, double, double, uintptr_t*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

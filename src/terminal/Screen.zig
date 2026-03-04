@@ -2498,14 +2498,80 @@ pub fn selectionString(
 // Accessibility helpers
 // ---------------------------------------------------------------
 
-/// Text with viewport byte range for accessibility. The viewport
-/// range identifies which portion of the terminal text is currently
-/// visible, so the apprt can report the correct visible character range.
-pub const AccessibilityText = struct {
+/// Pre-computed accessibility snapshot. Built once from the terminal
+/// state (including a PinMap), then all grid/offset lookups are O(1).
+/// Contains only owned data — no Pins or page pointers — so it is
+/// safe to cache and use without holding the terminal mutex.
+pub const AccessibilityContext = struct {
+    alloc: Allocator,
+
     /// The terminal text (all scrollback + active area).
     text: [:0]const u8,
 
     /// Byte offsets within `text` that delimit the visible viewport.
+    viewport_start: usize,
+    viewport_end: usize,
+
+    /// Byte offset of the cursor in `text`, or null if not resolvable.
+    cursor_offset: ?usize,
+
+    /// Per-byte cell info for the viewport portion of the text.
+    /// Index `i` corresponds to `text[viewport_start + i]`.
+    viewport_cells: []CellInfo,
+
+    /// Flat grid-to-offset table: `[row * grid_cols + col]` gives the
+    /// byte offset in `text` for that viewport cell, or `no_mapping`
+    /// if the cell has no text content.
+    grid_to_offset: []usize,
+    grid_cols: size.CellCountInt,
+    grid_rows: size.CellCountInt,
+
+    pub const no_mapping = std.math.maxInt(usize);
+
+    pub const CellInfo = struct {
+        col: size.CellCountInt,
+        row: size.CellCountInt,
+        wide: bool,
+    };
+
+    pub fn deinit(self: *AccessibilityContext) void {
+        self.alloc.free(self.text);
+        self.alloc.free(self.viewport_cells);
+        self.alloc.free(self.grid_to_offset);
+        self.alloc.destroy(self);
+    }
+
+    /// Returns the viewport-relative cell at `byte_offset`, or null
+    /// if the offset is outside the viewport range.
+    pub fn gridForOffset(self: *const AccessibilityContext, byte_offset: usize) ?CellInfo {
+        if (byte_offset < self.viewport_start or byte_offset >= self.viewport_end) return null;
+        const idx = byte_offset - self.viewport_start;
+        if (idx >= self.viewport_cells.len) return null;
+        return self.viewport_cells[idx];
+    }
+
+    /// Returns the byte offset of the cell at viewport `(col, row)`.
+    /// Falls back to the first byte on that row if the exact column
+    /// has no content (e.g. cursor past end of line).
+    pub fn offsetForGrid(self: *const AccessibilityContext, col: size.CellCountInt, row: size.CellCountInt) ?usize {
+        if (row >= self.grid_rows or col >= self.grid_cols) return null;
+        const idx = @as(usize, row) * self.grid_cols + col;
+        const offset = self.grid_to_offset[idx];
+        if (offset != no_mapping) return offset;
+
+        // Fall back to the first mapped column on this row.
+        const row_base = @as(usize, row) * self.grid_cols;
+        for (self.grid_to_offset[row_base..][0..self.grid_cols]) |cell_offset| {
+            if (cell_offset != no_mapping) return cell_offset;
+        }
+        return null;
+    }
+};
+
+/// Legacy type alias — callers that only need text + viewport range
+/// can destructure an AccessibilityContext into this.
+pub const AccessibilityText = struct {
+    text: [:0]const u8,
     viewport_start: usize,
     viewport_end: usize,
 
@@ -2522,45 +2588,37 @@ pub const AccessibilityCell = struct {
     wide: bool,
 };
 
-/// Returns the terminal text along with the byte range of the
-/// currently visible viewport within that text. Uses the formatter's
-/// PinMap to find exact viewport boundaries — this correctly handles
-/// wide characters, grapheme clusters, and soft-wrapped lines.
-pub fn accessibilityText(
+/// Builds an AccessibilityContext: generates the terminal text with
+/// a PinMap, pre-computes viewport cell info and grid-to-offset
+/// tables, then discards the PinMap. The returned context is fully
+/// self-contained and can be used without the terminal mutex.
+pub fn createAccessibilityContext(
     self: *Screen,
     alloc: Allocator,
-) !AccessibilityText {
-    // Build the full screen selection.
+) !*AccessibilityContext {
+    const cols = self.pages.cols;
+    const rows: size.CellCountInt = @intCast(self.pages.rows);
+
+    // Empty screen fast path.
     const screen_tl = self.pages.getTopLeft(.screen);
-    const screen_br = self.pages.getBottomRight(.screen) orelse
-        return .{ .text = try alloc.dupeZ(u8, ""), .viewport_start = 0, .viewport_end = 0 };
+    const screen_br = self.pages.getBottomRight(.screen) orelse {
+        return try self.createEmptyContext(alloc, cols, rows);
+    };
 
     const sel = Selection.init(screen_tl, screen_br, false);
 
-    // Generate text with a pin map so we can locate the viewport.
+    // Generate text with a pin map so we can locate viewport cells.
     var string_map: StringMap = undefined;
     const text = try self.selectionString(alloc, .{
         .sel = sel,
         .trim = false,
         .map = &string_map,
     });
+    errdefer alloc.free(text);
     defer {
         alloc.free(string_map.string);
         alloc.free(string_map.map);
     }
-
-    // Determine viewport boundaries.
-    const vp_tl = self.pages.getTopLeft(.viewport);
-    const vp_br = self.pages.getBottomRight(.viewport) orelse
-        return .{ .text = text, .viewport_start = 0, .viewport_end = 0 };
-
-    const vp_tl_screen = self.pages.pointFromPin(.screen, vp_tl) orelse
-        return .{ .text = text, .viewport_start = 0, .viewport_end = 0 };
-    const vp_br_screen = self.pages.pointFromPin(.screen, vp_br) orelse
-        return .{ .text = text, .viewport_start = 0, .viewport_end = text.len };
-
-    const vp_tl_row = vp_tl_screen.coord().y;
-    const vp_br_row = vp_br_screen.coord().y;
 
     // Build a node → cumulative-row-offset lookup so we can
     // convert any Pin to an absolute screen row in O(1).
@@ -2575,157 +2633,189 @@ pub fn accessibilityText(
         }
     }
 
-    // Scan the pin map to find viewport byte boundaries.
-    var vp_start: usize = string_map.map.len;
-    var vp_end: usize = string_map.map.len;
+    // Determine viewport boundaries by scanning the pin map.
+    const vp_tl = self.pages.getTopLeft(.viewport);
+    const vp_br = self.pages.getBottomRight(.viewport);
 
-    for (string_map.map, 0..) |pin, i| {
-        const row_offset = node_offsets.get(pin.node) orelse continue;
-        const abs_row = row_offset + pin.y;
+    var vp_start: usize = text.len;
+    var vp_end: usize = text.len;
 
-        if (abs_row < vp_tl_row) continue;
-        if (abs_row == vp_tl_row and pin.x < vp_tl.x) continue;
+    if (vp_br != null) {
+        const vp_tl_screen = self.pages.pointFromPin(.screen, vp_tl);
+        const vp_br_screen = self.pages.pointFromPin(.screen, vp_br.?);
 
-        if (abs_row > vp_br_row or (abs_row == vp_br_row and pin.x > vp_br.x)) {
-            vp_end = i;
-            break;
+        if (vp_tl_screen != null and vp_br_screen != null) {
+            const vp_tl_row = vp_tl_screen.?.coord().y;
+            const vp_br_row = vp_br_screen.?.coord().y;
+
+            for (string_map.map, 0..) |pin, i| {
+                const row_offset = node_offsets.get(pin.node) orelse continue;
+                const abs_row = row_offset + pin.y;
+
+                if (abs_row < vp_tl_row) continue;
+                if (abs_row == vp_tl_row and pin.x < vp_tl.x) continue;
+
+                if (abs_row > vp_br_row or (abs_row == vp_br_row and pin.x > vp_br.?.x)) {
+                    vp_end = i;
+                    break;
+                }
+
+                if (vp_start > i) vp_start = i;
+            }
         }
-
-        if (vp_start > i) vp_start = i;
     }
 
-    // If we never found a start, the viewport is empty or all blank.
-    // Use >= because vp_start is initialized to map.len as a sentinel.
     if (vp_start >= string_map.map.len) vp_start = text.len;
     if (vp_end >= string_map.map.len) vp_end = text.len;
 
-    return .{
+    // Pre-compute viewport cell info from the PinMap.
+    const vp_byte_len = vp_end - vp_start;
+    const viewport_cells = try alloc.alloc(AccessibilityContext.CellInfo, vp_byte_len);
+    errdefer alloc.free(viewport_cells);
+
+    const grid_size = @as(usize, cols) * rows;
+    const grid_to_offset = try alloc.alloc(usize, grid_size);
+    errdefer alloc.free(grid_to_offset);
+    @memset(grid_to_offset, AccessibilityContext.no_mapping);
+
+    for (0..vp_byte_len) |vi| {
+        const pin = string_map.map[vp_start + vi];
+        const vp_pt = self.pages.pointFromPin(.viewport, pin);
+        if (vp_pt == null) {
+            viewport_cells[vi] = .{ .col = 0, .row = 0, .wide = false };
+            continue;
+        }
+        const coord = vp_pt.?.coord();
+        const vp_col = coord.x;
+        const vp_row: size.CellCountInt = @intCast(coord.y);
+
+        const rac = pin.node.data.getRowAndCell(pin.x, pin.y);
+        const wide = rac.cell.wide == .wide;
+
+        viewport_cells[vi] = .{ .col = vp_col, .row = vp_row, .wide = wide };
+
+        // First byte of each cell wins in the grid-to-offset table.
+        const grid_idx = @as(usize, vp_row) * cols + vp_col;
+        if (grid_to_offset[grid_idx] == AccessibilityContext.no_mapping) {
+            grid_to_offset[grid_idx] = vp_start + vi;
+        }
+    }
+
+    // Compute cursor byte offset using the same node_offsets and pin map.
+    const cursor_offset = cursor: {
+        const cursor_pin = self.pages.pin(.{ .viewport = .{
+            .x = self.cursor.x,
+            .y = self.cursor.y,
+        } }) orelse break :cursor null;
+        const cursor_screen_pt = self.pages.pointFromPin(.screen, cursor_pin) orelse break :cursor null;
+        const target_row = cursor_screen_pt.coord().y;
+        const target_col = cursor_pin.x;
+
+        var row_start: ?usize = null;
+        for (string_map.map, 0..) |pin, i| {
+            const row_offset = node_offsets.get(pin.node) orelse continue;
+            const abs_row = row_offset + pin.y;
+            if (abs_row < target_row) continue;
+            if (abs_row > target_row) break;
+            if (row_start == null) row_start = i;
+            if (pin.x == target_col) break :cursor i;
+        }
+        break :cursor row_start;
+    };
+
+    const ctx = try alloc.create(AccessibilityContext);
+    ctx.* = .{
+        .alloc = alloc,
         .text = text,
         .viewport_start = vp_start,
         .viewport_end = vp_end,
+        .cursor_offset = cursor_offset,
+        .viewport_cells = viewport_cells,
+        .grid_to_offset = grid_to_offset,
+        .grid_cols = cols,
+        .grid_rows = rows,
+    };
+    return ctx;
+}
+
+fn createEmptyContext(
+    self: *Screen,
+    alloc: Allocator,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+) !*AccessibilityContext {
+    _ = self;
+    const grid_size = @as(usize, cols) * rows;
+    const grid_to_offset = try alloc.alloc(usize, grid_size);
+    @memset(grid_to_offset, AccessibilityContext.no_mapping);
+
+    const ctx = try alloc.create(AccessibilityContext);
+    ctx.* = .{
+        .alloc = alloc,
+        .text = try alloc.dupeZ(u8, ""),
+        .viewport_start = 0,
+        .viewport_end = 0,
+        .cursor_offset = null,
+        .viewport_cells = &.{},
+        .grid_to_offset = grid_to_offset,
+        .grid_cols = cols,
+        .grid_rows = rows,
+    };
+    return ctx;
+}
+
+/// Convenience wrapper: returns text + viewport range without
+/// exposing the full context. Delegates to createAccessibilityContext.
+pub fn accessibilityText(
+    self: *Screen,
+    alloc: Allocator,
+) !AccessibilityText {
+    const ctx = try self.createAccessibilityContext(alloc);
+    defer {
+        // We need to keep the text alive, so extract it before freeing.
+        // Free everything except text by hand.
+        alloc.free(ctx.viewport_cells);
+        alloc.free(ctx.grid_to_offset);
+        alloc.destroy(ctx);
+    }
+    return .{
+        .text = ctx.text,
+        .viewport_start = ctx.viewport_start,
+        .viewport_end = ctx.viewport_end,
     };
 }
 
-/// Given a byte offset into the terminal text, returns the
-/// viewport-relative grid cell at that position.
+/// Given a byte offset, returns the viewport-relative grid cell.
+/// Delegates to createAccessibilityContext for the PinMap work.
 pub fn accessibilityGridForOffset(
     self: *Screen,
     alloc: Allocator,
     byte_offset: usize,
 ) !?AccessibilityCell {
-    // Build screen-wide selection and generate text with pin map.
-    const screen_tl = self.pages.getTopLeft(.screen);
-    const screen_br = self.pages.getBottomRight(.screen) orelse return null;
-    const sel = Selection.init(screen_tl, screen_br, false);
-
-    var string_map: StringMap = undefined;
-    const text = try self.selectionString(alloc, .{
-        .sel = sel,
-        .trim = false,
-        .map = &string_map,
-    });
-    defer {
-        alloc.free(text);
-        alloc.free(string_map.string);
-        alloc.free(string_map.map);
-    }
-
-    if (byte_offset >= string_map.map.len) return null;
-
-    const pin = string_map.map[byte_offset];
-
-    // Convert pin to viewport coordinates. If the pin is outside
-    // the viewport (e.g. in scrollback above the visible area),
-    // return null — we can only compute meaningful bounds for
-    // cells that are currently on screen.
-    const vp_pt = self.pages.pointFromPin(.viewport, pin) orelse return null;
-
-    const coord = vp_pt.coord();
-
-    // Determine whether this is a wide character.
-    var wide = false;
-    const rac = pin.node.data.getRowAndCell(pin.x, pin.y);
-    if (rac.cell.wide == .wide) wide = true;
-
-    return .{
-        .col = coord.x,
-        .row = @intCast(coord.y),
-        .wide = wide,
-    };
+    const ctx = try self.createAccessibilityContext(alloc);
+    defer ctx.deinit();
+    const info = ctx.gridForOffset(byte_offset) orelse return null;
+    return .{ .col = info.col, .row = info.row, .wide = info.wide };
 }
 
-/// Given viewport-relative grid coordinates, returns the byte offset
-/// of that cell in the terminal text.
+/// Given viewport-relative grid coordinates, returns the byte offset.
+/// Delegates to createAccessibilityContext for the PinMap work.
 pub fn accessibilityOffsetForGrid(
     self: *Screen,
     alloc: Allocator,
     col: size.CellCountInt,
     row: size.CellCountInt,
 ) !?usize {
-    // Resolve the viewport grid coordinate to a pin.
-    const target_pin = self.pages.pin(.{ .viewport = .{
-        .x = col,
-        .y = row,
-    } }) orelse return null;
-
-    // Convert target to an absolute screen row for comparison.
-    const target_screen_pt = self.pages.pointFromPin(.screen, target_pin) orelse return null;
-    const target_row = target_screen_pt.coord().y;
-    const target_col = target_pin.x;
-
-    // Generate terminal text with pin map.
-    const screen_tl = self.pages.getTopLeft(.screen);
-    const screen_br = self.pages.getBottomRight(.screen) orelse return null;
-    const sel = Selection.init(screen_tl, screen_br, false);
-
-    var string_map: StringMap = undefined;
-    const text = try self.selectionString(alloc, .{
-        .sel = sel,
-        .trim = false,
-        .map = &string_map,
-    });
-    defer {
-        alloc.free(text);
-        alloc.free(string_map.string);
-        alloc.free(string_map.map);
-    }
-
-    // Build node → cumulative-row-offset lookup.
-    var node_offsets = std.AutoHashMap(*PageList.List.Node, usize).init(alloc);
-    defer node_offsets.deinit();
-    {
-        var total: usize = 0;
-        var it = self.pages.pages.first;
-        while (it) |node| : (it = node.next) {
-            try node_offsets.put(node, total);
-            total += node.data.size.rows;
-        }
-    }
-
-    // Scan for the first byte at the target position. We look
-    // for an exact (row, col) match first, then fall back to the
-    // first byte on that row.
-    var row_start: ?usize = null;
-    for (string_map.map, 0..) |pin, i| {
-        const row_offset = node_offsets.get(pin.node) orelse continue;
-        const abs_row = row_offset + pin.y;
-        if (abs_row < target_row) continue;
-        if (abs_row > target_row) break;
-
-        // We're on the target row.
-        if (row_start == null) row_start = i;
-        if (pin.x == target_col) return i;
-    }
-
-    // No exact column match — return start of the row.
-    return row_start;
+    const ctx = try self.createAccessibilityContext(alloc);
+    defer ctx.deinit();
+    return ctx.offsetForGrid(col, row);
 }
 
 /// Returns the byte offset of the cursor position within the terminal text.
-/// This is a convenience wrapper that delegates to accessibilityOffsetForGrid
-/// using the current cursor coordinates.
 pub fn accessibilityCursorOffset(self: *Screen, alloc: Allocator) !?usize {
-    return self.accessibilityOffsetForGrid(alloc, self.cursor.x, self.cursor.y);
+    const ctx = try self.createAccessibilityContext(alloc);
+    defer ctx.deinit();
+    return ctx.cursor_offset;
 }
 
 pub const SelectLine = struct {

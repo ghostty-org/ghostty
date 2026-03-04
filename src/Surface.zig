@@ -2023,18 +2023,8 @@ pub fn dumpTextLocked(
 // Accessibility helpers
 // ---------------------------------------------------------------
 
+pub const AccessibilityContext = terminal.Screen.AccessibilityContext;
 pub const AccessibilityText = terminal.Screen.AccessibilityText;
-
-/// Returns the terminal text along with the byte range of the
-/// currently visible viewport within that text.
-pub fn accessibilityText(
-    self: *Surface,
-    alloc: Allocator,
-) !AccessibilityText {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    return self.io.terminal.screens.active.accessibilityText(alloc);
-}
 
 /// View-local bounds (in points, top-left origin) for a screen
 /// text position. Used by AXBoundsForRange.
@@ -2045,27 +2035,31 @@ pub const AccessibilityBounds = struct {
     height: f64,
 };
 
-/// Given a byte offset into the terminal text, returns the
-/// view-local bounds of that character's cell.
-pub fn boundsForOffset(
+/// Creates a pre-computed accessibility context (text + viewport +
+/// grid mapping). The context is self-contained and can be used
+/// without holding the terminal mutex.
+pub fn createAccessibilityContext(
     self: *Surface,
     alloc: Allocator,
-    byte_offset: usize,
-) !?AccessibilityBounds {
+) !*AccessibilityContext {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
-    return self.boundsForOffsetLocked(alloc, byte_offset);
+    return self.io.terminal.screens.active.createAccessibilityContext(alloc);
 }
 
-fn boundsForOffsetLocked(
+/// Given an AccessibilityContext and a byte offset, returns the
+/// view-local bounds of that character's cell. Acquires the mutex
+/// briefly to read current geometry (cell size, padding, scale).
+pub fn boundsForOffsetCtx(
     self: *Surface,
-    alloc: Allocator,
+    ctx: *const AccessibilityContext,
     byte_offset: usize,
-) !?AccessibilityBounds {
-    const cell = try self.io.terminal.screens.active.accessibilityGridForOffset(
-        alloc,
-        byte_offset,
-    ) orelse return null;
+) ?AccessibilityBounds {
+    const cell = ctx.gridForOffset(byte_offset) orelse return null;
+
+    // Read geometry under the mutex.
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
 
     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
 
@@ -2099,49 +2093,30 @@ fn boundsForOffsetLocked(
     return .{ .x = x, .y = y, .width = width, .height = height };
 }
 
-/// Given a view-local point (in unscaled points, top-left origin),
-/// returns the byte offset of the character at that position in
-/// the terminal text. Used by AXRangeForPosition.
-pub fn offsetForPoint(
+/// Given an AccessibilityContext and a view-local point (in unscaled
+/// points, top-left origin), returns the byte offset of the character
+/// at that position. Acquires the mutex briefly for geometry.
+pub fn offsetForPointCtx(
     self: *Surface,
-    alloc: Allocator,
+    ctx: *const AccessibilityContext,
     x: f64,
     y: f64,
-) !?usize {
+) ?usize {
+    // Read geometry under the mutex.
     self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    return self.offsetForPointLocked(alloc, x, y);
-}
-
-fn offsetForPointLocked(
-    self: *Surface,
-    alloc: Allocator,
-    x: f64,
-    y: f64,
-) !?usize {
-    // Scale to pixels and convert to a viewport grid coordinate.
     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+    const sz = self.size;
+    self.renderer_state.mutex.unlock();
+
     const coord: rendererpkg.Coordinate = .{
         .surface = .{
             .x = x * content_scale.x,
             .y = y * content_scale.y,
         },
     };
-    const grid = coord.convert(.grid, self.size).grid;
+    const grid = coord.convert(.grid, sz).grid;
 
-    return self.io.terminal.screens.active.accessibilityOffsetForGrid(
-        alloc,
-        grid.x,
-        @intCast(grid.y),
-    );
-}
-
-/// Returns the byte offset of the cursor in the terminal text.
-/// Used by accessibilityInsertionPointLineNumber.
-pub fn cursorOffset(self: *Surface, alloc: Allocator) !?usize {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    return self.io.terminal.screens.active.accessibilityCursorOffset(alloc);
+    return ctx.offsetForGrid(grid.x, @intCast(grid.y));
 }
 
 /// Returns true if the terminal has a selection.
