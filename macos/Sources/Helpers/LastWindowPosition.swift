@@ -4,7 +4,13 @@ import Cocoa
 class LastWindowPosition {
     static let shared = LastWindowPosition()
 
-    private let positionKey = "NSWindowLastPosition"
+    fileprivate static let rectsKey = "NSWindowLastRectsByScreen"
+
+    let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     @discardableResult
     func save(_ window: NSWindow?) -> Bool {
@@ -13,9 +19,10 @@ class LastWindowPosition {
         // with the wrong one when window decorations change while creating,
         // e.g. adding a toolbar affects the window's frame.
         guard let window, window.isVisible else { return false }
-        let frame = window.frame
-        let rect = [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height]
-        UserDefaults.ghostty.set(rect, forKey: positionKey)
+        guard let screenID = window.screen?.displayUUID?.uuidString else {
+            return false
+        }
+        savedWindowRectInfo[screenID] = window.frame
         return true
     }
 
@@ -32,22 +39,22 @@ class LastWindowPosition {
     func restore(_ window: NSWindow, origin restoreOrigin: Bool = true, size restoreSize: Bool = true) -> Bool {
         guard restoreOrigin || restoreSize else { return false }
 
-        guard let values = UserDefaults.ghostty.array(forKey: positionKey) as? [Double],
-              values.count >= 2 else { return false }
-
-        let lastPosition = CGPoint(x: values[0], y: values[1])
-
-        guard let screen = window.screen ?? NSScreen.main else { return false }
+        guard
+            let screen = window.screen ?? NSScreen.main,
+            let screenID = screen.displayUUID?.uuidString,
+            let lastFrame = savedWindowRectInfo[screenID]
+        else {
+            return false
+        }
         let visibleFrame = screen.visibleFrame
-
         var newFrame = window.frame
         if restoreOrigin {
-            newFrame.origin = lastPosition
+            newFrame.origin = lastFrame.origin
         }
 
-        if restoreSize, values.count >= 4 {
-            newFrame.size.width = min(values[2], visibleFrame.width)
-            newFrame.size.height = min(values[3], visibleFrame.height)
+        if restoreSize {
+            newFrame.size.width = min(lastFrame.width, visibleFrame.width)
+            newFrame.size.height = min(lastFrame.height, visibleFrame.height)
         }
 
         // If the new frame is not constrained to the visible screen,
@@ -63,5 +70,37 @@ class LastWindowPosition {
 
         window.setFrame(newFrame, display: true)
         return true
+    }
+}
+
+extension LastWindowPosition {
+    var savedWindowRectInfo: [String: CGRect] {
+        get {
+            guard
+                let dict = defaults.dictionary(forKey: LastWindowPosition.rectsKey) as? [String: CFDictionary]
+            else {
+                // Restore previously saved rect on main screen
+                if
+                    let rect = CGRect(valueArray: defaults.array(forKey: "NSWindowLastPosition")),
+                    let screenID = NSScreen.main?.displayUUID?.uuidString {
+                    return [screenID: rect]
+                } else {
+                    return [:]
+                }
+            }
+            return dict.compactMapValues(CGRect.init(dictionaryRepresentation:))
+        }
+        set {
+            defaults.set(newValue.mapValues(\.dictionaryRepresentation), forKey: LastWindowPosition.rectsKey)
+        }
+    }
+}
+
+private extension CGRect {
+    init?(valueArray: [Any]?) {
+        guard let values = valueArray as? [Double], values.count >= 2 else {
+            return nil
+        }
+        self.init(x: values[0], y: values[1], width: values[safe: 2] ?? 0, height: values[safe: 3] ?? 0)
     }
 }
