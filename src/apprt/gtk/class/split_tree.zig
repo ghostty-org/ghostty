@@ -186,6 +186,7 @@ pub const SplitTree = extern struct {
             .init("new-split", actionNewSplit, s_variant_type),
             .init("equalize", actionEqualize, null),
             .init("zoom", actionZoom, null),
+            .init("close-pane", actionClosePane, null),
         };
 
         _ = ext.actions.addAsGroup(Self, self, "split-tree", &actions);
@@ -661,6 +662,15 @@ pub const SplitTree = extern struct {
         }
 
         self.as(gobject.Object).notifyByPspec(properties.tree.impl.param_spec);
+    }
+
+    pub fn actionClosePane(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = self.getActiveSurface() orelse return;
+        surface.close();
     }
 
     fn surfaceCloseRequest(
