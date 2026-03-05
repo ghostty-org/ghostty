@@ -13,7 +13,10 @@ class LastWindowPosition {
     }
 
     func save(_ window: NSWindow) {
-        guard let screenID = window.screen?.displayUUID?.uuidString else {
+        // We don't save the window frame when the window is in native fullscreen mode,
+        // since AppKit doesn't restore .fullScreen correctly.
+        // We should keep the behavior like first-party apps, such as Terminal and Safari.
+        guard !window.styleMask.contains(.fullScreen), let screenID = window.screen?.displayUUID?.uuidString else {
             return
         }
         savedWindowRectInfo[screenID] = window.frame
