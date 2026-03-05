@@ -102,8 +102,10 @@ jobs:
         run: |
           rm -rf zig-out/dist
           nix develop -c zig build distcheck
+          nix develop -c zig build terminfo
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz ghostty-source.tar.gz
+          cp zig-out/share/terminfo/ghostty.terminfo .
 
       - name: Sign Tarball
         run: |
@@ -121,6 +123,7 @@ jobs:
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig
             ghostty-source.tar.gz
             ghostty-source.tar.gz.minisig
+            ghostty.terminfo
 
   build-macos:
     needs: [setup]
@@ -395,6 +398,7 @@ jobs:
           mv "ghostty-${GHOSTTY_VERSION}.tar.gz.minisig" blob/${GHOSTTY_VERSION}/ghostty-${GHOSTTY_VERSION}.tar.gz.minisig
           mv ghostty-source.tar.gz blob/${GHOSTTY_VERSION}/ghostty-source.tar.gz
           mv ghostty-source.tar.gz.minisig blob/${GHOSTTY_VERSION}/ghostty-source.tar.gz.minisig
+          mv ghostty.terminfo blob/${GHOSTTY_VERSION}/ghostty.terminfo
           mv ghostty-macos-universal.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal.zip
           mv ghostty-macos-universal-dsym.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal-dsym.zip
           mv Ghostty.dmg blob/${GHOSTTY_VERSION}/Ghostty.dmg

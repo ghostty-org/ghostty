@@ -186,7 +186,9 @@ jobs:
         run: |
           rm -rf zig-out/dist
           nix develop -c zig build distcheck
+          nix develop -c zig build terminfo
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
+          cp zig-out/share/terminfo/ghostty.terminfo .
 
       - name: Sign Tarball
         run: |
@@ -204,6 +206,7 @@ jobs:
           files: |
             ghostty-source.tar.gz
             ghostty-source.tar.gz.minisig
+            ghostty.terminfo
           token: ${{ secrets.GH_RELEASE_TOKEN }}
 
   build-macos:
