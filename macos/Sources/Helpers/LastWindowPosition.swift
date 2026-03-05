@@ -19,7 +19,10 @@ class LastWindowPosition {
         // with the wrong one when window decorations change while creating,
         // e.g. adding a toolbar affects the window's frame.
         guard let window, window.isVisible else { return false }
-        guard let screenID = window.screen?.displayUUID?.uuidString else {
+        // We don't save the window frame when the window is in native fullscreen mode,
+        // since AppKit doesn't restore .fullScreen correctly.
+        // We should keep the behavior like first-party apps, such as Terminal and Safari.
+        guard !window.styleMask.contains(.fullScreen), let screenID = window.screen?.displayUUID?.uuidString else {
             return false
         }
         savedWindowRectInfo[screenID] = window.frame
