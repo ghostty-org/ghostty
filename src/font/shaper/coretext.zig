@@ -2968,6 +2968,12 @@ test "shape arabic end tashkeel no overlap" {
         try testing.expect(cell.x < run.cells);
         seen[cell.x] = true;
         if (cell.x == qaf_cluster.?) qaf_cell_glyphs += 1;
+
+        // Base glyphs after the tashkeel cluster must not carry a
+        // spurious x_offset from position.x/run_offset.x divergence.
+        if (cell.x != qaf_cluster.?) {
+            try testing.expectEqual(@as(i32, 0), cell.x_offset);
+        }
     }
     try testing.expect(seen[0]);
     try testing.expect(seen[1]);
@@ -3035,6 +3041,12 @@ test "shape arabic end tanween no overlap" {
         try testing.expect(cell.x < run.cells);
         seen[cell.x] = true;
         if (cell.x == nun_cluster.?) nun_cell_glyphs += 1;
+
+        // Base glyphs after the tanween cluster must not carry a
+        // spurious x_offset from position.x/run_offset.x divergence.
+        if (cell.x != nun_cluster.?) {
+            try testing.expectEqual(@as(i32, 0), cell.x_offset);
+        }
     }
     try testing.expect(seen[0]);
     try testing.expect(seen[1]);
