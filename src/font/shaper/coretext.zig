@@ -4,6 +4,7 @@ const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const macos = @import("macos");
 const itijah = @import("itijah");
+const bidi_helpers = @import("bidi_helpers.zig");
 const font = @import("../main.zig");
 const os = @import("../../os/main.zig");
 const terminal = @import("../../terminal/main.zig");
@@ -23,17 +24,6 @@ const Presentation = font.Presentation;
 const CFReleaseThread = os.CFReleaseThread;
 
 const log = std.log.scoped(.font_shaper);
-
-fn isArabicCombiningMark(cp: u32) bool {
-    return switch (cp) {
-        0x0610...0x061A,
-        0x064B...0x065F,
-        0x0670,
-        0x06D6...0x06ED,
-        => true,
-        else => false,
-    };
-}
 
 /// Shaper that uses CoreText.
 ///
@@ -525,14 +515,15 @@ pub const Shaper = struct {
                         const should_reset = (run.rtl and !is_combining_mark) or
                             !is_after_glyph_from_current_or_next_clusters;
                         if (should_reset) {
+                            const reset_x = if (run.rtl) position.x else run_offset.x;
                             cell_offset = .{
                                 .cluster = cluster,
-                                .x = run_offset.x,
+                                .x = reset_x,
                             };
 
                             const cluster_i: usize = @intCast(cluster);
                             if (cluster_i < self.cluster_anchor_x.items.len) {
-                                self.cluster_anchor_x.items[cluster_i] = run_offset.x;
+                                self.cluster_anchor_x.items[cluster_i] = reset_x;
                             }
                         }
                     } else if (!run.rtl and !is_combining_mark) {
@@ -558,8 +549,8 @@ pub const Shaper = struct {
                             // broadening this fallback regresses scripts with
                             // out-of-order vowels/marks (e.g.
                             // Chakma/Bengali tests).
-                            const allow_non_first_fallback = run.rtl and
-                                isArabicCombiningMark(source_codepoint);
+                            const allow_non_first_fallback =
+                                bidi_helpers.isArabicCombiningMark(source_codepoint);
                             if (!std.math.isNan(anchor_x)) {
                                 cell_offset = .{
                                     .cluster = cluster,
@@ -573,10 +564,34 @@ pub const Shaper = struct {
                                 // run offset.
                                 cell_offset = .{
                                     .cluster = cluster,
-                                    .x = run_offset.x,
+                                    .x = position.x,
                                 };
-                                self.cluster_anchor_x.items[cluster_i] = run_offset.x;
+                                self.cluster_anchor_x.items[cluster_i] = position.x;
                             }
+                        }
+                    }
+                } else if (run.rtl and source_codepoint != 0 and !is_combining_mark) {
+                    const is_first_codepoint_in_cluster = blk: {
+                        var i = index;
+                        while (i > 0) {
+                            i -= 1;
+                            const codepoint = state.codepoints.items[i];
+
+                            // Skip surrogate pair padding
+                            if (codepoint.codepoint == 0) continue;
+                            break :blk codepoint.cluster != cluster;
+                        } else break :blk true;
+                    };
+
+                    // In RTL runs, a combining mark can establish a cluster
+                    // anchor before the base glyph arrives. Re-anchor to the
+                    // base glyph position once the first logical codepoint in
+                    // the cluster is seen.
+                    if (is_first_codepoint_in_cluster) {
+                        const cluster_i: usize = @intCast(cluster);
+                        cell_offset.x = position.x;
+                        if (cluster_i < self.cluster_anchor_x.items.len) {
+                            self.cluster_anchor_x.items[cluster_i] = position.x;
                         }
                     }
                 }
@@ -2887,6 +2902,220 @@ test "shape arabic tanween stays on hamza before space" {
         if (cell.x == hamza_cluster.?) hamza_cell_glyphs += 1;
     }
     try testing.expect(hamza_cell_glyphs >= 2);
+
+    try testing.expectEqual(@as(?font.shape.TextRun, null), try it.next(alloc));
+}
+
+test "shape arabic end tashkeel no overlap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("بحقِّ");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expect(run.rtl);
+    try testing.expectEqual(@as(u16, 3), run.cells);
+
+    var qaf_cluster: ?u32 = null;
+    var kasra_cluster: ?u32 = null;
+    var shadda_cluster: ?u32 = null;
+    var ha_cluster: ?u32 = null;
+    for (shaper.run_state.codepoints.items) |entry| {
+        if (entry.codepoint == 0) continue;
+        if (entry.codepoint == 0x0642 and qaf_cluster == null) qaf_cluster = entry.cluster;
+        if (entry.codepoint == 0x0650 and kasra_cluster == null) kasra_cluster = entry.cluster;
+        if (entry.codepoint == 0x0651 and shadda_cluster == null) shadda_cluster = entry.cluster;
+        if (entry.codepoint == 0x062D and ha_cluster == null) ha_cluster = entry.cluster;
+    }
+    try testing.expect(qaf_cluster != null);
+    try testing.expect(kasra_cluster != null);
+    try testing.expect(shadda_cluster != null);
+    try testing.expect(ha_cluster != null);
+    try testing.expectEqual(qaf_cluster.?, kasra_cluster.?);
+    try testing.expectEqual(qaf_cluster.?, shadda_cluster.?);
+    try testing.expect(qaf_cluster.? != ha_cluster.?);
+
+    const cells = try shaper.shape(run);
+    try testing.expect(cells.len > 0);
+
+    var prev_x: u16 = cells[0].x;
+    for (cells[1..]) |cell| {
+        try testing.expect(cell.x >= prev_x);
+        prev_x = cell.x;
+    }
+
+    var seen = [_]bool{ false, false, false };
+    var qaf_cell_glyphs: usize = 0;
+    for (cells) |cell| {
+        try testing.expect(cell.x < run.cells);
+        seen[cell.x] = true;
+        if (cell.x == qaf_cluster.?) qaf_cell_glyphs += 1;
+    }
+    try testing.expect(seen[0]);
+    try testing.expect(seen[1]);
+    try testing.expect(seen[2]);
+    try testing.expect(qaf_cell_glyphs >= 2);
+
+    try testing.expectEqual(@as(?font.shape.TextRun, null), try it.next(alloc));
+}
+
+test "shape arabic end tanween no overlap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("عينٍ");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expect(run.rtl);
+    try testing.expectEqual(@as(u16, 3), run.cells);
+
+    var nun_cluster: ?u32 = null;
+    var tanween_cluster: ?u32 = null;
+    var ya_cluster: ?u32 = null;
+    for (shaper.run_state.codepoints.items) |entry| {
+        if (entry.codepoint == 0) continue;
+        if (entry.codepoint == 0x0646 and nun_cluster == null) nun_cluster = entry.cluster;
+        if (entry.codepoint == 0x064D and tanween_cluster == null) tanween_cluster = entry.cluster;
+        if (entry.codepoint == 0x064A and ya_cluster == null) ya_cluster = entry.cluster;
+    }
+    try testing.expect(nun_cluster != null);
+    try testing.expect(tanween_cluster != null);
+    try testing.expect(ya_cluster != null);
+    try testing.expectEqual(nun_cluster.?, tanween_cluster.?);
+    try testing.expect(nun_cluster.? != ya_cluster.?);
+
+    const cells = try shaper.shape(run);
+    try testing.expect(cells.len > 0);
+
+    var prev_x: u16 = cells[0].x;
+    for (cells[1..]) |cell| {
+        try testing.expect(cell.x >= prev_x);
+        prev_x = cell.x;
+    }
+
+    var seen = [_]bool{ false, false, false };
+    var nun_cell_glyphs: usize = 0;
+    for (cells) |cell| {
+        try testing.expect(cell.x < run.cells);
+        seen[cell.x] = true;
+        if (cell.x == nun_cluster.?) nun_cell_glyphs += 1;
+    }
+    try testing.expect(seen[0]);
+    try testing.expect(seen[1]);
+    try testing.expect(seen[2]);
+    try testing.expect(nun_cell_glyphs >= 2);
+
+    try testing.expectEqual(@as(?font.shape.TextRun, null), try it.next(alloc));
+}
+
+test "shape arabic multiword end tashkeel stays anchored" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("الحيِّ الذي");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expect(run.rtl);
+
+    var kasra_cluster: ?u32 = null;
+    var shadda_cluster: ?u32 = null;
+    for (shaper.run_state.codepoints.items) |entry| {
+        if (entry.codepoint == 0) continue;
+        if (entry.codepoint == 0x0650 and kasra_cluster == null) kasra_cluster = entry.cluster;
+        if (entry.codepoint == 0x0651 and shadda_cluster == null) shadda_cluster = entry.cluster;
+    }
+    try testing.expect(kasra_cluster != null);
+    try testing.expect(shadda_cluster != null);
+    try testing.expectEqual(kasra_cluster.?, shadda_cluster.?);
+    const ya_cluster = kasra_cluster.?;
+
+    var ha_cluster: ?u32 = null;
+    for (shaper.run_state.codepoints.items) |entry| {
+        if (entry.codepoint == 0) continue;
+        if (entry.codepoint == 0x062D and ha_cluster == null) ha_cluster = entry.cluster;
+    }
+    try testing.expect(ha_cluster != null);
+    try testing.expect(ha_cluster.? != ya_cluster);
+
+    const cells = try shaper.shape(run);
+    try testing.expect(cells.len > 0);
+
+    var prev_x: u16 = cells[0].x;
+    var saw_ha = false;
+    var saw_ya = false;
+    var ya_base_near_zero = false;
+    for (cells) |cell| {
+        try testing.expect(cell.x < run.cells);
+        try testing.expect(cell.x >= prev_x);
+        prev_x = cell.x;
+
+        const xoff: i32 = cell.x_offset;
+        try testing.expect(@abs(xoff) < 200);
+        if (cell.x == ha_cluster.?) saw_ha = true;
+        if (cell.x == ya_cluster) {
+            saw_ya = true;
+            if (@abs(xoff) <= 5 and @abs(@as(i32, cell.y_offset)) <= 5) {
+                ya_base_near_zero = true;
+            }
+        }
+    }
+    try testing.expect(saw_ha);
+    try testing.expect(saw_ya);
+    try testing.expect(ya_base_near_zero);
 
     try testing.expectEqual(@as(?font.shape.TextRun, null), try it.next(alloc));
 }
