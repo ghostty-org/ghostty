@@ -60,6 +60,8 @@ pub const RunIterator = struct {
     // Visual cursor within the trimmed row.
     i: usize = 0,
     // Cached row layout derived once per iterator.
+    // visual_runs is a slice owned by the scratch buffer from bidiLayoutScratch();
+    // it remains valid as long as the scratch is not reused (i.e. within a single frame).
     layout_ready: bool = false,
     max: usize = 0,
     visual_runs: []const VisualRun = &.{},
@@ -191,40 +193,13 @@ pub const RunIterator = struct {
                     }
                 }
 
-                // We need to find a font that supports this character.
-                const font_info: struct {
-                    idx: font.Collection.Index,
-                    fallback: ?u32 = null,
-                } = font_info: {
-                    if (try self.indexForCell(
-                        alloc,
-                        cell,
-                        graphemes[logical_j],
-                        run_font_style,
-                        presentation,
-                    )) |idx| break :font_info .{ .idx = idx };
-
-                    // Otherwise we need a fallback character. Prefer the
-                    // official replacement character.
-                    if (try self.opts.grid.getIndex(
-                        alloc,
-                        0xFFFD, // replacement char
-                        run_font_style,
-                        presentation,
-                    )) |idx| break :font_info .{ .idx = idx, .fallback = 0xFFFD };
-
-                    // Fallback to space.
-                    if (try self.opts.grid.getIndex(
-                        alloc,
-                        ' ',
-                        run_font_style,
-                        presentation,
-                    )) |idx| break :font_info .{ .idx = idx, .fallback = ' ' };
-
-                    // We can't render at all. This is a bug, we should always
-                    // have a font that can render a space.
-                    unreachable;
-                };
+                const font_info = try self.resolveFontInfo(
+                    alloc,
+                    cell,
+                    graphemes[logical_j],
+                    run_font_style,
+                    presentation,
+                );
 
                 if (!have_font) {
                     current_font = font_info.idx;
@@ -281,34 +256,13 @@ pub const RunIterator = struct {
 
                 const presentation = presentationForCell(cell, graphemes[logical_j]);
 
-                const font_info: struct {
-                    idx: font.Collection.Index,
-                    fallback: ?u32 = null,
-                } = font_info: {
-                    if (try self.indexForCell(
-                        alloc,
-                        cell,
-                        graphemes[logical_j],
-                        run_font_style,
-                        presentation,
-                    )) |idx| break :font_info .{ .idx = idx };
-
-                    if (try self.opts.grid.getIndex(
-                        alloc,
-                        0xFFFD, // replacement char
-                        run_font_style,
-                        presentation,
-                    )) |idx| break :font_info .{ .idx = idx, .fallback = 0xFFFD };
-
-                    if (try self.opts.grid.getIndex(
-                        alloc,
-                        ' ',
-                        run_font_style,
-                        presentation,
-                    )) |idx| break :font_info .{ .idx = idx, .fallback = ' ' };
-
-                    unreachable;
-                };
+                const font_info = try self.resolveFontInfo(
+                    alloc,
+                    cell,
+                    graphemes[logical_j],
+                    run_font_style,
+                    presentation,
+                );
 
                 if (font_info.idx != current_font) {
                     const cp = cell.codepoint();
@@ -495,6 +449,37 @@ pub const RunIterator = struct {
         }
 
         return null;
+    }
+
+    const FontInfo = struct {
+        idx: font.Collection.Index,
+        fallback: ?u32 = null,
+    };
+
+    /// Resolve which font to use for a cell, falling back to the replacement
+    /// character or space if the cell's glyph is unavailable.
+    fn resolveFontInfo(
+        self: *RunIterator,
+        alloc: Allocator,
+        cell: *const terminal.Cell,
+        graphemes: []const u21,
+        style: font.Style,
+        presentation: ?font.Presentation,
+    ) !FontInfo {
+        if (try self.indexForCell(alloc, cell, graphemes, style, presentation)) |idx|
+            return .{ .idx = idx };
+
+        // Prefer the official replacement character.
+        if (try self.opts.grid.getIndex(alloc, 0xFFFD, style, presentation)) |idx|
+            return .{ .idx = idx, .fallback = 0xFFFD };
+
+        // Fallback to space.
+        if (try self.opts.grid.getIndex(alloc, ' ', style, presentation)) |idx|
+            return .{ .idx = idx, .fallback = ' ' };
+
+        // We can't render at all. This is a bug, we should always
+        // have a font that can render a space.
+        unreachable;
     }
 };
 
