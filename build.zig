@@ -54,11 +54,11 @@ pub fn build(b: *std.Build) !void {
         "update-translations",
         "Update translation files",
     );
-
     const terminfo_step = b.step(
         "terminfo",
         "Build Ghostty terminfo source files",
     );
+
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
