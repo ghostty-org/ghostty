@@ -555,12 +555,6 @@ pub const Viewer = struct {
             // track this but acknowledge the notification to avoid warnings.
             .session_window_changed => {},
 
-            // A window was closed or a session-window link changed.
-            // These are currently no-ops; proper handling is pending
-            // viewer correctness work.
-            .window_close => {},
-            .session_window_changed => {},
-
             // This is for other clients, which we don't do anything about.
             // For us, we'll get `exit` or `session_changed`, respectively.
             .client_detached,
@@ -679,7 +673,7 @@ pub const Viewer = struct {
 
         // Replace the old name with the new one.
         if (window.name.len > 0) self.alloc.free(window.name);
-        window.name = try self.alloc.dupe(u8, new_name);
+        window.name = if (new_name.len > 0) try self.alloc.dupe(u8, new_name) else "";
 
         // Notify the caller that windows changed so it can refresh.
         var arena = self.action_arena.promote(self.alloc);
@@ -988,7 +982,7 @@ pub const Viewer = struct {
                 .height = data.window_height,
                 .layout_arena = arena.state,
                 .layout = layout,
-                .name = try self.alloc.dupe(u8, data.window_name),
+                .name = if (data.window_name.len > 0) try self.alloc.dupe(u8, data.window_name) else "",
             });
         }
 
@@ -1236,6 +1230,13 @@ pub const Viewer = struct {
         // Swap in persistent parser state from the pane.
         stream.parser = pane.vt_parser;
         stream.utf8decoder = pane.vt_utf8decoder;
+        // Restore the OSC allocator: pane.vt_parser was created via
+        // VTParser.init() which sets osc_parser.alloc to null. The
+        // stream created above by vtStream/initAlloc had a valid
+        // allocator, but we just overwrote the parser. Without this,
+        // OSC sequences in %output (window titles, semantic prompts)
+        // are silently dropped.
+        stream.parser.osc_parser.alloc = self.alloc;
         defer {
             // DCS/OSC/APC sequences within %output data that span to
             // the end of a message are passthrough sequences meant for
@@ -1614,7 +1615,7 @@ const Format = struct {
             .window_id,
             .window_width,
             .window_height,
-            .window_name,
+            .window_name, // Must not contain the delimiter (';').
             .window_layout,
         },
     };
@@ -2978,4 +2979,115 @@ test "exit notification in command_queue state" {
             }).check,
         },
     });
+}
+
+test "OSC sequences in output are processed with allocator" {
+    // Regression test: pane.vt_parser was initialized via VTParser.init()
+    // which sets osc_parser.alloc to null. When receivedOutput() swaps
+    // this parser into the stream, multi-field OSC sequences (which need
+    // the allocator to set up their writer) were silently discarded.
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Standard initialization
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 0,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
+        },
+        // Single pane layout (100x50, pane 0)
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0;@0;100;50;bash;ac7d,100x50,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+        },
+        // Drain capture-pane (4) + pane_state (1)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // Send OSC 4 (set palette color 0 to red) via %output.
+        // OSC 4 requires the allocator for its multi-field parsing.
+        // Without the allocator fix, ensureAllocator() returns false
+        // and the sequence is silently discarded.
+        .{
+            .input = .{ .tmux = .{ .output = .{ .pane_id = 0, .data = "\x1b]4;0;rgb:ff/00/00\x07" } } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const t: *Terminal = &pane.terminal;
+                    try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[0].r);
+                    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].g);
+                    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].b);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "empty window name does not leak on deinit" {
+    // Regression test: receivedListWindows() called alloc.dupe(u8, "")
+    // for empty window names, producing a zero-length allocated slice.
+    // Window.deinit() guards free with `if (name.len > 0)`, so the
+    // allocation was never freed. Now we store "" literal when empty.
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 0,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
+        },
+        // Window with empty name (field between the two ';' delimiters is empty)
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0;@0;100;50;;ac7d,100x50,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, v.windows.items.len);
+                    try testing.expectEqualStrings("", v.windows.items[0].name);
+                }
+            }).check,
+        },
+        // Drain capture-pane (4) + pane_state (1)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+    // If the empty name was incorrectly duped, testing.allocator
+    // will report a memory leak and fail this test.
 }
