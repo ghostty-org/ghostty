@@ -167,6 +167,8 @@ pub const Variable = enum {
     /// encodes pane dimensions as `WxH,X,Y[,ID]` with `{...}` for horizontal
     /// splits and `[...]` for vertical splits.
     window_layout,
+    /// Name of the window (e.g., "bash", "vim").
+    window_name,
     /// Pane wrap flag.
     wrap_flag,
 
@@ -217,6 +219,7 @@ pub const Variable = enum {
             .pane_tabs,
             .version,
             .window_layout,
+            .window_name,
             => value,
         };
     }
@@ -258,6 +261,7 @@ pub const Variable = enum {
             .pane_tabs,
             .version,
             .window_layout,
+            .window_name,
             => []const u8,
         };
     }
@@ -350,6 +354,13 @@ test "parse window layout" {
     try testing.expectEqualStrings("abc123", try Variable.parse(.window_layout, "abc123"));
     try testing.expectEqualStrings("", try Variable.parse(.window_layout, ""));
     try testing.expectEqualStrings("a]b,c{d}e(f)", try Variable.parse(.window_layout, "a]b,c{d}e(f)"));
+}
+
+test "parse window_name" {
+    try testing.expectEqualStrings("bash", try Variable.parse(.window_name, "bash"));
+    try testing.expectEqualStrings("vim", try Variable.parse(.window_name, "vim"));
+    try testing.expectEqualStrings("", try Variable.parse(.window_name, ""));
+    try testing.expectEqualStrings("my window", try Variable.parse(.window_name, "my window"));
 }
 
 test "parse cursor_flag" {
