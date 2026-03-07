@@ -68,10 +68,19 @@ pub const Parser = struct {
                 isOctalDigit(data[read + 2]) and
                 isOctalDigit(data[read + 3]))
             {
-                data[write] = (@as(u8, data[read + 1] - '0') << 6) |
-                    (@as(u8, data[read + 2] - '0') << 3) |
+                // Compute the octal value using u16 to avoid overflow.
+                // Values above 255 (\400+) cannot represent a byte, so
+                // treat them as literal characters.
+                const val: u16 = (@as(u16, data[read + 1] - '0') << 6) |
+                    (@as(u16, data[read + 2] - '0') << 3) |
                     (data[read + 3] - '0');
-                read += 4;
+                if (val <= std.math.maxInt(u8)) {
+                    data[write] = @intCast(val);
+                    read += 4;
+                } else {
+                    data[write] = data[read];
+                    read += 1;
+                }
             } else {
                 data[write] = data[read];
                 read += 1;
@@ -915,6 +924,21 @@ test "unescape octal: backslash with non-octal digits" {
     try std.testing.expectEqualStrings("\\899", result);
 }
 
+test "unescape octal: value exceeding u8 treated as literal" {
+    // \400 = 256 which overflows u8, should pass through as literal
+    var data = "\\400".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqualStrings("\\400", result);
+}
+
+test "unescape octal: max u8 value" {
+    // \377 = 255, the maximum valid byte value
+    var data = "\\377".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(u8, 0xFF), result[0]);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+}
+
 test "tmux output with octal escapes" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1047,6 +1071,19 @@ test "tmux exit notification" {
     var c: Parser = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%exit") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
+}
+
+test "tmux exit notification with reason" {
+    // tmux sends "%exit lost-server" when the server dies.
+    // The reason string is ignored but must not break parsing.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%exit lost-server") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .exit);
 }

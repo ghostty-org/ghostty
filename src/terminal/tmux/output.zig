@@ -356,7 +356,7 @@ test "parse window layout" {
     try testing.expectEqualStrings("a]b,c{d}e(f)", try Variable.parse(.window_layout, "a]b,c{d}e(f)"));
 }
 
-test "parse window_name" {
+test "parse window name" {
     try testing.expectEqualStrings("bash", try Variable.parse(.window_name, "bash"));
     try testing.expectEqualStrings("vim", try Variable.parse(.window_name, "vim"));
     try testing.expectEqualStrings("", try Variable.parse(.window_name, ""));
