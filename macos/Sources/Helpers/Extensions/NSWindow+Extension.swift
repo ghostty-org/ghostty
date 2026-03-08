@@ -105,3 +105,20 @@ extension NSWindow {
         tabButtonHit(atScreenPoint: screenPoint)?.index
     }
 }
+
+// MARK: - Cascade
+
+extension NSWindow {
+    /// Return the value of `cascadeTopLeft(from: .zero)` and make sure the window will not move
+    func topLeftForNextWindow() -> CGPoint {
+        // The cascadeTopLeft call below should NOT move the window. Starting with
+        // macOS 15, we found that specifically when used with the new window snapping
+        // features of macOS 15, this WOULD move the frame. So we keep track of the
+        // old frame and restore it if necessary. Issue:
+        // https://github.com/ghostty-org/ghostty/issues/2565
+        let oldFrame = frame
+        let cascaded = cascadeTopLeft(from: .zero)
+        setFrame(oldFrame, display: true)
+        return cascaded
+    }
+}
