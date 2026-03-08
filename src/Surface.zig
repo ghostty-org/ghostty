@@ -3873,8 +3873,6 @@ pub fn mouseButtonCallback(
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
 
-    // log.debug("mouse action={} button={} mods={}", .{ action, button, mods });
-
     // If we have an inspector, we always queue a render
     if (self.inspector != null) {
         defer self.queueRender() catch {};
@@ -3889,18 +3887,48 @@ pub fn mouseButtonCallback(
     // Update our modifiers if they changed
     self.modsChanged(mods);
 
-    // This is set to true if the terminal is allowed to capture the shift
-    // modifier. Note we can do this more efficiently probably with less
-    // locking/unlocking but clicking isn't that frequent enough to be a
-    // bottleneck.
-    const shift_capture = self.mouseShiftCapture(true);
-
-    // Shift-click continues the previous mouse state if we have a selection.
-    // cursorPosCallback will also do a mouse report so we don't need to do any
-    // of the logic below.
+    // Shift capture only matters while an application is actively capturing
+    // mouse events. Otherwise, shift-click should remain available for local
+    // selection behavior.
+    const mouse_reporting = self.mouseCaptured();
+    const shift_capture = mouse_reporting and self.mouseShiftCapture(true);
+    // Shift-click from a prior single click anchors a new range selection.
+    // For existing selections, shift-click continues the previous mouse state.
     if (button == .left and action == .press) {
-        // We could do all the conditionals in one but I find it more
-        // readable as a human to break this one up.
+        if (mods.shift and
+            self.mouse.left_click_count == 1 and
+            self.mouse.left_click_pin != null and
+            !shift_capture)
+        single_shift_selection: {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            if (self.mouse.left_click_screen != t.screens.active_key) {
+                break :single_shift_selection;
+            }
+
+            const pos = try self.rt_surface.getCursorPos();
+            const pos_vp = self.posToViewport(pos.x, pos.y);
+            const screen: *terminal.Screen = t.screens.active;
+            const pin = screen.pages.pin(.{
+                .viewport = .{
+                    .x = pos_vp.x,
+                    .y = pos_vp.y,
+                },
+            }) orelse {
+                if (comptime std.debug.runtime_safety) unreachable;
+                break :single_shift_selection;
+            };
+
+            try self.queueRender();
+            try self.dragLeftClickSingle(pin, pos.x);
+            return true;
+        }
+
+        // For existing selections, the fallback shift-click path continues the
+        // previous mouse state. cursorPosCallback will also do a mouse report
+        // so we don't need to do any of the logic below.
         if (mods.shift and
             self.mouse.left_click_count > 0 and
             !shift_capture)
@@ -4886,14 +4914,15 @@ fn dragLeftClickSingle(
     drag_x: f64,
 ) !void {
     // This logic is in a separate function so that it can be unit tested.
-    try self.io.terminal.screens.active.select(mouseSelection(
+    const selection = mouseSelection(
         self.mouse.left_click_pin.?.*,
         drag_pin,
         @intFromFloat(@max(0.0, self.mouse.left_click_xpos)),
         @intFromFloat(@max(0.0, drag_x)),
         self.mouse.mods,
         self.size,
-    ));
+    );
+    try self.io.terminal.screens.active.select(selection);
 }
 
 /// Calculates the appropriate selection given pins and pixel x positions for
