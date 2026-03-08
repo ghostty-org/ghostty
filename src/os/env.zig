@@ -3,15 +3,39 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const isFlatpak = @import("flatpak.zig").isFlatpak;
+const global = @import("../global.zig");
 
 pub const Error = Allocator.Error;
 
 /// Get the environment map.
-pub fn getEnvMap(alloc: Allocator) !std.process.EnvMap {
-    return if (isFlatpak())
-        std.process.EnvMap.init(alloc)
-    else
-        try std.process.getEnvMap(alloc);
+pub fn getEnvMap(alloc: Allocator) Error!std.process.EnvMap {
+    var new: std.process.EnvMap = .init(alloc);
+    var it = global.state.environ_map.iterator();
+    while (it.next()) |kv| {
+        try new.put(kv.key_ptr.*, kv.value_ptr.*);
+    }
+    return new;
+}
+
+/// This is basically a clone of `std.process.EnvironMap.Map.createPosixBlock`
+/// from Zig 0.16. This can be removed once Ghostty is ported to Zig 0.16.
+pub fn createPosixBlock(alloc: Allocator) Error![:null]?[*:0]u8 {
+    var blk = try alloc.allocSentinel(?[*:0]u8, global.state.environ_map.count(), null);
+    var i: usize = 0;
+    errdefer {
+        for (0..i) |j| alloc.free(std.mem.span(blk[j].?));
+        alloc.free(blk);
+    }
+    var it = global.state.environ_map.iterator();
+    while (it.next()) |kv| : (i += 1) {
+        blk[i] = try std.fmt.allocPrintSentinel(
+            alloc,
+            "{s}={s}",
+            .{ kv.key_ptr.*, kv.value_ptr.* },
+            0,
+        );
+    }
+    return blk;
 }
 
 /// Append a value to an environment variable such as PATH.
@@ -62,65 +86,48 @@ pub fn prependEnv(
     });
 }
 
-/// The result of getenv, with a shared deinit to properly handle allocation
-/// on Windows.
-pub const GetEnvResult = struct {
-    value: []const u8,
-
-    pub fn deinit(self: GetEnvResult, alloc: Allocator) void {
-        switch (builtin.os.tag) {
-            .windows => alloc.free(self.value),
-            else => {},
-        }
-    }
-};
+/// Gets the value of an environment variable, or null if not found.
+/// The returned value should not be modified or freed.
+pub fn getenv(key: []const u8) ?[]const u8 {
+    return global.state.environ_map.get(key);
+}
 
 /// Gets the value of an environment variable, or null if not found.
-/// This will allocate on Windows but not on other platforms. The returned
-/// value should have deinit called to do the proper cleanup no matter what
-/// platform you are on.
-pub fn getenv(alloc: Allocator, key: []const u8) Error!?GetEnvResult {
-    return switch (builtin.os.tag) {
-        // Non-Windows doesn't need to allocate
-        else => if (posix.getenv(key)) |v| .{ .value = v } else null,
-
-        // Windows needs to allocate
-        .windows => if (std.process.getEnvVarOwned(alloc, key)) |v| .{
-            .value = v,
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => null,
-            error.InvalidWtf8 => null,
-            else => |e| e,
-        },
-    };
+/// The returned value is owned by the caller and must be freed.
+pub fn getenvOwned(alloc: Allocator, key: []const u8) Error!?[]const u8 {
+    return try alloc.dupe(u8, global.state.environ_map.get(key) orelse return null);
 }
 
 /// Gets the value of an environment variable. Returns null if not found or the
-/// value is empty. This will allocate on Windows but not on other platforms.
-/// The returned value should have deinit called to do the proper cleanup no
-/// matter what platform you are on.
-pub fn getenvNotEmpty(alloc: Allocator, key: []const u8) !?GetEnvResult {
-    const result_ = try getenv(alloc, key);
-    if (result_) |result| {
-        if (result.value.len == 0) {
-            result.deinit(alloc);
-            return null;
-        }
-    }
-    return result_;
+/// value is empty. The returned value should not be freed or modified.
+pub fn getenvNotEmpty(key: []const u8) ?[]const u8 {
+    const result = global.state.environ_map.get(key) orelse return null;
+    if (result.len == 0) return null;
+    return result;
 }
 
-pub fn setenv(key: [:0]const u8, value: [:0]const u8) c_int {
+pub fn setenv(key: []const u8, value: []const u8) c_int {
+    const keyZ = global.state.alloc.dupeZ(u8, key) catch return -1;
+    defer global.state.alloc.free(keyZ);
+
+    const valueZ = global.state.alloc.dupeZ(u8, value) catch return -1;
+    defer global.state.alloc.free(valueZ);
+
+    global.state.environ_map.put(key, value) catch return -1;
+
     return switch (builtin.os.tag) {
-        .windows => c._putenv_s(key.ptr, value.ptr),
-        else => c.setenv(key.ptr, value.ptr, 1),
+        .windows => c._putenv_s(keyZ.ptr, valueZ.ptr),
+        else => c.setenv(keyZ.ptr, valueZ.ptr, 1),
     };
 }
 
-pub fn unsetenv(key: [:0]const u8) c_int {
+pub fn unsetenv(key: []const u8) c_int {
+    const keyZ = global.state.alloc.dupeZ(u8, key) catch return -1;
+    defer global.state.alloc.free(keyZ);
+
     return switch (builtin.os.tag) {
-        .windows => c._putenv_s(key.ptr, ""),
-        else => c.unsetenv(key.ptr),
+        .windows => c._putenv_s(keyZ.ptr, ""),
+        else => c.unsetenv(keyZ.ptr),
     };
 }
 

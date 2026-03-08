@@ -6,7 +6,8 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const homedir = @import("homedir.zig");
-const env_os = @import("env.zig");
+const getenv = @import("env.zig").getenv;
+const getenvNotEmpty = @import("env.zig").getenvNotEmpty;
 
 pub const Options = struct {
     /// Subdirectories to join to the base. This avoids extra allocations
@@ -70,22 +71,21 @@ fn dir(
     // First check the env var. On Windows we have to allocate so this tracks
     // both whether we have the env var and whether we own it.
     // on Windows we treat `LOCALAPPDATA` as a fallback for `XDG_CONFIG_HOME`
-    const env_ = try env_os.getenvNotEmpty(alloc, internal_opts.env) orelse switch (builtin.os.tag) {
+    const env_ = getenvNotEmpty(internal_opts.env) orelse switch (builtin.os.tag) {
         else => null,
-        .windows => try env_os.getenvNotEmpty(alloc, internal_opts.windows_env),
+        .windows => getenvNotEmpty(internal_opts.windows_env),
     };
-    defer if (env_) |env| env.deinit(alloc);
 
     if (env_) |env| {
         // If we have a subdir, then we use the env as-is to avoid a copy.
         if (opts.subdir) |subdir| {
             return try std.fs.path.join(alloc, &[_][]const u8{
-                env.value,
+                env,
                 subdir,
             });
         }
 
-        return try alloc.dupe(u8, env.value);
+        return try alloc.dupe(u8, env);
     }
 
     // Get our home dir
@@ -134,6 +134,21 @@ test "cache directory paths" {
     const alloc = testing.allocator;
     const mock_home = "/Users/test";
 
+    // Partially initialize global state
+    const global = &@import("../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
+
     // Test when XDG_CACHE_HOME is not set
     {
         // Test base path
@@ -160,21 +175,6 @@ test "fallback when xdg env empty" {
 
     const alloc = std.testing.allocator;
 
-    const saved_home = home: {
-        const home = std.posix.getenv("HOME") orelse break :home null;
-        break :home try alloc.dupeZ(u8, home);
-    };
-    defer env: {
-        const home = saved_home orelse {
-            _ = env_os.unsetenv("HOME");
-            break :env;
-        };
-        _ = env_os.setenv("HOME", home);
-        std.testing.allocator.free(home);
-    }
-    const temp_home = "/tmp/ghostty-test-home";
-    _ = env_os.setenv("HOME", temp_home);
-
     const DirCase = struct {
         name: [:0]const u8,
         func: fn (Allocator, Options) anyerror![]u8,
@@ -188,19 +188,23 @@ test "fallback when xdg env empty" {
     };
 
     inline for (cases) |case| {
-        // Save and restore each environment variable
-        const saved_env = blk: {
-            const value = std.posix.getenv(case.name) orelse break :blk null;
-            break :blk try alloc.dupeZ(u8, value);
+        // Partially initialize global state
+        const global = &@import("../global.zig").state;
+        global.* = .{
+            .gpa = null,
+            .logging = undefined,
+            .resources_dir = undefined,
+            .action = null,
+            .alloc = alloc,
+            .environ_map = try std.process.getEnvMap(alloc),
         };
-        defer env: {
-            const value = saved_env orelse {
-                _ = env_os.unsetenv(case.name);
-                break :env;
-            };
-            _ = env_os.setenv(case.name, value);
-            alloc.free(value);
+        defer {
+            global.environ_map.deinit();
+            global.* = undefined;
         }
+
+        const temp_home = "/tmp/ghostty-test-home";
+        try global.environ_map.put("HOME", temp_home);
 
         const expected = try std.fs.path.join(alloc, &[_][]const u8{
             temp_home,
@@ -209,7 +213,8 @@ test "fallback when xdg env empty" {
         defer alloc.free(expected);
 
         // Test with empty string - should fallback to home
-        _ = env_os.setenv(case.name, "");
+        try global.environ_map.put(case.name, "");
+
         const actual = try case.func(alloc, .{});
         defer alloc.free(actual);
 
@@ -220,24 +225,7 @@ test "fallback when xdg env empty" {
 test "fallback when xdg env empty and subdir" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
-    const env = @import("env.zig");
     const alloc = std.testing.allocator;
-
-    const saved_home = home: {
-        const home = std.posix.getenv("HOME") orelse break :home null;
-        break :home try alloc.dupeZ(u8, home);
-    };
-    defer env: {
-        const home = saved_home orelse {
-            _ = env.unsetenv("HOME");
-            break :env;
-        };
-        _ = env.setenv("HOME", home);
-        std.testing.allocator.free(home);
-    }
-
-    const temp_home = "/tmp/ghostty-test-home";
-    _ = env.setenv("HOME", temp_home);
 
     const DirCase = struct {
         name: [:0]const u8,
@@ -252,19 +240,24 @@ test "fallback when xdg env empty and subdir" {
     };
 
     inline for (cases) |case| {
-        // Save and restore each environment variable
-        const saved_env = blk: {
-            const value = std.posix.getenv(case.name) orelse break :blk null;
-            break :blk try alloc.dupeZ(u8, value);
+        // Partially initialize global state
+        const global = &@import("../global.zig").state;
+        global.* = .{
+            .gpa = null,
+            .logging = undefined,
+            .resources_dir = undefined,
+            .action = null,
+            .alloc = alloc,
+            .environ_map = try std.process.getEnvMap(alloc),
         };
-        defer env: {
-            const value = saved_env orelse {
-                _ = env.unsetenv(case.name);
-                break :env;
-            };
-            _ = env.setenv(case.name, value);
-            alloc.free(value);
+        defer {
+            global.environ_map.deinit();
+            global.* = undefined;
         }
+
+        // Set a known home directory
+        const temp_home = "/tmp/ghostty-test-home";
+        try global.environ_map.put("HOME", temp_home);
 
         const expected = try std.fs.path.join(alloc, &[_][]const u8{
             temp_home,
@@ -274,7 +267,8 @@ test "fallback when xdg env empty and subdir" {
         defer alloc.free(expected);
 
         // Test with empty string - should fallback to home
-        _ = env.setenv(case.name, "");
+        try global.environ_map.put(case.name, "");
+
         const actual = try case.func(alloc, .{ .subdir = "ghostty" });
         defer alloc.free(actual);
 

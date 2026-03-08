@@ -33,6 +33,7 @@ pub const GlobalState = struct {
     action: ?cli.ghostty.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
+    environ_map: std.process.EnvMap,
 
     /// The app resources directory, equivalent to zig-out/share when we build
     /// from source. This is null if we can't detect it.
@@ -68,6 +69,7 @@ pub const GlobalState = struct {
             .logging = .{},
             .rlimits = .{},
             .resources_dir = .{},
+            .environ_map = undefined,
         };
         errdefer self.deinit();
 
@@ -95,6 +97,11 @@ pub const GlobalState = struct {
         else
             unreachable;
 
+        // Get a copy of the environment variables. This is in preparation for
+        // Zig 0.16 where environment variables are no longer accessible except
+        // from the "juicy main".
+        self.environ_map = try std.process.getEnvMap(self.alloc);
+
         // We first try to parse any action that we may be executing.
         self.action = try cli.action.detectArgs(
             cli.ghostty.Action,
@@ -111,9 +118,8 @@ pub const GlobalState = struct {
         // maybe once for logging) so for now this is an easy way to do
         // this. Env vars are useful for logging too because they are
         // easy to set.
-        if ((try internal_os.getenv(self.alloc, "GHOSTTY_LOG"))) |v| {
-            defer v.deinit(self.alloc);
-            self.logging = cli.args.parsePackedStruct(Logging, v.value) catch .{};
+        if ((internal_os.getenv("GHOSTTY_LOG"))) |v| {
+            self.logging = cli.args.parsePackedStruct(Logging, v) catch .{};
         }
 
         // Setup our signal handlers before logging
@@ -161,7 +167,7 @@ pub const GlobalState = struct {
 
         // We need to make sure the process locale is set properly. Locale
         // affects a lot of behaviors in a shell.
-        try internal_os.ensureLocale(self.alloc);
+        internal_os.ensureLocale();
 
         // Initialize glslang for shader compilation
         try glslang.init();
@@ -184,6 +190,7 @@ pub const GlobalState = struct {
     /// doing so in dev modes will check for memory leaks.
     pub fn deinit(self: *GlobalState) void {
         self.resources_dir.deinit(self.alloc);
+        self.environ_map.deinit();
 
         // Flush our crash logs
         crash.deinit();

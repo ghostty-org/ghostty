@@ -12,8 +12,9 @@ const wuffs = @import("wuffs");
 
 const temp_dir = struct {
     const TempDir = @import("../../os/TempDir.zig");
-    const allocTmpDir = @import("../../os/file.zig").allocTmpDir;
-    const freeTmpDir = @import("../../os/file.zig").freeTmpDir;
+    const getTmpDir = @import("../../os/file.zig").getTmpDir;
+
+    // const freeTmpDir = @import("../../os/file.zig").freeTmpDir;
 };
 
 const log = std.log.scoped(.kitty_gfx);
@@ -281,8 +282,7 @@ pub const LoadingImage = struct {
     fn isPathInTempDir(path: []const u8) bool {
         if (std.mem.startsWith(u8, path, "/tmp")) return true;
         if (std.mem.startsWith(u8, path, "/dev/shm")) return true;
-        if (temp_dir.allocTmpDir(std.heap.page_allocator)) |dir| {
-            defer temp_dir.freeTmpDir(std.heap.page_allocator, dir);
+        if (temp_dir.getTmpDir()) |dir| {
             if (std.mem.startsWith(u8, path, dir)) return true;
 
             // The temporary dir is sometimes a symlink. On macOS for

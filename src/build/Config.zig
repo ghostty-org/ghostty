@@ -11,7 +11,6 @@ const RendererBackend = @import("../renderer/backend.zig").Backend;
 const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
 const XCFrameworkTarget = @import("xcframework.zig").Target;
 const WasmTarget = @import("../os/wasm/target.zig").Target;
-const expandPath = @import("../os/path.zig").expand;
 
 const gtk = @import("gtk.zig");
 const GitVersion = @import("GitVersion.zig");
@@ -101,15 +100,11 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     // defaults.
     const gtk_targets = gtk.targets(b);
 
-    // We use env vars throughout the build so we grab them immediately here.
-    var env = try std.process.getEnvMap(b.allocator);
-    errdefer env.deinit();
-
     var config: Config = .{
         .optimize = optimize,
         .target = target,
         .wasm_target = wasm_target,
-        .env = env,
+        .env = b.graph.env_map,
     };
 
     //---------------------------------------------------------------
@@ -291,8 +286,8 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
 
         // If we're in a nix shell we default to doing this.
         // Note: we purposely never deinit envmap because we leak the strings
-        if (env.get("IN_NIX_SHELL") == null) break :patch_rpath null;
-        break :patch_rpath env.get("LD_LIBRARY_PATH");
+        if (b.graph.env_map.get("IN_NIX_SHELL") == null) break :patch_rpath null;
+        break :patch_rpath b.graph.env_map.get("LD_LIBRARY_PATH");
     };
 
     config.pie = b.option(
@@ -358,10 +353,8 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
-        const path = expandPath(b.allocator, "pandoc") catch
-            break :emit_docs false;
-        defer if (path) |p| b.allocator.free(p);
-        break :emit_docs path != null;
+        _ = b.findProgram(&.{"pandoc"}, &.{}) catch break :emit_docs false;
+        break :emit_docs true;
     };
 
     config.emit_terminfo = b.option(

@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const getenv = @import("env.zig").getenv;
+
 const log = std.log.scoped(.systemd);
 
 /// Returns true if the program was launched as a systemd service.
@@ -16,8 +18,8 @@ pub fn launchedBySystemd() bool {
             // `JOURNAL_STREAM` (v231+) environment variables. If these
             // environment variables are not present we were not launched by
             // systemd.
-            if (std.posix.getenv("INVOCATION_ID") == null) break :linux false;
-            if (std.posix.getenv("JOURNAL_STREAM") == null) break :linux false;
+            if (getenv("INVOCATION_ID") == null) break :linux false;
+            if (getenv("JOURNAL_STREAM") == null) break :linux false;
 
             // If `INVOCATION_ID` and `JOURNAL_STREAM` are present, check to make sure
             // that our parent process is actually `systemd`, not some other terminal
@@ -91,7 +93,7 @@ pub const notify = struct {
         if (comptime builtin.os.tag != .linux) return;
 
         // Get the socket address that should receive notifications.
-        const socket_path = std.posix.getenv("NOTIFY_SOCKET") orelse return;
+        const socket_path = getenv("NOTIFY_SOCKET") orelse return;
 
         // If the socket address is an empty string return.
         if (socket_path.len == 0) return;

@@ -1548,11 +1548,10 @@ fn execCommand(
 
                 // Note we don't free any of the memory below since it is
                 // allocated in the arena.
-                const windir = std.process.getEnvVarOwned(
-                    alloc,
+                const windir = internal_os.getenv(
                     "WINDIR",
-                ) catch |err| {
-                    log.warn("failed to get WINDIR, cannot run shell command err={}", .{err});
+                ) orelse {
+                    log.warn("failed to get WINDIR, cannot run shell command", .{});
                     return error.SystemError;
                 };
                 const cmd = try std.fs.path.joinZ(alloc, &[_][]const u8{

@@ -118,7 +118,7 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
 
 fn findNDKPath(b: *std.Build) ?[]const u8 {
     // Check if user has set the environment variable for the NDK path.
-    if (std.process.getEnvVarOwned(b.allocator, "ANDROID_NDK_HOME") catch null) |value| {
+    if (b.graph.env_map.get("ANDROID_NDK_HOME")) |value| {
         if (value.len == 0) return null;
         var dir = std.fs.openDirAbsolute(value, .{}) catch return null;
         defer dir.close();
@@ -127,7 +127,7 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
 
     // Check the common environment variables for the Android SDK path and look for the NDK inside it.
     inline for (.{ "ANDROID_HOME", "ANDROID_SDK_ROOT" }) |env| {
-        if (std.process.getEnvVarOwned(b.allocator, env) catch null) |sdk| {
+        if (b.graph.env_map.get(env)) |sdk| {
             if (sdk.len > 0) {
                 if (findLatestNDK(b, sdk)) |ndk| return ndk;
             }
@@ -135,10 +135,9 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
     }
 
     // As a fallback, we assume the most common/default SDK path based on the OS.
-    const home = std.process.getEnvVarOwned(
-        b.allocator,
+    const home = b.graph.env_map.get(
         if (builtin.os.tag == .windows) "LOCALAPPDATA" else "HOME",
-    ) catch return null;
+    ) orelse return null;
 
     const default_sdk_path = b.pathJoin(
         &.{

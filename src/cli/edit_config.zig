@@ -91,26 +91,13 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     }
 
     // Get our editor
-    const get_env_: ?internal_os.GetEnvResult = env: {
+    const editor = env: {
         // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
-        if (try internal_os.getenv(alloc, "VISUAL")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
-        }
+        if (internal_os.getenvNotEmpty("VISUAL")) |v| break :env v;
+        if (internal_os.getenvNotEmpty("EDITOR")) |v| break :env v;
 
-        if (try internal_os.getenv(alloc, "EDITOR")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
-        }
-
-        break :env null;
-    };
-    defer if (get_env_) |v| v.deinit(alloc);
-    const editor: []const u8 = if (get_env_) |v| v.value else "";
-
-    // If we don't have `$EDITOR` set then we can't do anything
-    // but we can still print a helpful message.
-    if (editor.len == 0) {
+        // If we don't have `$VISUAL` or `$EDITOR` set then we can't do anything
+        // but we can still print a helpful message.
         try stderr.print(
             \\The $EDITOR or $VISUAL environment variable is not set or is empty.
             \\This environment variable is required to edit the Ghostty configuration
@@ -122,34 +109,32 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
             \\If you prefer to edit the configuration file another way,
             \\you can find the configuration file at the following path:
             \\
+            \\{c}]8;;file://{s}{c}{c}{s}{c}]8;;{c}{c}
             \\
         ,
-            .{},
-        );
-
-        // Output the path using the OSC8 sequence so that it is linked.
-        try stderr.print(
-            "\x1b]8;;file://{s}\x1b\\{s}\x1b]8;;\x1b\\\n",
-            .{ path, path },
+            .{ '\x1b', path, '\x1b', '\\', path, '\x1b', '\x1b', '\\' },
         );
 
         return 1;
-    }
-
-    // We require libc because we want to use std.c.environ for envp
-    // and not have to build that ourselves. We can remove this
-    // limitation later but Ghostty already heavily requires libc
-    // so this is not a big deal.
-    comptime assert(builtin.link_libc);
+    };
 
     const editorZ = try alloc.dupeZ(u8, editor);
     defer alloc.free(editorZ);
+
     const pathZ = try alloc.dupeZ(u8, path);
     defer alloc.free(pathZ);
+
+    const env = try internal_os.createPosixBlock(alloc);
+    defer {
+        var i: usize = 0;
+        while (env[i]) |e| : (i += 1) alloc.free(std.mem.span(e));
+        alloc.free(env);
+    }
+
     const err = std.posix.execvpeZ(
         editorZ,
         &.{ editorZ, pathZ },
-        std.c.environ,
+        env,
     );
 
     // If we reached this point then exec failed.
@@ -161,8 +146,8 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
         \\correctly.
         \\
         \\Editor: {s}
-        \\Path: {s}
+        \\Path: {c}]8;;file://{s}{c}{c}{s}{c}]8;;{c}{c}
         \\
-    , .{ err, editor, path });
+    , .{ err, editor, '\x1b', path, '\x1b', '\\', path, '\x1b', '\x1b', '\\' });
     return 1;
 }

@@ -9,13 +9,12 @@ const i18n = internal_os.i18n;
 const log = std.log.scoped(.os_locale);
 
 /// Ensure that the locale is set.
-pub fn ensureLocale(alloc: std.mem.Allocator) !void {
+pub fn ensureLocale() void {
     assert(builtin.link_libc);
 
     // Get our LANG env var. We use this many times but we also need
     // the original value later.
-    const lang = try internal_os.getenv(alloc, "LANG");
-    defer if (lang) |v| v.deinit(alloc);
+    const lang = internal_os.getenv("LANG");
 
     // On macOS, pre-populate the LANG env var with system preferences.
     // When launching the .app, LANG is not set so we must query it from the
@@ -23,7 +22,7 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     // process.
     if (comptime builtin.target.os.tag.isDarwin()) {
         // Set the lang if it is not set or if its empty.
-        if (lang == null or lang.?.value.len == 0) {
+        if (lang == null or lang.?.len == 0) {
             setLangFromCocoa();
         }
     }
@@ -37,9 +36,8 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     // setlocale failed. This is probably because the LANG env var is
     // invalid. Try to set it without the LANG var set to use the system
     // default.
-    if ((try internal_os.getenv(alloc, "LANG"))) |old_lang| {
-        defer old_lang.deinit(alloc);
-        if (old_lang.value.len > 0) {
+    if ((internal_os.getenv("LANG"))) |old_lang| {
+        if (old_lang.len > 0) {
             // We don't need to do both of these things but we do them
             // both to be sure that lang is either empty or unset completely.
             _ = internal_os.setenv("LANG", "");

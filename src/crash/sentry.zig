@@ -118,7 +118,7 @@ fn initThread(gpa: Allocator) !void {
         // a more idiomatic macOS application. But if XDG env vars are set
         // we will respect them.
         if (comptime builtin.os.tag == .macos) macos: {
-            if (std.posix.getenv("XDG_CACHE_HOME") != null) break :macos;
+            if (internal_os.getenv("XDG_CACHE_HOME") != null) break :macos;
             break :cache_dir try internal_os.macos.cacheDir(
                 alloc,
                 "sentry",
