@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const itijah = @import("itijah");
 const font = @import("../main.zig");
 const Face = font.Face;
 const Collection = font.Collection;
@@ -25,6 +26,9 @@ pub const Shaper = struct {
 
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
+
+    /// Scratch reused for terminal bidi layout resolution.
+    bidi_layout_scratch: itijah.VisualLayoutScratch = .{},
 
     const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
     const CodepointList = std.ArrayListUnmanaged(Codepoint);
@@ -60,6 +64,7 @@ pub const Shaper = struct {
     pub fn deinit(self: *Shaper) void {
         self.cell_buf.deinit(self.alloc);
         self.run_state.deinit(self.alloc);
+        self.bidi_layout_scratch.deinit(self.alloc);
     }
 
     pub fn endFrame(self: *const Shaper) void {
@@ -134,6 +139,10 @@ pub const Shaper = struct {
 
         pub fn finalize(self: RunIteratorHook) !void {
             _ = self;
+        }
+
+        pub fn bidiLayoutScratch(self: RunIteratorHook) *itijah.VisualLayoutScratch {
+            return &self.shaper.bidi_layout_scratch;
         }
     };
 };
