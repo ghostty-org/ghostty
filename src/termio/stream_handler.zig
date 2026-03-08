@@ -50,6 +50,14 @@ pub const StreamHandler = struct {
     /// whoever owns StreamHandler.
     enquiry_response: []const u8,
 
+    /// Palette generation parameters, used to regenerate the extended
+    /// palette when foreground/background changes via OSC 4/10/11.
+    palette_generate: bool,
+    palette_harmonious: bool,
+
+    // When generating the palette, we avoid replacing manually set colors.
+    config_palette_mask: terminal.color.PaletteMask,
+
     /// The color reporting format for OSC requests.
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
 
@@ -107,6 +115,9 @@ pub const StreamHandler = struct {
 
     /// Change the configuration for this handler.
     pub fn changeConfig(self: *StreamHandler, config: *termio.DerivedConfig) void {
+        self.palette_generate = config.palette_generate;
+        self.palette_harmonious = config.palette_harmonious;
+        self.config_palette_mask = config.config_palette_mask;
         self.osc_color_report_format = config.osc_color_report_format;
         self.clipboard_write = config.clipboard_write;
         self.enquiry_response = config.enquiry_response;
@@ -1201,6 +1212,17 @@ pub const StreamHandler = struct {
         }
     }
 
+    fn regeneratePalette(self: *StreamHandler) void {
+        self.terminal.colors.palette.current = terminal.color.generate256Color(
+            self.terminal.colors.palette.current,
+            self.terminal.colors.palette.mask.unionWith(self.config_palette_mask),
+            self.terminal.colors.background.get() orelse return,
+            self.terminal.colors.foreground.get() orelse return,
+            self.palette_harmonious,
+        );
+        self.terminal.flags.dirty.palette = true;
+    }
+
     fn colorOperation(
         self: *StreamHandler,
         op: terminal.osc.color.Operation,
@@ -1221,6 +1243,11 @@ pub const StreamHandler = struct {
         const writer = response.writer(alloc);
 
         var it = requests.constIterator(0);
+
+        // If FG, BG, or one of the 6 primary/secondary normal colors change,
+        // we should regenerate the 256-color palette.
+        var should_regenerate_palette = false;
+
         while (it.next()) |req| {
             switch (req.*) {
                 .set => |set| {
@@ -1228,10 +1255,17 @@ pub const StreamHandler = struct {
                         .palette => |i| {
                             self.terminal.flags.dirty.palette = true;
                             self.terminal.colors.palette.set(i, set.color);
+                            should_regenerate_palette |= i > 0 and i < 7;
                         },
                         .dynamic => |dynamic| switch (dynamic) {
-                            .foreground => self.terminal.colors.foreground.set(set.color),
-                            .background => self.terminal.colors.background.set(set.color),
+                            .foreground => {
+                                self.terminal.colors.foreground.set(set.color);
+                                should_regenerate_palette = true;
+                            },
+                            .background => {
+                                self.terminal.colors.background.set(set.color);
+                                should_regenerate_palette = true;
+                            },
                             .cursor => self.terminal.colors.cursor.set(set.color),
                             .pointer_foreground,
                             .pointer_background,
@@ -1258,6 +1292,7 @@ pub const StreamHandler = struct {
                     .palette => |i| {
                         self.terminal.flags.dirty.palette = true;
                         self.terminal.colors.palette.reset(i);
+                        should_regenerate_palette |= i > 0 and i < 7;
 
                         self.surfaceMessageWriter(.{
                             .color_change = .{
@@ -1269,6 +1304,7 @@ pub const StreamHandler = struct {
                     .dynamic => |dynamic| switch (dynamic) {
                         .foreground => {
                             self.terminal.colors.foreground.reset();
+                            should_regenerate_palette = true;
 
                             if (self.terminal.colors.foreground.default) |c| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1279,6 +1315,7 @@ pub const StreamHandler = struct {
                         },
                         .background => {
                             self.terminal.colors.background.reset();
+                            should_regenerate_palette = true;
 
                             if (self.terminal.colors.background.default) |c| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1325,6 +1362,7 @@ pub const StreamHandler = struct {
                         });
                     }
                     mask.* = .initEmpty();
+                    should_regenerate_palette = false;
                 },
 
                 .reset_special => log.warn(
@@ -1413,6 +1451,20 @@ pub const StreamHandler = struct {
 
                     try writer.writeAll(terminator.string());
                 },
+            }
+        }
+
+        if (should_regenerate_palette and self.palette_generate) {
+            self.regeneratePalette();
+            const mask = &self.terminal.colors.palette.mask;
+            var mask_it = mask.iterator(.{ .kind = .unset });
+            while (mask_it.next()) |i| {
+                self.surfaceMessageWriter(.{
+                    .color_change = .{
+                        .target = .{ .palette = @intCast(i) },
+                        .color = self.terminal.colors.palette.current[i],
+                    },
+                });
             }
         }
 
