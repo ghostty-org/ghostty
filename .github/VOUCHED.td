@@ -80,6 +80,7 @@ jacobsandlund
 jake-stewart
 jcollie
 jguthmiller
+jmcgover
 johnslavik
 josephmart
 jparise
