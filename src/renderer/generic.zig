@@ -1642,6 +1642,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .uniforms = frame.uniforms.buffer,
                     .buffers = &.{ null, frame.cells_bg.buffer },
                     .draw = .{ .type = .triangle, .vertex_count = 3 },
+                    .is_cell_fill_pass = self.config.background_opacity_cells,
                 });
 
                 // Kitty images between cell backgrounds and text.

@@ -127,8 +127,13 @@ pub fn init(comptime VertexAttributes: ?type, opts: Options) !Self {
         if (at.blending_enabled) {
             attachment.setProperty("rgbBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
             attachment.setProperty("alphaBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
-            attachment.setProperty("sourceRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
-            attachment.setProperty("sourceAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
+            if (false) { // TODO: make this work with is_cell_fill_pass
+                attachment.setProperty("sourceRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
+                attachment.setProperty("sourceAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
+            } else {
+                attachment.setProperty("sourceRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.source_alpha));
+                attachment.setProperty("sourceAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.source_alpha));
+            }
             attachment.setProperty("destinationRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
             attachment.setProperty("destinationAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
         }

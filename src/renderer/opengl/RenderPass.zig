@@ -34,6 +34,7 @@ pub const Step = struct {
     textures: []const ?Texture = &.{},
     samplers: []const ?Sampler = &.{},
     draw: Draw,
+    is_cell_fill_pass: bool = false,
 
     /// Describes the draw call for this step.
     pub const Draw = struct {
@@ -121,11 +122,16 @@ pub fn step(self: *Self, s: Step) void {
         };
     }
 
-    if (s.pipeline.blending_enabled) {
-        gl.enable(gl.c.GL_BLEND) catch return;
-        gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch return;
+    if (!s.is_cell_fill_pass) {
+        if (s.pipeline.blending_enabled) {
+            gl.enable(gl.c.GL_BLEND) catch return;
+            gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch return;
+        } else {
+            gl.disable(gl.c.GL_BLEND) catch return;
+        }
     } else {
-        gl.disable(gl.c.GL_BLEND) catch return;
+        gl.enable(gl.c.GL_BLEND) catch return;
+        gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch return;
     }
 
     gl.drawArraysInstanced(

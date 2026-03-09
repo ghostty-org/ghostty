@@ -42,6 +42,7 @@ pub const Step = struct {
     /// of a fragment texture, set via setFragmentSamplerState(_:index:).
     samplers: []const ?Sampler = &.{},
     draw: Draw,
+    is_cell_fill_pass: bool = false,
 
     /// Describes the draw call for this step.
     pub const Draw = struct {
