@@ -143,6 +143,7 @@ rmunn
 rockorager
 rpfaeffle
 secrus
+seruman
 silveirapf
 slsrepo
 sunshine-syz
