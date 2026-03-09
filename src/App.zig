@@ -334,6 +334,31 @@ pub fn keyEventIsBinding(
     return rt_app.config.keybind.set.getEvent(event) != null;
 }
 
+/// Returns true if the given key event would trigger a global
+/// keybinding. This is used by the apprt to determine if a key
+/// event should be processed even when the app is focused, since
+/// global keybinds should work regardless of focus state.
+pub fn keyEventIsGlobalBinding(
+    self: *App,
+    rt_app: *apprt.App,
+    event: input.KeyEvent,
+) bool {
+    _ = self;
+
+    switch (event.action) {
+        .release => return false,
+        .press, .repeat => {},
+    }
+
+    const entry = rt_app.config.keybind.set.getEvent(event) orelse return false;
+    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
+        .leader => return false,
+        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
+    };
+
+    return leaf.flags.global;
+}
+
 /// Handle a key event at the app-scope. If this key event is used,
 /// this will return true and the caller shouldn't continue processing
 /// the event. If the event is not used, this will return false.

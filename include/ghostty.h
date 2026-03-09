@@ -1060,6 +1060,7 @@ void* ghostty_app_userdata(ghostty_app_t);
 void ghostty_app_set_focus(ghostty_app_t, bool);
 bool ghostty_app_key(ghostty_app_t, ghostty_input_key_s);
 bool ghostty_app_key_is_binding(ghostty_app_t, ghostty_input_key_s);
+bool ghostty_app_key_is_global_binding(ghostty_app_t, ghostty_input_key_s);
 void ghostty_app_keyboard_changed(ghostty_app_t);
 void ghostty_app_open_config(ghostty_app_t);
 void ghostty_app_update_config(ghostty_app_t, ghostty_config_t);

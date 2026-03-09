@@ -1466,6 +1466,21 @@ pub const CAPI = struct {
         return app.core_app.keyEventIsBinding(app, core_event);
     }
 
+    /// Returns true if the given key event would trigger a global
+    /// binding. Unlike ghostty_app_key_is_binding, this only matches
+    /// bindings with the global flag set.
+    export fn ghostty_app_key_is_global_binding(
+        app: *App,
+        event: KeyEvent,
+    ) bool {
+        const core_event = event.keyEvent().core() orelse {
+            log.warn("error processing key event", .{});
+            return false;
+        };
+
+        return app.core_app.keyEventIsGlobalBinding(app, core_event);
+    }
+
     /// Notify the app that the keyboard was changed. This causes the
     /// keyboard layout to be reloaded from the OS.
     export fn ghostty_app_keyboard_changed(v: *App) void {

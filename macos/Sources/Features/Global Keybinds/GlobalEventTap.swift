@@ -128,11 +128,6 @@ private func cgEventFlagsChangedHandler(
     // We only care about keydown events
     guard type == .keyDown else { return result }
 
-    // If our app is currently active then we don't process the key event.
-    // This is because we already have a local event handler in AppDelegate
-    // that processes all local events.
-    guard !NSApp.isActive else { return result }
-
     // We need an app delegate to get the Ghostty app instance
     guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return result }
     guard let ghostty = appDelegate.ghostty.app else { return result }
@@ -142,6 +137,17 @@ private func cgEventFlagsChangedHandler(
 
     // Build our event input and call ghostty
     let key_ev = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+
+    // If our app is currently active then we only process global keybinds.
+    // Non-global keybinds are handled by the local event handler in AppDelegate
+    // and the surface's key event handling. Global keybinds (e.g. toggle_visibility)
+    // must still be processed here because the local event handler skips processing
+    // when a main window exists, and the surface handler doesn't handle app-level
+    // global actions.
+    if NSApp.isActive {
+        guard ghostty_app_key_is_global_binding(ghostty, key_ev) else { return result }
+    }
+
     if ghostty_app_key(ghostty, key_ev) {
         GlobalEventTap.logger.info("global key event handled event=\(event)")
         return nil
