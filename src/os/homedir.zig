@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const passwd = @import("passwd.zig");
 const posix = std.posix;
 const objc = @import("objc");
+const getenv = @import("env.zig").getenv;
 
 const Error = error{
     /// The buffer used for output is not large enough to store the value.
@@ -25,7 +26,7 @@ pub inline fn home(buf: []u8) !?[]const u8 {
 
 fn homeUnix(buf: []u8) !?[]const u8 {
     // First: if we have a HOME env var, then we use that.
-    if (posix.getenv("HOME")) |result| {
+    if (getenv("HOME")) |result| {
         if (buf.len < result.len) return Error.BufferTooSmall;
         @memcpy(buf[0..result.len], result);
         return buf[0..result.len];
@@ -76,29 +77,18 @@ fn homeUnix(buf: []u8) !?[]const u8 {
     return null;
 }
 
-fn homeWindows(buf: []u8) !?[]const u8 {
+fn homeWindows(buf: []u8) Error!?[]const u8 {
     const drive_len = blk: {
-        var fba_instance = std.heap.FixedBufferAllocator.init(buf);
-        const fba = fba_instance.allocator();
-        const drive = std.process.getEnvVarOwned(fba, "HOMEDRIVE") catch |err| switch (err) {
-            error.OutOfMemory => return Error.BufferTooSmall,
-            error.InvalidWtf8, error.EnvironmentVariableNotFound => return null,
-        };
-        // could shift the contents if this ever happens
-        if (drive.ptr != buf.ptr) @panic("codebug");
+        const drive = getenv("HOMEDRIVE") orelse return null;
+        if (drive.len > buf.len) return error.BufferTooSmall;
+        @memcpy(buf[0..drive.len], drive);
         break :blk drive.len;
     };
 
     const path_len = blk: {
-        const path_buf = buf[drive_len..];
-        var fba_instance = std.heap.FixedBufferAllocator.init(buf[drive_len..]);
-        const fba = fba_instance.allocator();
-        const homepath = std.process.getEnvVarOwned(fba, "HOMEPATH") catch |err| switch (err) {
-            error.OutOfMemory => return Error.BufferTooSmall,
-            error.InvalidWtf8, error.EnvironmentVariableNotFound => return null,
-        };
-        // could shift the contents if this ever happens
-        if (homepath.ptr != path_buf.ptr) @panic("codebug");
+        const homepath = getenv("HOMEPATH") orelse return null;
+        if (drive_len + homepath.len > buf.len) return error.BufferTooSmall;
+        @memcpy(buf[drive_len .. drive_len + homepath.len], homepath);
         break :blk homepath.len;
     };
 
@@ -150,7 +140,23 @@ fn expandHomeUnix(path: []const u8, buf: []u8) ExpandError![]const u8 {
 
 test "expandHomeUnix" {
     const testing = std.testing;
-    const allocator = testing.allocator;
+    const alloc = testing.allocator;
+
+    // partially initialize global state
+    const global = &@import("../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
+
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const home_dir = try expandHomeUnix("~/", &buf);
     // Joining the home directory `~` with the path `/`
@@ -158,8 +164,8 @@ test "expandHomeUnix" {
     try testing.expect(home_dir[home_dir.len - 1] == std.fs.path.sep);
 
     const downloads = try expandHomeUnix("~/Downloads/shader.glsl", &buf);
-    const expected_downloads = try std.mem.concat(allocator, u8, &[_][]const u8{ home_dir, "Downloads/shader.glsl" });
-    defer allocator.free(expected_downloads);
+    const expected_downloads = try std.mem.concat(alloc, u8, &[_][]const u8{ home_dir, "Downloads/shader.glsl" });
+    defer alloc.free(expected_downloads);
     try testing.expectEqualStrings(expected_downloads, downloads);
 
     try testing.expectEqualStrings("~", try expandHomeUnix("~", &buf));
@@ -169,8 +175,8 @@ test "expandHomeUnix" {
 
     // Expect an error if the buffer is large enough to hold the home directory,
     // but not the expanded path
-    var small_buf = try allocator.alloc(u8, home_dir.len);
-    defer allocator.free(small_buf);
+    var small_buf = try alloc.alloc(u8, home_dir.len);
+    defer alloc.free(small_buf);
     try testing.expectError(error.BufferTooSmall, expandHomeUnix(
         "~/Downloads",
         small_buf[0..],
@@ -179,6 +185,22 @@ test "expandHomeUnix" {
 
 test {
     const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // partially initialize global state
+    const global = &@import("../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
 
     var buf: [1024]u8 = undefined;
     const result = try home(&buf);

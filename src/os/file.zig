@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const posix = std.posix;
 
+const getenv = @import("env.zig").getenv;
+
 const log = std.log.scoped(.os);
 
 pub const rlimit = if (@hasDecl(posix.system, "rlimit")) posix.rlimit else struct {};
@@ -53,27 +55,15 @@ pub fn restoreMaxFiles(lim: rlimit) void {
     posix.setrlimit(.NOFILE, lim) catch {};
 }
 
-/// Return the recommended path for temporary files.
-/// This may not actually allocate memory, use freeTmpDir to properly
-/// free the memory when applicable.
-pub fn allocTmpDir(allocator: std.mem.Allocator) ?[]const u8 {
+/// Return the recommended path for temporary files. The string
+/// should not be freed.
+pub fn getTmpDir() ?[]const u8 {
     if (builtin.os.tag == .windows) {
         // TODO: what is a good fallback path on windows?
-        const v = std.process.getenvW(std.unicode.utf8ToUtf16LeStringLiteral("TMP")) orelse return null;
-        return std.unicode.utf16LeToUtf8Alloc(allocator, v) catch |e| {
-            log.warn("failed to convert temp dir path from windows string: {}", .{e});
-            return null;
-        };
+        if (getenv("TMP")) |v| return v;
+        return null;
     }
-    if (posix.getenv("TMPDIR")) |v| return v;
-    if (posix.getenv("TMP")) |v| return v;
+    if (getenv("TMPDIR")) |v| return v;
+    if (getenv("TMP")) |v| return v;
     return "/tmp";
-}
-
-/// Free a path returned by tmpDir if it allocated memory.
-/// This is a "no-op" for all platforms except windows.
-pub fn freeTmpDir(allocator: std.mem.Allocator, dir: []const u8) void {
-    if (builtin.os.tag == .windows) {
-        allocator.free(dir);
-    }
 }

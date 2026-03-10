@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
+const getenv = @import("env.zig").getenv;
 
 /// Search for "cmd" in the PATH and return the absolute path. This will
 /// always allocate if there is a non-null result. The caller must free the
@@ -13,15 +14,7 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
         return try alloc.dupe(u8, cmd);
     }
 
-    const PATH = switch (builtin.os.tag) {
-        .windows => blk: {
-            const win_path = std.process.getenvW(std.unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse return null;
-            const path = try std.unicode.utf16LeToUtf8Alloc(alloc, win_path);
-            break :blk path;
-        },
-        else => std.posix.getenvZ("PATH") orelse return null,
-    };
-    defer if (builtin.os.tag == .windows) alloc.free(PATH);
+    const PATH = getenv("PATH") orelse return null;
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var it = std.mem.tokenizeScalar(u8, PATH, std.fs.path.delimiter);
@@ -71,6 +64,23 @@ fn isExecutable(mode: std.fs.File.Mode) bool {
 
 // `uname -n` is the *nix equivalent of `hostname.exe` on Windows
 test "expand: hostname" {
+    const alloc = std.testing.allocator;
+
+    // partially initialize global state
+    const global = &@import("../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
+
     const executable = if (builtin.os.tag == .windows) "hostname.exe" else "uname";
     const path = (try expand(testing.allocator, executable)).?;
     defer testing.allocator.free(path);
@@ -78,11 +88,45 @@ test "expand: hostname" {
 }
 
 test "expand: does not exist" {
+    const alloc = std.testing.allocator;
+
+    // partially initialize global state
+    const global = &@import("../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
+
     const path = try expand(testing.allocator, "thisreallyprobablydoesntexist123");
     try testing.expect(path == null);
 }
 
 test "expand: slash" {
+    const alloc = std.testing.allocator;
+
+    // partially initialize global state
+    const global = &@import("../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
+
     const path = (try expand(testing.allocator, "foo/env")).?;
     defer testing.allocator.free(path);
     try testing.expect(path.len == 7);

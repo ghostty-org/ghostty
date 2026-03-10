@@ -5,8 +5,8 @@ const TempDir = @This();
 const std = @import("std");
 const testing = std.testing;
 const Dir = std.fs.Dir;
-const allocTmpDir = @import("file.zig").allocTmpDir;
-const freeTmpDir = @import("file.zig").freeTmpDir;
+const getTmpDir = @import("file.zig").getTmpDir;
+// const freeTmpDir = @import("file.zig").freeTmpDir;
 
 const log = std.log.scoped(.tempdir);
 
@@ -31,8 +31,7 @@ pub fn init() !TempDir {
 
     const dir = dir: {
         const cwd = std.fs.cwd();
-        const tmp_dir = allocTmpDir(std.heap.page_allocator) orelse break :dir cwd;
-        defer freeTmpDir(std.heap.page_allocator, tmp_dir);
+        const tmp_dir = getTmpDir() orelse break :dir cwd;
         break :dir try cwd.openDir(tmp_dir, .{});
     };
 

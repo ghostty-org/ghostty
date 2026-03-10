@@ -341,13 +341,15 @@ pub const Window = struct {
         self.last_applied_decoration_hints = hints;
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) Allocator.Error!void {
         var buf: [64]u8 = undefined;
-        const window_id = try std.fmt.bufPrint(
+        const window_id = std.fmt.bufPrint(
             &buf,
             "{}",
             .{self.x11_surface.getXid()},
-        );
+        ) catch |err| switch (err) {
+            error.NoSpaceLeft => return error.OutOfMemory,
+        };
 
         try env.put("WINDOWID", window_id);
     }

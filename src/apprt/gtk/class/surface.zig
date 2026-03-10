@@ -1552,9 +1552,10 @@ pub const Surface = extern struct {
         return self.private().cursor_pos;
     }
 
-    pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
+    pub fn defaultTermioEnv(self: *Self) Allocator.Error!std.process.EnvMap {
         const app = Application.default();
         const alloc = app.allocator();
+
         var env = try internal_os.getEnvMap(alloc);
         errdefer env.deinit();
 

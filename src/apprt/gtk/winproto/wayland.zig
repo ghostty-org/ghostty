@@ -339,7 +339,7 @@ pub const Window = struct {
         };
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) error{}!void {
         _ = self;
         _ = env;
     }

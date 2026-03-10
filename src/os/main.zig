@@ -35,12 +35,13 @@ pub const uri = @import("uri.zig");
 // Functions and types
 pub const CFReleaseThread = @import("cf_release_thread.zig");
 pub const TempDir = @import("TempDir.zig");
-pub const GetEnvResult = env.GetEnvResult;
 pub const getEnvMap = env.getEnvMap;
+pub const createPosixBlock = env.createPosixBlock;
 pub const appendEnv = env.appendEnv;
 pub const appendEnvAlways = env.appendEnvAlways;
 pub const prependEnv = env.prependEnv;
 pub const getenv = env.getenv;
+pub const getenvNotEmpty = env.getenvNotEmpty;
 pub const setenv = env.setenv;
 pub const unsetenv = env.unsetenv;
 pub const launchedFromDesktop = desktop.launchedFromDesktop;

@@ -400,6 +400,21 @@ test "disk cache default path" {
     const testing = std.testing;
     const alloc = std.testing.allocator;
 
+    // Partially initialize global state
+    const global = &@import("../../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
+
     const path = try DiskCache.defaultPath(alloc, "ghostty");
     defer alloc.free(path);
     try testing.expect(path.len > 0);
@@ -408,6 +423,21 @@ test "disk cache default path" {
 test "disk cache clear" {
     const testing = std.testing;
     const alloc = testing.allocator;
+
+    // Partially initialize global state
+    const global = &@import("../../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
 
     // Create our path
     var tmp = testing.tmpDir(.{});
@@ -436,6 +466,21 @@ test "disk cache clear" {
 test "disk cache operations" {
     const testing = std.testing;
     const alloc = testing.allocator;
+
+    // Partially initialize global state
+    const global = &@import("../../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
 
     // Create our path
     var tmp = testing.tmpDir(.{});
@@ -484,6 +529,21 @@ test "disk cache operations" {
 test "disk cache cleans up temp files" {
     const testing = std.testing;
     const alloc = testing.allocator;
+
+    // Partially initialize global state
+    const global = &@import("../../global.zig").state;
+    global.* = .{
+        .gpa = null,
+        .logging = undefined,
+        .resources_dir = undefined,
+        .action = null,
+        .alloc = alloc,
+        .environ_map = try std.process.getEnvMap(alloc),
+    };
+    defer {
+        global.environ_map.deinit();
+        global.* = undefined;
+    }
 
     var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

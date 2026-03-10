@@ -4532,7 +4532,7 @@ pub fn finalize(self: *Config) !void {
                 // read from SHELL if we're in a probable CLI environment.
                 if (!probable_cli) break :shell_env;
 
-                if (std.process.getEnvVarOwned(alloc, "SHELL")) |value| {
+                if (internal_os.getenv("SHELL")) |value| {
                     log.info("default shell source=env value={s}", .{value});
 
                     const copy = try alloc.dupeZ(u8, value);
@@ -4540,7 +4540,7 @@ pub fn finalize(self: *Config) !void {
 
                     // If we don't need the working directory, then we can exit now.
                     if (!wd_home) break :command;
-                } else |_| {}
+                }
             }
 
             switch (builtin.os.tag) {
@@ -5041,9 +5041,7 @@ fn probableCliEnvironment() bool {
 
     // If we have TERM_PROGRAM set to a non-empty value, we assume
     // a graphical terminal environment.
-    if (std.posix.getenv("TERM_PROGRAM")) |v| {
-        if (v.len > 0) return true;
-    }
+    if (internal_os.getenvNotEmpty("TERM_PROGRAM")) |_| return true;
 
     // CLI arguments makes things probable
     if (std.os.argv.len > 1) return true;

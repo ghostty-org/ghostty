@@ -269,9 +269,8 @@ pub const Application = extern struct {
 
         const saved_language: ?[:0]const u8 = saved_language: {
             const old_language = old_language: {
-                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
-                defer result.deinit(alloc);
-                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+                const result = internal_os.getenv("LANG") orelse break :old_language null;
+                break :old_language alloc.dupeZ(u8, result) catch break :old_language null;
             };
 
             if (config.language) |language| _ = internal_os.setenv("LANG", language);

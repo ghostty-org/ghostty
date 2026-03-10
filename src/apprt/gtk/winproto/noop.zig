@@ -69,7 +69,7 @@ pub const Window = struct {
         return true;
     }
 
-    pub fn addSubprocessEnv(_: *Window, _: *std.process.EnvMap) !void {}
+    pub fn addSubprocessEnv(_: *Window, _: *std.process.EnvMap) error{}!void {}
 
     pub fn setUrgent(_: *Window, _: bool) !void {}
 };
