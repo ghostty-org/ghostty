@@ -725,6 +725,11 @@ test "Command: redirect stdout to file" {
         .path = "C:\\Windows\\System32\\whoami.exe",
         .args = &.{"C:\\Windows\\System32\\whoami.exe"},
         .stdout = stdout,
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     } else .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-c", "echo hello" },

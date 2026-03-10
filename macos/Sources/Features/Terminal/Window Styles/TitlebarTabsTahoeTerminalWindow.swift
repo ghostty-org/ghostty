@@ -90,6 +90,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             return
         }
 
+        guard !tabTitleEditor.handleRightMouseDown(event) else {
+            return
+        }
+
         let locationInTabBar = tabBarView.convert(event.locationInWindow, from: nil)
         guard tabBarView.bounds.contains(locationInTabBar) else {
             super.sendEvent(event)

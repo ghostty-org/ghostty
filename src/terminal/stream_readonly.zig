@@ -988,3 +988,19 @@ test "semantic prompt end_prompt_start_input_terminate_eol clears on linefeed" {
     try s.nextSlice("\n");
     try testing.expectEqual(.output, t.screens.active.cursor.semantic_content);
 }
+
+test "stream: CSI W with intermediate but no params" {
+    // Regression test from AFL++ crash. CSI ? W without
+    // parameters caused an out-of-bounds access on input.params[0].
+    var t: Terminal = try .init(testing.allocator, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback = 100,
+    });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    try s.nextSlice("\x1b[?W");
+}

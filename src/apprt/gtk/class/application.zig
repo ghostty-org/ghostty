@@ -22,6 +22,7 @@ const xev = @import("../../../global.zig").xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
+const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
@@ -709,6 +710,7 @@ pub const Application = extern struct {
                     .app => null,
                     .surface => |v| v,
                 },
+                .none,
             ),
 
             .open_config => return Action.openConfig(self),
@@ -1669,17 +1671,30 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         log.debug("received new window action", .{});
 
-        parameter: {
+        var arena: std.heap.ArenaAllocator = .init(Application.default().allocator());
+        defer arena.deinit();
+
+        const alloc = arena.allocator();
+
+        var working_directory: ?[:0]const u8 = null;
+        var title: ?[:0]const u8 = null;
+        var command: ?configpkg.Command = null;
+        var args: std.ArrayList([:0]const u8) = .empty;
+
+        overrides: {
             // were we given a parameter?
-            const parameter = parameter_ orelse break :parameter;
+            const parameter = parameter_ orelse break :overrides;
 
             const as_variant_type = glib.VariantType.new("as");
             defer as_variant_type.free();
 
             // ensure that the supplied parameter is an array of strings
             if (glib.Variant.isOfType(parameter, as_variant_type) == 0) {
-                log.warn("parameter is of type {s}", .{parameter.getTypeString()});
-                break :parameter;
+                log.warn("parameter is of type '{s}', not '{s}'", .{
+                    parameter.getTypeString(),
+                    as_variant_type.peekString()[0..as_variant_type.getStringLength()],
+                });
+                break :overrides;
             }
 
             const s_variant_type = glib.VariantType.new("s");
@@ -1688,7 +1703,10 @@ pub const Application = extern struct {
             var it: glib.VariantIter = undefined;
             _ = it.init(parameter);
 
-            while (it.nextValue()) |value| {
+            var e_seen: bool = false;
+            var i: usize = 0;
+
+            while (it.nextValue()) |value| : (i += 1) {
                 defer value.unref();
 
                 // just to be sure
@@ -1698,13 +1716,64 @@ pub const Application = extern struct {
                 const buf = value.getString(&len);
                 const str = buf[0..len];
 
-                log.debug("new-window command argument: {s}", .{str});
+                log.debug("new-window argument: {d} {s}", .{ i, str });
+
+                if (e_seen) {
+                    const cpy = alloc.dupeZ(u8, str) catch |err| {
+                        log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
+                        break :overrides;
+                    };
+                    args.append(alloc, cpy) catch |err| {
+                        log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
+                        break :overrides;
+                    };
+                    continue;
+                }
+
+                if (std.mem.eql(u8, str, "-e")) {
+                    e_seen = true;
+                    continue;
+                }
+
+                if (lib.cutPrefix(u8, str, "--command=")) |v| {
+                    var cmd: configpkg.Command = undefined;
+                    cmd.parseCLI(alloc, v) catch |err| {
+                        log.warn("unable to parse command: {t}", .{err});
+                        continue;
+                    };
+                    command = cmd;
+                    continue;
+                }
+                if (lib.cutPrefix(u8, str, "--working-directory=")) |v| {
+                    working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
+                        log.warn("unable to duplicate working directory: {t}", .{err});
+                        break :wd null;
+                    };
+                    continue;
+                }
+                if (lib.cutPrefix(u8, str, "--title=")) |v| {
+                    title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
+                        log.warn("unable to duplicate title: {t}", .{err});
+                        break :t null;
+                    };
+                    continue;
+                }
             }
         }
 
-        _ = self.core().mailbox.push(.{
-            .new_window = .{},
-        }, .{ .forever = {} });
+        if (args.items.len > 0) {
+            command = .{
+                .direct = args.items,
+            };
+        }
+
+        Action.newWindow(self, null, .{
+            .command = command,
+            .working_directory = working_directory,
+            .title = title,
+        }) catch |err| {
+            log.warn("unable to create new window: {t}", .{err});
+        };
     }
 
     pub fn actionOpenConfig(
@@ -2151,6 +2220,13 @@ const Action = struct {
     pub fn newWindow(
         self: *Application,
         parent: ?*CoreSurface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
     ) !void {
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
@@ -2159,14 +2235,32 @@ const Action = struct {
         // was a delay in the event loop before we created a Window.
         self.private().requested_window = true;
 
-        const win = Window.new(self);
-        initAndShowWindow(self, win, parent);
+        const win = Window.new(self, .{
+            .title = overrides.title,
+        });
+        initAndShowWindow(
+            self,
+            win,
+            parent,
+            .{
+                .command = overrides.command,
+                .working_directory = overrides.working_directory,
+                .title = overrides.title,
+            },
+        );
     }
 
     fn initAndShowWindow(
         self: *Application,
         win: *Window,
         parent: ?*CoreSurface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
     ) void {
         // Setup a binding so that whenever our config changes so does the
         // window. There's never a time when the window config should be out
@@ -2180,7 +2274,23 @@ const Action = struct {
         );
 
         // Create a new tab with window context (first tab in new window)
-        win.newTabForWindow(parent);
+        win.newTabForWindow(parent, .{
+            .command = overrides.command,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        });
+
+        // Estimate the initial window size before presenting so the window
+        // manager can position it correctly.
+        if (win.getActiveSurface()) |surface| {
+            surface.estimateInitialSize();
+            if (surface.getDefaultSize()) |size| {
+                win.as(gtk.Window).setDefaultSize(
+                    @intCast(size.width),
+                    @intCast(size.height),
+                );
+            }
+        }
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2494,7 +2604,7 @@ const Action = struct {
             .@"quick-terminal" = true,
         });
         assert(win.isQuickTerminal());
-        initAndShowWindow(self, win, null);
+        initAndShowWindow(self, win, null, .none);
         return true;
     }
 

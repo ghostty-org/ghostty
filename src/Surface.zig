@@ -46,8 +46,8 @@ const Renderer = rendererpkg.Renderer;
 /// being resized to a size that is too small to be useful. These defaults
 /// are chosen to match the default size of Mac's Terminal.app, but is
 /// otherwise somewhat arbitrary.
-const min_window_width_cells: u32 = 10;
-const min_window_height_cells: u32 = 4;
+pub const min_window_width_cells: u32 = 10;
+pub const min_window_height_cells: u32 = 4;
 
 /// The maximum number of key tables that can be active at any
 /// given time. `activate_key_table` calls after this are ignored.
@@ -607,10 +607,14 @@ pub fn init(
     };
 
     // The command we're going to execute
-    const command: ?configpkg.Command = if (app.first)
-        config.@"initial-command" orelse config.command
-    else
-        config.command;
+    const command: ?configpkg.Command = command: {
+        if (app.first) {
+            if (config.@"initial-command") |command| {
+                break :command command;
+            }
+        }
+        break :command config.command;
+    };
 
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
@@ -2973,6 +2977,9 @@ fn maybeHandleBinding(
         // If our action was "ignore" then we return the special input
         // effect of "ignored".
         for (actions) |action| if (action == .ignore) {
+            // If we're in a sequence, clear it.
+            self.endKeySequence(.drop, .retain);
+
             return .ignored;
         };
     }
@@ -4268,6 +4275,9 @@ fn maybePromptClick(self: *Surface) !bool {
     // If our screen doesn't handle any prompt clicks, then we never
     // do anything.
     if (screen.semantic_prompt.click == .none) return false;
+
+    // If cursor-click-to-move is disabled, we don't do any prompt clicking.
+    if (!self.config.cursor_click_to_move) return false;
 
     // If our cursor isn't currently at a prompt then we don't handle
     // prompt clicks because we can't move if we're not in a prompt!

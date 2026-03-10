@@ -10,6 +10,7 @@ const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
 const build_config = @import("../../../build_config.zig");
+const configpkg = @import("../../../config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
@@ -693,6 +694,10 @@ pub const Surface = extern struct {
         /// Whether primary paste (middle-click paste) is enabled.
         gtk_enable_primary_paste: bool = true,
 
+        /// True when a left mouse down was consumed purely for a focus change,
+        /// and the matching left mouse release should also be suppressed.
+        suppress_left_mouse_release: bool = false,
+
         /// How much pending horizontal scroll do we have?
         pending_horizontal_scroll: f64 = 0.0,
 
@@ -700,11 +705,33 @@ pub const Surface = extern struct {
         /// stops scrolling.
         pending_horizontal_scroll_reset: ?c_uint = null,
 
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        } = .none,
+
         pub var offset: c_int = 0;
     };
 
-    pub fn new() *Self {
-        return gobject.ext.newInstance(Self, .{});
+    pub fn new(overrides: struct {
+        command: ?configpkg.Command = null,
+        working_directory: ?[:0]const u8 = null,
+        title: ?[:0]const u8 = null,
+
+        pub const none: @This() = .{};
+    }) *Self {
+        const self = gobject.ext.newInstance(Self, .{
+            .@"title-override" = overrides.title,
+        });
+        const alloc = Application.default().allocator();
+        const priv: *Private = self.private();
+        priv.overrides = .{
+            .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
+            .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+        };
+        return self;
     }
 
     pub fn core(self: *Self) ?*CoreSurface {
@@ -796,10 +823,11 @@ pub const Surface = extern struct {
     /// should be applied to the surface
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
+        search_active: c_int,
         focused: c_int,
         is_split: c_int,
     ) callconv(.c) c_int {
-        return @intFromBool(focused == 0 and is_split != 0);
+        return @intFromBool(search_active == 0 and focused == 0 and is_split != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -1849,6 +1877,7 @@ pub const Surface = extern struct {
     }
 
     fn finalize(self: *Self) callconv(.c) void {
+        const alloc = Application.default().allocator();
         const priv = self.private();
         if (priv.core_surface) |v| {
             // Remove ourselves from the list of known surfaces in the app.
@@ -1862,7 +1891,6 @@ pub const Surface = extern struct {
 
             // Deinit the surface
             v.deinit();
-            const alloc = Application.default().allocator();
             alloc.destroy(v);
 
             priv.core_surface = null;
@@ -1895,9 +1923,16 @@ pub const Surface = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
+        if (priv.overrides.command) |c| {
+            c.deinit(alloc);
+            priv.overrides.command = null;
+        }
+        if (priv.overrides.working_directory) |wd| {
+            alloc.free(wd);
+            priv.overrides.working_directory = null;
+        }
 
         // Clean up key sequence and key table state
-        const alloc = Application.default().allocator();
         for (priv.key_sequence.items) |s| alloc.free(s);
         priv.key_sequence.deinit(alloc);
         for (priv.key_tables.items) |s| alloc.free(s);
@@ -2003,6 +2038,55 @@ pub const Surface = extern struct {
             &size,
         );
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
+    }
+
+    /// Estimate and set the initial window size from config and font metrics.
+    /// This can be called before the core surface exists to set up the window
+    /// size before presenting. This is an estimate because it does not take
+    /// into account any padding that may need to be added to the window.
+    pub fn estimateInitialSize(self: *Self) void {
+        const priv: *Private = self.private();
+        const config_obj = priv.config orelse return;
+        const config = config_obj.get();
+
+        // Both dimensions must be configured
+        if (config.@"window-height" <= 0 or config.@"window-width" <= 0) return;
+
+        const app = Application.default();
+        const alloc = app.allocator();
+
+        // Get content scale and compute DPI
+        const content_scale = self.getContentScale();
+        const x_dpi = content_scale.x * font.face.default_dpi;
+        const y_dpi = content_scale.y * font.face.default_dpi;
+
+        const font_size: font.face.DesiredSize = .{
+            .points = config.@"font-size",
+            .xdpi = @intFromFloat(x_dpi),
+            .ydpi = @intFromFloat(y_dpi),
+        };
+
+        // Get font grid for cell metrics
+        var derived_config = font.SharedGridSet.DerivedConfig.init(alloc, config) catch return;
+        defer derived_config.deinit();
+
+        const font_grid_key, const font_grid = app.core().font_grid_set.ref(
+            &derived_config,
+            font_size,
+        ) catch return;
+        defer app.core().font_grid_set.deref(font_grid_key);
+
+        const cell = font_grid.cellSize();
+
+        const width = @max(CoreSurface.min_window_width_cells, config.@"window-width") * cell.width;
+        const height = @max(CoreSurface.min_window_height_cells, config.@"window-height") * cell.height;
+        const width_f32: f32 = @floatFromInt(width);
+        const height_f32: f32 = @floatFromInt(height);
+
+        const final_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
+        const final_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
+
+        self.setDefaultSize(.{ .width = final_width, .height = final_height });
     }
 
     /// Get the key sequence list. Full transfer.
@@ -2684,12 +2768,20 @@ pub const Surface = extern struct {
 
         // If we don't have focus, grab it.
         const gl_area_widget = priv.gl_area.as(gtk.Widget);
-        if (gl_area_widget.hasFocus() == 0) {
+        const had_focus = gl_area_widget.hasFocus() != 0;
+        if (!had_focus) {
             _ = gl_area_widget.grabFocus();
         }
 
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        // If this click is only transitioning split focus, suppress it so
+        // it doesn't get forwarded to the terminal as a mouse event.
+        if (!had_focus and button == .left) {
+            priv.suppress_left_mouse_release = true;
+            return;
+        }
 
         if (button == .middle and !priv.gtk_enable_primary_paste) {
             return;
@@ -2745,6 +2837,11 @@ pub const Surface = extern struct {
         const surface = priv.core_surface orelse return;
         const gtk_mods = event.getModifierState();
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        if (button == .left and priv.suppress_left_mouse_release) {
+            priv.suppress_left_mouse_release = false;
+            return;
+        }
 
         if (button == .middle and !priv.gtk_enable_primary_paste) {
             return;
@@ -3247,7 +3344,7 @@ pub const Surface = extern struct {
     };
 
     fn initSurface(self: *Self) InitError!void {
-        const priv = self.private();
+        const priv: *Private = self.private();
         assert(priv.core_surface == null);
         const gl_area = priv.gl_area;
 
@@ -3279,6 +3376,13 @@ pub const Surface = extern struct {
             priv.context,
         );
         defer config.deinit();
+
+        if (priv.overrides.command) |c| {
+            config.command = try c.clone(config._arena.?.allocator());
+        }
+        if (priv.overrides.working_directory) |wd| {
+            config.@"working-directory" = try config._arena.?.allocator().dupeZ(u8, wd);
+        }
 
         // Properties that can impact surface init
         if (priv.font_size_request) |size| config.@"font-size" = size.points;

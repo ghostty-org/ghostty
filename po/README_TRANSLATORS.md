@@ -183,9 +183,9 @@ introduced support for the language.
 ### `CODEOWNERS`
 
 Localization teams are represented as teams in the Ghostty GitHub organization.
-GitHub reads a `CODEOWNERS` file, which maps files to teams, to determine
-identify relevant maintainers. When **introducing support for a language**, you
-should add the `.po` file to `CODEOWNERS`.
+GitHub reads a `CODEOWNERS` file, which maps files to teams, to identify
+relevant maintainers. When **introducing support for a language**, you should
+add the `.po` file to `CODEOWNERS`.
 
 To do this, find the `# Localization` section near the bottom of the file, and
 add a line like so:
@@ -200,7 +200,7 @@ add a line like so:
 
 `X.po` here is the name of the translation file you created. Unlike the
 translation file's name, localization team names **always include a language and
-a country code**; `yy` here is the _language code_, and `ZZ` is the _country
+country code**; `yy` here is the _language code_, and `ZZ` is the _country
 code_.
 
 When adding a new entry, try to keep the list in **alphabetical order** if
@@ -273,7 +273,7 @@ a different editor, and some (such as Poedit) update the line when a different
 _version_ is used—this adds unnecessary changes to the diff.
 
 You can remove the `X-Generator` field by simply deleting that line from the
-file.
+file with a plain text editor.
 
 ### Updating metadata (revision date)
 

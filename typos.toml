@@ -26,6 +26,8 @@ extend-exclude = [
   "*.icns",
   # Valgrind nonsense
   "valgrind.supp",
+  # Fuzz corpus (binary test inputs)
+  "test/fuzz-libghostty/corpus/*",
   # Other
   "*.pdf",
   "*.data",
@@ -44,6 +46,9 @@ extend-ignore-re = [
   "\"hel\\\\x",
   # Ignore long hex-like IDs such as 815E26BA2EF1E00F005C67B1
   "[0-9A-F]{12,}",
+  # Ignore Apple four char codes
+  'code="[A-Za-z]{4,8}"',
+  '"[A-Za-z]{4}"\.fourCharCode',
 ]
 
 [default.extend-words]

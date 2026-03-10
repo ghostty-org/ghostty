@@ -29,7 +29,7 @@ const file_load = @import("file_load.zig");
 const formatterpkg = @import("formatter.zig");
 const themepkg = @import("theme.zig");
 const url = @import("url.zig");
-const Key = @import("key.zig").Key;
+pub const Key = @import("key.zig").Key;
 const MetricModifier = fontpkg.Metrics.Modifier;
 const help_strings = @import("help_strings");
 pub const Command = @import("command.zig").Command;
@@ -802,11 +802,17 @@ palette: Palette = .{},
 /// look. Colors that have been explicitly set via `palette` are never
 /// overwritten.
 ///
+/// The default value is false (disabled), because many legacy programs
+/// using the 256-color palette hardcode assumptions about what these
+/// colors are (mostly assuming the xterm 256 color palette). However, this
+/// is still a very useful tool for theme authors and users who want
+/// to customize their palette without having to specify all 256 colors.
+///
 /// For more information on how the generation works, see here:
 /// https://gist.github.com/jake-stewart/0a8ea46159a7da2c808e5be2177e1783
 ///
 /// Available since: 1.3.0
-@"palette-generate": bool = true,
+@"palette-generate": bool = false,
 
 /// Invert the palette colors generated when `palette-generate` is enabled,
 /// so that the colors go in reverse order. This allows palette-based
@@ -892,19 +898,18 @@ palette: Palette = .{},
 /// background color.
 @"cursor-text": ?TerminalColor = null,
 
-/// Enables the ability to move the cursor at prompts by using `alt+click` on
-/// Linux and `option+click` on macOS.
+/// Enables the ability to move the cursor at prompts by clicking on a
+/// location in the prompt text.
 ///
-/// This feature requires shell integration (specifically prompt marking
-/// via `OSC 133`) and only works in primary screen mode. Alternate screen
-/// applications like vim usually have their own version of this feature but
-/// this configuration doesn't control that.
+/// This feature requires shell integration, specifically prompt marking
+/// via `OSC 133`. Some shells like Fish (v4) and Nu (0.111+) natively
+/// support this while others may require additional configuration or
+/// Ghostty's shell integration features to be enabled.
 ///
-/// It should be noted that this feature works by translating your desired
-/// position into a series of synthetic arrow key movements, so some weird
-/// behavior around edge cases are to be expected. This is unfortunately how
-/// this feature is implemented across terminals because there isn't any other
-/// way to implement it.
+/// Depending on the shell, this works either by translating your click
+/// position into a series of synthetic arrow key movements or by sending
+/// a click event directly to the shell. In either case, some unexpected
+/// behavior around edge cases is possible.
 @"cursor-click-to-move": bool = true,
 
 /// Hide the mouse immediately when typing. The mouse becomes visible again
@@ -3082,7 +3087,7 @@ keybind: Keybinds = .{},
 /// the path is not absolute, it is considered relative to the directory of the
 /// configuration file that it is referenced from, or from the current working
 /// directory if this is used as a CLI flag. The path may be prefixed with `~/`
-/// to reference the user's home directory. (GTK only)
+/// to reference the user's home directory.
 ///
 /// Available since: 1.2.0
 @"bell-audio-path": ?Path = null,
@@ -3090,7 +3095,6 @@ keybind: Keybinds = .{},
 /// If `audio` is an enabled bell feature, this is the volume to play the audio
 /// file at (relative to the system volume). This is a floating point number
 /// ranging from 0.0 (silence) to 1.0 (as loud as possible). The default is 0.5.
-/// (GTK only)
 ///
 /// Available since: 1.2.0
 @"bell-audio-volume": f64 = 0.5,
@@ -3342,6 +3346,16 @@ keybind: Keybinds = .{},
 /// always have secure input enabled, the indication can be distracting and
 /// you may want to disable it.
 @"macos-secure-input-indication": bool = true,
+
+/// If true, Ghostty exposes and handles the built-in AppleScript dictionary
+/// on macOS.
+///
+/// If false, all AppleScript interactions are disabled. This includes
+/// AppleScript commands and AppleScript object lookup for windows, tabs,
+/// and terminals.
+///
+/// The default is true.
+@"macos-applescript": bool = true,
 
 /// Customize the macOS app icon.
 ///
@@ -4789,8 +4803,8 @@ fn compatBoldIsBright(
     _ = alloc;
     assert(std.mem.eql(u8, key, "bold-is-bright"));
 
-    const set = cli.args.parseBool(value_ orelse "t") catch return false;
-    if (set) {
+    const isset = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (isset) {
         self.@"bold-color" = .bright;
     }
 

@@ -289,6 +289,8 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
                 break :osc_string null;
             },
             .dcs_passthrough => dcs_hook: {
+                // Ignore too many parameters
+                if (self.params_idx >= MAX_PARAMS) break :dcs_hook null;
                 // Finalize parameters
                 if (self.param_acc_idx > 0) {
                     self.params[self.params_idx] = self.param_acc;
@@ -1069,4 +1071,29 @@ test "dcs: params" {
         try testing.expectEqualSlices(u16, &[_]u16{1000}, hook.params);
         try testing.expectEqual('p', hook.final);
     }
+}
+
+test "dcs: too many params" {
+    // Regression test for a crash found by fuzzing (afl). When a DCS
+    // sequence has more than MAX_PARAMS parameters and param_acc_idx > 0,
+    // entering dcs_passthrough wrote to params[params_idx] without a
+    // bounds check, causing an out-of-bounds access.
+    var p = init();
+    _ = p.next(0x1B); // ESC
+    _ = p.next('P'); // DCS entry
+
+    // Feed a digit then MAX_PARAMS semicolons to fill all param slots.
+    _ = p.next('6');
+    for (0..MAX_PARAMS) |_| {
+        _ = p.next(';');
+    }
+    // Feed another digit so param_acc_idx > 0 while params_idx == MAX_PARAMS.
+    _ = p.next('7');
+
+    // A final byte triggers entry to dcs_passthrough. The DCS should
+    // be dropped entirely, consistent with how CSI handles overflow.
+    const a = p.next('p');
+    try testing.expect(a[0] == null);
+    try testing.expect(a[1] == null);
+    try testing.expect(a[2] == null);
 }

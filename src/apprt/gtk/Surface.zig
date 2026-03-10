@@ -2,6 +2,7 @@ const Self = @This();
 
 const std = @import("std");
 const apprt = @import("../../apprt.zig");
+const configpkg = @import("../../config.zig");
 const CoreSurface = @import("../../Surface.zig");
 const ApprtApp = @import("App.zig");
 const Application = @import("class/application.zig").Application;

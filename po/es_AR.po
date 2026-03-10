@@ -108,7 +108,7 @@ msgstr "Uy, no."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr "No se puedo obtener un contexto de OpenGL para el renderizado"
+msgstr "No se pudo obtener un contexto de OpenGL para el renderizado"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""

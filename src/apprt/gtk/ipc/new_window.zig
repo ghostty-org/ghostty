@@ -18,7 +18,7 @@ const DBus = @import("DBus.zig");
 // `ghostty +new-window -e echo hello` would be equivalent to the following command (on a release build):
 //
 // ```
-// gdbus call --session --dest com.mitchellh.ghostty --object-path /com/mitchellh/ghostty --method org.gtk.Actions.Activate new-window-command '[<@as ["echo" "hello"]>]' []
+// gdbus call --session --dest com.mitchellh.ghostty --object-path /com/mitchellh/ghostty --method org.gtk.Actions.Activate new-window-command '[<@as ["-e" "echo" "hello"]>]' []
 // ```
 pub fn newWindow(alloc: Allocator, target: apprt.ipc.Target, value: apprt.ipc.Action.NewWindow) (Allocator.Error || std.Io.Writer.Error || apprt.ipc.Errors)!bool {
     var dbus = try DBus.init(
@@ -32,10 +32,10 @@ pub fn newWindow(alloc: Allocator, target: apprt.ipc.Target, value: apprt.ipc.Ac
     defer dbus.deinit(alloc);
 
     if (value.arguments) |arguments| {
-        // If `-e` was specified on the command line, the first
-        // parameter is an array of strings that contain the arguments
-        // that came after `-e`, which will be interpreted as a command
-        // to run.
+        // If any arguments were specified on the command line, the first
+        // parameter is an array of strings that contain the arguments. They
+        // will be sent to the main Ghostty instance and interpreted as CLI
+        // arguments.
         const as_variant_type = glib.VariantType.new("as");
         defer as_variant_type.free();
 

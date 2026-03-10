@@ -52,6 +52,9 @@
 
   <releases>
     <!-- TODO: Generate this automatically -->
+    <release version="1.3.0" date="2026-03-09">
+        <url type="details">https://ghostty.org/docs/install/release-notes/1-3-0</url>
+    </release>
     <release version="1.0.1" date="2024-12-31">
         <url type="details">https://ghostty.org/docs/install/release-notes/1-0-1</url>
     </release>

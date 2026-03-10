@@ -32,6 +32,7 @@ pub const modes = terminal.modes;
 pub const page = terminal.page;
 pub const parse_table = terminal.parse_table;
 pub const search = terminal.search;
+pub const sgr = terminal.sgr;
 pub const size = terminal.size;
 pub const x11_color = terminal.x11_color;
 
@@ -58,6 +59,8 @@ pub const Style = terminal.Style;
 pub const Terminal = terminal.Terminal;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
+pub const ReadonlyStream = terminal.ReadonlyStream;
+pub const ReadonlyHandler = terminal.ReadonlyHandler;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;

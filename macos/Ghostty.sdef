@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+
+<dictionary title="Ghostty Scripting Dictionary">
+  <suite name="Ghostty Suite" code="Ghst" description="Ghostty scripting support.">
+    <class name="application" code="capp" description="The Ghostty application.">
+      <cocoa class="NSApplication"/>
+      <property name="name" code="pnam" type="text" access="r" description="The name of the application."/>
+      <property name="frontmost" code="pisf" type="boolean" access="r" description="Is this the active application?">
+        <cocoa key="isActive"/>
+      </property>
+      <property name="front window" code="GFWn" type="window" access="r" description="The frontmost Ghostty window.">
+        <cocoa key="frontWindow"/>
+      </property>
+      <property name="version" code="vers" type="text" access="r" description="The version number of the application."/>
+      <responds-to command="perform action">
+        <cocoa method="handlePerformActionScriptCommand:"/>
+      </responds-to>
+      <responds-to command="new window">
+        <cocoa method="handleNewWindowScriptCommand:"/>
+      </responds-to>
+      <responds-to command="new tab">
+        <cocoa method="handleNewTabScriptCommand:"/>
+      </responds-to>
+      <responds-to command="new surface configuration">
+        <cocoa method="handleNewSurfaceConfigurationScriptCommand:"/>
+      </responds-to>
+      <responds-to command="quit">
+        <cocoa method="handleQuitScriptCommand:"/>
+      </responds-to>
+
+      <element type="window" access="r">
+        <cocoa key="scriptWindows"/>
+      </element>
+
+      <element type="terminal" access="r">
+        <cocoa key="terminals"/>
+      </element>
+    </class>
+
+    <class name="window" code="Gwnd" plural="windows" description="A Ghostty window containing one or more tabs.">
+      <cocoa class="GhosttyScriptWindow"/>
+      <property name="id" code="ID  " type="text" access="r" description="Stable ID for this window."/>
+      <property name="name" code="pnam" type="text" access="r" description="The title of the window.">
+        <cocoa key="title"/>
+      </property>
+      <property name="selected tab" code="GWsT" type="tab" access="r" description="The selected tab in this window.">
+        <cocoa key="selectedTab"/>
+      </property>
+      <responds-to command="activate window">
+        <cocoa method="handleActivateWindowCommand:"/>
+      </responds-to>
+      <responds-to command="close window">
+        <cocoa method="handleCloseWindowCommand:"/>
+      </responds-to>
+      <element type="tab" access="r">
+        <cocoa key="tabs"/>
+      </element>
+      <element type="terminal" access="r">
+        <cocoa key="terminals"/>
+      </element>
+    </class>
+
+    <class name="tab" code="Gtab" plural="tabs" description="A tab within a Ghostty window.">
+      <cocoa class="GhosttyScriptTab"/>
+      <property name="id" code="ID  " type="text" access="r" description="Stable ID for this tab."/>
+      <property name="name" code="pnam" type="text" access="r" description="The title of the tab.">
+        <cocoa key="title"/>
+      </property>
+      <property name="index" code="pidx" type="integer" access="r" description="1-based index of this tab in its window."/>
+      <property name="selected" code="GTsl" type="boolean" access="r" description="Whether this tab is selected in its window."/>
+      <property name="focused terminal" code="GTfT" type="terminal" access="r" description="The currently focused terminal surface in this tab.">
+        <cocoa key="focusedTerminal"/>
+      </property>
+      <responds-to command="select tab">
+        <cocoa method="handleSelectTabCommand:"/>
+      </responds-to>
+      <responds-to command="close tab">
+        <cocoa method="handleCloseTabCommand:"/>
+      </responds-to>
+      <element type="terminal" access="r">
+        <cocoa key="terminals"/>
+      </element>
+    </class>
+
+    <class name="terminal" code="Gtrm" plural="terminals" description="An individual terminal surface.">
+      <cocoa class="GhosttyScriptTerminal"/>
+      <property name="id" code="ID  " type="text" access="r" description="Stable ID for this terminal surface."/>
+      <property name="name" code="pnam" type="text" access="r" description="Current terminal title.">
+        <cocoa key="title"/>
+      </property>
+      <property name="working directory" code="Gwdr" type="text" access="r" description="Current working directory for the terminal process."/>
+      <responds-to command="split">
+        <cocoa method="handleSplitCommand:"/>
+      </responds-to>
+      <responds-to command="focus">
+        <cocoa method="handleFocusCommand:"/>
+      </responds-to>
+      <responds-to command="close">
+        <cocoa method="handleCloseCommand:"/>
+      </responds-to>
+    </class>
+
+    <record-type name="surface configuration" code="GScf" description="Reusable settings applied when creating a terminal surface.">
+      <property name="font size" code="GScF" type="real" description="Font size in points.">
+        <cocoa key="fontSize"/>
+      </property>
+      <property name="initial working directory" code="GScD" type="text" description="Initial working directory for the terminal process.">
+        <cocoa key="workingDirectory"/>
+      </property>
+      <property name="command" code="GScC" type="text" description="Command to execute instead of the configured shell.">
+        <cocoa key="command"/>
+      </property>
+      <property name="initial input" code="GScI" type="text" description="Input sent to the terminal after launch.">
+        <cocoa key="initialInput"/>
+      </property>
+      <property name="wait after command" code="GScW" type="boolean" description="Keep the terminal open after command exit.">
+        <cocoa key="waitAfterCommand"/>
+      </property>
+      <property name="environment variables" code="GScE" description="Environment variables in KEY=VALUE format.">
+        <type type="text" list="yes"/>
+        <cocoa key="environmentVariables"/>
+      </property>
+    </record-type>
+
+    <enumeration name="split direction" code="GSpD" description="Direction for a new split.">
+      <enumerator name="right" code="GSrt" description="Split to the right."/>
+      <enumerator name="left" code="GSlf" description="Split to the left."/>
+      <enumerator name="down" code="GSdn" description="Split downward."/>
+      <enumerator name="up" code="GSup" description="Split upward."/>
+    </enumeration>
+
+    <enumeration name="input action" code="GIAc" description="Whether an input is pressed or released.">
+      <enumerator name="press" code="GIpr" description="Press."/>
+      <enumerator name="release" code="GIrl" description="Release."/>
+    </enumeration>
+
+    <enumeration name="mouse button" code="GMBt" description="A mouse button.">
+      <enumerator name="left button" code="GMlf" description="Left mouse button."/>
+      <enumerator name="right button" code="GMrt" description="Right mouse button."/>
+      <enumerator name="middle button" code="GMmd" description="Middle mouse button."/>
+    </enumeration>
+
+    <enumeration name="scroll momentum" code="GSMo" description="Momentum phase for inertial scrolling.">
+      <enumerator name="none" code="SMno" description="No momentum."/>
+      <enumerator name="began" code="SMbg" description="Momentum began."/>
+      <enumerator name="changed" code="SMch" description="Momentum changed."/>
+      <enumerator name="ended" code="SMen" description="Momentum ended."/>
+      <enumerator name="cancelled" code="SMcn" description="Momentum cancelled."/>
+      <enumerator name="may begin" code="SMmb" description="Momentum may begin."/>
+      <enumerator name="stationary" code="SMst" description="Stationary."/>
+    </enumeration>
+
+    <command name="perform action" code="GhstPfAc" description="Perform a Ghostty action string on a terminal.">
+      <direct-parameter type="text" description="The Ghostty action string."/>
+      <parameter name="on" code="GonT" type="terminal" description="Target terminal."/>
+      <result type="boolean" description="True when the action was performed."/>
+    </command>
+
+    <command name="new surface configuration" code="GhstNSCf" description="Create a reusable surface configuration object.">
+      <parameter name="from" code="GScS" type="surface configuration" optional="yes" description="Surface configuration to copy.">
+        <cocoa key="configuration"/>
+      </parameter>
+      <result type="surface configuration" description="The newly created surface configuration."/>
+    </command>
+
+    <command name="new window" code="GhstNWin" description="Create a new Ghostty window.">
+      <parameter name="with configuration" code="GNwS" type="surface configuration" optional="yes" description="Base surface configuration for the initial terminal.">
+        <cocoa key="configuration"/>
+      </parameter>
+      <result type="window" description="The newly created window."/>
+    </command>
+
+    <command name="new tab" code="GhstNTab" description="Create a new Ghostty tab.">
+      <parameter name="in" code="GNtW" type="window" optional="yes" description="Target window for the new tab.">
+        <cocoa key="window"/>
+      </parameter>
+      <parameter name="with configuration" code="GNtS" type="surface configuration" optional="yes" description="Base surface configuration for the initial terminal.">
+        <cocoa key="configuration"/>
+      </parameter>
+      <result type="tab" description="The newly created tab."/>
+    </command>
+
+    <command name="split" code="GhstSplt" description="Split a terminal in the given direction.">
+      <direct-parameter type="specifier" description="The terminal to split."/>
+      <parameter name="direction" code="GSpd" type="split direction" description="The direction to split.">
+        <cocoa key="direction"/>
+      </parameter>
+      <parameter name="with configuration" code="GSpS" type="surface configuration" optional="yes" description="Base surface configuration for the new split terminal.">
+        <cocoa key="configuration"/>
+      </parameter>
+      <result type="terminal" description="The newly created terminal."/>
+    </command>
+
+    <command name="focus" code="GhstFcus" description="Focus a terminal, bringing its window to the front.">
+      <direct-parameter type="specifier" description="The terminal to focus."/>
+    </command>
+
+    <command name="close" code="GhstClos" description="Close a terminal.">
+      <direct-parameter type="specifier" description="The terminal to close."/>
+    </command>
+
+    <command name="activate window" code="GhstAcWn" description="Activate a Ghostty window, bringing it to the front.">
+      <direct-parameter type="specifier" description="The window to activate."/>
+    </command>
+
+    <command name="select tab" code="GhstSlTb" description="Select a tab in its window.">
+      <direct-parameter type="specifier" description="The tab to select."/>
+    </command>
+
+    <command name="close tab" code="GhstClTb" description="Close a tab.">
+      <direct-parameter type="specifier" description="The tab to close."/>
+    </command>
+
+    <command name="close window" code="GhstClWn" description="Close a window.">
+      <direct-parameter type="specifier" description="The window to close."/>
+    </command>
+
+    <command name="input text" code="GhstInTx" description="Input text to a terminal as if it was pasted.">
+      <cocoa class="GhosttyScriptInputTextCommand"/>
+      <direct-parameter type="text" description="The text to input."/>
+      <parameter name="to" code="GItT" type="terminal" description="The terminal to input text to.">
+        <cocoa key="terminal"/>
+      </parameter>
+    </command>
+
+    <command name="send key" code="GhstSKey" description="Send a keyboard event to a terminal.">
+      <cocoa class="GhosttyScriptKeyEventCommand"/>
+      <direct-parameter type="text" description="The key name (e.g. &quot;enter&quot;, &quot;a&quot;, &quot;space&quot;)."/>
+      <parameter name="action" code="GKeA" type="input action" optional="yes" description="Press or release (default: press).">
+        <cocoa key="action"/>
+      </parameter>
+      <parameter name="modifiers" code="GKeM" type="text" optional="yes" description="Comma-separated modifier keys: shift, control, option, command.">
+        <cocoa key="modifiers"/>
+      </parameter>
+      <parameter name="to" code="GKeT" type="terminal" description="The terminal to send the key event to.">
+        <cocoa key="terminal"/>
+      </parameter>
+    </command>
+
+    <command name="send mouse button" code="GhstSMBt" description="Send a mouse button event to a terminal.">
+      <cocoa class="GhosttyScriptMouseButtonCommand"/>
+      <direct-parameter type="mouse button" description="The mouse button."/>
+      <parameter name="action" code="GMbA" type="input action" optional="yes" description="Press or release (default: press).">
+        <cocoa key="action"/>
+      </parameter>
+      <parameter name="modifiers" code="GMbM" type="text" optional="yes" description="Comma-separated modifier keys: shift, control, option, command.">
+        <cocoa key="modifiers"/>
+      </parameter>
+      <parameter name="to" code="GMbT" type="terminal" description="The terminal to send the event to.">
+        <cocoa key="terminal"/>
+      </parameter>
+    </command>
+
+    <command name="send mouse position" code="GhstSMPs" description="Send a mouse position event to a terminal.">
+      <cocoa class="GhosttyScriptMousePosCommand"/>
+      <parameter name="x" code="GMpX" type="real" description="Horizontal position in pixels.">
+        <cocoa key="x"/>
+      </parameter>
+      <parameter name="y" code="GMpY" type="real" description="Vertical position in pixels.">
+        <cocoa key="y"/>
+      </parameter>
+      <parameter name="modifiers" code="GMpM" type="text" optional="yes" description="Comma-separated modifier keys: shift, control, option, command.">
+        <cocoa key="modifiers"/>
+      </parameter>
+      <parameter name="to" code="GMpT" type="terminal" description="The terminal to send the event to.">
+        <cocoa key="terminal"/>
+      </parameter>
+    </command>
+
+    <command name="send mouse scroll" code="GhstSMSc" description="Send a mouse scroll event to a terminal.">
+      <cocoa class="GhosttyScriptMouseScrollCommand"/>
+      <parameter name="x" code="GMsX" type="real" description="Horizontal scroll delta.">
+        <cocoa key="x"/>
+      </parameter>
+      <parameter name="y" code="GMsY" type="real" description="Vertical scroll delta.">
+        <cocoa key="y"/>
+      </parameter>
+      <parameter name="precision" code="GMsP" type="boolean" optional="yes" description="High-precision scroll (e.g. trackpad). Default: false.">
+        <cocoa key="precision"/>
+      </parameter>
+      <parameter name="momentum" code="GMsM" type="scroll momentum" optional="yes" description="Momentum phase for inertial scrolling. Default: none.">
+        <cocoa key="momentum"/>
+      </parameter>
+      <parameter name="to" code="GMsT" type="terminal" description="The terminal to send the event to.">
+        <cocoa key="terminal"/>
+      </parameter>
+    </command>
+  </suite>
+
+  <!--
+    The Standard Suite definition below is copied from Apple's
+    /System/Library/ScriptingDefinitions/CocoaStandard.sdef, trimmed to only
+    include what we need.
+  -->
+  <suite name="Standard Suite" code="????" description="Common classes and commands for all applications.">
+    <command name="count" code="corecnte" description="Return the number of elements of a particular class within an object.">
+      <cocoa class="NSCountCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter type="specifier" requires-access="r" description="The objects to be counted."/>
+      <parameter name="each" code="kocl" type="type" optional="yes" description="The class of objects to be counted." hidden="yes">
+        <cocoa key="ObjectClass"/>
+      </parameter>
+      <result type="integer" description="The count."/>
+    </command>
+
+    <command name="exists" code="coredoex" description="Verify that an object exists.">
+      <cocoa class="NSExistsCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter type="any" requires-access="r" description="The object(s) to check."/>
+      <result type="boolean" description="Did the object(s) exist?"/>
+    </command>
+
+    <command name="quit" code="aevtquit" description="Quit the application.">
+      <cocoa class="NSQuitCommand"/>
+    </command>
+  </suite>
+</dictionary>

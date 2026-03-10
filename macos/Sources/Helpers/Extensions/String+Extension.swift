@@ -27,4 +27,13 @@ extension String {
     }
 #endif
 
+    /// Converts a four-character ASCII string to its `FourCharCode` (`UInt32`) value.
+    var fourCharCode: UInt32 {
+        assert(count <= 4, "FourCharCode string must be at most 4 characters")
+        var result: UInt32 = 0
+        for byte in utf8.prefix(4) {
+            result = (result << 8) | UInt32(byte)
+        }
+        return result
+    }
 }

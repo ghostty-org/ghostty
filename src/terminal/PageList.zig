@@ -2154,7 +2154,16 @@ fn resizeWithoutReflowGrowCols(
 
     // Unlikely fast path: we have capacity in the page. This
     // is only true if we resized to less cols earlier.
-    if (page.capacity.cols >= cols) {
+    if (page.capacity.cols >= cols) fast: {
+        // If any row has a spacer head at the old last column, it will
+        // be invalid at the new (wider) size. Fall through to the slow
+        // path which handles spacer heads correctly via cloneRowFrom.
+        const rows = page.rows.ptr(page.memory)[0..page.size.rows];
+        for (rows) |*row| {
+            const cells = page.getCells(row);
+            if (cells[old_cols - 1].wide == .spacer_head) break :fast;
+        }
+
         page.size.cols = cols;
         return;
     }
@@ -10483,6 +10492,78 @@ test "PageList resize (no reflow) more cols with spacer head" {
             const rac = page.getRowAndCell(2, 0);
             try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
             try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+        }
+    }
+}
+
+// Regression test for fuzz crash. When we shrink cols and then
+// grow back, the page retains capacity from the original size so the grow
+// takes the fast path (just bumps page.size.cols). If any row has a
+// spacer_head at the old last column, that cell is no longer at the end
+// of the wider row, violating page integrity.
+test "PageList resize (no reflow) grow cols fast path with spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+
+    // Shrink to 5 cols. The page keeps capacity for 10 cols.
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+
+    // Place a spacer_head at the last column (col 4) on two rows
+    // to simulate a wide character that didn't fit at the right edge.
+    {
+        const page = &s.pages.first.?.data;
+
+        // Row 0: 'x' at col 0..3, spacer_head at col 4, wrap = true
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(4, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 0 },
+                .wide = .spacer_head,
+            };
+            rac.row.wrap = true;
+        }
+
+        // Row 1: spacer_head at col 4, wrap = true
+        {
+            const rac = page.getRowAndCell(4, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 0 },
+                .wide = .spacer_head,
+            };
+            rac.row.wrap = true;
+        }
+    }
+
+    // Grow back to 10 cols. This must not leave stale spacer_head
+    // cells at col 4 (which is no longer the last column).
+    try s.resize(.{ .cols = 10, .reflow = false });
+    try testing.expectEqual(@as(usize, 10), s.cols);
+
+    // Verify the old spacer_head positions are now narrow.
+    {
+        const page = &s.pages.first.?.data;
+        {
+            const rac = page.getRowAndCell(4, 0);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+            try testing.expect(!rac.row.wrap);
+        }
+        {
+            const rac = page.getRowAndCell(4, 1);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+            try testing.expect(!rac.row.wrap);
         }
     }
 }

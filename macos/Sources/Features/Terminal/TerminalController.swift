@@ -198,6 +198,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // of each other.
     private static var lastCascadePoint = NSPoint(x: 0, y: 0)
 
+    private static func applyCascade(to window: NSWindow, hasFixedPos: Bool) {
+        if hasFixedPos { return }
+
+        if all.count > 1 {
+            lastCascadePoint = window.cascadeTopLeft(from: lastCascadePoint)
+        } else {
+            lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
+        }
+    }
+
     // The preferred parent terminal controller.
     static var preferredParent: TerminalController? {
         all.first {
@@ -253,7 +263,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // Only cascade if we aren't fullscreen.
             if let window = c.window {
                 if !window.styleMask.contains(.fullScreen) {
-                    Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                    let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
+                    Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
                 }
             }
 
@@ -323,7 +334,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                         window.setFrameTopLeftPoint(position)
                         window.constrainToScreen()
                     } else {
-                        Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                        let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
+                        Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
                     }
                 }
             }
@@ -429,7 +441,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             // Only cascade if we aren't fullscreen and are alone in the tab group.
             if !window.styleMask.contains(.fullScreen) &&
                 window.tabGroup?.windows.count ?? 1 == 1 {
-                Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                let hasFixedPos = controller.derivedConfig.windowPositionX != nil && controller.derivedConfig.windowPositionY != nil
+                Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
             }
 
             controller.showWindow(self)
@@ -1039,7 +1052,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .contentIntrinsicSize:
                 // Content intrinsic size requires a short delay so that AppKit
                 // can layout our SwiftUI views.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak self, weak window] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40)) { [weak self, weak window] in
                     guard let self, let window else { return }
                     defaultSize.apply(to: window)
                     if let screen = window.screen ?? NSScreen.main {
@@ -1160,6 +1173,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.fixTabBar()
 
         // Whenever we move save our last position for the next start.
+        if let window {
+            LastWindowPosition.shared.save(window)
+        }
+    }
+
+    override func windowDidResize(_ notification: Notification) {
+        super.windowDidResize(notification)
+
+        // Whenever we resize save our last position and size for the next start.
         if let window {
             LastWindowPosition.shared.save(window)
         }

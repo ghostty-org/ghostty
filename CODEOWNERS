@@ -169,6 +169,7 @@
 /po/de.po @ghostty-org/de_DE
 /po/es_AR.po @ghostty-org/es_AR
 /po/es_BO.po @ghostty-org/es_BO
+/po/es_ES.po @ghostty-org/es_ES
 /po/fr.po @ghostty-org/fr_FR
 /po/ga.po @ghostty-org/ga_IE
 /po/he.po @ghostty-org/he_IL
@@ -177,17 +178,19 @@
 /po/id.po @ghostty-org/id_ID
 /po/it.po @ghostty-org/it_IT
 /po/ja.po @ghostty-org/ja_JP
-/po/ko.po @ghostty-org/ko_KR
+/po/kk.po @ghostty-org/kk_KZ
+/po/ko_KR.po @ghostty-org/ko_KR
 /po/lt.po @ghostty-org/lt_LT
 /po/lv.po @ghostty-org/lv_LV
 /po/mk.po @ghostty-org/mk_MK
 /po/nb.po @ghostty-org/nb_NO
 /po/nl.po @ghostty-org/nl_NL
 /po/pl.po @ghostty-org/pl_PL
-/po/pt.po @ghostty-org/pt_BR
+/po/pt_BR.po @ghostty-org/pt_BR
 /po/ru.po @ghostty-org/ru_RU
 /po/tr.po @ghostty-org/tr_TR
 /po/uk.po @ghostty-org/uk_UA
+/po/vi.po @ghostty-org/vi_VN
 /po/zh_CN.po @ghostty-org/zh_CN
 /po/zh_TW.po @ghostty-org/zh_TW
 

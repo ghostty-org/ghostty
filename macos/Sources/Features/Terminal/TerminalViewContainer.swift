@@ -62,13 +62,6 @@ class TerminalViewContainer: NSView {
         updateGlassEffectTopInsetIfNeeded()
     }
 
-    @objc private func ghosttyConfigDidChange(_ notification: Notification) {
-        guard let config = notification.userInfo?[
-            Notification.Name.GhosttyConfigChangeKey
-        ] as? Ghostty.Config else { return }
-        ghosttyConfigDidChange(config, preferredBackgroundColor: (window as? TerminalWindow)?.preferredBackgroundColor)
-    }
-
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }

@@ -134,6 +134,23 @@ extension Ghostty {
             return .init(rawValue: v)
         }
 
+        var bellAudioPath: ConfigPath? {
+            guard let config = self.config else { return nil }
+            var v = ghostty_config_path_s()
+            let key = "bell-audio-path"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            let path = String(cString: v.path)
+            return path.isEmpty ? nil : ConfigPath(path: path, optional: v.optional)
+        }
+
+        var bellAudioVolume: Float {
+            guard let config = self.config else { return 0.5 }
+            var v: Double = 0.5
+            let key = "bell-audio-volume"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return Float(v)
+        }
+
         var notifyOnCommandFinish: NotifyOnCommandFinish {
             guard let config = self.config else { return .never }
             var v: UnsafePointer<Int8>?
@@ -657,6 +674,14 @@ extension Ghostty {
             guard let config = self.config else { return true }
             var v = false
             let key = "macos-secure-input-indication"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var macosAppleScript: Bool {
+            guard let config = self.config else { return true }
+            var v = false
+            let key = "macos-applescript"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
             return v
         }

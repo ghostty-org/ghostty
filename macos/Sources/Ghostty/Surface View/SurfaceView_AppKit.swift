@@ -221,6 +221,10 @@ extension Ghostty {
         // This is set to non-null during keyDown to accumulate insertText contents
         private var keyTextAccumulator: [String]?
 
+        // True when we've consumed a left mouse-down only to move focus and
+        // should suppress the matching mouse-up from being reported.
+        private var suppressNextLeftMouseUp: Bool = false
+
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
 
@@ -644,12 +648,18 @@ extension Ghostty {
             let location = convert(event.locationInWindow, from: nil)
             guard hitTest(location) == self else { return event }
 
-            // We only want to grab focus if either our app or window was
-            // not focused.
-            guard !NSApp.isActive || !window.isKeyWindow else { return event }
+            // If we're already the first responder then no focus transfer is
+            // happening, so the click should continue as normal.
+            guard window.firstResponder !== self else { return event }
 
-            // If we're already focused we do nothing
-            guard !focused else { return event }
+            // If our window/app is already focused, then this click is only
+            // being used to transfer split focus. Consume it so it does not
+            // get forwarded to the terminal as a mouse click.
+            if NSApp.isActive && window.isKeyWindow {
+                window.makeFirstResponder(self)
+                suppressNextLeftMouseUp = true
+                return nil
+            }
 
             // Make ourselves the first responder
             window.makeFirstResponder(self)
@@ -854,6 +864,13 @@ extension Ghostty {
         }
 
         override func mouseUp(with event: NSEvent) {
+            // If this mouse-up corresponds to a focus-only click transfer,
+            // suppress it so we don't emit a release without a press.
+            if suppressNextLeftMouseUp {
+                suppressNextLeftMouseUp = false
+                return
+            }
+
             // Always reset our pressure when the mouse goes up
             prevPressureStage = 0
 

@@ -463,6 +463,12 @@ typedef struct {
 
 // Config types
 
+// config.Path
+typedef struct {
+  const char* path;
+  bool optional;
+} ghostty_config_path_s;
+
 // config.Color
 typedef struct {
   uint8_t r;

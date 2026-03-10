@@ -38,7 +38,7 @@ class TerminalWindow: NSWindow {
     private var tabMenuObserver: NSObjectProtocol?
 
     /// Handles inline tab title editing for this host window.
-    private lazy var tabTitleEditor = TabTitleEditor(
+    private(set) lazy var tabTitleEditor = TabTitleEditor(
         hostWindow: self,
         delegate: self
     )
@@ -181,7 +181,7 @@ class TerminalWindow: NSWindow {
     override var canBecomeMain: Bool { return true }
 
     override func sendEvent(_ event: NSEvent) {
-        if tabTitleEditor.handleDoubleClick(event) {
+        if tabTitleEditor.handleMouseDown(event) {
             return
         }
 
@@ -202,6 +202,7 @@ class TerminalWindow: NSWindow {
     override func resignKey() {
         super.resignKey()
         resetZoomTabButton.contentTintColor = .secondaryLabelColor
+        tabTitleEditor.finishEditing(commit: true)
     }
 
     override func becomeMain() {
@@ -538,7 +539,7 @@ class TerminalWindow: NSWindow {
 
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
-        guard x != nil, y != nil else {
+        guard let x = x, let y = y else {
             if !LastWindowPosition.shared.restore(self) {
                 center()
             }
@@ -552,14 +553,19 @@ class TerminalWindow: NSWindow {
             return
         }
 
-        // We have an X/Y, use our controller function to set it up.
-        guard let terminalController else {
-            center()
-            return
-        }
+        // Convert top-left coordinates to bottom-left origin using our utility extension
+        let origin = screen.origin(
+            fromTopLeftOffsetX: CGFloat(x),
+            offsetY: CGFloat(y),
+            windowSize: frame.size)
 
-        let frame = terminalController.adjustForWindowPosition(frame: frame, on: screen)
-        setFrameOrigin(frame.origin)
+        // Clamp the origin to ensure the window stays fully visible on screen
+        var safeOrigin = origin
+        let vf = screen.visibleFrame
+        safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
+        safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
+
+        setFrameOrigin(safeOrigin)
     }
 
     private func hideWindowButtons() {
