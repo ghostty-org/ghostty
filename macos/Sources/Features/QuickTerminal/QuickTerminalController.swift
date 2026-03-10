@@ -288,18 +288,6 @@ class QuickTerminalController: BaseTerminalController {
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
-        // If we have a tab with surfaces removed from surfaceTree, we need
-        // to remove them from the tab manager by calling closeTab
-        if to.isEmpty {
-            tabManager.tabs
-                .filter { tab in
-                    tab.surfaceTree.contains { $0.surface == nil }
-                }
-                .forEach { tab in
-                    tabManager.closeTab(tab)
-                }
-        }
-
         // If we're not empty (e.g. this isn't the first set) and we're
         // not visible, then we animate in. This allows us to show the quick
         // terminal when things such as undo/redo are done.
@@ -332,16 +320,17 @@ class QuickTerminalController: BaseTerminalController {
             return
         }
 
-        // If its the root, we check if the process exited. If it did,
-        // then we do empty the tree.
-        if surface.processExited {
-            surfaceTree = .init()
-            return
-        }
-
         // If there are multiple tabs, close the current tab instead of hiding
         if tabManager.tabs.count > 1, let currentTab = tabManager.currentTab {
             tabManager.closeTab(currentTab)
+            return
+        }
+
+        // If its the root and the process exited, empty the tree and
+        // animate out. The next toggle will create a new surface.
+        if surface.processExited {
+            surfaceTree = .init()
+            animateOut()
             return
         }
 
