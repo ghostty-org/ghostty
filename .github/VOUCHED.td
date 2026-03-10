@@ -45,6 +45,7 @@ brentschroeter
 cespare
 charliie-dev
 chernetskyi
+chronologos
 cmwetherell
 craziestowl
 curtismoncoq
