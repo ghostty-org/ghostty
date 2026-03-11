@@ -1,5 +1,40 @@
 # Session Notes — Ghostties
 
+## Mar 11, 2026 (Session 6)
+
+### Dark Mode Fixes — Config Propagation + Canvas/Card Color Distinction
+
+Fixed two dark mode issues introduced/exposed by the v1.3.0 upstream merge.
+
+### Bug 1: `ghosttyConfigDidChange` not reaching terminal in workspace mode
+
+**Root cause**: Upstream v1.3.0 added a `ghosttyConfigDidChange` call path through `BaseTerminalController.terminalViewContainer`, a computed property that casts `window?.contentView as? TerminalViewContainer`. In the fork, `contentView` is `WorkspaceViewContainer`, so the cast returned `nil` — config changes (including dark/light mode transitions) never reached the terminal.
+
+**Fix**: Updated the computed property in `TerminalViewContainer.swift` to fall through to `WorkspaceViewContainer.terminalContainer` when the direct cast fails. Also made `terminalContainer` `private(set)` on `WorkspaceViewContainer` to expose it for this lookup.
+
+### Bug 2: Terminal card and canvas background identical in dark mode
+
+**Root cause**: In dark mode, `canvasBackgroundCGColor` returned `nil` (transparent, showing window background) and `cardBackgroundCGColor` used the terminal config background color. Since the window background was also set to the config color by `TerminalWindow.syncAppearance`, everything collapsed to the same shade — no floating card distinction. The titlebar (transparent via `.fullSizeContentView`) also showed the same color.
+
+**Fix**: Added explicit dark mode color tokens to `WorkspaceLayout` — canvas at 14% white, card at 10% white — mirroring the light mode pattern (warm beige canvas / warm white card). Changed `canvasBackgroundCGColor` from optional to non-optional since both modes now have explicit values.
+
+### Files Modified
+- `TerminalViewContainer.swift` — computed property looks through `WorkspaceViewContainer`
+- `WorkspaceViewContainer.swift` — `terminalContainer` exposed as `private(set)`, dark mode colors from `WorkspaceLayout`
+- `WorkspaceLayout.swift` — added `canvasBackgroundDark` (14% white), `cardBackgroundDark` (10% white)
+
+### Status
+- Build succeeds, dark mode config propagation verified working
+- Dark mode canvas/card colors awaiting user visual verification (build in progress)
+- Not yet committed — pending user sign-off on color values
+
+### Notes for Next Session
+- Dark mode color values (0.14 / 0.10 white) may need tuning based on user feedback
+- Overlay sidebar backlog items still pending (hit-testing, trigger sensitivity, dismissal on relaunch)
+- PR #2 on `merge/upstream-v1.3` branch — needs final merge to main after all fixes
+
+---
+
 ## Mar 10, 2026 (Session 5)
 
 ### Upstream Merge — Ghostty v1.3.0

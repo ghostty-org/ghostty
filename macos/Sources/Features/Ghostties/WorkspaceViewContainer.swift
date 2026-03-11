@@ -28,7 +28,8 @@ class WorkspaceViewContainer: NSView {
         return view
     }()
     private let sidebarHostingView: NSView
-    private let terminalContainer: TerminalViewContainer
+    /// Exposed for `BaseTerminalController.terminalViewContainer` to reach through.
+    private(set) var terminalContainer: TerminalViewContainer
     private let coordinator: SessionCoordinator
     private let ghostty: Ghostty.App
 
@@ -95,19 +96,19 @@ class WorkspaceViewContainer: NSView {
     }
 
     /// Card background color for pinned mode title bar region.
-    /// Light mode: explicit warm white. Dark mode: terminal config color.
+    /// Light mode: explicit warm white. Dark mode: dark neutral.
     private var cardBackgroundCGColor: CGColor {
         isLightAppearance
             ? WorkspaceLayout.cardBackgroundLight.cgColor
-            : NSColor(ghostty.config.backgroundColor).cgColor
+            : WorkspaceLayout.cardBackgroundDark.cgColor
     }
 
     /// Canvas color behind the floating terminal card.
-    /// Light mode: warm beige. Dark mode: nil (use default window background).
-    private var canvasBackgroundCGColor: CGColor? {
+    /// Light mode: warm beige. Dark mode: slightly lighter neutral.
+    private var canvasBackgroundCGColor: CGColor {
         isLightAppearance
             ? WorkspaceLayout.canvasBackgroundLight.cgColor
-            : nil
+            : WorkspaceLayout.canvasBackgroundDark.cgColor
     }
 
 

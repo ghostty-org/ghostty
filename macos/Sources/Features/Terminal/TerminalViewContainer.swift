@@ -74,7 +74,13 @@ class TerminalViewContainer: NSView {
 
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
-        window?.contentView as? TerminalViewContainer
+        if let container = window?.contentView as? TerminalViewContainer {
+            return container
+        }
+        if let workspace = window?.contentView as? WorkspaceViewContainer {
+            return workspace.terminalContainer
+        }
+        return nil
     }
 }
 

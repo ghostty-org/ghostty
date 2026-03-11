@@ -52,6 +52,14 @@ enum WorkspaceLayout {
     /// Terminal card background including title bar region (light mode).
     static let cardBackgroundLight = NSColor(red: 0xFD / 255.0, green: 0xF9 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
 
+    /// Workspace canvas color behind the floating terminal card (dark mode).
+    /// Slightly lighter than the card so the terminal appears to float.
+    static let canvasBackgroundDark = NSColor(white: 0.14, alpha: 1)
+
+    /// Terminal card background including title bar region (dark mode).
+    /// Darker than the canvas to give the terminal visual weight.
+    static let cardBackgroundDark = NSColor(white: 0.10, alpha: 1)
+
     /// Terracotta/warm rust accent for the "waiting" indicator state. #c97350
     static let waitingTerracotta = Color(red: 0.788, green: 0.451, blue: 0.314)
 }
