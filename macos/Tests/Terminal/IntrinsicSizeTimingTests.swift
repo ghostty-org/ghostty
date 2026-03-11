@@ -44,6 +44,40 @@ private func styleMask(for titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) -> 
     }
 }
 
+/// Creates a TerminalViewContainer and an NSWindow on the main actor.
+/// The window has `isReleasedWhenClosed = false` to prevent
+/// auto-release races with NSHostingView's internal SwiftUI layout.
+@MainActor
+private func makeContainerAndWindow<Root: View>(
+    @ViewBuilder rootView: () -> Root,
+    initialContentSize: NSSize? = nil,
+    titlebarStyle: Ghostty.Config.MacOSTitlebarStyle
+) -> (TerminalViewContainer, NSWindow) {
+    let container = TerminalViewContainer(rootView: rootView)
+    if let initialContentSize {
+        container.initialContentSize = initialContentSize
+    }
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+        styleMask: styleMask(for: titlebarStyle),
+        backing: .buffered,
+        defer: false
+    )
+    window.isReleasedWhenClosed = false
+    window.contentView = container
+    return (container, window)
+}
+
+/// Cleanly tears down a test window by detaching the content view
+/// (which contains the NSHostingView) before ordering the window out.
+/// This prevents use-after-free crashes from in-flight SwiftUI layout
+/// passes referencing a deallocated window.
+@MainActor
+private func tearDown(_ window: NSWindow) {
+    window.contentView = nil
+    window.orderOut(nil)
+}
+
 // MARK: - Tests
 
 /// Regression tests for Issue #11256: incorrect intrinsicContentSize
@@ -57,7 +91,9 @@ private func styleMask(for titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) -> 
 /// These tests cover the matrix of:
 /// - With/without window-width/window-height (initialSize set vs nil)
 /// - All macos-titlebar-style values (native, hidden, transparent, tabs)
-@Suite(.bug("https://github.com/ghostty-org/ghostty/issues/11256", "Incorrect intrinsicContentSize with native titlebar"))
+// Serialized: all tests share the main thread for NSWindow operations;
+// parallel execution causes layout interference between windows.
+@Suite(.serialized, .bug("https://github.com/ghostty-org/ghostty/issues/11256", "Incorrect intrinsicContentSize with native titlebar"))
 struct IntrinsicSizeTimingTests {
 
     // MARK: - Bug: nil ideal sizes → tiny window
@@ -68,38 +104,21 @@ struct IntrinsicSizeTimingTests {
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/11256", "intrinsicContentSize too small before @FocusedValue propagates"),
           arguments: allTitlebarStyles)
     func intrinsicSizeTooSmallWithNilIdealSize(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
-        let expectedSize = NSSize(width: 600, height: 400)
-
-        // nil ideal sizes = @FocusedValue hasn't propagated lastFocusedSurface
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle)
+        let size = await MainActor.run {
+            let (container, window) = makeContainerAndWindow(
+                rootView: { OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle) },
+                initialContentSize: NSSize(width: 600, height: 400),
+                titlebarStyle: titlebarStyle
+            )
+            let result = container.intrinsicContentSize
+            tearDown(window)
+            return result
         }
-
-        // Set initialContentSize so intrinsicContentSize returns the
-        // correct value immediately, without waiting for @FocusedValue.
-        await MainActor.run {
-            container.initialContentSize = expectedSize
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
-        await MainActor.run {
-            window.contentView = container
-        }
-
-        let size = await container.intrinsicContentSize
 
         #expect(
             size.width >= minReasonableWidth && size.height >= minReasonableHeight,
             "[\(titlebarStyle)] intrinsicContentSize is too small: \(size). Expected at least \(minReasonableWidth)x\(minReasonableHeight)"
         )
-
-        await MainActor.run { window.close() }
     }
 
     /// Verifies that DefaultSize.contentIntrinsicSize.apply() produces a
@@ -107,37 +126,24 @@ struct IntrinsicSizeTimingTests {
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/11256", "apply() sets wrong window size due to racy intrinsicContentSize"),
           arguments: allTitlebarStyles)
     func applyProducesWrongSizeWithNilIdealSize(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle)
-        }
-
-        await MainActor.run {
-            container.initialContentSize = NSSize(width: 600, height: 400)
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
         let contentLayoutSize = await MainActor.run {
-            window.contentView = container
+            let (_, window) = makeContainerAndWindow(
+                rootView: { OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle) },
+                initialContentSize: NSSize(width: 600, height: 400),
+                titlebarStyle: titlebarStyle
+            )
 
             let defaultSize = TerminalController.DefaultSize.contentIntrinsicSize
             defaultSize.apply(to: window)
-
-            // Use contentLayoutRect — the usable area excluding titlebar
-            return window.contentLayoutRect.size
+            let result = window.contentLayoutRect.size
+            tearDown(window)
+            return result
         }
 
         #expect(
             contentLayoutSize.width >= minReasonableWidth && contentLayoutSize.height >= minReasonableHeight,
             "[\(titlebarStyle)] Window content layout size is too small after apply: \(contentLayoutSize)"
         )
-
-        await MainActor.run { window.close() }
     }
 
     /// Replicates the exact pattern from TerminalController.windowDidLoad():
@@ -151,33 +157,20 @@ struct IntrinsicSizeTimingTests {
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/11256", "40ms async delay reads intrinsicContentSize before @FocusedValue propagates"),
           arguments: allTitlebarStyles)
     func asyncAfterDelayProducesWrongSizeWithNilIdealSize(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle)
-        }
-
-        await MainActor.run {
-            container.initialContentSize = NSSize(width: 600, height: 400)
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
-        // Replicate TerminalController.windowDidLoad() exactly:
-        // 1. Set contentView
-        // 2. DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40))
-        // 3. apply() inside the callback
         let contentLayoutSize: NSSize = await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
-                window.contentView = container
+                let (_, window) = makeContainerAndWindow(
+                    rootView: { OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle) },
+                    initialContentSize: NSSize(width: 600, height: 400),
+                    titlebarStyle: titlebarStyle
+                )
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40)) {
                     let defaultSize = TerminalController.DefaultSize.contentIntrinsicSize
                     defaultSize.apply(to: window)
-                    continuation.resume(returning: window.contentLayoutRect.size)
+                    let size = window.contentLayoutRect.size
+                    tearDown(window)
+                    continuation.resume(returning: size)
                 }
             }
         }
@@ -186,8 +179,6 @@ struct IntrinsicSizeTimingTests {
             contentLayoutSize.width >= minReasonableWidth && contentLayoutSize.height >= minReasonableHeight,
             "[\(titlebarStyle)] After 40ms async delay, content layout size is too small: \(contentLayoutSize)"
         )
-
-        await MainActor.run { window.close() }
     }
 
     /// Verifies that applying synchronously (without the async delay) also
@@ -196,35 +187,25 @@ struct IntrinsicSizeTimingTests {
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/11256", "Synchronous apply also fails without fallback"),
           arguments: allTitlebarStyles)
     func synchronousApplyAlsoFailsWithNilIdealSize(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle)
-        }
-
-        await MainActor.run {
-            container.initialContentSize = NSSize(width: 600, height: 400)
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
         let contentLayoutSize = await MainActor.run {
-            window.contentView = container
+            let (_, window) = makeContainerAndWindow(
+                rootView: { OptionalIdealSizeView(idealWidth: nil, idealHeight: nil, titlebarStyle: titlebarStyle) },
+                initialContentSize: NSSize(width: 600, height: 400),
+                titlebarStyle: titlebarStyle
+            )
+
             // Apply immediately — no async delay at all
             let defaultSize = TerminalController.DefaultSize.contentIntrinsicSize
             defaultSize.apply(to: window)
-            return window.contentLayoutRect.size
+            let result = window.contentLayoutRect.size
+            tearDown(window)
+            return result
         }
 
         #expect(
             contentLayoutSize.width >= minReasonableWidth && contentLayoutSize.height >= minReasonableHeight,
             "[\(titlebarStyle)] Synchronous apply with nil ideal sizes: content layout size too small: \(contentLayoutSize)"
         )
-
-        await MainActor.run { window.close() }
     }
 
     // MARK: - Happy path: ideal sizes available (contentIntrinsicSize path)
@@ -236,29 +217,27 @@ struct IntrinsicSizeTimingTests {
     func intrinsicSizeCorrectWhenIdealSizesAvailable(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
         let expectedSize = NSSize(width: 600, height: 400)
 
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(
-                idealWidth: expectedSize.width,
-                idealHeight: expectedSize.height,
+        let (container, window): (TerminalViewContainer, NSWindow) = await MainActor.run {
+            makeContainerAndWindow(
+                rootView: {
+                    OptionalIdealSizeView(
+                        idealWidth: expectedSize.width,
+                        idealHeight: expectedSize.height,
+                        titlebarStyle: titlebarStyle
+                    )
+                },
                 titlebarStyle: titlebarStyle
             )
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
-        await MainActor.run {
-            window.contentView = container
         }
 
         // Wait for SwiftUI layout
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        let size = await container.intrinsicContentSize
+        let size = await MainActor.run {
+            let s = container.intrinsicContentSize
+            tearDown(window)
+            return s
+        }
 
         // intrinsicContentSize should be at least the ideal size.
         // With fullSizeContentView styles it may be slightly larger
@@ -267,8 +246,6 @@ struct IntrinsicSizeTimingTests {
             size.width >= expectedSize.width && size.height >= expectedSize.height,
             "[\(titlebarStyle)] intrinsicContentSize (\(size)) should be >= expected \(expectedSize)"
         )
-
-        await MainActor.run { window.close() }
     }
 
     /// Verifies that apply() sets a correctly sized window when ideal sizes
@@ -277,23 +254,17 @@ struct IntrinsicSizeTimingTests {
     func applyProducesCorrectSizeWhenIdealSizesAvailable(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
         let expectedSize = NSSize(width: 600, height: 400)
 
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(
-                idealWidth: expectedSize.width,
-                idealHeight: expectedSize.height,
+        let (_, window): (TerminalViewContainer, NSWindow) = await MainActor.run {
+            makeContainerAndWindow(
+                rootView: {
+                    OptionalIdealSizeView(
+                        idealWidth: expectedSize.width,
+                        idealHeight: expectedSize.height,
+                        titlebarStyle: titlebarStyle
+                    )
+                },
                 titlebarStyle: titlebarStyle
             )
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
-        await MainActor.run {
-            window.contentView = container
         }
 
         // Wait for SwiftUI layout before apply
@@ -302,8 +273,9 @@ struct IntrinsicSizeTimingTests {
         let contentLayoutSize = await MainActor.run {
             let defaultSize = TerminalController.DefaultSize.contentIntrinsicSize
             defaultSize.apply(to: window)
-            // contentLayoutRect gives the usable area, excluding titlebar
-            return window.contentLayoutRect.size
+            let result = window.contentLayoutRect.size
+            tearDown(window)
+            return result
         }
 
         // The usable content area should be at least the expected size.
@@ -311,8 +283,6 @@ struct IntrinsicSizeTimingTests {
             contentLayoutSize.width >= expectedSize.width && contentLayoutSize.height >= expectedSize.height,
             "[\(titlebarStyle)] Content layout size (\(contentLayoutSize)) should be >= expected \(expectedSize) after apply"
         )
-
-        await MainActor.run { window.close() }
     }
 
     /// Same async delay pattern but with ideal sizes available (happy path).
@@ -322,30 +292,26 @@ struct IntrinsicSizeTimingTests {
     func asyncAfterDelayProducesCorrectSizeWhenIdealSizesAvailable(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
         let expectedSize = NSSize(width: 600, height: 400)
 
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(
-                idealWidth: expectedSize.width,
-                idealHeight: expectedSize.height,
-                titlebarStyle: titlebarStyle
-            )
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
         // Replicate the exact TerminalController.windowDidLoad() pattern
         let contentLayoutSize: NSSize = await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
-                window.contentView = container
+                let (_, window) = makeContainerAndWindow(
+                    rootView: {
+                        OptionalIdealSizeView(
+                            idealWidth: expectedSize.width,
+                            idealHeight: expectedSize.height,
+                            titlebarStyle: titlebarStyle
+                        )
+                    },
+                    titlebarStyle: titlebarStyle
+                )
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40)) {
                     let defaultSize = TerminalController.DefaultSize.contentIntrinsicSize
                     defaultSize.apply(to: window)
-                    continuation.resume(returning: window.contentLayoutRect.size)
+                    let size = window.contentLayoutRect.size
+                    tearDown(window)
+                    continuation.resume(returning: size)
                 }
             }
         }
@@ -354,8 +320,6 @@ struct IntrinsicSizeTimingTests {
             contentLayoutSize.width >= expectedSize.width && contentLayoutSize.height >= expectedSize.height,
             "[\(titlebarStyle)] Content layout size (\(contentLayoutSize)) should be >= expected \(expectedSize) after 40ms delay"
         )
-
-        await MainActor.run { window.close() }
     }
 
     // MARK: - Without window-width/window-height (frame path)
@@ -367,31 +331,22 @@ struct IntrinsicSizeTimingTests {
     func framePathWorksWithoutWindowSize(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
         let expectedFrame = NSRect(x: 100, y: 100, width: 800, height: 600)
 
-        let container = await TerminalViewContainer {
-            Color.clear
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
-        await MainActor.run {
-            window.contentView = container
+        let frame = await MainActor.run {
+            let (_, window) = makeContainerAndWindow(
+                rootView: { Color.clear },
+                titlebarStyle: titlebarStyle
+            )
             let defaultSize = TerminalController.DefaultSize.frame(expectedFrame)
             defaultSize.apply(to: window)
+            let result = window.frame
+            tearDown(window)
+            return result
         }
-
-        let frame = await MainActor.run { window.frame }
 
         #expect(
             frame == expectedFrame,
             "[\(titlebarStyle)] Window frame (\(frame)) should match expected \(expectedFrame)"
         )
-
-        await MainActor.run { window.close() }
     }
 
     // MARK: - isChanged
@@ -402,23 +357,17 @@ struct IntrinsicSizeTimingTests {
     func isChangedDetectsMismatch(titlebarStyle: Ghostty.Config.MacOSTitlebarStyle) async throws {
         let expectedSize = NSSize(width: 600, height: 400)
 
-        let container = await TerminalViewContainer {
-            OptionalIdealSizeView(
-                idealWidth: expectedSize.width,
-                idealHeight: expectedSize.height,
+        let (_, window): (TerminalViewContainer, NSWindow) = await MainActor.run {
+            makeContainerAndWindow(
+                rootView: {
+                    OptionalIdealSizeView(
+                        idealWidth: expectedSize.width,
+                        idealHeight: expectedSize.height,
+                        titlebarStyle: titlebarStyle
+                    )
+                },
                 titlebarStyle: titlebarStyle
             )
-        }
-
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: styleMask(for: titlebarStyle),
-            backing: .buffered,
-            defer: false
-        )
-
-        await MainActor.run {
-            window.contentView = container
         }
 
         try await Task.sleep(nanoseconds: 100_000_000)
@@ -433,19 +382,23 @@ struct IntrinsicSizeTimingTests {
         let changedAfter = await MainActor.run { defaultSize.isChanged(for: window) }
         #expect(!changedAfter, "[\(titlebarStyle)] isChanged should return false after apply")
 
-        await MainActor.run { window.close() }
+        await MainActor.run { tearDown(window) }
     }
 
     /// Verifies isChanged for the .frame path.
     @Test func isChangedForFramePath() async throws {
         let expectedFrame = NSRect(x: 100, y: 100, width: 800, height: 600)
 
-        let window = await NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-            styleMask: [.titled, .resizable],
-            backing: .buffered,
-            defer: false
-        )
+        let window: NSWindow = await MainActor.run {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                styleMask: [.titled, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            w.isReleasedWhenClosed = false
+            return w
+        }
 
         let defaultSize = TerminalController.DefaultSize.frame(expectedFrame)
 
@@ -457,6 +410,6 @@ struct IntrinsicSizeTimingTests {
         let changedAfter = await MainActor.run { defaultSize.isChanged(for: window) }
         #expect(!changedAfter, "isChanged should return false after apply")
 
-        await MainActor.run { window.close() }
+        await MainActor.run { window.orderOut(nil) }
     }
 }
