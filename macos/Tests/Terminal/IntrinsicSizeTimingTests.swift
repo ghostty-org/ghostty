@@ -91,8 +91,9 @@ private func tearDown(_ window: NSWindow) {
 /// These tests cover the matrix of:
 /// - With/without window-width/window-height (initialSize set vs nil)
 /// - All macos-titlebar-style values (native, hidden, transparent, tabs)
-// Serialized: all tests share the main thread for NSWindow operations;
-// parallel execution causes layout interference between windows.
+///
+/// Serialized: all tests share the main thread for NSWindow operations;
+/// parallel execution causes layout interference between windows.
 @Suite(.serialized, .bug("https://github.com/ghostty-org/ghostty/issues/11256", "Incorrect intrinsicContentSize with native titlebar"))
 struct IntrinsicSizeTimingTests {
 
