@@ -9,7 +9,6 @@ const Sampler = @import("Sampler.zig");
 const Target = @import("Target.zig");
 const Texture = @import("Texture.zig");
 const Pipeline = @import("Pipeline.zig");
-const Buffer = @import("buffer.zig").Buffer;
 
 /// Options for beginning a render pass.
 pub const Options = struct {
@@ -101,13 +100,19 @@ pub fn step(self: *Self, s: Step) void {
         _ = tex.texture.bind(tex.target) catch return;
     };
 
+    // Bind `buffers[1]` as a texture buffer if this pipeline uses one.
+    if (s.pipeline.buffer_texture) |tbo| {
+        gl.Texture.active(tbo.unit) catch return;
+        const tbind = tbo.texture.bind(.Buffer) catch return;
+        tbind.buffer(tbo.internal_format, s.buffers[1].?.id) catch return;
+    }
+
     // Bind relevant samplers.
     for (s.samplers, 0..) |s_, i| if (s_) |sampler| {
         _ = sampler.sampler.bind(@intCast(i)) catch return;
     };
 
-    // Bind 0th buffer as the vertex buffer,
-    // and bind the rest as storage buffers.
+    // Bind the 0th buffer as the vertex buffer.
     if (s.buffers.len > 0) {
         if (s.buffers[0]) |vbo| vaobind.bindVertexBuffer(
             0,
@@ -115,10 +120,6 @@ pub fn step(self: *Self, s: Step) void {
             0,
             @intCast(s.pipeline.stride),
         ) catch return;
-
-        for (s.buffers[1..], 1..) |b, i| if (b) |buf| {
-            _ = buf.bindBase(.storage, @intCast(i)) catch return;
-        };
     }
 
     if (s.pipeline.blending_enabled) {
