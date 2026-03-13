@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -z "$staged_files" ]; then
+    exit 0
+fi
+
+# Helper to filter staged files by extension(s)
+staged_by_ext() {
+    echo "$staged_files" | grep -E "\\.($1)$" || true
+}
+
+# Check that a tool is available, exit with error if not
+require_tool() {
+    if ! command -v "$1" &>/dev/null; then
+        echo "error: '$1' is not installed but is required for this commit."
+        echo "See HACKING.md for installation details."
+        exit 1
+    fi
+}
+
+# --- typos ---
+require_tool typos
+echo "$staged_files" | xargs typos || {
+    echo "error: typos found. Fix them before committing."
+    exit 1
+}
+
+# --- prettier (docs and resources, not Zig code) ---
+prettier_files=$(staged_by_ext "md|json|yaml|yml|css|html|js|ts")
+if [ -n "$prettier_files" ]; then
+    require_tool prettier
+    echo "$prettier_files" | xargs prettier --write
+    echo "$prettier_files" | xargs git add
+fi
+
+# --- alejandra (Nix files) ---
+nix_files=$(staged_by_ext "nix")
+if [ -n "$nix_files" ]; then
+    require_tool alejandra
+    echo "$nix_files" | xargs alejandra
+    echo "$nix_files" | xargs git add
+fi
+
+# --- shellcheck (Bash scripts) ---
+shell_files=$(staged_by_ext "sh|bash")
+if [ -n "$shell_files" ]; then
+    require_tool shellcheck
+    echo "$shell_files" | xargs shellcheck --check-sourced --severity=warning || {
+        echo "error: shellcheck found issues. Fix them before committing."
+        exit 1
+    }
+fi
+
+# --- swiftlint (Swift files) ---
+swift_files=$(staged_by_ext "swift")
+if [ -n "$swift_files" ]; then
+    require_tool swiftlint
+    echo "$swift_files" | xargs swiftlint --fix --quiet
+    echo "$swift_files" | xargs git add
+fi
+
+# --- check if staged changes remain after linting ---
+if [ -z "$(git diff --cached --name-only)" ]; then
+    echo "error: no staged changes remain after linting. Aborting commit."
+    exit 1
+fi

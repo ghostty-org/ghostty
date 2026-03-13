@@ -125,6 +125,20 @@ destinations. Setting `GHOSTTY_LOG` to `false` will disable all destinations.
 
 ## Linting
 
+### Pre-commit Hook
+
+Ghostty provides a pre-commit hook in `.githooks/` that automatically runs all
+linters (typos, Prettier, Alejandra, ShellCheck, SwiftLint) on staged files
+before each commit. To enable it, run:
+
+```
+make setup-hooks
+```
+
+Each tool is only required when staged files match its type (e.g. `swiftlint`
+is only needed when committing `.swift` files). See the sections below for
+installation details on each tool.
+
 ### Prettier
 
 Ghostty's docs and resources (not including Zig code) are linted using

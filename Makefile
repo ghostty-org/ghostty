@@ -20,6 +20,11 @@ vendor/glad/include/glad/gl.h: glad.zip
 vendor/glad/include/glad/glad.h: vendor/glad/include/glad/gl.h
 	@echo "#include <glad/gl.h>" > $@
 
+setup-hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks enabled from .githooks/"
+.PHONY: setup-hooks
+
 clean:
 	rm -rf \
 		zig-out .zig-cache \
