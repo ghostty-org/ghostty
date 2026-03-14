@@ -47,6 +47,9 @@ pub const Shaper = struct {
     features: *macos.foundation.Dictionary,
     /// A version of the features dictionary with the default features excluded.
     features_no_default: *macos.foundation.Dictionary,
+    /// A version of the features dictionary with only the default features
+    /// (no user-configured features). Used for fallback fonts.
+    features_default_only: *macos.foundation.Dictionary,
 
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
@@ -168,6 +171,8 @@ pub const Shaper = struct {
         errdefer features.release();
         const features_no_default = try makeFeaturesDict(feats);
         errdefer features_no_default.release();
+        const features_default_only = try makeFeaturesDict(&default_features);
+        errdefer features_default_only.release();
 
         var run_state = RunState.init();
         errdefer run_state.deinit(alloc);
@@ -221,6 +226,7 @@ pub const Shaper = struct {
             .run_state = run_state,
             .features = features,
             .features_no_default = features_no_default,
+            .features_default_only = features_default_only,
             .typesetter_attr_dict = typesetter_attr_dict,
             .cached_fonts = .{},
             .cached_font_grid = 0,
@@ -235,6 +241,7 @@ pub const Shaper = struct {
         self.run_state.deinit(self.alloc);
         self.features.release();
         self.features_no_default.release();
+        self.features_default_only.release();
         self.typesetter_attr_dict.release();
 
         {
@@ -610,9 +617,12 @@ pub const Shaper = struct {
             defer grid.lock.unlockShared();
 
             const face = try grid.resolver.collection.getFace(index);
+            const entry = try grid.resolver.collection.getEntry(index);
             const original = face.font;
 
-            const attrs = if (face.quirks_disable_default_font_features)
+            const attrs = if (entry.fallback)
+                self.features_default_only
+            else if (face.quirks_disable_default_font_features)
                 self.features_no_default
             else
                 self.features;
@@ -2515,6 +2525,93 @@ test "shape high plane sprite font codepoint" {
     try testing.expectEqual(null, try it.next(alloc));
 }
 
+test "shape fallback font ignores user features" {
+    // Regression test for https://github.com/ghostty-org/ghostty/issues/11464
+    //
+    // font-feature should only apply to the primary font, not fallback fonts.
+    // We test this by enabling `dlig` (discretionary ligatures) and shaping
+    // ">=" which both Inconsolata and JetBrainsMono can ligate into a single
+    // glyph. When Inconsolata is the primary font, dlig should apply and
+    // produce a ligature (1 glyph from 2 chars). When Inconsolata is a
+    // fallback font, dlig should NOT apply (2 glyphs from 2 chars).
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Glyph indices for Inconsolata-Regular.ttf (embedded in src/font/res/).
+    const inconsolata_greater_than = 626; // ">"
+    const inconsolata_equals = 624; // "="
+    const inconsolata_greater_equal_lig = 875; // ">=" dlig ligature
+
+    // First: shape ">=" with Inconsolata as PRIMARY font (dlig enabled).
+    // This should produce a ligature: 2 input cells → 1 output glyph.
+    {
+        var testdata = try testShaper(alloc);
+        defer testdata.deinit();
+
+        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        defer t.deinit(alloc);
+
+        var s = t.vtStream();
+        defer s.deinit();
+        s.nextSlice(">=");
+
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+        try state.update(alloc, &t);
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(.{
+            .grid = testdata.grid,
+            .cells = state.row_data.get(0).cells.slice(),
+        });
+
+        const run = (try it.next(alloc)).?;
+        try testing.expectEqual(@as(usize, 2), run.cells);
+        const cells = try shaper.shape(run);
+        // dlig applied → ligature → 1 glyph (Inconsolata's ">=" ligature)
+        try testing.expectEqual(@as(usize, 1), cells.len);
+        try testing.expectEqual(inconsolata_greater_equal_lig, cells[0].glyph_index);
+    }
+
+    // Second: shape ">=" where NotoEmoji is primary and Inconsolata is fallback.
+    // NotoEmoji lacks ">=" glyphs, so the resolver falls through to Inconsolata.
+    // dlig is enabled in config but should NOT be applied to fallback fonts,
+    // so this should NOT produce a ligature: 2 input cells → 2 output glyphs.
+    {
+        var testdata = try testShaperPrimaryAndFallback(alloc, .{
+            .primary = font.embedded.emoji_text,
+            .fallback = font.embedded.inconsolata,
+            .features = &.{"dlig"},
+        });
+        defer testdata.deinit();
+
+        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        defer t.deinit(alloc);
+
+        var s = t.vtStream();
+        defer s.deinit();
+        s.nextSlice(">=");
+
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+        try state.update(alloc, &t);
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(.{
+            .grid = testdata.grid,
+            .cells = state.row_data.get(0).cells.slice(),
+        });
+
+        const run = (try it.next(alloc)).?;
+        try testing.expectEqual(@as(usize, 2), run.cells);
+        const cells = try shaper.shape(run);
+        // dlig NOT applied to fallback → no ligature → individual ">" and "=" glyphs
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(inconsolata_greater_than, cells[0].glyph_index);
+        try testing.expectEqual(inconsolata_equals, cells[1].glyph_index);
+    }
+}
+
 const TestShaper = struct {
     alloc: Allocator,
     shaper: Shaper,
@@ -2667,6 +2764,60 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
     errdefer grid_ptr.*.deinit(alloc);
 
     var shaper = try Shaper.init(alloc, .{});
+    errdefer shaper.deinit();
+
+    return TestShaper{
+        .alloc = alloc,
+        .shaper = shaper,
+        .grid = grid_ptr,
+        .lib = lib,
+    };
+}
+
+/// Sets up a collection with a primary font and a fallback font,
+/// with configurable font features.
+fn testShaperPrimaryAndFallback(
+    alloc: Allocator,
+    opts: struct {
+        primary: [:0]const u8,
+        fallback: [:0]const u8,
+        features: []const []const u8 = &.{},
+    },
+) !TestShaper {
+    var lib = try Library.init(alloc);
+    errdefer lib.deinit();
+
+    var c = Collection.init();
+    c.load_options = .{ .library = lib };
+
+    _ = try c.add(alloc, try .init(
+        lib,
+        opts.primary,
+        .{ .size = .{ .points = 12 } },
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    _ = try c.add(alloc, try .init(
+        lib,
+        opts.fallback,
+        .{ .size = .{ .points = 12 } },
+    ), .{
+        .style = .regular,
+        .fallback = true,
+        .size_adjustment = .none,
+    });
+
+    const grid_ptr = try alloc.create(SharedGrid);
+    errdefer alloc.destroy(grid_ptr);
+    grid_ptr.* = try .init(alloc, .{ .collection = c });
+    errdefer grid_ptr.*.deinit(alloc);
+
+    var shaper = try Shaper.init(alloc, .{
+        .features = opts.features,
+    });
     errdefer shaper.deinit();
 
     return TestShaper{
