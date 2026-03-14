@@ -2627,27 +2627,9 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
         return null;
     };
 
-    // Go forward from the start to find the first non-whitespace character.
-    const start: Pin = start: {
-        const whitespace = opts.whitespace orelse break :start start_pin;
-        var it = start_pin.cellIterator(.right_down, end_pin);
-        while (it.next()) |p| {
-            const cell = p.rowAndCell().cell;
-            if (!cell.hasText()) continue;
-
-            // Non-empty means we found it.
-            const this_whitespace = std.mem.indexOfAny(
-                u21,
-                whitespace,
-                &[_]u21{cell.content.codepoint},
-            ) != null;
-            if (this_whitespace) continue;
-
-            break :start p;
-        }
-
-        return null;
-    };
+    // Leading whitespace is intentionally preserved so that line selection
+    // (triple-click) includes indentation. See #11463.
+    const start: Pin = start_pin;
 
     // Go backward from the end to find the first non-whitespace character.
     const end: Pin = end: {
@@ -7637,6 +7619,53 @@ test "Screen: selectLine" {
     }
 }
 
+test "Screen: selectLine preserves leading whitespace" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 10 });
+    defer s.deinit();
+    // Row 0:      "   multiline  "      (3 leading, 2 trailing spaces)
+    // Row 1:      "    string  "        (4 leading, 2 trailing spaces)
+    try s.testWriteString("   multiline  \n    string  ");
+
+    // Row 0: leading whitespace preserved, trailing trimmed
+    {
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
+            .x = 5,
+            .y = 0,
+        } }).? }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        // "   multiline" ends at col 11
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 11,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // Row 1: leading whitespace preserved, trailing trimmed
+    {
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
+            .x = 5,
+            .y = 1,
+        } }).? }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        // "    string" ends at col 9
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 9,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
 test "Screen: selectLine across soft-wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7653,7 +7682,7 @@ test "Screen: selectLine across soft-wrap" {
         } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
-            .x = 1,
+            .x = 0,
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
@@ -7704,7 +7733,7 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
-            .x = 1,
+            .x = 0,
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
@@ -7721,7 +7750,7 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
-            .x = 1,
+            .x = 0,
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
@@ -7738,7 +7767,7 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
-            .x = 1,
+            .x = 0,
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
