@@ -83,6 +83,7 @@ icodesign
 jacobsandlund
 jake-stewart
 jcollie
+jesusvazquez
 jguthmiller
 jmcgover
 johnslavik
