@@ -14,6 +14,7 @@ const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
 
 const wl = wayland.client.wl;
+const kde = wayland.client.kde;
 const org = wayland.client.org;
 const xdg = wayland.client.xdg;
 
@@ -25,13 +26,29 @@ pub const App = struct {
     context: *Context,
 
     const Context = struct {
+        alloc: Allocator,
+
         kde_blur_manager: ?*org.KdeKwinBlurManager = null,
 
         // FIXME: replace with `zxdg_decoration_v1` once GTK merges
         // https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
         kde_decoration_manager: ?*org.KdeKwinServerDecorationManager = null,
+        kde_decoration_manager_global_name: ?u32 = null,
 
         kde_slide_manager: ?*org.KdeKwinSlideManager = null,
+
+        kde_output_order: ?*kde.OutputOrderV1 = null,
+        kde_output_order_global_name: ?u32 = null,
+
+        /// Connector name of the primary output (e.g., "DP-1") as reported
+        /// by kde_output_order_v1. The first output in each priority list
+        /// is the primary.
+        primary_output_name: ?[:0]const u8 = null,
+
+        /// Tracks the output order event cycle. Set to true after a `done`
+        /// event so the next `output` event is captured as the new primary.
+        /// Initialized to true so the first event after binding is captured.
+        output_order_done: bool = true,
 
         default_deco_mode: ?org.KdeKwinServerDecorationManager.Mode = null,
 
@@ -74,8 +91,11 @@ pub const App = struct {
         // a stable pointer, but it's too scary that we'd need one in the future
         // and not have it and corrupt memory or something so let's just do it.
         const context = try alloc.create(Context);
-        errdefer alloc.destroy(context);
-        context.* = .{};
+        errdefer {
+            if (context.primary_output_name) |name| alloc.free(name);
+            alloc.destroy(context);
+        }
+        context.* = .{ .alloc = alloc };
 
         // Get our display registry so we can get all the available interfaces
         // and bind to what we need.
@@ -83,9 +103,10 @@ pub const App = struct {
         registry.setListener(*Context, registryListener, context);
         if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
-        // Do another round-trip to get the default decoration mode
-        if (context.kde_decoration_manager) |deco_manager| {
-            deco_manager.setListener(*Context, decoManagerListener, context);
+        // Do another roundtrip to process events emitted by globals we bound
+        // during registry discovery (e.g. default decoration mode, output
+        // order). Listeners are installed at bind time in registryListener.
+        if (context.kde_decoration_manager != null or context.kde_output_order != null) {
             if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
         }
 
@@ -96,6 +117,7 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App, alloc: Allocator) void {
+        if (self.context.primary_output_name) |name| alloc.free(name);
         alloc.destroy(self.context);
     }
 
@@ -127,16 +149,63 @@ pub const App = struct {
         return true;
     }
 
-    pub fn initQuickTerminal(_: *App, apprt_window: *ApprtWindow) !void {
+    pub fn initQuickTerminal(self: *App, apprt_window: *ApprtWindow) !void {
         const window = apprt_window.as(gtk.Window);
         layer_shell.initForWindow(window);
+
+        // Set target monitor based on config (null lets compositor decide)
+        const monitor = resolveQuickTerminalMonitor(self.context, apprt_window);
+        defer if (monitor) |v| v.unref();
+        layer_shell.setMonitor(window, monitor);
+    }
+
+    /// Resolve the quick-terminal-screen config to a specific monitor.
+    /// Returns null to let the compositor decide (used for .mouse mode).
+    /// Caller owns the returned ref and must unref it.
+    fn resolveQuickTerminalMonitor(
+        context: *Context,
+        apprt_window: *ApprtWindow,
+    ) ?*gdk.Monitor {
+        const config = if (apprt_window.getConfig()) |v| v.get() else return null;
+
+        switch (config.@"quick-terminal-screen") {
+            .mouse => return null,
+            .main, .@"macos-menu-bar" => {},
+        }
+
+        const display = apprt_window.as(gtk.Widget).getDisplay();
+        const monitors = display.getMonitors();
+
+        // Try to find the monitor matching the primary output name.
+        if (context.primary_output_name) |stored_name| {
+            var i: u32 = 0;
+            while (monitors.getObject(i)) |item| : (i += 1) {
+                const monitor = gobject.ext.cast(gdk.Monitor, item) orelse {
+                    item.unref();
+                    continue;
+                };
+                if (monitor.getConnector()) |connector_z| {
+                    if (std.mem.orderZ(u8, connector_z, stored_name) == .eq) {
+                        return monitor;
+                    }
+                }
+                monitor.unref();
+            }
+        }
+
+        // Fall back to the first monitor in the list.
+        const first = monitors.getObject(0) orelse return null;
+        return gobject.ext.cast(gdk.Monitor, first) orelse {
+            first.unref();
+            return null;
+        };
     }
 
     fn getInterfaceType(comptime field: std.builtin.Type.StructField) ?type {
         // Globals should be optional pointers
         const T = switch (@typeInfo(field.type)) {
             .optional => |o| switch (@typeInfo(o.child)) {
-                .pointer => |v| v.child,
+                .pointer => |v| if (v.size == .one) v.child else return null,
                 else => return null,
             },
             else => return null,
@@ -145,6 +214,25 @@ pub const App = struct {
         // Only process Wayland interfaces
         if (!@hasDecl(T, "interface")) return null;
         return T;
+    }
+
+    /// Returns the Context field that stores the registry global name for
+    /// protocols that support replacement, or null for simple protocols.
+    fn getGlobalNameField(comptime field_name: []const u8) ?[]const u8 {
+        if (std.mem.eql(u8, field_name, "kde_decoration_manager")) {
+            return "kde_decoration_manager_global_name";
+        }
+        if (std.mem.eql(u8, field_name, "kde_output_order")) {
+            return "kde_output_order_global_name";
+        }
+        return null;
+    }
+
+    /// Reset cached state derived from kde_output_order_v1.
+    fn resetOutputOrderState(context: *Context) void {
+        if (context.primary_output_name) |name| context.alloc.free(name);
+        context.primary_output_name = null;
+        context.output_order_done = true;
     }
 
     fn registryListener(
@@ -171,15 +259,10 @@ pub const App = struct {
 
                 inline for (ctx_fields) |field| {
                     const T = getInterfaceType(field) orelse continue;
-
-                    if (std.mem.orderZ(
-                        u8,
-                        v.interface,
-                        T.interface.name,
-                    ) == .eq) {
+                    if (std.mem.orderZ(u8, v.interface, T.interface.name) == .eq) {
                         log.debug("matched {}", .{T});
 
-                        @field(context, field.name) = registry.bind(
+                        const global = registry.bind(
                             v.name,
                             T,
                             T.generated_version,
@@ -190,6 +273,32 @@ pub const App = struct {
                             );
                             return;
                         };
+
+                        // Destroy old binding if this global was re-advertised.
+                        // Bind first so a failed bind preserves the old binding.
+                        if (@field(context, field.name)) |old| {
+                            old.destroy();
+
+                            if (comptime std.mem.eql(u8, field.name, "kde_output_order")) {
+                                resetOutputOrderState(context);
+                            }
+                        }
+
+                        @field(context, field.name) = global;
+                        if (comptime getGlobalNameField(field.name)) |name_field| {
+                            @field(context, name_field) = v.name;
+                        }
+
+                        // Install listeners immediately at bind time. This
+                        // keeps listener setup and object lifetime in one
+                        // place and also supports globals that appear later.
+                        if (comptime std.mem.eql(u8, field.name, "kde_decoration_manager")) {
+                            global.setListener(*Context, decoManagerListener, context);
+                        }
+                        if (comptime std.mem.eql(u8, field.name, "kde_output_order")) {
+                            global.setListener(*Context, outputOrderListener, context);
+                        }
+                        break;
                     }
                 }
             },
@@ -200,10 +309,29 @@ pub const App = struct {
             .global_remove => |v| remove: {
                 inline for (ctx_fields) |field| {
                     if (getInterfaceType(field) == null) continue;
-                    const global = @field(context, field.name) orelse break :remove;
-                    if (global.getId() == v.name) {
-                        global.destroy();
-                        @field(context, field.name) = null;
+
+                    const global_name_field = comptime getGlobalNameField(field.name);
+                    if (global_name_field) |name_field| {
+                        if (@field(context, name_field)) |stored_name| {
+                            if (stored_name == v.name) {
+                                if (@field(context, field.name)) |global| global.destroy();
+                                @field(context, field.name) = null;
+                                @field(context, name_field) = null;
+
+                                if (comptime std.mem.eql(u8, field.name, "kde_output_order")) {
+                                    resetOutputOrderState(context);
+                                }
+                                break :remove;
+                            }
+                        }
+                    } else {
+                        if (@field(context, field.name)) |global| {
+                            if (global.getId() == v.name) {
+                                global.destroy();
+                                @field(context, field.name) = null;
+                                break :remove;
+                            }
+                        }
                     }
                 }
             },
@@ -218,6 +346,44 @@ pub const App = struct {
         switch (event) {
             .default_mode => |mode| {
                 context.default_deco_mode = @enumFromInt(mode.mode);
+            },
+        }
+    }
+
+    fn outputOrderListener(
+        _: *kde.OutputOrderV1,
+        event: kde.OutputOrderV1.Event,
+        context: *Context,
+    ) void {
+        switch (event) {
+            .output => |v| {
+                // Only the first output event after a `done` is the new primary.
+                if (!context.output_order_done) return;
+                context.output_order_done = false;
+
+                const name = std.mem.sliceTo(v.output_name, 0);
+                if (context.primary_output_name) |old| context.alloc.free(old);
+
+                if (name.len == 0) {
+                    context.primary_output_name = null;
+                    log.warn("ignoring empty primary output name from kde_output_order_v1", .{});
+                } else {
+                    context.primary_output_name = context.alloc.dupeZ(u8, name) catch |err| {
+                        context.primary_output_name = null;
+                        log.warn("failed to allocate primary output name: {}", .{err});
+                        return;
+                    };
+                    log.debug("primary output: {s}", .{name});
+                }
+            },
+            .done => {
+                if (context.output_order_done) {
+                    // No output arrived since the previous done. Treat this as
+                    // an empty update and drop any stale cached primary.
+                    resetOutputOrderState(context);
+                    return;
+                }
+                context.output_order_done = true;
             },
         }
     }
@@ -417,6 +583,12 @@ pub const Window = struct {
         });
         layer_shell.setNamespace(window, config.@"gtk-quick-terminal-namespace");
 
+        // Re-resolve the target monitor on every sync so that config reloads
+        // and primary-output changes take effect without recreating the window.
+        const target_monitor = App.resolveQuickTerminalMonitor(self.app_context, self.apprt_window);
+        defer if (target_monitor) |v| v.unref();
+        layer_shell.setMonitor(window, target_monitor);
+
         layer_shell.setKeyboardMode(
             window,
             switch (config.@"quick-terminal-keyboard-interactivity") {
@@ -486,8 +658,17 @@ pub const Window = struct {
         const window = apprt_window.as(gtk.Window);
         const config = if (apprt_window.getConfig()) |v| v.get() else return;
 
+        const resolved_monitor = App.resolveQuickTerminalMonitor(
+            apprt_window.winproto().wayland.app_context,
+            apprt_window,
+        );
+        defer if (resolved_monitor) |v| v.unref();
+
+        // Use the configured monitor for sizing if not in mouse mode.
+        const size_monitor = resolved_monitor orelse monitor;
+
         var monitor_size: gdk.Rectangle = undefined;
-        monitor.getGeometry(&monitor_size);
+        size_monitor.getGeometry(&monitor_size);
 
         const dims = config.@"quick-terminal-size".calculate(
             config.@"quick-terminal-position",

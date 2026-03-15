@@ -2687,7 +2687,13 @@ keybind: Keybinds = .{},
 /// The default value is `main` because this is the recommended screen
 /// by the operating system.
 ///
-/// Only implemented on macOS.
+/// On macOS, `macos-menu-bar` uses the screen containing the menu bar.
+/// On Linux/Wayland, `macos-menu-bar` is treated as equivalent to `main`.
+///
+/// Note: On Linux, there is no universal concept of a "primary" monitor.
+/// Ghostty uses the compositor-reported primary output when available and
+/// falls back to the first monitor reported by GDK if no primary output can
+/// be resolved.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
 /// Duration (in seconds) of the quick terminal enter and exit animation.
