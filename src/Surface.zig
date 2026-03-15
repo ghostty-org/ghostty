@@ -5764,6 +5764,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
         },
 
+        .enter_vi_mode => {
+            // TODO: implement in Task 3
+            log.debug("enter_vi_mode triggered (not yet implemented)", .{});
+        },
+
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_command_palette,
