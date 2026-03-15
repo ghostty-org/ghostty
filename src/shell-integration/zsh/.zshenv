@@ -23,11 +23,20 @@
 # we quote everything that can be quoted. Some aliases will still break us
 # though.
 
+# Save Ghostty's integration directory. We need this to set ZDOTDIR back
+# after sourcing the user's .zshenv so that our .zprofile and .zshrc
+# wrappers are loaded.
+'builtin' 'typeset' _ghostty_integration_dir="${${(%):-%x}:A:h}"
+
 # Restore the original ZDOTDIR value if GHOSTTY_ZSH_ZDOTDIR is set.
 # Otherwise, unset the ZDOTDIR that was set during shell injection.
+# For interactive shells, keep GHOSTTY_ZSH_ZDOTDIR set so that our
+# .zprofile and .zshrc wrappers can find the user's dot files.
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
     'builtin' 'export' ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
-    'builtin' 'unset' 'GHOSTTY_ZSH_ZDOTDIR'
+    if ! [[ -o 'interactive' ]]; then
+        'builtin' 'unset' 'GHOSTTY_ZSH_ZDOTDIR'
+    fi
 else
     'builtin' 'unset' 'ZDOTDIR'
 fi
@@ -42,20 +51,31 @@ fi
     #
     # Use typeset in case we are in a function with warn_create_global in
     # effect. Unlikely but better safe than sorry.
-    'builtin' 'typeset' _ghostty_file=${ZDOTDIR-$HOME}"/.zshenv"
+    'builtin' 'typeset' _ghostty_user_zshenv=${ZDOTDIR-$HOME}"/.zshenv"
     # Zsh ignores unreadable rc files. We do the same.
     # Zsh ignores rc files that are directories, and so does source.
-    [[ ! -r "$_ghostty_file" ]] || 'builtin' 'source' '--' "$_ghostty_file"
+    [[ ! -r "$_ghostty_user_zshenv" ]] || 'builtin' 'source' '--' "$_ghostty_user_zshenv"
 } always {
     if [[ -o 'interactive' ]]; then
-        # ${(%):-%x} is the path to the current file.
-        # On top of it we add :A:h to get the directory.
-        'builtin' 'typeset' _ghostty_file="${${(%):-%x}:A:h}"/ghostty-integration
-        if [[ -r "$_ghostty_file" ]]; then
-            'builtin' 'autoload' '-Uz' '--' "$_ghostty_file"
-            "${_ghostty_file:t}"
-            'builtin' 'unfunction' '--' "${_ghostty_file:t}"
+        # Update GHOSTTY_ZSH_ZDOTDIR to reflect any ZDOTDIR changes the
+        # user's .zshenv may have made (e.g. setting ZDOTDIR for XDG layout).
+        # Our .zprofile and .zshrc wrappers use this to find user files.
+        if [[ -n "${ZDOTDIR+X}" ]]; then
+            'builtin' 'export' GHOSTTY_ZSH_ZDOTDIR="$ZDOTDIR"
+        else
+            'builtin' 'unset' 'GHOSTTY_ZSH_ZDOTDIR'
+        fi
+
+        # Set ZDOTDIR back to Ghostty's dir so our .zprofile and .zshrc
+        # wrappers are sourced instead of the user's files directly.
+        'builtin' 'export' ZDOTDIR="$_ghostty_integration_dir"
+
+        'builtin' 'typeset' _ghostty_integration="${_ghostty_integration_dir}"/ghostty-integration
+        if [[ -r "$_ghostty_integration" ]]; then
+            'builtin' 'autoload' '-Uz' '--' "$_ghostty_integration"
+            "${_ghostty_integration:t}"
+            'builtin' 'unfunction' '--' "${_ghostty_integration:t}"
         fi
     fi
-    'builtin' 'unset' '_ghostty_file'
+    'builtin' 'unset' '_ghostty_user_zshenv' '_ghostty_integration' '_ghostty_integration_dir'
 }
