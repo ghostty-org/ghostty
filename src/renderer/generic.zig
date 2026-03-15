@@ -1159,6 +1159,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
                 overlay_features: []const Overlay.Feature,
+                vi_mode: renderer.State.ViMode,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1263,11 +1264,35 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 const overlay_features: []const Overlay.Feature = overlay: {
-                    const insp = state.inspector orelse break :overlay &.{};
-                    const renderer_info = insp.rendererInfo();
-                    break :overlay renderer_info.overlayFeatures(
-                        arena_alloc,
-                    ) catch &.{};
+                    // Collect features from inspector and vi mode.
+                    var feature_list: std.ArrayListUnmanaged(Overlay.Feature) = .empty;
+
+                    // Inspector features
+                    if (state.inspector) |insp| {
+                        const renderer_info = insp.rendererInfo();
+                        const insp_features = renderer_info.overlayFeatures(
+                            arena_alloc,
+                        ) catch &.{};
+                        feature_list.appendSlice(arena_alloc, insp_features) catch {};
+                    }
+
+                    // Vi mode features
+                    if (state.vi_mode.active) {
+                        if (state.vi_mode.cursor_row) |row| {
+                            if (state.vi_mode.cursor_col) |col| {
+                                feature_list.append(arena_alloc, .{
+                                    .vi_cursor = .{ .row = row, .col = col },
+                                }) catch {};
+                            }
+                        }
+                        if (state.vi_mode.mode_text) |text| {
+                            feature_list.append(arena_alloc, .{
+                                .vi_mode_indicator = text,
+                            }) catch {};
+                        }
+                    }
+
+                    break :overlay feature_list.items;
                 };
 
                 break :critical .{
@@ -1276,6 +1301,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .preedit = preedit,
                     .scrollbar = scrollbar,
                     .overlay_features = overlay_features,
+                    .vi_mode = state.vi_mode,
                 };
             };
 
@@ -1360,10 +1386,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
 
-                // Build our GPU cells
+                // Build our GPU cells. When vi mode is active, we hide the
+                // real terminal cursor by passing null for cursor style.
                 self.rebuildCells(
                     critical.preedit,
-                    renderer.cursorStyle(&self.terminal_state, .{
+                    if (critical.vi_mode.active) null else renderer.cursorStyle(&self.terminal_state, .{
                         .preedit = critical.preedit != null,
                         .focused = self.focused,
                         .blink_visible = cursor_blink_visible,

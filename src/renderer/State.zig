@@ -30,6 +30,24 @@ preedit: ?Preedit = null,
 /// need about the mouse.
 mouse: Mouse = .{},
 
+/// Vi mode state. When vi mode is active, the renderer hides the real
+/// terminal cursor and draws an overlay cursor instead.
+vi_mode: ViMode = .{},
+
+pub const ViMode = struct {
+    /// Whether vi mode is currently active.
+    active: bool = false,
+
+    /// The vi cursor position in viewport-relative coordinates.
+    /// Null if the cursor is not visible in the viewport.
+    cursor_row: ?usize = null,
+    cursor_col: ?usize = null,
+
+    /// The mode indicator text to display (e.g. "NORMAL", "VISUAL").
+    /// This is a static string that does not need to be freed.
+    mode_text: ?[]const u8 = null,
+};
+
 pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use
     /// viewport points to avoid the complexity of mapping the mouse to

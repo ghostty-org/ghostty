@@ -645,6 +645,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle whether mouse events are reported to terminal applications.",
         }},
 
+        .enter_vi_mode => comptime &.{.{
+            .action = .enter_vi_mode,
+            .title = "Enter Vi Mode",
+            .description = "Enter vi mode for scrollback navigation using vi keybindings.",
+        }},
+
         .toggle_background_opacity => comptime &.{.{
             .action = .toggle_background_opacity,
             .title = "Toggle Background Opacity",

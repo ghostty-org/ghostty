@@ -747,6 +747,13 @@ pub const Action = union(enum) {
     /// option.
     toggle_mouse_reporting,
 
+    /// Enter vi mode for scrollback navigation.
+    ///
+    /// Vi mode allows tmux copy-mode-style navigation of the terminal
+    /// scrollback buffer using vi keybindings (h/j/k/l, w/b, gg/G, etc.).
+    /// Press Escape or q to exit vi mode.
+    enter_vi_mode,
+
     /// Toggle the command palette.
     ///
     /// The command palette is a popup that lets you see what actions
@@ -1374,6 +1381,7 @@ pub const Action = union(enum) {
             .toggle_window_float_on_top,
             .toggle_secure_input,
             .toggle_mouse_reporting,
+            .enter_vi_mode,
             .toggle_command_palette,
             .toggle_background_opacity,
             .show_on_screen_keyboard,

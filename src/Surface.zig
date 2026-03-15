@@ -36,6 +36,7 @@ const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
+const ViMode = @import("ViMode.zig");
 
 const log = std.log.scoped(.surface);
 
@@ -123,6 +124,9 @@ io_thr: std.Thread,
 /// Terminal inspector
 inspector: ?*inspectorpkg.Inspector = null,
 
+/// Vi mode state for scrollback navigation.
+vi_mode: ?ViMode = null,
+
 /// All our sizing information.
 size: rendererpkg.Size,
 
@@ -164,6 +168,11 @@ command_timer: ?std.time.Instant = null,
 
 /// Search state
 search: ?Search = null,
+
+/// Flag set by the search callback when a match is selected. The app thread
+/// checks this and syncs the vi cursor to the viewport (the search system
+/// scrolls to show the match). No cross-thread pointer storage needed.
+last_search_match_selected: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
 /// Used to rate limit BEL handling.
 last_bell_time: ?std.time.Instant = null,
@@ -1143,6 +1152,29 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .search_selected => |v| {
+            // Sync vi cursor to the viewport center when a match is selected.
+            // The search system scrolls the viewport to show the match, so
+            // positioning the cursor at viewport center approximates the match.
+            // We use an atomic flag (no cross-thread pointers) to avoid dangling refs.
+            if (self.vi_mode != null and self.last_search_match_selected.load(.acquire)) {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.vi_mode) |*vi| {
+                    const t: *terminal.Terminal = self.renderer_state.terminal;
+                    const screen = t.screens.active;
+                    // Position cursor at viewport top (search scrolled to show match)
+                    const vp_top = screen.pages.getTopLeft(.viewport);
+                    vi.cursor_pin.* = vp_top;
+                    // Try to move cursor down to approximate the middle
+                    const mid = screen.pages.rows / 2;
+                    var i: usize = 0;
+                    while (i < mid) : (i += 1) {
+                        if (vi.cursor_pin.down(1)) |p| vi.cursor_pin.* = p else break;
+                    }
+                    self.updateViModeRenderState();
+                }
+            }
+
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .search_selected,
@@ -1439,6 +1471,9 @@ fn searchCallback_(
                     .forever,
                 );
 
+                // Signal that a match was selected (for vi cursor sync).
+                self.last_search_match_selected.store(true, .release);
+
                 // Send the selected index to the surface mailbox
                 _ = self.surfaceMailbox().push(
                     .{ .search_selected = sel.idx },
@@ -1450,6 +1485,8 @@ fn searchCallback_(
                     .{ .search_selected_match = null },
                     .forever,
                 );
+
+                self.last_search_match_selected.store(false, .release);
 
                 // Reset the selected index
                 _ = self.surfaceMailbox().push(
@@ -2419,6 +2456,249 @@ fn queueRender(self: *Surface) !void {
     try self.renderer_thread.wakeup.notify();
 }
 
+/// Apply the side-effects described in a ViResult to the surface.
+fn performViResult(self: *Surface, result: ViMode.ViResult) void {
+    // Scroll delta to apply after releasing the lock (if any).
+    var scroll_io: ?termio.Message = null;
+
+    // --- Begin single lock span for all terminal state operations ---
+    self.renderer_state.mutex.lock();
+
+    // Update selection before copy or exit so the selection state is current.
+    // Inlined from updateViSelection — caller already holds the mutex.
+    if (result.selection_changed) {
+        self.updateViSelectionLocked();
+    }
+
+    // Copy to clipboard before exiting (so the selection is still available).
+    // copySelectionToClipboards reads from the screen but does not acquire
+    // the mutex itself, so it is safe to call while we hold it.
+    if (result.copy_clipboard) {
+        if (self.io.terminal.screens.active.selection) |sel| {
+            self.copySelectionToClipboards(
+                sel,
+                &.{.standard},
+                .plain,
+            ) catch |err| {
+                log.warn("vi mode: failed to copy selection: {}", .{err});
+            };
+        }
+    }
+
+    if (result.exit) {
+        if (self.vi_mode) |*vi| {
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            const screen = t.screens.active;
+            screen.clearSelection();
+            // deinit calls untrackPin which mutates the page list — must
+            // happen while the lock is held.
+            vi.deinit(&screen.pages);
+            self.renderer_state.vi_mode = .{};
+            self.vi_mode = null;
+            scroll_io = .{ .scroll_viewport = .{ .bottom = {} } };
+        }
+    } else {
+        // Vi mode is still active, update render state with current position.
+        self.updateViModeRenderState();
+
+        // Determine scroll I/O while we still have terminal state access.
+        if (result.scroll_top) {
+            scroll_io = .{ .scroll_viewport = .{ .top = {} } };
+        } else if (result.scroll_bottom) {
+            scroll_io = .{ .scroll_viewport = .{ .bottom = {} } };
+        } else if (result.scroll_delta) |delta| {
+            scroll_io = .{ .scroll_viewport = .{ .delta = delta } };
+        } else if (result.redraw) {
+            // Inline ensureViCursorVisible logic — compute scroll delta
+            // while the lock is held, apply after release.
+            if (self.vi_mode) |vi| {
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                const screen = t.screens.active;
+                const cursor_screen_pt = screen.pages.pointFromPin(.screen, vi.cursor_pin.*);
+                const vp_top_pin = screen.pages.pin(.{ .viewport = .{} });
+                if (vp_top_pin) |vtp| {
+                    const vp_top_screen_pt = screen.pages.pointFromPin(.screen, vtp);
+                    const rows = screen.pages.rows;
+                    const cursor_y = if (cursor_screen_pt) |pt| pt.screen.y else null;
+                    const vp_top_y = if (vp_top_screen_pt) |pt| pt.screen.y else null;
+                    if (cursor_y != null and vp_top_y != null) {
+                        const cy = cursor_y.?;
+                        const vy = vp_top_y.?;
+                        const vp_bottom_y = vy + rows -| 1;
+                        if (cy < vy) {
+                            const delta = vy - cy;
+                            scroll_io = .{ .scroll_viewport = .{ .delta = -@as(isize, @intCast(delta)) } };
+                        } else if (cy > vp_bottom_y) {
+                            const delta = cy - vp_bottom_y;
+                            scroll_io = .{ .scroll_viewport = .{ .delta = @as(isize, @intCast(delta)) } };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Release lock: all terminal state reads/writes are done ---
+    self.renderer_state.mutex.unlock();
+
+    // Non-terminal operations below use their own synchronization.
+    if (scroll_io) |io_msg| {
+        self.queueIo(io_msg, .unlocked);
+    }
+
+    // If vi mode exited, tear down any lingering search state
+    // (search was kept alive during vi mode for n/N navigation).
+    if (result.exit) {
+        if (self.search) |*s| {
+            s.deinit();
+            self.search = null;
+        }
+        self.last_search_match_selected.store(false, .release);
+    }
+
+    // Search triggers from vi mode (/ and ? keys)
+    if (result.start_search_forward or result.start_search_backward) {
+        _ = self.performBindingAction(.start_search) catch {};
+    }
+
+    // Search navigation from vi mode (n and N keys).
+    // Ghostty's search .next walks newer→older (toward top of scrollback),
+    // but vi's n after / should go toward bottom (forward = older→newer).
+    // So we invert: vi "next" → search .previous, vi "prev" → search .next.
+    if (result.navigate_search_next) {
+        _ = self.performBindingAction(.{ .navigate_search = .previous }) catch {};
+    } else if (result.navigate_search_prev) {
+        _ = self.performBindingAction(.{ .navigate_search = .next }) catch {};
+    }
+
+    if (result.redraw) {
+        self.queueRender() catch {};
+    }
+}
+
+/// Update the vi mode fields in renderer_state from current vi_mode.
+/// Caller MUST hold renderer_state.mutex.
+fn updateViModeRenderState(self: *Surface) void {
+    const vi = &(self.vi_mode orelse {
+        self.renderer_state.vi_mode = .{};
+        return;
+    });
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    const screen = t.screens.active;
+
+    // If cursor_pin was garbage-collected (backing page pruned),
+    // reset cursor to viewport top-left as spec requires.
+    if (vi.cursor_pin.garbage) {
+        const top = screen.pages.getTopLeft(.viewport);
+        vi.cursor_pin.* = top;
+    }
+
+    const vp_point = screen.pages.pointFromPin(.viewport, vi.cursor_pin.*);
+
+    self.renderer_state.vi_mode = .{
+        .active = true,
+        .cursor_row = if (vp_point) |pt| @intCast(pt.viewport.y) else null,
+        .cursor_col = if (vp_point) |pt| @intCast(pt.viewport.x) else null,
+        .mode_text = switch (vi.sub_mode) {
+            .normal => "-- NORMAL --",
+            .visual => "-- VISUAL --",
+            .visual_line => "-- VISUAL LINE --",
+            .visual_block => "-- V-BLOCK --",
+        },
+    };
+}
+
+/// Same as `updateViSelection` but assumes `renderer_state.mutex` is
+/// already held by the caller.
+fn updateViSelectionLocked(self: *Surface) void {
+    const vi = &(self.vi_mode orelse return);
+
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    const screen = t.screens.active;
+
+    if (vi.sub_mode == .normal) {
+        // Exiting visual mode — clear selection and release anchor
+        screen.clearSelection();
+        if (vi.selection_anchor) |anchor| {
+            screen.pages.untrackPin(anchor);
+            vi.selection_anchor = null;
+        }
+        return;
+    }
+
+    // Entering or updating visual mode — ensure anchor exists
+    if (vi.selection_anchor == null) {
+        vi.selection_anchor = screen.pages.trackPin(vi.cursor_pin.*) catch {
+            return;
+        };
+    }
+
+    const anchor = vi.selection_anchor.?;
+
+    // If anchor pin was garbage-collected, clear selection and exit visual mode.
+    if (anchor.garbage) {
+        screen.clearSelection();
+        screen.pages.untrackPin(anchor);
+        vi.selection_anchor = null;
+        vi.sub_mode = .normal;
+        return;
+    }
+
+    // Build start/end pins from anchor and cursor
+    var start_pin = anchor.*;
+    var end_pin = vi.cursor_pin.*;
+
+    switch (vi.sub_mode) {
+        .visual => {
+            // Character-wise: anchor to cursor, no modifications
+            screen.select(terminal.Selection.init(
+                start_pin,
+                end_pin,
+                false,
+            )) catch {};
+        },
+        .visual_line => {
+            // Line-wise: both rows need full coverage regardless of
+            // selection direction (cursor may be above or below anchor).
+            // Determine which pin is "top" (earlier in screen) and which
+            // is "bottom" by comparing screen coordinates.
+            const start_pt = screen.pages.pointFromPin(.screen, start_pin);
+            const end_pt = screen.pages.pointFromPin(.screen, end_pin);
+            if (start_pt != null and end_pt != null) {
+                const sy = start_pt.?.screen.y;
+                const ey = end_pt.?.screen.y;
+                if (sy <= ey) {
+                    // Forward: start is top, end is bottom
+                    start_pin.x = 0;
+                    end_pin.x = @intCast(screen.pages.cols - 1);
+                } else {
+                    // Backward: end is top, start is bottom
+                    end_pin.x = 0;
+                    start_pin.x = @intCast(screen.pages.cols - 1);
+                }
+            } else {
+                // Fallback: just set both to full width
+                start_pin.x = 0;
+                end_pin.x = @intCast(screen.pages.cols - 1);
+            }
+            screen.select(terminal.Selection.init(
+                start_pin,
+                end_pin,
+                false,
+            )) catch {};
+        },
+        .visual_block => {
+            // Block/rectangle selection
+            screen.select(terminal.Selection.init(
+                start_pin,
+                end_pin,
+                true,
+            )) catch {};
+        },
+        .normal => unreachable,
+    }
+}
+
 pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
@@ -2642,6 +2922,27 @@ pub fn keyCallback(
             log.warn("error adding key event to inspector err={}", .{err});
         }
     };
+
+    // Vi mode intercept — before keybind lookup
+    if (self.vi_mode) |*vi| {
+        if (event.action == .press or event.action == .repeat) {
+            const result = blk: {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                const screen = t.screens.active;
+                const vp_top = screen.pages.pin(.{ .viewport = .{} }) orelse
+                    screen.pages.pin(.{ .active = .{} }).?;
+                const vp_info = ViMode.ViewportInfo{
+                    .top = vp_top,
+                    .rows = screen.pages.rows,
+                };
+                break :blk vi.handleKey(t, vp_info, event);
+            };
+            self.performViResult(result);
+        }
+        return .consumed;
+    }
 
     // Handle keybindings first. We need to handle this on all events
     // (press, repeat, release) because a press may perform a binding but
@@ -5257,10 +5558,30 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // that GUIs can clean up stale stuff.
             const performed = self.search != null;
 
-            if (self.search) |*s| {
-                s.deinit();
-                self.search = null;
+            // If vi mode is active, sync cursor to viewport (search scrolled to match).
+            if (self.vi_mode != null and self.last_search_match_selected.load(.acquire)) {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.vi_mode) |*vi| {
+                    const t: *terminal.Terminal = self.renderer_state.terminal;
+                    const screen = t.screens.active;
+                    const vp_top = screen.pages.getTopLeft(.viewport);
+                    vi.cursor_pin.* = vp_top;
+                    self.updateViModeRenderState();
+                }
+                self.last_search_match_selected.store(false, .release);
             }
+
+            // In vi mode, keep the search state alive so n/N can
+            // continue navigating matches. Otherwise tear it down.
+            if (self.vi_mode == null) {
+                if (self.search) |*s| {
+                    s.deinit();
+                    self.search = null;
+                }
+            }
+            // Note: when vi mode exits (performViResult exit path),
+            // it should also tear down search if still alive.
 
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
@@ -5762,6 +6083,39 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_mouse_reporting => {
             self.config.mouse_reporting = !self.config.mouse_reporting;
             log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
+
+        .enter_vi_mode => {
+            if (self.vi_mode != null) return true;
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            const screen = t.screens.active;
+
+            // Decide initial cursor position:
+            // If viewport is at active area (not scrolled), start at terminal cursor.
+            // If viewport is scrolled away, start at viewport top-left.
+            const initial_pin = if (screen.pages.viewport == .active)
+                screen.cursor.page_pin.*
+            else
+                screen.pages.getTopLeft(.viewport);
+
+            const cursor_pin = screen.pages.trackPin(initial_pin) catch |err| {
+                log.err("vi mode: failed to track cursor pin: {}", .{err});
+                return false;
+            };
+
+            // Pin the viewport so new PTY output doesn't auto-scroll.
+            // When viewport is .active, pin it at the current active area top.
+            if (screen.pages.viewport == .active) {
+                const active_top = screen.pages.getTopLeft(.active);
+                screen.pages.scroll(.{ .pin = active_top });
+            }
+            // If already .pin or .top, viewport is already frozen.
+
+            self.vi_mode = ViMode.init(cursor_pin);
+            self.updateViModeRenderState();
+            self.queueRender() catch {};
         },
 
         .toggle_command_palette => return try self.rt_app.performAction(

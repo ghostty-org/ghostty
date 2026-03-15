@@ -28,12 +28,14 @@ pub const Color = enum {
     hyperlink, // light blue
     semantic_prompt, // orange/gold
     semantic_input, // cyan
+    vi_cursor, // amber/yellow
 
     pub fn rgb(self: Color) z2d.pixel.RGB {
         return switch (self) {
             .hyperlink => .{ .r = 180, .g = 180, .b = 255 },
             .semantic_prompt => .{ .r = 255, .g = 200, .b = 64 },
             .semantic_input => .{ .r = 64, .g = 200, .b = 255 },
+            .vi_cursor => .{ .r = 255, .g = 160, .b = 0 },
         };
     }
 
@@ -69,6 +71,8 @@ cell_size: CellSize,
 pub const Feature = union(enum) {
     highlight_hyperlinks,
     semantic_prompts,
+    vi_cursor: struct { row: usize, col: usize },
+    vi_mode_indicator: []const u8,
 };
 
 pub const InitError = Allocator.Error || error{
@@ -143,6 +147,8 @@ pub fn applyFeatures(
             alloc,
             state,
         ),
+        .vi_cursor => |pos| self.highlightViCursor(alloc, pos.row, pos.col),
+        .vi_mode_indicator => |text| self.highlightViModeIndicator(alloc, state, text),
     };
 }
 
@@ -292,6 +298,77 @@ fn highlightSemanticPrompts(
             };
         }
     }
+}
+
+/// Draw a filled block cursor at the given grid position for vi mode.
+fn highlightViCursor(
+    self: *Overlay,
+    alloc: Allocator,
+    row: usize,
+    col: usize,
+) void {
+    const fill_color = Color.vi_cursor.rectFill();
+    const border_color = Color.vi_cursor.rectBorder();
+
+    self.highlightGridRect(
+        alloc,
+        col,
+        row,
+        1,
+        1,
+        border_color,
+        fill_color,
+    ) catch |err| {
+        log.warn("Error drawing vi cursor: {}", .{err});
+    };
+}
+
+/// Draw a mode indicator bar at the bottom-left of the overlay for vi mode.
+/// The bar width matches the mode label length, and visual modes use a
+/// different color to provide visual distinction without text rendering.
+fn highlightViModeIndicator(
+    self: *Overlay,
+    alloc: Allocator,
+    state: *const terminal.RenderState,
+    text: []const u8,
+) void {
+    // Bar width matches the mode label length (e.g., "-- NORMAL --" = 14 cells)
+    const bar_width: usize = @min(if (text.len > 0) text.len else 8, state.cols);
+    const bar_row: usize = if (state.rows > 0) state.rows - 1 else 0;
+
+    // Use different colors for different modes:
+    // NORMAL = amber (vi_cursor color), VISUAL modes = selection-like blue
+    const is_visual = text.len > 0 and (std.mem.indexOf(u8, text, "VISUAL") != null or
+        std.mem.indexOf(u8, text, "V-BLOCK") != null);
+
+    const fill_color = if (is_visual) vi_visual_fill() else Color.vi_cursor.rectFill();
+    const border_color = if (is_visual) vi_visual_border() else Color.vi_cursor.rectBorder();
+
+    self.highlightGridRect(
+        alloc,
+        0,
+        bar_row,
+        bar_width,
+        1,
+        border_color,
+        fill_color,
+    ) catch |err| {
+        log.warn("Error drawing vi mode indicator: {}", .{err});
+    };
+}
+
+/// Blue fill for visual mode indicator (distinct from normal mode amber).
+fn vi_visual_fill() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 100, .g = 160, .b = 255 }).asPixel());
+    rgba.a = 96;
+    return rgba.multiply().asPixel();
+}
+
+/// Blue border for visual mode indicator.
+fn vi_visual_border() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 100, .g = 160, .b = 255 }).asPixel());
+    rgba.a = 200;
+    return rgba.multiply().asPixel();
 }
 
 /// Creates a rectangle for highlighting a grid region. x/y/width/height
