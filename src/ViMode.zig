@@ -212,8 +212,14 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         return .{ .exit = true, .redraw = true };
     }
 
-    // Other exit keys
+    // Other exit keys (q, Enter): exit visual mode first, like Esc.
     if (cp == 'q' or event.key == .enter) {
+        self.pending_key = null;
+        self.count = null;
+        if (self.sub_mode != .normal) {
+            self.sub_mode = .normal;
+            return .{ .selection_changed = true, .redraw = true };
+        }
         return .{ .exit = true, .redraw = true };
     }
 
@@ -474,9 +480,9 @@ fn startPending(self: *ViMode, key: u8) ViResult {
 // ── Ctrl+u/d/b/f scroll motions ─────────────────────────────────────
 
 fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
-    self.count = null;
-    const half: usize = @max(vp.rows / 2, 1);
-    const full: usize = @max(vp.rows, 1);
+    const effective_count = self.getEffectiveCount();
+    const half: usize = @max(vp.rows / 2, 1) * effective_count;
+    const full: usize = @max(vp.rows, 1) * effective_count;
     const in_visual = self.sub_mode != .normal;
 
     switch (cp) {
@@ -520,7 +526,7 @@ fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
             }
             return .{ .scroll_delta = @as(isize, @intCast(full)), .selection_changed = in_visual, .redraw = true };
         },
-        else => return .{ .redraw = true },
+        else => return .{},
     }
 }
 

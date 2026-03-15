@@ -35,7 +35,7 @@ pub const Color = enum {
             .hyperlink => .{ .r = 180, .g = 180, .b = 255 },
             .semantic_prompt => .{ .r = 255, .g = 200, .b = 64 },
             .semantic_input => .{ .r = 64, .g = 200, .b = 255 },
-            .vi_cursor => .{ .r = 255, .g = 200, .b = 64 },
+            .vi_cursor => .{ .r = 255, .g = 160, .b = 0 },
         };
     }
 
