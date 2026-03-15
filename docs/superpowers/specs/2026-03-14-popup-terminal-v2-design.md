@@ -48,7 +48,11 @@ Parsed via existing `parseAutoStruct` — no parser changes needed.
 - `cwd`: `?[*:0]const u8` (sentinel-terminated string, null if not set)
 - `opacity`: `f64` (use `-1.0` to represent "not set" since extern structs can't have Zig optionals)
 
-`RepeatablePopup` gains a parallel `cwd_z` array (like `commands_z`) for sentinel-terminated CWD copies owned by the config.
+`RepeatablePopup` gains a parallel `cwd_z` array (like `commands_z`) for sentinel-terminated CWD copies owned by the config. All `RepeatablePopup` methods that maintain parallel arrays must be updated: `parseCLI`, `clone`, `equal`, and `deinit`.
+
+### Opacity validation
+
+Values outside 0.0–1.0 are clamped at surface creation time (same approach as global `background-opacity`). `parseAutoStruct` accepts any valid float; validation happens downstream.
 
 ---
 
@@ -62,7 +66,7 @@ Existing config reload path: SIGHUP / `reload_config` action → `App.updateConf
 
 **GTK** — In `Application.configChange()`, call `popup_manager.updateProfileConfigs(new_config)`.
 
-**macOS** — In `Ghostty.App` config change handler, call `popupManager.updateProfileConfigs(newConfig.popupProfiles)`. The macOS `PopupManager` already has this method; it's called from `init` today — wire it into the reload path too.
+**macOS** — In `AppDelegate.ghosttyConfigDidChange()`, call `popupManager.updateProfileConfigs(newConfig.popupProfiles)`. The macOS `PopupManager` already has `updateProfileConfigs()` but it currently only adds/overwrites profiles — it must be modified to also handle removals (diff old names vs new, destroy orphaned controllers).
 
 ### `updateProfileConfigs()` logic (both platforms)
 
@@ -83,19 +87,19 @@ Existing config reload path: SIGHUP / `reload_config` action → `App.updateConf
 
 When a popup's terminal is first spawned:
 
-1. If profile has explicit `cwd` → use that path (with `~` expansion)
-2. If profile has no `cwd` → query focused surface's CWD via `ghostty_surface_pwd()` (OSC 7 tracking) and use it
+1. If profile has explicit `cwd` → use that path (expand `~` by replacing leading `~` with `$HOME` at surface creation time on each platform)
+2. If profile has no `cwd` → query focused surface's CWD. On macOS, use the focused `TerminalController`'s surface PWD (surfaces track CWD via OSC 7). On GTK, query the focused surface's `pwd` property.
 3. Fallback: if focused surface has no known CWD, use `$HOME`
 
 CWD is set once at spawn time. The popup's shell can `cd` freely after that.
 
 ### macOS
 
-In `PopupController.makeSurfaceConfig()`, resolve CWD from profile or focused surface and set it on the surface config.
+In `PopupController.makeSurfaceConfig()`, resolve CWD from profile or focused surface and set it on the surface config. The focused surface's CWD is available via `Ghostty.SurfaceView`'s `pwd` property (populated by OSC 7).
 
 ### GTK
 
-In `PopupManager.createAndShow()`, resolve CWD from profile or focused surface and pass to the new surface config.
+In `PopupManager.createAndShow()`, resolve CWD from profile or focused surface and pass to the new surface config. The focused surface's CWD is available via the surface's `pwd` property.
 
 ### Edge cases
 
@@ -138,4 +142,5 @@ No new rendering code — we override one config value at surface creation time 
 | `src/apprt/gtk/class/application.zig` | Call `popup_manager.updateProfileConfigs()` in `configChange()` |
 | `macos/Sources/Features/Popup/PopupManager.swift` | Wire `updateProfileConfigs()` into config reload path |
 | `macos/Sources/Features/Popup/PopupController.swift` | CWD/opacity in `makeSurfaceConfig()`; update `PopupProfileConfig` struct |
-| `macos/Sources/Ghostty/Ghostty.Config.swift` | Bridge new fields in `popupProfiles` property |
+| `macos/Sources/Ghostty/Ghostty.Config.swift` | Bridge `cwd` and `opacity` from `PopupProfile.C` into `PopupProfileConfig` in `popupProfiles` computed property |
+| `macos/Sources/Ghostty/AppDelegate.swift` | Call `popupManager.updateProfileConfigs()` in `ghosttyConfigDidChange()` |
