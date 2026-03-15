@@ -327,7 +327,10 @@ pub const PopupManager = struct {
         const working_directory: ?[:0]const u8 = wd: {
             if (profile.cwd) |cwd| {
                 wd_owned = true;
-                if (cwd.len > 0 and cwd[0] == '~') {
+                // Only expand bare ~ or ~/... (not ~otheruser)
+                if (cwd.len == 1 and cwd[0] == '~' or
+                    (cwd.len > 1 and cwd[0] == '~' and cwd[1] == '/'))
+                {
                     if (std.posix.getenv("HOME")) |home| {
                         break :wd std.fmt.allocPrintZ(
                             self.alloc,
