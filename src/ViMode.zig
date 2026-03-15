@@ -228,11 +228,13 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
     // Count accumulation: digits 1-9 always start/extend count,
     // digit 0 extends count only if already accumulating.
     if (cp >= '1' and cp <= '9') {
-        self.count = (self.count orelse 0) * 10 + @as(u32, @intCast(cp - '0'));
+        const base = self.count orelse 0;
+        self.count = std.math.mul(u32, base, 10) catch return .{};
+        self.count = std.math.add(u32, self.count.?, @as(u32, @intCast(cp - '0'))) catch return .{};
         return .{ .redraw = false };
     }
     if (cp == '0' and self.count != null) {
-        self.count = self.count.? * 10;
+        self.count = std.math.mul(u32, self.count.?, 10) catch return .{};
         return .{ .redraw = false };
     }
 
@@ -263,7 +265,7 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         'Y' => self.handleYankLine(),
         'm' => self.startPending('m'),
         '\'' => self.startPending('\''),
-        else => .{ .redraw = true },
+        else => .{},
     };
 
     // If we're in a visual sub-mode and a motion moved the cursor,
