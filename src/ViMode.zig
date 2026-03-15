@@ -223,6 +223,25 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         return .{ .exit = true, .redraw = true };
     }
 
+    // Arrow keys and page keys — so users don't need to know vim keys
+    switch (event.key) {
+        .arrow_left => return self.motionH(),
+        .arrow_right => return self.motionL(),
+        .arrow_down => return self.motionJ(),
+        .arrow_up => return self.motionK(),
+        .page_up => return self.handleCtrlKey('b', vp),
+        .page_down => return self.handleCtrlKey('f', vp),
+        .home => {
+            _ = self.getEffectiveCount();
+            const top_pin = t.screens.active.pages.pin(.{ .screen = .{} }) orelse return .{};
+            self.cursor_pin.* = top_pin;
+            self.cursor_pin.x = 0;
+            return .{ .scroll_top = true, .redraw = true };
+        },
+        .end => return self.motionBigG(t),
+        else => {},
+    }
+
     // Ctrl+key motions (check before digit/letter dispatch)
     if (event.mods.ctrl) {
         if (cp == 'v') {
