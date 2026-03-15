@@ -1149,6 +1149,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .{ .selected = v },
             );
         },
+
+        .content_changed => {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .content_changed,
+                {},
+            ) catch |err| {
+                log.warn("apprt failed to notify content changed={}", .{err});
+            };
+        },
     }
 }
 
@@ -2007,6 +2017,106 @@ pub fn dumpTextLocked(
         .text = text,
         .viewport = vp,
     };
+}
+
+// ---------------------------------------------------------------
+// Accessibility helpers
+// ---------------------------------------------------------------
+
+pub const AccessibilityContext = terminal.Screen.AccessibilityContext;
+pub const AccessibilityText = terminal.Screen.AccessibilityText;
+
+/// View-local bounds (in points, top-left origin) for a screen
+/// text position. Used by AXBoundsForRange.
+pub const AccessibilityBounds = struct {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+};
+
+/// Creates a pre-computed accessibility context (text + viewport +
+/// grid mapping). The context is self-contained and can be used
+/// without holding the terminal mutex.
+pub fn createAccessibilityContext(
+    self: *Surface,
+    alloc: Allocator,
+) !*AccessibilityContext {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.io.terminal.screens.active.createAccessibilityContext(alloc);
+}
+
+/// Given an AccessibilityContext and a byte offset, returns the
+/// view-local bounds of that character's cell. Acquires the mutex
+/// briefly to read current geometry (cell size, padding, scale).
+pub fn boundsForOffsetCtx(
+    self: *Surface,
+    ctx: *const AccessibilityContext,
+    byte_offset: usize,
+) ?AccessibilityBounds {
+    const cell = ctx.gridForOffset(byte_offset) orelse return null;
+
+    // Read geometry under the mutex.
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+
+    var cell_count: u32 = 1;
+    if (cell.wide) cell_count = 2;
+
+    const x: f64 = x: {
+        var xf: f64 = @floatFromInt(@as(u32, cell.col) * self.size.cell.width + self.size.padding.left);
+        xf /= content_scale.x;
+        break :x xf;
+    };
+
+    const y: f64 = y: {
+        var yf: f64 = @floatFromInt(@as(u32, cell.row) * self.size.cell.height + self.size.padding.top);
+        yf /= content_scale.y;
+        break :y yf;
+    };
+
+    const width: f64 = w: {
+        var w: f64 = @floatFromInt(cell_count * self.size.cell.width);
+        w /= content_scale.x;
+        break :w w;
+    };
+
+    const height: f64 = h: {
+        var h: f64 = @floatFromInt(self.size.cell.height);
+        h /= content_scale.y;
+        break :h h;
+    };
+
+    return .{ .x = x, .y = y, .width = width, .height = height };
+}
+
+/// Given an AccessibilityContext and a view-local point (in unscaled
+/// points, top-left origin), returns the byte offset of the character
+/// at that position. Acquires the mutex briefly for geometry.
+pub fn offsetForPointCtx(
+    self: *Surface,
+    ctx: *const AccessibilityContext,
+    x: f64,
+    y: f64,
+) ?usize {
+    // Read geometry under the mutex.
+    self.renderer_state.mutex.lock();
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+    const sz = self.size;
+    self.renderer_state.mutex.unlock();
+
+    const coord: rendererpkg.Coordinate = .{
+        .surface = .{
+            .x = x * content_scale.x,
+            .y = y * content_scale.y,
+        },
+    };
+    const grid = coord.convert(.grid, sz).grid;
+
+    return ctx.offsetForGrid(grid.x, @intCast(grid.y));
 }
 
 /// Returns true if the terminal has a selection.
