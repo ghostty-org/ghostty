@@ -36,6 +36,7 @@ const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
+const ViMode = @import("ViMode.zig");
 
 const log = std.log.scoped(.surface);
 
@@ -122,6 +123,9 @@ io_thr: std.Thread,
 
 /// Terminal inspector
 inspector: ?*inspectorpkg.Inspector = null,
+
+/// Vi mode state for scrollback navigation.
+vi_mode: ?ViMode = null,
 
 /// All our sizing information.
 size: rendererpkg.Size,
@@ -2419,6 +2423,42 @@ fn queueRender(self: *Surface) !void {
     try self.renderer_thread.wakeup.notify();
 }
 
+/// Apply the side-effects described in a ViResult to the surface.
+fn performViResult(self: *Surface, result: ViMode.ViResult) void {
+    if (result.exit) {
+        if (self.vi_mode) |*vi| {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                const screen = t.screens.active;
+                screen.selection = null;
+                vi.deinit(&screen.pages);
+            }
+            self.vi_mode = null;
+            self.queueIo(.{
+                .scroll_viewport = .{ .bottom = {} },
+            }, .unlocked);
+        }
+    }
+    if (result.scroll_top) {
+        self.queueIo(.{
+            .scroll_viewport = .{ .top = {} },
+        }, .unlocked);
+    } else if (result.scroll_bottom) {
+        self.queueIo(.{
+            .scroll_viewport = .{ .bottom = {} },
+        }, .unlocked);
+    } else if (result.scroll_delta) |delta| {
+        self.queueIo(.{
+            .scroll_viewport = .{ .delta = delta },
+        }, .unlocked);
+    }
+    if (result.redraw) {
+        self.queueRender() catch {};
+    }
+}
+
 pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
@@ -2642,6 +2682,27 @@ pub fn keyCallback(
             log.warn("error adding key event to inspector err={}", .{err});
         }
     };
+
+    // Vi mode intercept — before keybind lookup
+    if (self.vi_mode) |*vi| {
+        if (event.action == .press or event.action == .repeat) {
+            const result = blk: {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                const screen = t.screens.active;
+                const vp_top = screen.pages.pin(.{ .viewport = .{} }) orelse
+                    screen.pages.pin(.{ .active = .{} }).?;
+                const vp_info = ViMode.ViewportInfo{
+                    .top = vp_top,
+                    .rows = screen.pages.rows,
+                };
+                break :blk vi.handleKey(t, vp_info, event);
+            };
+            self.performViResult(result);
+        }
+        return .consumed;
+    }
 
     // Handle keybindings first. We need to handle this on all events
     // (press, repeat, release) because a press may perform a binding but
@@ -5765,8 +5826,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .enter_vi_mode => {
-            // TODO: implement in Task 3
-            log.debug("enter_vi_mode triggered (not yet implemented)", .{});
+            if (self.vi_mode != null) return true;
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            const screen = t.screens.active;
+            const cursor_pin = screen.pages.trackPin(screen.cursor.page_pin.*) catch |err| {
+                log.err("vi mode: failed to track cursor pin: {}", .{err});
+                return false;
+            };
+            self.vi_mode = ViMode.init(cursor_pin);
+            self.queueRender() catch {};
         },
 
         .toggle_command_palette => return try self.rt_app.performAction(
