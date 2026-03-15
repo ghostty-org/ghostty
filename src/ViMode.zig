@@ -255,6 +255,10 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         'e' => self.motionE(),
         'v' => self.toggleVisualMode(.visual),
         'V' => self.toggleVisualMode(.visual_line),
+        '/' => self.startSearchForward(),
+        '?' => self.startSearchBackward(),
+        'n' => self.navigateSearchNext(),
+        'N' => self.navigateSearchPrev(),
         'y' => self.handleYank(),
         'Y' => self.handleYankLine(),
         'm' => self.startPending('m'),
@@ -426,6 +430,36 @@ fn handleYankLine(self: *ViMode) ViResult {
     // Y: yank current line — temporarily enter visual_line to select the line
     self.sub_mode = .visual_line;
     return .{ .selection_changed = true, .copy_clipboard = true, .exit = true, .redraw = true };
+}
+
+// ── Search triggers ──────────────────────────────────────────────────
+
+fn startSearchForward(self: *ViMode) ViResult {
+    self.count = null;
+    self.search_direction = .forward;
+    return .{ .start_search_forward = true, .redraw = true };
+}
+
+fn startSearchBackward(self: *ViMode) ViResult {
+    self.count = null;
+    self.search_direction = .backward;
+    return .{ .start_search_backward = true, .redraw = true };
+}
+
+fn navigateSearchNext(self: *ViMode) ViResult {
+    self.count = null;
+    return switch (self.search_direction) {
+        .forward => .{ .navigate_search_next = true, .redraw = true },
+        .backward => .{ .navigate_search_prev = true, .redraw = true },
+    };
+}
+
+fn navigateSearchPrev(self: *ViMode) ViResult {
+    self.count = null;
+    return switch (self.search_direction) {
+        .forward => .{ .navigate_search_prev = true, .redraw = true },
+        .backward => .{ .navigate_search_next = true, .redraw = true },
+    };
 }
 
 // ── Pending key helpers ──────────────────────────────────────────────

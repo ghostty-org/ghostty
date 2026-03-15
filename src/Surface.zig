@@ -2484,6 +2484,18 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
         // Ensure vi cursor stays visible by scrolling if needed
         self.ensureViCursorVisible();
     }
+    // Search triggers from vi mode (/ and ? keys)
+    if (result.start_search_forward or result.start_search_backward) {
+        _ = self.performBindingAction(.start_search) catch {};
+    }
+
+    // Search navigation from vi mode (n and N keys)
+    if (result.navigate_search_next) {
+        _ = self.performBindingAction(.{ .navigate_search = .next }) catch {};
+    } else if (result.navigate_search_prev) {
+        _ = self.performBindingAction(.{ .navigate_search = .previous }) catch {};
+    }
+
     if (result.redraw) {
         self.queueRender() catch {};
     }
@@ -2505,10 +2517,10 @@ fn updateViModeRenderState(self: *Surface) void {
         .cursor_row = if (vp_point) |pt| @intCast(pt.viewport.y) else null,
         .cursor_col = if (vp_point) |pt| @intCast(pt.viewport.x) else null,
         .mode_text = switch (vi.sub_mode) {
-            .normal => "NORMAL",
-            .visual => "VISUAL",
-            .visual_line => "V-LINE",
-            .visual_block => "V-BLOCK",
+            .normal => "-- NORMAL --",
+            .visual => "-- VISUAL --",
+            .visual_line => "-- VISUAL LINE --",
+            .visual_block => "-- V-BLOCK --",
         },
     };
 }
