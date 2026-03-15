@@ -1094,6 +1094,7 @@ pub fn saveCursor(self: *Terminal) void {
         .protected = self.screens.active.cursor.protected,
         .pending_wrap = self.screens.active.cursor.pending_wrap,
         .origin = self.modes.get(.origin),
+        .cursor_blinking = self.modes.get(.cursor_blinking),
         .charset = self.screens.active.charset,
     };
 }
@@ -1109,6 +1110,7 @@ pub fn restoreCursor(self: *Terminal) void {
         .style = .{},
         .protected = false,
         .pending_wrap = false,
+        .cursor_blinking = true,
         .origin = false,
         .charset = .{},
     };
@@ -1128,6 +1130,7 @@ pub fn restoreCursor(self: *Terminal) void {
 
     self.screens.active.charset = saved.charset;
     self.modes.set(.origin, saved.origin);
+    self.modes.set(.cursor_blinking, saved.cursor_blinking);
     self.screens.active.cursor.pending_wrap = saved.pending_wrap;
     self.screens.active.cursor.protected = saved.protected;
     self.screens.active.cursorAbsolute(
