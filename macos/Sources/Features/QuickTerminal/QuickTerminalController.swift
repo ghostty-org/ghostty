@@ -610,7 +610,8 @@ class QuickTerminalController: BaseTerminalController {
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
         // Also check if the user has overridden transparency to be fully opaque.
-        if !isBackgroundOpaque && (self.derivedConfig.backgroundOpacity < 1 || derivedConfig.backgroundBlur.isGlassStyle) {
+        // effectiveBackgroundOpacity accounts for quick-terminal-background-opacity.
+        if !isBackgroundOpaque && (derivedConfig.effectiveBackgroundOpacity < 1 || derivedConfig.backgroundBlur.isGlassStyle) {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -728,7 +729,9 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalAutoHide: Bool
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let quickTerminalSize: QuickTerminalSize
-        let backgroundOpacity: Double
+        /// Effective background opacity for the quick terminal. Uses
+        /// quick-terminal-background-opacity if set, otherwise background-opacity.
+        let effectiveBackgroundOpacity: Double
         let backgroundBlur: Ghostty.Config.BackgroundBlur
 
         init() {
@@ -737,7 +740,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAutoHide = true
             self.quickTerminalSpaceBehavior = .move
             self.quickTerminalSize = QuickTerminalSize()
-            self.backgroundOpacity = 1.0
+            self.effectiveBackgroundOpacity = 1.0
             self.backgroundBlur = .disabled
         }
 
@@ -747,7 +750,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
             self.quickTerminalSize = config.quickTerminalSize
-            self.backgroundOpacity = config.backgroundOpacity
+            self.effectiveBackgroundOpacity = config.quickTerminalBackgroundOpacity ?? config.backgroundOpacity
             self.backgroundBlur = config.backgroundBlur
         }
     }

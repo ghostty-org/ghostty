@@ -602,6 +602,14 @@ extension Ghostty {
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return QuickTerminalSize() }
             return QuickTerminalSize(from: v)
         }
+
+        var quickTerminalBackgroundOpacity: Double? {
+            guard let config = self.config else { return nil }
+            var v: Double = 0
+            let key = "quick-terminal-background-opacity"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            return v
+        }
         #endif
 
         var resizeOverlay: ResizeOverlay {

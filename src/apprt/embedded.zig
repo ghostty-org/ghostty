@@ -419,6 +419,11 @@ pub const Surface = struct {
     /// that getTitle works without the implementer needing to save it.
     title: ?[:0]const u8 = null,
 
+    /// True if this surface belongs to a quick terminal window. When true,
+    /// quick-terminal-background-opacity overrides background-opacity in the
+    /// renderer config if the setting is present.
+    is_quick_terminal: bool = false,
+
     /// Surface initialization options.
     pub const Options = extern struct {
         /// The platform that this surface is being initialized for and
@@ -474,6 +479,18 @@ pub const Surface = struct {
             },
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
+            .is_quick_terminal = blk: {
+                if (opts.env_var_count > 0) {
+                    for (opts.env_vars.?[0..opts.env_var_count]) |env_var| {
+                        const key = std.mem.sliceTo(env_var.key, 0);
+                        if (std.mem.eql(u8, key, "GHOSTTY_QUICK_TERMINAL")) {
+                            const value = std.mem.sliceTo(env_var.value, 0);
+                            break :blk std.mem.eql(u8, value, "1");
+                        }
+                    }
+                }
+                break :blk false;
+            },
         };
 
         // Add ourselves to the list of surfaces on the app.
@@ -571,6 +588,14 @@ pub const Surface = struct {
         // Wait after command
         if (opts.wait_after_command) {
             config.@"wait-after-command" = true;
+        }
+
+        // For quick terminal surfaces, override background-opacity with
+        // quick-terminal-background-opacity if the setting is present.
+        if (self.is_quick_terminal) {
+            if (app.config.@"quick-terminal-background-opacity") |opacity| {
+                config.@"background-opacity" = opacity;
+            }
         }
 
         // Initialize our surface right away. We're given a view that is
@@ -1582,6 +1607,19 @@ pub const CAPI = struct {
         surface: *Surface,
         config: *const Config,
     ) void {
+        // For quick terminal surfaces, override background-opacity with
+        // quick-terminal-background-opacity if the setting is present.
+        if (surface.is_quick_terminal) {
+            if (config.@"quick-terminal-background-opacity") |opacity| {
+                var modified = config.*;
+                modified.@"background-opacity" = opacity;
+                surface.core_surface.updateConfig(&modified) catch |err| {
+                    log.err("error updating config err={}", .{err});
+                };
+                return;
+            }
+        }
+
         surface.core_surface.updateConfig(config) catch |err| {
             log.err("error updating config err={}", .{err});
             return;
