@@ -332,10 +332,11 @@ pub const PopupManager = struct {
                     (cwd.len > 1 and cwd[0] == '~' and cwd[1] == '/'))
                 {
                     if (std.posix.getenv("HOME")) |home| {
-                        break :wd std.fmt.allocPrintZ(
+                        break :wd std.fmt.allocPrintSentinel(
                             self.alloc,
                             "{s}{s}",
                             .{ home, cwd[1..] },
+                            0,
                         ) catch break :wd null;
                     }
                 }

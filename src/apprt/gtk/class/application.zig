@@ -767,19 +767,19 @@ pub const Application = extern struct {
             .toggle_maximize => Action.toggleMaximize(target),
             .toggle_fullscreen => Action.toggleFullscreen(target),
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
-            .toggle_popup => |v| {
+            .toggle_popup => {
                 const priv = self.private();
-                if (priv.popup_manager) |*pm| return pm.toggle(v.name);
+                if (priv.popup_manager) |*pm| return pm.toggle(value.name);
                 return false;
             },
-            .show_popup => |v| {
+            .show_popup => {
                 const priv = self.private();
-                if (priv.popup_manager) |*pm| return pm.show(v.name);
+                if (priv.popup_manager) |*pm| return pm.show(value.name);
                 return false;
             },
-            .hide_popup => |v| {
+            .hide_popup => {
                 const priv = self.private();
-                if (priv.popup_manager) |*pm| return pm.hide(v.name);
+                if (priv.popup_manager) |*pm| return pm.hide(value.name);
                 return false;
             },
             .toggle_tab_overview => return Action.toggleTabOverview(target),
