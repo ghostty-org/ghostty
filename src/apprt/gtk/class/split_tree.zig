@@ -208,6 +208,7 @@ pub const SplitTree = extern struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            background_opacity: ?f64 = null,
 
             pub const none: @This() = .{};
         },
@@ -219,6 +220,7 @@ pub const SplitTree = extern struct {
             .command = overrides.command,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
+            .background_opacity = overrides.background_opacity,
         });
         defer surface.unref();
         _ = surface.refSink();

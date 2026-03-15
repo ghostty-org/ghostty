@@ -426,6 +426,7 @@ pub const Window = extern struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            background_opacity: ?f64 = null,
 
             pub const none: @This() = .{};
         },
@@ -437,6 +438,7 @@ pub const Window = extern struct {
                 .command = overrides.command,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
+                .background_opacity = overrides.background_opacity,
             },
         );
     }
@@ -449,6 +451,7 @@ pub const Window = extern struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            background_opacity: ?f64 = null,
 
             pub const none: @This() = .{};
         },
@@ -463,6 +466,7 @@ pub const Window = extern struct {
                 .command = overrides.command,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
+                .background_opacity = overrides.background_opacity,
             },
         );
 
