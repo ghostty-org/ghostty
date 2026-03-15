@@ -7,9 +7,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-17 23:16+0100\n"
-"PO-Revision-Date: 2026-02-18 15:03+0200\n"
-"Last-Translator: Pangoraw <naydex.mc+github@gmail.com>\n"
+"POT-Creation-Date: 2026-03-14 22:22+0100\n"
+"PO-Revision-Date: 2026-03-14 23:13+0100\n"
+"Last-Translator: Jonathan COURTY <139225837+Johntycour@users.noreply.github.com>\n"
 "Language-Team: French <traduc@traduc.org>\n"
 "Language: fr\n"
 "MIME-Version: 1.0\n"
@@ -89,7 +89,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspecteur"
+msgstr "Ghostty : Inspecteur de terminal"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -239,7 +239,7 @@ msgstr "Palette de commandes"
 msgid "Terminal Inspector"
 msgstr "Inspecteur de terminal"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1787
 msgid "About Ghostty"
 msgstr "À propos de Ghostty"
 
@@ -311,15 +311,15 @@ msgstr "Toutes les sessions de cette fenêtre vont être arrêtées."
 msgid "The currently running process in this split will be terminated."
 msgstr "Le processus en cours dans ce panneau va être arrêté."
 
-#: src/apprt/gtk/class/surface.zig:1108
+#: src/apprt/gtk/class/surface.zig:1140
 msgid "Command Finished"
 msgstr "Commande terminée"
 
-#: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Succeeded"
 msgstr "Commande réussie"
 
-#: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Failed"
 msgstr "La commande a échoué"
 
@@ -339,18 +339,18 @@ msgstr "Changer le nom du terminal"
 msgid "Change Tab Title"
 msgstr "Changer le titre de l'onglet"
 
-#: src/apprt/gtk/class/window.zig:1007
+#: src/apprt/gtk/class/window.zig:1067
 msgid "Reloaded the configuration"
 msgstr "Configuration rechargée"
 
-#: src/apprt/gtk/class/window.zig:1566
+#: src/apprt/gtk/class/window.zig:1626
 msgid "Copied to clipboard"
 msgstr "Copié dans le presse-papiers"
 
-#: src/apprt/gtk/class/window.zig:1568
+#: src/apprt/gtk/class/window.zig:1628
 msgid "Cleared clipboard"
 msgstr "Presse-papiers vidé"
 
-#: src/apprt/gtk/class/window.zig:1708
+#: src/apprt/gtk/class/window.zig:1768
 msgid "Ghostty Developers"
 msgstr "Les développeurs de Ghostty"
