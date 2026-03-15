@@ -150,6 +150,24 @@ pub const Window = extern struct {
             );
         };
 
+        pub const @"is-popup" = struct {
+            pub const name = "is-popup";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "is_popup",
+                    ),
+                },
+            );
+        };
+
         pub const @"tabs-autohide" = struct {
             pub const name = "tabs-autohide";
             const impl = gobject.ext.defineProperty(
@@ -216,8 +234,18 @@ pub const Window = extern struct {
     };
 
     const Private = struct {
+        /// Whether this window is a popup terminal. If it is then it
+        /// behaves slightly differently under certain scenarios (no
+        /// headerbar, autohide on focus loss, etc.).
+        is_popup: bool = false,
+
+        /// The popup profile name this window is associated with,
+        /// or null if this is not a popup window.
+        popup_profile_name: ?[:0]const u8 = null,
+
         /// Whether this window is a quick terminal. If it is then it
         /// behaves slightly differently under certain scenarios.
+        /// Deprecated: use is_popup instead. Kept for backward compat.
         quick_terminal: bool = false,
 
         /// The window decoration override. If this is not set then we'll
@@ -858,9 +886,25 @@ pub const Window = extern struct {
     //---------------------------------------------------------------
     // Properties
 
+    /// Whether this window is a popup terminal.
+    pub fn isPopup(self: *Self) bool {
+        return self.private().is_popup;
+    }
+
+    /// Get the popup profile name for this window, or null if not a popup.
+    pub fn popupProfileName(self: *Self) ?[:0]const u8 {
+        return self.private().popup_profile_name;
+    }
+
+    /// Set the popup profile name for this window.
+    pub fn setPopupProfileName(self: *Self, name: ?[:0]const u8) void {
+        self.private().popup_profile_name = name;
+    }
+
     /// Whether this terminal is a quick terminal or not.
+    /// Deprecated: delegates to isPopup() for backward compatibility.
     pub fn isQuickTerminal(self: *Self) bool {
-        return self.private().quick_terminal;
+        return self.isPopup() or self.private().quick_terminal;
     }
 
     /// Get the currently active surface. See the "active-surface" property.
@@ -963,8 +1007,8 @@ pub const Window = extern struct {
         const csd_enabled = priv.winproto.clientSideDecorationEnabled();
         if (!csd_enabled) return false;
 
-        // Never display the header bar as a quick terminal.
-        if (priv.quick_terminal) return false;
+        // Never display the header bar for popup or quick terminal windows.
+        if (priv.is_popup or priv.quick_terminal) return false;
 
         // If we're fullscreen we never show the header bar.
         if (self.isFullscreen()) return false;
@@ -1091,12 +1135,28 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        // Hide quick-terminal if set to autohide
-        if (self.isQuickTerminal()) {
-            if (self.getConfig()) |cfg| {
-                if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
-                    self.toggleVisibility();
+        // Hide popup/quick-terminal if set to autohide.
+        if (self.getConfig()) |cfg| {
+            const should_autohide = blk: {
+                // For popup terminals, use per-profile autohide setting
+                if (self.isPopup()) {
+                    if (self.popupProfileName()) |name| {
+                        if (cfg.get().popup.get(name)) |profile| {
+                            break :blk profile.autohide;
+                        }
+                    }
+                    // Fallback to default if profile not found
+                    break :blk true;
                 }
+                // For legacy quick-terminal (non-popup), use global setting
+                if (self.isQuickTerminal()) {
+                    break :blk cfg.get().@"quick-terminal-autohide";
+                }
+                break :blk false;
+            };
+
+            if (should_autohide and self.as(gtk.Window).isActive() == 0) {
+                self.toggleVisibility();
             }
         }
 
@@ -1170,9 +1230,29 @@ pub const Window = extern struct {
         }
 
         if (priv.quick_terminal) {
-            // Initialize the quick terminal at the app-layer
-            Application.default().winproto().initQuickTerminal(self) catch |err| {
+            // Initialize the quick terminal at the app-layer via popup support
+            Application.default().winproto().initPopup(self) catch |err| {
                 log.warn("failed to initialize quick terminal error={}", .{err});
+                return;
+            };
+        }
+    }
+
+    fn propIsPopup(
+        _: *adw.ApplicationWindow,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        if (priv.surface_init) {
+            log.warn("is-popup property can't be changed after surfaces have been initialized", .{});
+            return;
+        }
+
+        if (priv.is_popup) {
+            // Initialize the popup at the app-layer
+            Application.default().winproto().initPopup(self) catch |err| {
+                log.warn("failed to initialize popup error={}", .{err});
                 return;
             };
         }
@@ -2076,6 +2156,7 @@ pub const Window = extern struct {
                 properties.config.impl,
                 properties.debug.impl,
                 properties.@"headerbar-visible".impl,
+                properties.@"is-popup".impl,
                 properties.@"quick-terminal".impl,
                 properties.@"tabs-autohide".impl,
                 properties.@"tabs-visible".impl,
@@ -2109,6 +2190,7 @@ pub const Window = extern struct {
             class.bindTemplateCallback("notify_is_active", &propIsActive);
             class.bindTemplateCallback("notify_maximized", &propMaximized);
             class.bindTemplateCallback("notify_menu_active", &propMenuActive);
+            class.bindTemplateCallback("notify_is_popup", &propIsPopup);
             class.bindTemplateCallback("notify_quick_terminal", &propQuickTerminal);
             class.bindTemplateCallback("notify_scale_factor", &propScaleFactor);
             class.bindTemplateCallback("titlebar_style_is_tabs", &closureTitlebarStyleIsTab);

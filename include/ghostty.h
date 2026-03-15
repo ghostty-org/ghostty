@@ -488,6 +488,27 @@ typedef struct {
   size_t len;
 } ghostty_config_command_list_s;
 
+// apprt.popup.PopupProfile.C
+// Sync with: apprt.popup.PopupProfile.C
+typedef struct {
+  int position;
+  uint32_t width_value;
+  bool width_is_percent;
+  uint32_t height_value;
+  bool height_is_percent;
+  bool autohide;
+  bool persist;
+  const char* command;
+} ghostty_popup_profile_config_s;
+
+// config.Config.RepeatablePopup.C
+// Sync with: config.Config.RepeatablePopup.C
+typedef struct {
+  const char* const* names;
+  const ghostty_popup_profile_config_s* profiles;
+  size_t len;
+} ghostty_config_popup_list_s;
+
 // config.Palette
 typedef struct {
   ghostty_config_color_s colors[256];
@@ -640,6 +661,11 @@ typedef struct {
 typedef struct {
   const char* title;
 } ghostty_action_set_title_s;
+
+// apprt.action.PopupAction.C
+typedef struct {
+  const char* name;
+} ghostty_action_popup_s;
 
 // apprt.action.PromptTitle
 typedef enum {
@@ -921,6 +947,9 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_TOGGLE_POPUP,
+  GHOSTTY_ACTION_SHOW_POPUP,
+  GHOSTTY_ACTION_HIDE_POPUP,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -962,6 +991,9 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_popup_s toggle_popup;
+  ghostty_action_popup_s show_popup;
+  ghostty_action_popup_s hide_popup;
 } ghostty_action_u;
 
 typedef struct {

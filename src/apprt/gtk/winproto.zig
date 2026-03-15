@@ -62,20 +62,20 @@ pub const App = union(Protocol) {
         } orelse key.translateMods(gtk_mods);
     }
 
-    pub fn supportsQuickTerminal(self: App) bool {
+    pub fn supportsPopup(self: App) bool {
         return switch (self) {
-            inline else => |v| v.supportsQuickTerminal(),
+            inline else => |v| v.supportsPopup(),
         };
     }
 
-    /// Set up necessary support for the quick terminal that must occur
+    /// Set up necessary support for a popup terminal that must occur
     /// *before* the window-level winproto object is created.
     ///
     /// Only has an effect on the Wayland backend, where the gtk4-layer-shell
     /// library is initialized.
-    pub fn initQuickTerminal(self: *App, apprt_window: *ApprtWindow) !void {
+    pub fn initPopup(self: *App, apprt_window: *ApprtWindow) !void {
         switch (self.*) {
-            inline else => |*v| try v.initQuickTerminal(apprt_window),
+            inline else => |*v| try v.initPopup(apprt_window),
         }
     }
 };

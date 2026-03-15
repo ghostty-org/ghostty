@@ -107,9 +107,9 @@ pub const App = struct {
         return null;
     }
 
-    pub fn supportsQuickTerminal(self: App) bool {
+    pub fn supportsPopup(self: App) bool {
         if (!layer_shell.isSupported()) {
-            log.warn("your compositor does not support the wlr-layer-shell protocol; disabling quick terminal", .{});
+            log.warn("your compositor does not support the wlr-layer-shell protocol; disabling popup terminals", .{});
             return false;
         }
 
@@ -120,14 +120,14 @@ pub const App = struct {
                 .patch = 4,
             }) == .lt)
         {
-            log.warn("the version of gtk4-layer-shell installed on your system is too old (must be 1.0.4 or newer); disabling quick terminal", .{});
+            log.warn("the version of gtk4-layer-shell installed on your system is too old (must be 1.0.4 or newer); disabling popup terminals", .{});
             return false;
         }
 
         return true;
     }
 
-    pub fn initQuickTerminal(_: *App, apprt_window: *ApprtWindow) !void {
+    pub fn initPopup(_: *App, apprt_window: *ApprtWindow) !void {
         const window = apprt_window.as(gtk.Window);
         layer_shell.initForWindow(window);
     }
@@ -321,8 +321,8 @@ pub const Window = struct {
         };
 
         if (self.apprt_window.isQuickTerminal()) {
-            self.syncQuickTerminal() catch |err| {
-                log.warn("failed to sync quick terminal appearance={}", .{err});
+            self.syncPopup() catch |err| {
+                log.warn("failed to sync popup appearance={}", .{err});
             };
         }
     }
@@ -402,7 +402,13 @@ pub const Window = struct {
         };
     }
 
-    fn syncQuickTerminal(self: *Window) !void {
+    // TODO: Parameterize this to read position/size from the popup profile
+    // instead of global config. For v1, this reads from global config which
+    // works correctly for the "quick" profile.
+    // TODO: Once parameterized, log warnings when a popup profile sets `x`,
+    // `y`, or `anchor` properties — these are not supported on Wayland
+    // (layer-shell only supports edge anchoring via quick-terminal-position).
+    fn syncPopup(self: *Window) !void {
         const window = self.apprt_window.as(gtk.Window);
         const config = if (self.apprt_window.getConfig()) |v|
             v.get()

@@ -343,6 +343,15 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Toggle a named popup terminal visibility.
+    toggle_popup: PopupAction,
+
+    /// Show a named popup terminal (create if needed, no-op if visible).
+    show_popup: PopupAction,
+
+    /// Hide a named popup terminal.
+    hide_popup: PopupAction,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -410,6 +419,9 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        toggle_popup,
+        show_popup,
+        hide_popup,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -712,6 +724,29 @@ pub const SetTitle = struct {
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.title });
+    }
+};
+
+/// Payload for popup actions (toggle, show, hide).
+/// Sync with: ghostty_action_popup_s
+pub const PopupAction = struct {
+    name: [:0]const u8,
+
+    pub const C = extern struct {
+        name: [*:0]const u8,
+    };
+
+    pub fn cval(self: PopupAction) C {
+        return .{ .name = self.name.ptr };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: *std.Io.Writer,
+    ) !void {
+        try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.name });
     }
 };
 

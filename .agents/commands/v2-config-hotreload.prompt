@@ -1,0 +1,28 @@
+---
+description: Implement v2 — config hot-reload for popup profiles, plus per-popup opacity, border-color, cwd, and dismiss-key
+---
+
+Review the popup terminal implementation on branch `feature/popup-terminal` and the roadmap at `ROADMAP.md`.
+
+## Requirements
+
+**Config hot-reload for popups:**
+- When Ghostty reloads config (SIGHUP or `ghostty +reload-config`), detect changes to `popup = ...` lines
+- New profiles become available immediately for toggle/show/hide
+- Changed profiles update properties (position, size, autohide, etc.) on next toggle
+- Removed profiles: hide and destroy any running popup instance
+- The PopupManager already has `updateProfileConfigs()` — wire it into the config reload path
+
+**New popup profile properties:**
+- `cwd:<path>` — working directory for the popup's shell (default: inherit from focused surface)
+- `opacity:<float>` — background opacity 0.0-1.0 (default: inherit global `background-opacity`)
+- `border-color:<hex>` — border color for the popup window (default: inherit from theme)
+- `dismiss-key:<key>` — key to dismiss the popup (e.g., `escape`). Only active when popup has focus.
+
+## Process
+
+1. **Codebase inspection:** Read the existing popup implementation (spec at `docs/superpowers/specs/2026-03-14-popup-terminal-design.md`, plan at `docs/superpowers/plans/2026-03-14-popup-terminal.md`)
+2. **Find config reload path:** Search for where config reload happens (SIGHUP handler, `reload_config` action) and how it propagates to the app runtime
+3. **Design:** Propose architecture for hot-reload + new properties. Present plan before implementing.
+4. **Implement:** Add new properties to PopupProfile, wire config reload to PopupManager, implement per-popup opacity/border/cwd/dismiss-key on both macOS and GTK
+5. **Test:** Verify hot-reload works, new properties apply correctly

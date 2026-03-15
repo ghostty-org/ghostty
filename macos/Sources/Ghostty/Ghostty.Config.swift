@@ -602,6 +602,40 @@ extension Ghostty {
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return QuickTerminalSize() }
             return QuickTerminalSize(from: v)
         }
+
+        /// Get popup profile configurations from the Zig config system.
+        /// Returns a dictionary of profile name -> PopupProfileConfig.
+        var popupProfiles: [String: PopupController.PopupProfileConfig] {
+            guard let config = self.config else { return [:] }
+            var v = ghostty_config_popup_list_s()
+            let key = "popup"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return [:] }
+            guard v.len > 0 else { return [:] }
+
+            var result: [String: PopupController.PopupProfileConfig] = [:]
+            guard let names = v.names, let profiles = v.profiles else { return [:] }
+            for i in 0..<v.len {
+                guard let namePtr = names[i] else { continue }
+                let name = String(cString: namePtr)
+                let p = profiles[i]
+                let cmd: String? = if let cmdPtr = p.command {
+                    String(cString: cmdPtr)
+                } else {
+                    nil
+                }
+                result[name] = PopupController.PopupProfileConfig(
+                    position: PopupController.PopupProfileConfig.Position(rawValue: Int(p.position)) ?? .center,
+                    widthValue: p.width_value,
+                    widthIsPercent: p.width_is_percent,
+                    heightValue: p.height_value,
+                    heightIsPercent: p.height_is_percent,
+                    autohide: p.autohide,
+                    persist: p.persist,
+                    command: cmd
+                )
+            }
+            return result
+        }
         #endif
 
         var resizeOverlay: ResizeOverlay {

@@ -158,12 +158,12 @@ pub const App = struct {
         return mods;
     }
 
-    pub fn supportsQuickTerminal(_: App) bool {
-        log.warn("quick terminal is not yet supported on X11", .{});
+    pub fn supportsPopup(_: App) bool {
+        log.warn("popup terminals are not yet supported on X11", .{});
         return false;
     }
 
-    pub fn initQuickTerminal(_: *App, _: *ApprtWindow) !void {}
+    pub fn initPopup(_: *App, _: *ApprtWindow) !void {}
 };
 
 pub const Window = struct {

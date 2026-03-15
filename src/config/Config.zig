@@ -22,6 +22,7 @@ const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
+const popupmod = @import("../apprt/popup.zig");
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
@@ -2861,6 +2862,54 @@ keybind: Keybinds = .{},
 /// Available since: 1.2.0
 @"command-palette-entry": RepeatableCommand = .{},
 
+/// Define named popup terminal profiles. Each popup is a lightweight overlay
+/// terminal that can be toggled with a keybind. Multiple popups can be
+/// defined, each with its own name and configuration.
+///
+/// The format is `name:key:value,key:value,...` where `name` is a unique
+/// identifier for the popup (letters, digits, hyphens, underscores only)
+/// and the remaining key-value pairs configure the popup's behavior.
+///
+/// Available keys:
+///
+///   * `position` - Where to place the popup. One of: `center`, `top`,
+///     `bottom`, `left`, `right`. Default: `center`.
+///
+///   * `anchor` - Corner to pin the popup to when using `x`/`y` offsets.
+///     One of: `top_left`, `top_right`, `bottom_left`, `bottom_right`,
+///     `center`. Default: unset (determined by position).
+///
+///   * `x` - Horizontal offset. Pixels (`200`) or percent (`50%`).
+///
+///   * `y` - Vertical offset. Pixels (`100`) or percent (`25%`).
+///
+///   * `width` - Popup width. Pixels or percent. Default: `80%`.
+///
+///   * `height` - Popup height. Pixels or percent. Default: `80%`.
+///
+///   * `keybind` - Key combination to toggle this popup.
+///
+///   * `command` - Shell command to run inside the popup.
+///
+///   * `autohide` - Hide popup when it loses focus. Default: `true`.
+///
+///   * `persist` - Keep the popup process alive when hidden. Default: `true`.
+///
+/// Examples:
+///
+/// ```ini
+/// popup = quick:position:top,height:40%,keybind:ctrl+grave_accent
+/// popup = calc:command:bc -l,width:300,height:400,position:bottom
+/// popup = notes:command:vim ~/notes.md,width:80%,height:80%
+/// ```
+///
+/// Setting this to an empty value clears all previously defined popups:
+///
+/// ```ini
+/// popup =
+/// ```
+popup: RepeatablePopup = .{},
+
 /// Sets the reporting format for OSC sequences that request color information.
 /// Ghostty currently supports OSC 10 (foreground), OSC 11 (background), and
 /// OSC 4 (256 color palette) queries, and by default the reported values
@@ -4670,6 +4719,261 @@ pub fn finalize(self: *Config) !void {
 
     // Finalize key remapping set for efficient lookups
     self.@"key-remap".finalize();
+
+    // Migrate legacy quick-terminal-* keys into a "quick" popup profile
+    try self.migrateQuickTerminalToPopup(alloc);
+
+    // Generate keybindings from popup profiles that specify a keybind field
+    try self.synthesizePopupKeybinds(alloc);
+}
+
+/// Synthesize a "quick" popup profile from legacy quick-terminal-* keys.
+/// Called during config finalization, after all fields are parsed.
+///
+/// If a popup named "quick" already exists (i.e. the user explicitly
+/// defined one via the `popup` config key), legacy keys are ignored.
+/// Otherwise, if any quick-terminal-* key was set to a non-default
+/// value, we build a PopupProfile from those legacy values and append
+/// it to `self.popup`.
+///
+/// Platform-specific keys (screen, space-behavior, animation-duration,
+/// keyboard-interactivity, gtk-layer, gtk-namespace) are NOT migrated;
+/// they remain legacy-only for now.
+pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
+    // If a "quick" popup was explicitly defined, legacy keys are ignored.
+    if (self.popup.get(popupmod.quick_profile_name) != null) return;
+
+    // Determine whether any legacy quick-terminal-* key was changed
+    // from its default value. We only check the keys we actually migrate.
+    const default_position: QuickTerminalPosition = .top;
+    const default_autohide: bool = switch (builtin.os.tag) {
+        .linux => false,
+        .macos => true,
+        else => false,
+    };
+    const position_changed = self.@"quick-terminal-position" != default_position;
+    const autohide_changed = self.@"quick-terminal-autohide" != default_autohide;
+    const size_changed = (self.@"quick-terminal-size".primary != null) or
+        (self.@"quick-terminal-size".secondary != null);
+
+    // If nothing changed, no migration needed.
+    if (!position_changed and !autohide_changed and !size_changed) return;
+
+    log.warn(
+        "quick-terminal-* config keys are deprecated; " ++
+            "use 'popup = quick:...' instead. " ++
+            "A 'quick' popup profile has been synthesized from your legacy settings.",
+        .{},
+    );
+
+    // Build the popup profile from legacy values.
+    var profile: popupmod.PopupProfile = .{};
+
+    // Map position (enum values match 1:1)
+    profile.position = switch (self.@"quick-terminal-position") {
+        .top => .top,
+        .bottom => .bottom,
+        .left => .left,
+        .right => .right,
+        .center => .center,
+    };
+
+    // Map autohide
+    profile.autohide = self.@"quick-terminal-autohide";
+
+    // Map size to width/height based on position.
+    //
+    // QuickTerminalSize uses "primary" for the axis that the terminal
+    // slides in from (height for top/bottom, width for left/right) and
+    // "secondary" for the cross-axis. Non-center positions maximize the
+    // cross-axis by default.
+    //
+    // For center, the axis meaning is orientation-dependent at runtime,
+    // so we apply primary to both width and height when only primary is
+    // set, and use primary->width / secondary->height when both are set.
+    const size = self.@"quick-terminal-size";
+    switch (self.@"quick-terminal-position") {
+        .top, .bottom => {
+            // primary -> height, secondary -> width
+            if (size.primary) |p| {
+                profile.height = quickSizeToDimension(p);
+            }
+            if (size.secondary) |s| {
+                profile.width = quickSizeToDimension(s);
+            } else {
+                // Edge positions maximize the cross-axis
+                profile.width = popupmod.Dimension.initPercent(100);
+            }
+        },
+        .left, .right => {
+            // primary -> width, secondary -> height
+            if (size.primary) |p| {
+                profile.width = quickSizeToDimension(p);
+            }
+            if (size.secondary) |s| {
+                profile.height = quickSizeToDimension(s);
+            } else {
+                // Edge positions maximize the cross-axis
+                profile.height = popupmod.Dimension.initPercent(100);
+            }
+        },
+        .center => {
+            // For center, primary/secondary axis depends on monitor
+            // orientation which we can't know at config time. Apply
+            // primary to both dimensions as a reasonable approximation.
+            if (size.primary) |p| {
+                const dim = quickSizeToDimension(p);
+                profile.width = dim;
+                profile.height = dim;
+            }
+            if (size.secondary) |s| {
+                // If both are specified, treat primary as width and
+                // secondary as height (landscape assumption).
+                profile.height = quickSizeToDimension(s);
+            }
+        },
+    }
+
+    const name_z = try alloc.dupeZ(u8, popupmod.quick_profile_name);
+    try self.popup.names.append(alloc, name_z);
+    try self.popup.profiles.append(alloc, profile);
+
+    // Keep C-view arrays in sync (mirroring parseCLI pattern).
+    try self.popup.names_c.append(alloc, name_z.ptr);
+    const cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
+        (try alloc.dupeZ(u8, cmd)).ptr
+    else
+        null;
+    try self.popup.commands_z.append(alloc, cmd_z);
+    try self.popup.profiles_c.append(alloc, profile.cval(cmd_z));
+}
+
+/// Convert a legacy QuickTerminalSize.Size to a popup Dimension.
+fn quickSizeToDimension(size: QuickTerminalSize.Size) popupmod.Dimension {
+    return switch (size) {
+        .percentage => |v| popupmod.Dimension.initPercent(
+            @intFromFloat(std.math.clamp(v, 1.0, 100.0)),
+        ),
+        .pixels => |v| popupmod.Dimension.initPixels(v),
+    };
+}
+
+/// Synthesize keybindings from popup profiles.
+///
+/// For each popup that specifies a `keybind` field, this constructs a
+/// `toggle_popup:<name>` binding and inserts it into the default keybind
+/// set — but only if the trigger is not already claimed by an explicit
+/// `keybind = ...` line. Explicit bindings always win.
+///
+/// Called during finalize(), after migrateQuickTerminalToPopup().
+pub fn synthesizePopupKeybinds(self: *Config, alloc: Allocator) !void {
+    // We use a two-pass approach to get the correct precedence:
+    //   1. Collect popup bindings into an intermediate list where the
+    //      LAST popup profile with a given trigger wins (overwrites).
+    //   2. Insert into the keybind set only if the trigger is NOT
+    //      already bound (i.e., explicit `keybind = ...` lines win).
+    //
+    // This avoids the bug where the first popup with a given trigger
+    // would win among popups, because the live set was checked during
+    // iteration and earlier popup bindings were already inserted.
+    const PopupBind = struct {
+        trigger: inputpkg.Binding.Trigger,
+        binding_str: []const u8,
+        name: []const u8,
+        keybind_str: []const u8,
+    };
+
+    var popup_binds: std.ArrayListUnmanaged(PopupBind) = .empty;
+
+    // First pass: collect all popup bindings; last definition wins.
+    for (self.popup.names.items, self.popup.profiles.items) |name, profile| {
+        const keybind_str = profile.keybind orelse continue;
+
+        // Build the full binding string, e.g. "ctrl+grave_accent=toggle_popup:quick"
+        const binding_str = try std.fmt.allocPrint(
+            alloc,
+            "{s}=toggle_popup:{s}",
+            .{ keybind_str, name },
+        );
+
+        // Parse the binding string to extract the trigger so we can
+        // check whether it's already bound.
+        var parser = inputpkg.Binding.Parser.init(binding_str) catch |err| {
+            log.warn(
+                "popup '{s}': invalid keybind '{s}': {}",
+                .{ name, keybind_str, err },
+            );
+            continue;
+        };
+
+        const elem = parser.next() catch |err| {
+            log.warn(
+                "popup '{s}': failed to parse keybind '{s}': {}",
+                .{ name, keybind_str, err },
+            );
+            continue;
+        };
+
+        const trigger = switch (elem orelse continue) {
+            .binding => |b| b.trigger,
+            .leader => |t| t,
+            .chain => continue, // chains are not valid for popup keybinds
+        };
+
+        // If this trigger already exists in our collected popup bindings,
+        // overwrite it so the last popup definition wins.
+        var found = false;
+        for (popup_binds.items) |*pb| {
+            if (pb.trigger.foldedEqual(trigger)) {
+                pb.* = .{
+                    .trigger = trigger,
+                    .binding_str = binding_str,
+                    .name = name,
+                    .keybind_str = keybind_str,
+                };
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            try popup_binds.append(alloc, .{
+                .trigger = trigger,
+                .binding_str = binding_str,
+                .name = name,
+                .keybind_str = keybind_str,
+            });
+        }
+    }
+
+    // Build a fresh default keybind set so we can distinguish user-explicit
+    // bindings from built-in defaults. Without this, a popup keybind that
+    // happens to collide with a default binding would be silently skipped.
+    var defaults: Keybinds = .{};
+    try defaults.init(alloc);
+
+    // Second pass: insert collected popup bindings into the keybind set.
+    // Only skip if the trigger was explicitly bound by the user (present
+    // in the live set AND not in the fresh defaults).
+    for (popup_binds.items) |pb| {
+        const in_live = self.keybind.set.get(pb.trigger) != null;
+        const in_defaults = defaults.set.get(pb.trigger) != null;
+        if (in_live and !in_defaults) {
+            log.info(
+                "popup '{s}': keybind '{s}' explicitly bound by user, skipping synthesis",
+                .{ pb.name, pb.keybind_str },
+            );
+            continue;
+        }
+
+        // Insert the synthesized binding into the default set.
+        self.keybind.set.parseAndPut(alloc, pb.binding_str) catch |err| {
+            log.warn(
+                "popup '{s}': failed to add keybind '{s}': {}",
+                .{ pb.name, pb.keybind_str, err },
+            );
+            continue;
+        };
+    }
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
@@ -8890,6 +9194,200 @@ pub const RepeatableCommand = struct {
     }
 };
 
+pub const RepeatablePopup = struct {
+    const Self = @This();
+
+    names: std.ArrayListUnmanaged([:0]const u8) = .empty,
+    profiles: std.ArrayListUnmanaged(popupmod.PopupProfile) = .empty,
+
+    /// Parallel C-API arrays, maintained in sync with names/profiles.
+    names_c: std.ArrayListUnmanaged([*:0]const u8) = .empty,
+    profiles_c: std.ArrayListUnmanaged(popupmod.PopupProfile.C) = .empty,
+
+    /// Sentinel-terminated copies of command strings for the C API.
+    /// Indexed in parallel with names/profiles; null when no command.
+    commands_z: std.ArrayListUnmanaged(?[*:0]const u8) = .empty,
+
+    /// ghostty_config_popup_list_s
+    pub const C = extern struct {
+        names: [*][*:0]const u8,
+        profiles: [*]popupmod.PopupProfile.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .names = self.names_c.items.ptr,
+            .profiles = self.profiles_c.items.ptr,
+            .len = self.names_c.items.len,
+        };
+    }
+
+    pub fn parseCLI(
+        self: *Self,
+        alloc: Allocator,
+        input_: ?[]const u8,
+    ) !void {
+        const input = input_ orelse "";
+        if (input.len == 0) {
+            // Free all owned strings before clearing arrays.
+            for (self.names.items) |name| alloc.free(name);
+            for (self.profiles.items) |profile| {
+                if (profile.keybind) |kb| alloc.free(kb);
+                if (profile.command) |cmd| alloc.free(cmd);
+            }
+            for (self.commands_z.items) |cmd_z| {
+                if (cmd_z) |ptr| {
+                    const slice = std.mem.sliceTo(ptr, 0);
+                    alloc.free(slice);
+                }
+            }
+            self.names.clearRetainingCapacity();
+            self.profiles.clearRetainingCapacity();
+            self.names_c.clearRetainingCapacity();
+            self.profiles_c.clearRetainingCapacity();
+            self.commands_z.clearRetainingCapacity();
+            return;
+        }
+
+        const colon_idx = std.mem.indexOf(u8, input, ":") orelse
+            return error.InvalidValue;
+        const name_raw = std.mem.trim(u8, input[0..colon_idx], " ");
+
+        if (!popupmod.isValidName(name_raw))
+            return error.InvalidValue;
+
+        const remainder = input[colon_idx + 1 ..];
+
+        const profile = try cli.args.parseAutoStruct(
+            popupmod.PopupProfile,
+            alloc,
+            remainder,
+            null,
+        );
+
+        // Create sentinel-terminated copy of the command for C API.
+        const cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
+            (try alloc.dupeZ(u8, cmd)).ptr
+        else
+            null;
+
+        const name = try alloc.dupeZ(u8, name_raw);
+
+        // Last definition wins: if a popup with this name already
+        // exists, replace its profile instead of appending a duplicate.
+        for (self.names.items, 0..) |existing, i| {
+            if (std.mem.eql(u8, existing, name_raw)) {
+                // Free old profile strings before overwriting.
+                if (self.profiles.items[i].keybind) |kb| alloc.free(kb);
+                if (self.profiles.items[i].command) |cmd| alloc.free(cmd);
+                if (self.commands_z.items[i]) |old_cmd| {
+                    const slice = std.mem.sliceTo(old_cmd, 0);
+                    alloc.free(slice);
+                }
+                // Free the new name since we're not using it.
+                alloc.free(name);
+                self.profiles.items[i] = profile;
+                self.commands_z.items[i] = cmd_z;
+                self.profiles_c.items[i] = profile.cval(cmd_z);
+                return;
+            }
+        }
+
+        try self.names.append(alloc, name);
+        try self.profiles.append(alloc, profile);
+        try self.names_c.append(alloc, name.ptr);
+        try self.profiles_c.append(alloc, profile.cval(cmd_z));
+        try self.commands_z.append(alloc, cmd_z);
+    }
+
+    /// Look up a popup profile by name.
+    pub fn get(self: *const Self, name: []const u8) ?popupmod.PopupProfile {
+        for (self.names.items, 0..) |n, i| {
+            if (std.mem.eql(u8, n, name)) return self.profiles.items[i];
+        }
+        return null;
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) !Self {
+        var new: Self = .{};
+        errdefer new.deinit(alloc);
+        for (self.names.items) |name| {
+            const duped = try alloc.dupeZ(u8, name);
+            try new.names.append(alloc, duped);
+            try new.names_c.append(alloc, duped.ptr);
+        }
+        for (self.profiles.items) |profile| {
+            var cloned_profile = profile;
+            // Deep-copy string fields so the clone doesn't alias source memory.
+            if (profile.keybind) |kb| {
+                cloned_profile.keybind = try alloc.dupe(u8, kb);
+            }
+            if (profile.command) |cmd| {
+                cloned_profile.command = try alloc.dupe(u8, cmd);
+            }
+            try new.profiles.append(alloc, cloned_profile);
+            // Re-create sentinel-terminated command copy for the clone.
+            const new_cmd_z: ?[*:0]const u8 = if (cloned_profile.command) |cmd|
+                (try alloc.dupeZ(u8, cmd)).ptr
+            else
+                null;
+            try new.commands_z.append(alloc, new_cmd_z);
+            try new.profiles_c.append(alloc, cloned_profile.cval(new_cmd_z));
+        }
+        return new;
+    }
+
+    pub fn deinit(self: *Self, alloc: Allocator) void {
+        for (self.names.items) |name| alloc.free(name);
+        for (self.profiles.items) |profile| {
+            if (profile.keybind) |kb| alloc.free(kb);
+            if (profile.command) |cmd| alloc.free(cmd);
+        }
+        for (self.commands_z.items) |cmd_z| {
+            if (cmd_z) |ptr| {
+                const slice = std.mem.sliceTo(ptr, 0);
+                alloc.free(slice);
+            }
+        }
+        self.names.deinit(alloc);
+        self.profiles.deinit(alloc);
+        self.names_c.deinit(alloc);
+        self.profiles_c.deinit(alloc);
+        self.commands_z.deinit(alloc);
+    }
+
+    /// Used by Formatter.
+    /// TODO: implement proper round-trip formatting once Dimension/Position
+    /// have std.fmt support.
+    pub fn formatEntry(
+        self: Self,
+        formatter: formatterpkg.EntryFormatter,
+    ) !void {
+        _ = formatter;
+        if (self.names.items.len > 0) {
+            log.warn(
+                "popup config entries cannot be serialized yet; {d} entries dropped",
+                .{self.names.items.len},
+            );
+        }
+    }
+
+    /// Compare if two values are equal. Required by Config.
+    pub fn equal(a: Self, b: Self) bool {
+        if (a.names.items.len != b.names.items.len) return false;
+        for (a.names.items, a.profiles.items, 0..) |name_a, prof_a, i| {
+            const name_b = b.names.items[i];
+            if (!std.mem.eql(u8, name_a, name_b)) return false;
+            // Use deepEqual for content-based comparison of profile fields,
+            // including optional string fields (keybind, command).
+            if (!deepEqual(popupmod.PopupProfile, prof_a, b.profiles.items[i])) return false;
+        }
+        return true;
+    }
+};
+
 /// OSC 4, 10, 11, and 12 default color reporting format.
 pub const OSCColorReportFormat = enum {
     none,
@@ -10852,4 +11350,86 @@ test "compatibility: window new-window" {
             cfg.@"macos-dock-drop-behavior",
         );
     }
+}
+
+test "popup: basic parsing via CLI" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "myterm:width:80%,height:50%");
+    try popups.parseCLI(alloc, "other:width:400,height:300");
+
+    try testing.expectEqual(@as(usize, 2), popups.names.items.len);
+
+    const p1 = popups.get("myterm");
+    try testing.expect(p1 != null);
+    if (p1) |p| {
+        try testing.expectEqual(@as(u32, 80), p.width.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.percent, p.width.unit);
+        try testing.expectEqual(@as(u32, 50), p.height.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.percent, p.height.unit);
+    }
+
+    const p2 = popups.get("other");
+    try testing.expect(p2 != null);
+    if (p2) |p| {
+        try testing.expectEqual(@as(u32, 400), p.width.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.pixels, p.width.unit);
+        try testing.expectEqual(@as(u32, 300), p.height.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.pixels, p.height.unit);
+    }
+}
+
+test "popup: duplicate name replacement" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "myterm:width:80%");
+    try popups.parseCLI(alloc, "myterm:width:100%");
+
+    // Should only have one profile named "myterm"
+    try testing.expectEqual(@as(usize, 1), popups.names.items.len);
+
+    // Should be the second definition (100%)
+    const profile = popups.get("myterm");
+    try testing.expect(profile != null);
+    if (profile) |p| {
+        try testing.expectEqual(@as(u32, 100), p.width.value);
+    }
+}
+
+test "popup: parseCLI empty clears profiles" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "myterm:width:80%");
+    try popups.parseCLI(alloc, "other:width:50%");
+    try testing.expectEqual(@as(usize, 2), popups.names.items.len);
+
+    // Clear with empty string
+    try popups.parseCLI(alloc, "");
+    try testing.expectEqual(@as(usize, 0), popups.names.items.len);
+}
+
+test "popup: invalid name rejected" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+
+    // Names with spaces or special chars should be rejected
+    try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad name:width:80%"));
+    try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad@name:width:80%"));
+    try testing.expectEqual(@as(usize, 0), popups.names.items.len);
 }

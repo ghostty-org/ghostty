@@ -56,6 +56,8 @@ struct TerminalEntity: AppEntity {
         // Determine the kind based on the window controller type
         if view.window?.windowController is QuickTerminalController {
             self.kind = .quick
+        } else if view.window is PopupWindow {
+            self.kind = .quick
         } else {
             self.kind = .normal
         }

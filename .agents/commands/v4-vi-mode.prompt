@@ -1,0 +1,66 @@
+---
+description: Implement v4 — vi mode for terminal scrollback navigation, search, selection, and yank
+---
+
+Review the roadmap at `ROADMAP.md` and the existing codebase architecture in `CLAUDE.md`.
+
+## Requirements
+
+**Enter/exit vi mode:**
+- Keybind action: `enter_vi_mode` (e.g., `keybind = ctrl+shift+v=enter_vi_mode`)
+- Exit: Esc, q, or Enter
+- Visual indicator: cursor changes to block, mode indicator shown (renderer overlay or status area)
+- Terminal output freezes — running processes continue but display is paused
+
+**Navigation (all operate on scrollback):**
+- `h/j/k/l` — character/line movement
+- `w/b/e` — word movement (word = sequence of non-whitespace)
+- `0/$` — start/end of line
+- `^` — first non-whitespace character
+- `gg` — top of scrollback
+- `G` — bottom of scrollback (live terminal)
+- `Ctrl+u/Ctrl+d` — half-page up/down
+- `Ctrl+b/Ctrl+f` — full page up/down
+- `H/M/L` — top/middle/bottom of visible viewport
+- `{number}{motion}` — repeat motion N times (e.g., `5j` = down 5 lines)
+
+**Search:**
+- `/pattern` — forward regex search, highlights all matches in scrollback
+- `?pattern` — backward regex search
+- `n` — next match
+- `N` — previous match
+- Search highlights persist until Esc or new search
+- Use Ghostty's existing regex engine (oniguruma in `pkg/`)
+
+**Selection and yank:**
+- `v` — start character-wise selection (like vim visual mode)
+- `V` — start line-wise selection
+- `Ctrl+v` — start block/rectangle selection
+- `y` — yank selection to system clipboard, exit vi mode
+- `Y` — yank current line to clipboard
+- Selection highlighted with the existing `selection-background`/`selection-foreground` colors
+
+**Marks (stretch goal):**
+- `m{a-z}` — set named mark at cursor position
+- `'{a-z}` — jump to mark
+- Marks persist within the terminal surface lifetime
+
+## Process
+
+1. **Codebase inspection:** Understand how scrollback works (`src/terminal/PageList.zig`, `src/terminal/Terminal.zig`). Understand how the renderer draws (`src/renderer/generic.zig`). Understand how input modes work (`src/input/`). Look at how the existing search feature works if there is one.
+2. **Understand key tables:** Ghostty has a key table system for modal keybindings. Vi mode could use this — `enter_vi_mode` activates a key table, Esc deactivates it.
+3. **Design:** Propose architecture for vi mode — where the cursor state lives, how the renderer draws the cursor overlay, how input is intercepted. Present plan before implementing.
+4. **Implement incrementally:**
+   - Phase 1: Enter/exit vi mode with visual indicator + basic hjkl navigation
+   - Phase 2: Word motions, page motions, gg/G
+   - Phase 3: Search with /pattern and n/N
+   - Phase 4: Visual selection + yank
+5. **Test:** Verify navigation accuracy, search correctness, clipboard integration.
+
+## Architecture Hints
+
+- Vi mode cursor position is separate from the terminal's real cursor — it's a "virtual cursor" overlaid on the scrollback
+- The renderer needs to draw this virtual cursor (probably in the same pass as the selection highlight)
+- Input handling: when vi mode is active, all keystrokes go to the vi mode handler instead of the PTY
+- The terminal's scrollback is read-only during vi mode — the vi cursor moves over existing content
+- Consider using Ghostty's key table system (`activate_key_table`) to implement the modal input

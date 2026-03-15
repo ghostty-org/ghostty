@@ -1,0 +1,40 @@
+---
+description: Implement v3 — tmux-style session management with named sessions, switcher UI, and persistence
+---
+
+Review the roadmap at `ROADMAP.md` and the existing codebase architecture in `CLAUDE.md`.
+
+## Requirements
+
+**Named sessions:**
+- A session is a named group of windows/tabs/splits
+- Config syntax: `session = work:cwd:~/projects`
+- Keybind actions: `new_session:<name>`, `switch_session:<name>`, `show_session_picker`
+- Switching sessions swaps the entire window content instantly (no window close/open)
+- Each session maintains its own terminal surfaces, scrollback, and running processes
+
+**Session switcher UI:**
+- Triggered by `show_session_picker` keybind action
+- Shows a fuzzy-searchable list of sessions
+- Displays: session name, number of tabs/splits, last activity timestamp
+- Select to switch, Esc to cancel
+- On macOS: use a floating panel. On GTK: use a popup/popover widget.
+
+**Session persistence:**
+- Sessions survive app restart
+- macOS: use existing state restoration APIs (NSCoder encode/decode)
+- GTK: serialize session state to disk (JSON or similar)
+- Auto-save on quit, manual save via `session_save` action
+- Config option: `session-save = always | never | ask`
+
+**Popup integration:**
+- Popups can be scoped to a session: `popup = monitor:session:ops,command:htop`
+- Session-scoped popups only visible when parent session is active
+
+## Process
+
+1. **Codebase inspection:** Understand how windows, tabs, and splits are currently managed. Read `src/apprt/` for the runtime abstraction, `macos/Sources/Features/Terminal/` for macOS window/tab management.
+2. **Understand state restoration:** Read how macOS `willEncodeRestorableState`/`didDecodeRestorableState` work in AppDelegate.swift.
+3. **Design:** Propose a `Session` abstraction — what it owns, how switching works, how it integrates with the existing Surface/Window/Tab hierarchy. Present plan before implementing.
+4. **Implement incrementally:** Start with named sessions and switching (no persistence), then add the switcher UI, then persistence.
+5. **Test:** Verify session switching preserves terminal state, persistence survives restart.

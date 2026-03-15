@@ -447,6 +447,21 @@ pub fn performAction(
         .reload_config => _ = try rt_app.performAction(.app, .reload_config, .{}),
         .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => _ = try rt_app.performAction(.app, .toggle_quick_terminal, {}),
+        .toggle_popup => |name| {
+            const name_z = try self.alloc.dupeZ(u8, name);
+            defer self.alloc.free(name_z);
+            _ = try rt_app.performAction(.app, .toggle_popup, .{ .name = name_z });
+        },
+        .show_popup => |name| {
+            const name_z = try self.alloc.dupeZ(u8, name);
+            defer self.alloc.free(name_z);
+            _ = try rt_app.performAction(.app, .show_popup, .{ .name = name_z });
+        },
+        .hide_popup => |name| {
+            const name_z = try self.alloc.dupeZ(u8, name);
+            defer self.alloc.free(name_z);
+            _ = try rt_app.performAction(.app, .hide_popup, .{ .name = name_z });
+        },
         .toggle_visibility => _ = try rt_app.performAction(.app, .toggle_visibility, {}),
         .check_for_updates => _ = try rt_app.performAction(.app, .check_for_updates, {}),
         .show_gtk_inspector => _ = try rt_app.performAction(.app, .show_gtk_inspector, {}),

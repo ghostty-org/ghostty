@@ -587,6 +587,15 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
                 toggleQuickTerminal(app, target: target)
 
+            case GHOSTTY_ACTION_TOGGLE_POPUP:
+                togglePopup(app, target: target, v: action.action.toggle_popup)
+
+            case GHOSTTY_ACTION_SHOW_POPUP:
+                showPopup(app, target: target, v: action.action.show_popup)
+
+            case GHOSTTY_ACTION_HIDE_POPUP:
+                hidePopup(app, target: target, v: action.action.hide_popup)
+
             case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
                 toggleVisibility(app, target: target)
 
@@ -1583,6 +1592,42 @@ extension Ghostty {
         ) {
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
             appDelegate.toggleQuickTerminal(self)
+        }
+
+        private static func togglePopup(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_popup_s
+        ) {
+            guard let name = popupName(from: v) else { return }
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+            appDelegate.popupManager.toggle(name)
+        }
+
+        private static func showPopup(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_popup_s
+        ) {
+            guard let name = popupName(from: v) else { return }
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+            appDelegate.popupManager.show(name)
+        }
+
+        private static func hidePopup(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_popup_s
+        ) {
+            guard let name = popupName(from: v) else { return }
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+            appDelegate.popupManager.hide(name)
+        }
+
+        /// Extract the popup profile name from a C popup action struct.
+        private static func popupName(from v: ghostty_action_popup_s) -> String? {
+            guard let namePtr = v.name else { return nil }
+            return String(cString: namePtr)
         }
 
         private static func setTitle(

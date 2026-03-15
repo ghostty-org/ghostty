@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file_path=$(echo \"$TOOL_INPUT\" | sed -n 's/.*\"file_path\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p'); if [ -n \"$file_path\" ] && echo \"$file_path\" | grep -q '\\.zig$'; then zig fmt \"$file_path\" 2>/dev/null || true; fi"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" | grep -qE '\\.(env|secret|key|pem|p12)\"'; then echo 'BLOCK: Refusing to edit sensitive file'; exit 1; fi"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "feature-dev@claude-plugins-official": true,
+    "serena@claude-plugins-official": false
+  }
+}

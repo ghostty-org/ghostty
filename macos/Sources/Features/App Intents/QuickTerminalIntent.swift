@@ -20,12 +20,11 @@ struct QuickTerminalIntent: AppIntent {
             throw GhosttyIntentError.appUnavailable
         }
 
-        // This is safe to call even if it is already shown.
-        let c = delegate.quickController
-        c.animateIn()
+        // Show through PopupManager exclusively.
+        delegate.popupManager.show(PopupManager.quickProfileName)
 
-        // Grab all our terminals
-        let terminals = c.surfaceTree.root?.leaves().map {
+        // Grab all our terminals from the popup controller.
+        let terminals = delegate.popupManager.controllers[PopupManager.quickProfileName]?.surfaceTree.root?.leaves().map {
             TerminalEntity($0)
         } ?? []
 

@@ -12,6 +12,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
   notify::fullscreened => $notify_fullscreened();
   notify::is-active => $notify_is_active();
   notify::maximized => $notify_maximized();
+  notify::is-popup => $notify_is_popup();
   notify::quick-terminal => $notify_quick_terminal();
   notify::scale-factor => $notify_scale_factor();
   default-width: 800;

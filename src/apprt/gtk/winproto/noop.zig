@@ -32,10 +32,10 @@ pub const App = struct {
         return null;
     }
 
-    pub fn supportsQuickTerminal(_: App) bool {
+    pub fn supportsPopup(_: App) bool {
         return false;
     }
-    pub fn initQuickTerminal(_: *App, _: *ApprtWindow) !void {}
+    pub fn initPopup(_: *App, _: *ApprtWindow) !void {}
 };
 
 pub const Window = struct {

@@ -809,6 +809,17 @@ pub const Action = union(enum) {
     /// configuration file to customize its behavior.
     toggle_quick_terminal,
 
+    /// Toggle a named popup terminal.
+    /// The parameter is the popup profile name (e.g., toggle_popup:quick).
+    toggle_popup: []const u8,
+
+    /// Show (or create) a named popup terminal. No-op if already visible.
+    /// Used by App Intents for show-only semantics.
+    show_popup: []const u8,
+
+    /// Hide a named popup terminal.
+    hide_popup: []const u8,
+
     /// Show or hide all windows. If all windows become shown, we also ensure
     /// Ghostty becomes focused. When hiding all windows, focus is yielded
     /// to the next application as determined by the OS.
@@ -1301,6 +1312,9 @@ pub const Action = union(enum) {
             .close_all_windows,
             .quit,
             .toggle_quick_terminal,
+            .toggle_popup,
+            .show_popup,
+            .hide_popup,
             .toggle_visibility,
             .check_for_updates,
             .show_gtk_inspector,
