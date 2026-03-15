@@ -2434,12 +2434,19 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
                 const screen = t.screens.active;
                 screen.selection = null;
                 vi.deinit(&screen.pages);
+                // Clear vi mode render state while mutex is held
+                self.renderer_state.vi_mode = .{};
             }
             self.vi_mode = null;
             self.queueIo(.{
                 .scroll_viewport = .{ .bottom = {} },
             }, .unlocked);
         }
+    } else {
+        // Vi mode is still active, update render state with current position
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.updateViModeRenderState();
     }
     if (result.scroll_top) {
         self.queueIo(.{
@@ -2457,6 +2464,30 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
     if (result.redraw) {
         self.queueRender() catch {};
     }
+}
+
+/// Update the vi mode fields in renderer_state from current vi_mode.
+/// Caller MUST hold renderer_state.mutex.
+fn updateViModeRenderState(self: *Surface) void {
+    const vi = self.vi_mode orelse {
+        self.renderer_state.vi_mode = .{};
+        return;
+    };
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    const screen = t.screens.active;
+    const vp_point = screen.pages.pointFromPin(.viewport, vi.cursor_pin.*);
+
+    self.renderer_state.vi_mode = .{
+        .active = true,
+        .cursor_row = if (vp_point) |pt| @intCast(pt.viewport.y) else null,
+        .cursor_col = if (vp_point) |pt| @intCast(pt.viewport.x) else null,
+        .mode_text = switch (vi.sub_mode) {
+            .normal => "NORMAL",
+            .visual => "VISUAL",
+            .visual_line => "V-LINE",
+            .visual_block => "V-BLOCK",
+        },
+    };
 }
 
 pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
@@ -5836,6 +5867,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 return false;
             };
             self.vi_mode = ViMode.init(cursor_pin);
+            self.updateViModeRenderState();
             self.queueRender() catch {};
         },
 

@@ -1159,6 +1159,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
                 overlay_features: []const Overlay.Feature,
+                vi_mode: renderer.State.ViMode,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1276,6 +1277,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .preedit = preedit,
                     .scrollbar = scrollbar,
                     .overlay_features = overlay_features,
+                    .vi_mode = state.vi_mode,
                 };
             };
 
@@ -1360,10 +1362,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
 
-                // Build our GPU cells
+                // Build our GPU cells. When vi mode is active, we hide the
+                // real terminal cursor by passing null for cursor style.
                 self.rebuildCells(
                     critical.preedit,
-                    renderer.cursorStyle(&self.terminal_state, .{
+                    if (critical.vi_mode.active) null else renderer.cursorStyle(&self.terminal_state, .{
                         .preedit = critical.preedit != null,
                         .focused = self.focused,
                         .blink_visible = cursor_blink_visible,
