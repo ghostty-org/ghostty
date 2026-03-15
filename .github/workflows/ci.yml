@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request: {}
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zig-build-and-test:
+    name: Zig Build + Test
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build (skip macOS app bundle)
+        run: zig build -Demit-macos-app=false
+
+      - name: Run popup unit tests
+        run: zig test src/apprt/popup.zig
+
+  zig-fmt:
+    name: Zig Format
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check formatting
+        run: zig fmt --check src/
