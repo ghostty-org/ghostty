@@ -28,12 +28,14 @@ pub const Color = enum {
     hyperlink, // light blue
     semantic_prompt, // orange/gold
     semantic_input, // cyan
+    vi_cursor, // amber/yellow
 
     pub fn rgb(self: Color) z2d.pixel.RGB {
         return switch (self) {
             .hyperlink => .{ .r = 180, .g = 180, .b = 255 },
             .semantic_prompt => .{ .r = 255, .g = 200, .b = 64 },
             .semantic_input => .{ .r = 64, .g = 200, .b = 255 },
+            .vi_cursor => .{ .r = 255, .g = 200, .b = 64 },
         };
     }
 
@@ -69,6 +71,8 @@ cell_size: CellSize,
 pub const Feature = union(enum) {
     highlight_hyperlinks,
     semantic_prompts,
+    vi_cursor: struct { row: usize, col: usize },
+    vi_mode_indicator: []const u8,
 };
 
 pub const InitError = Allocator.Error || error{
@@ -143,6 +147,8 @@ pub fn applyFeatures(
             alloc,
             state,
         ),
+        .vi_cursor => |pos| self.highlightViCursor(alloc, pos.row, pos.col),
+        .vi_mode_indicator => |text| self.highlightViModeIndicator(alloc, state, text),
     };
 }
 
@@ -292,6 +298,58 @@ fn highlightSemanticPrompts(
             };
         }
     }
+}
+
+/// Draw a filled block cursor at the given grid position for vi mode.
+fn highlightViCursor(
+    self: *Overlay,
+    alloc: Allocator,
+    row: usize,
+    col: usize,
+) void {
+    const fill_color = Color.vi_cursor.rectFill();
+    const border_color = Color.vi_cursor.rectBorder();
+
+    self.highlightGridRect(
+        alloc,
+        col,
+        row,
+        1,
+        1,
+        border_color,
+        fill_color,
+    ) catch |err| {
+        log.warn("Error drawing vi cursor: {}", .{err});
+    };
+}
+
+/// Draw a mode indicator bar at the bottom-left of the overlay for vi mode.
+fn highlightViModeIndicator(
+    self: *Overlay,
+    alloc: Allocator,
+    state: *const terminal.RenderState,
+    text: []const u8,
+) void {
+    _ = text; // Text rendering not yet available; draw a colored bar instead.
+
+    // Draw a small colored bar at the bottom-left corner spanning a few cells.
+    const bar_width: usize = @min(8, state.cols);
+    const bar_row: usize = if (state.rows > 0) state.rows - 1 else 0;
+
+    const fill_color = Color.vi_cursor.rectFill();
+    const border_color = Color.vi_cursor.rectBorder();
+
+    self.highlightGridRect(
+        alloc,
+        0,
+        bar_row,
+        bar_width,
+        1,
+        border_color,
+        fill_color,
+    ) catch |err| {
+        log.warn("Error drawing vi mode indicator: {}", .{err});
+    };
 }
 
 /// Creates a rectangle for highlighting a grid region. x/y/width/height
