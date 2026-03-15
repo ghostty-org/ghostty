@@ -143,6 +143,16 @@ comptime {
         @export(&c.sgr_unknown_partial, .{ .name = "ghostty_sgr_unknown_partial" });
         @export(&c.sgr_attribute_tag, .{ .name = "ghostty_sgr_attribute_tag" });
         @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
+        @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
+        @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
+        @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
+        @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
+        @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+        @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+        @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+        @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+        @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
+        @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {

@@ -73,7 +73,7 @@
 
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/color.h>
-#include <ghostty/vt/result.h>
+#include <ghostty/vt/types.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

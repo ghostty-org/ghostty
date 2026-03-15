@@ -155,6 +155,13 @@ class AppDelegate: NSObject,
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage?
 
+    /// Ghostty menu items indexed by their normalized shortcut. This avoids traversing
+    /// the entire menu tree on every key equivalent event.
+    ///
+    /// We store a weak reference so this cache can never be the owner of menu items.
+    /// If multiple items map to the same shortcut, the most recent one wins.
+    private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
+
     override init() {
 #if DEBUG
         ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
@@ -169,7 +176,15 @@ class AppDelegate: NSObject,
     // MARK: - NSApplicationDelegate
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [
+        #if DEBUG
+        if
+            let suite = UserDefaults.ghosttySuite,
+            let clear = ProcessInfo.processInfo.environment["GHOSTTY_CLEAR_USER_DEFAULTS"],
+            (clear as NSString).boolValue {
+            UserDefaults.ghostty.removePersistentDomain(forName: suite)
+        }
+        #endif
+        UserDefaults.ghostty.register(defaults: [
             // Disable the automatic full screen menu item because we handle
             // it manually.
             "NSFullScreenMenuItemEverywhere": false,
@@ -188,7 +203,7 @@ class AppDelegate: NSObject,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // System settings overrides
-        UserDefaults.standard.register(defaults: [
+        UserDefaults.ghostty.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
             "ApplePressAndHoldEnabled": false,
         ])
@@ -197,7 +212,7 @@ class AppDelegate: NSObject,
         applicationLaunchTime = ProcessInfo.processInfo.systemUptime
 
         // Check if secure input was enabled when we last quit.
-        if UserDefaults.standard.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
+        if UserDefaults.ghostty.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
             toggleSecureInput(self)
         }
 
@@ -527,11 +542,6 @@ class AppDelegate: NSObject,
         return true
     }
 
-    /// This is called for the dock right-click menu.
-    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        return dockMenu
-    }
-
     /// Setup signal handlers
     private func setupSignals() {
         // Register a signal handler for config reloading. It appears that all
@@ -558,139 +568,6 @@ class AppDelegate: NSObject,
 
         // We need to keep a strong reference to it so it isn't disabled.
         signals.append(sigusr2)
-    }
-
-    /// Setup all the images for our menu items.
-    private func setupMenuImages() {
-        // Note: This COULD Be done all in the xib file, but I find it easier to
-        // modify this stuff as code.
-        self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
-        self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
-        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
-        self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
-        self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
-        self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
-        self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
-        self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
-        self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
-        self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
-        self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
-        self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
-        self.menuPasteSelection?.setImageIfDesired(systemSymbolName: "doc.on.clipboard.fill")
-        self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
-        self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
-        self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
-        self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
-        self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
-        self.menuChangeTabTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
-        self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
-        self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
-        self.menuSetAsDefaultTerminal?.setImageIfDesired(systemSymbolName: "star.fill")
-        self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
-        self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
-        self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
-        self.menuPreviousSplit?.setImageIfDesired(systemSymbolName: "chevron.backward.2")
-        self.menuNextSplit?.setImageIfDesired(systemSymbolName: "chevron.forward.2")
-        self.menuEqualizeSplits?.setImageIfDesired(systemSymbolName: "inset.filled.topleft.topright.bottomleft.bottomright.rectangle")
-        self.menuSelectSplitLeft?.setImageIfDesired(systemSymbolName: "arrow.left")
-        self.menuSelectSplitRight?.setImageIfDesired(systemSymbolName: "arrow.right")
-        self.menuSelectSplitAbove?.setImageIfDesired(systemSymbolName: "arrow.up")
-        self.menuSelectSplitBelow?.setImageIfDesired(systemSymbolName: "arrow.down")
-        self.menuMoveSplitDividerUp?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
-        self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
-        self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
-        self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
-        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
-        self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
-        if #available(macOS 26.0, *) {
-            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
-        } else {
-            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
-        }
-    }
-
-    /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
-    private func syncMenuShortcuts(_ config: Ghostty.Config) {
-        guard ghostty.readiness == .ready else { return }
-
-        syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
-        syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
-        syncMenuShortcut(config, action: "reload_config", menuItem: self.menuReloadConfig)
-        syncMenuShortcut(config, action: "quit", menuItem: self.menuQuit)
-
-        syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
-        syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
-        syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
-        syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
-        syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
-        syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
-        syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
-        syncMenuShortcut(config, action: "new_split:left", menuItem: self.menuSplitLeft)
-        syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
-        syncMenuShortcut(config, action: "new_split:up", menuItem: self.menuSplitUp)
-
-        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
-        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
-        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
-        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
-        syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
-        syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
-        syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
-        syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
-        syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
-        syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
-        syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
-
-        syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
-        syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
-        syncMenuShortcut(config, action: "goto_split:next", menuItem: self.menuNextSplit)
-        syncMenuShortcut(config, action: "goto_split:up", menuItem: self.menuSelectSplitAbove)
-        syncMenuShortcut(config, action: "goto_split:down", menuItem: self.menuSelectSplitBelow)
-        syncMenuShortcut(config, action: "goto_split:left", menuItem: self.menuSelectSplitLeft)
-        syncMenuShortcut(config, action: "goto_split:right", menuItem: self.menuSelectSplitRight)
-        syncMenuShortcut(config, action: "resize_split:up,10", menuItem: self.menuMoveSplitDividerUp)
-        syncMenuShortcut(config, action: "resize_split:down,10", menuItem: self.menuMoveSplitDividerDown)
-        syncMenuShortcut(config, action: "resize_split:right,10", menuItem: self.menuMoveSplitDividerRight)
-        syncMenuShortcut(config, action: "resize_split:left,10", menuItem: self.menuMoveSplitDividerLeft)
-        syncMenuShortcut(config, action: "equalize_splits", menuItem: self.menuEqualizeSplits)
-        syncMenuShortcut(config, action: "reset_window_size", menuItem: self.menuReturnToDefaultSize)
-
-        syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
-        syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
-        syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
-        syncMenuShortcut(config, action: "prompt_surface_title", menuItem: self.menuChangeTitle)
-        syncMenuShortcut(config, action: "prompt_tab_title", menuItem: self.menuChangeTabTitle)
-        syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
-        syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
-        syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
-        syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
-        syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
-
-        syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
-
-        // This menu item is NOT synced with the configuration because it disables macOS
-        // global fullscreen keyboard shortcut. The shortcut in the Ghostty config will continue
-        // to work but it won't be reflected in the menu item.
-        //
-        // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
-
-        // Dock menu
-        reloadDockMenu()
-    }
-
-    /// Syncs a single menu shortcut for the given action. The action string is the same
-    /// action string used for the Ghostty configuration.
-    private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
-        guard let menu = menuItem else { return }
-        guard let shortcut = config.keyboardShortcut(for: action) else {
-            // No shortcut, clear the menu item
-            menu.keyEquivalent = ""
-            menu.keyEquivalentModifierMask = []
-            return
-        }
-
-        menu.keyEquivalent = shortcut.key.character.description
-        menu.keyEquivalentModifierMask = .init(swiftUIFlags: shortcut.modifiers)
     }
 
     // MARK: Notifications and Events
@@ -889,10 +766,10 @@ class AppDelegate: NSObject,
         // configuration. This is the only way to carefully control whether macOS invokes the
         // state restoration system.
         switch config.windowSaveState {
-        case "never": UserDefaults.standard.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
-        case "always": UserDefaults.standard.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
+        case "never": UserDefaults.ghostty.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+        case "always": UserDefaults.ghostty.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
         case "default": fallthrough
-        default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
+        default: UserDefaults.ghostty.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
         }
 
         // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
@@ -977,9 +854,9 @@ class AppDelegate: NSObject,
     private func updateAppIcon(from config: Ghostty.Config) {
         // Since this is called after `DockTilePlugin` has been running,
         // clean it up here to trigger a correct update of the current config.
-        UserDefaults.standard.removeObject(forKey: "CustomGhosttyIcon")
+        UserDefaults.ghostty.removeObject(forKey: "CustomGhosttyIcon")
         DispatchQueue.global().async {
-            UserDefaults.standard.appIcon = AppIcon(config: config)
+            UserDefaults.ghostty.appIcon = AppIcon(config: config)
             DistributedNotificationCenter.default()
                 .postNotificationName(.ghosttyIconDidChange, object: nil, userInfo: nil, deliverImmediately: true)
         }
@@ -1054,17 +931,6 @@ class AppDelegate: NSObject,
         return nil
     }
 
-    // MARK: - Dock Menu
-
-    private func reloadDockMenu() {
-        let newWindow = NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "")
-        let newTab = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "")
-
-        dockMenu.removeAllItems()
-        dockMenu.addItem(newWindow)
-        dockMenu.addItem(newTab)
-    }
-
     // MARK: - Global State
 
     func setSecureInput(_ mode: Ghostty.SetSecureInput) {
@@ -1080,7 +946,7 @@ class AppDelegate: NSObject,
             input.global.toggle()
         }
         self.menuSecureInput?.state = if input.global { .on } else { .off }
-        UserDefaults.standard.set(input.global, forKey: "SecureInput")
+        UserDefaults.ghostty.set(input.global, forKey: "SecureInput")
     }
 
     // MARK: - IB Actions
@@ -1227,6 +1093,238 @@ class AppDelegate: NSObject,
     }
 }
 
+// MARK: Menu
+
+extension AppDelegate {
+    /// This is called for the dock right-click menu.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        return dockMenu
+    }
+
+    private func reloadDockMenu() {
+        let newWindow = NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "")
+        let newTab = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "")
+
+        dockMenu.removeAllItems()
+        dockMenu.addItem(newWindow)
+        dockMenu.addItem(newTab)
+    }
+
+    /// Setup all the images for our menu items.
+    private func setupMenuImages() {
+        // Note: This COULD Be done all in the xib file, but I find it easier to
+        // modify this stuff as code.
+        self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
+        self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
+        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
+        self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
+        self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
+        self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
+        self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
+        self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
+        self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
+        self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
+        self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
+        self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
+        self.menuPasteSelection?.setImageIfDesired(systemSymbolName: "doc.on.clipboard.fill")
+        self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
+        self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
+        self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
+        self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
+        self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
+        self.menuChangeTabTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
+        self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
+        self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
+        self.menuSetAsDefaultTerminal?.setImageIfDesired(systemSymbolName: "star.fill")
+        self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
+        self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
+        self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
+        self.menuPreviousSplit?.setImageIfDesired(systemSymbolName: "chevron.backward.2")
+        self.menuNextSplit?.setImageIfDesired(systemSymbolName: "chevron.forward.2")
+        self.menuEqualizeSplits?.setImageIfDesired(systemSymbolName: "inset.filled.topleft.topright.bottomleft.bottomright.rectangle")
+        self.menuSelectSplitLeft?.setImageIfDesired(systemSymbolName: "arrow.left")
+        self.menuSelectSplitRight?.setImageIfDesired(systemSymbolName: "arrow.right")
+        self.menuSelectSplitAbove?.setImageIfDesired(systemSymbolName: "arrow.up")
+        self.menuSelectSplitBelow?.setImageIfDesired(systemSymbolName: "arrow.down")
+        self.menuMoveSplitDividerUp?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
+        self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
+        self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
+        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
+        self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+        if #available(macOS 26.0, *) {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
+        } else {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        }
+    }
+
+    /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
+    private func syncMenuShortcuts(_ config: Ghostty.Config) {
+        guard ghostty.readiness == .ready else { return }
+
+        // Reset our shortcut index since we're about to rebuild all menu bindings.
+        menuItemsByShortcut.removeAll(keepingCapacity: true)
+
+        syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
+        syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
+        syncMenuShortcut(config, action: "reload_config", menuItem: self.menuReloadConfig)
+        syncMenuShortcut(config, action: "quit", menuItem: self.menuQuit)
+
+        syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
+        syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+        syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
+        syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
+        syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
+        syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
+        syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
+        syncMenuShortcut(config, action: "new_split:left", menuItem: self.menuSplitLeft)
+        syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
+        syncMenuShortcut(config, action: "new_split:up", menuItem: self.menuSplitUp)
+
+        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
+        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
+        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
+        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
+        syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
+        syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
+        syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
+        syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
+        syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
+        syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
+
+        syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
+        syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
+        syncMenuShortcut(config, action: "goto_split:next", menuItem: self.menuNextSplit)
+        syncMenuShortcut(config, action: "goto_split:up", menuItem: self.menuSelectSplitAbove)
+        syncMenuShortcut(config, action: "goto_split:down", menuItem: self.menuSelectSplitBelow)
+        syncMenuShortcut(config, action: "goto_split:left", menuItem: self.menuSelectSplitLeft)
+        syncMenuShortcut(config, action: "goto_split:right", menuItem: self.menuSelectSplitRight)
+        syncMenuShortcut(config, action: "resize_split:up,10", menuItem: self.menuMoveSplitDividerUp)
+        syncMenuShortcut(config, action: "resize_split:down,10", menuItem: self.menuMoveSplitDividerDown)
+        syncMenuShortcut(config, action: "resize_split:right,10", menuItem: self.menuMoveSplitDividerRight)
+        syncMenuShortcut(config, action: "resize_split:left,10", menuItem: self.menuMoveSplitDividerLeft)
+        syncMenuShortcut(config, action: "equalize_splits", menuItem: self.menuEqualizeSplits)
+        syncMenuShortcut(config, action: "reset_window_size", menuItem: self.menuReturnToDefaultSize)
+
+        syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
+        syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
+        syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
+        syncMenuShortcut(config, action: "prompt_surface_title", menuItem: self.menuChangeTitle)
+        syncMenuShortcut(config, action: "prompt_tab_title", menuItem: self.menuChangeTabTitle)
+        syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
+        syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
+        syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
+        syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
+        syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
+
+        syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
+
+        // This menu item is NOT synced with the configuration because it disables macOS
+        // global fullscreen keyboard shortcut. The shortcut in the Ghostty config will continue
+        // to work but it won't be reflected in the menu item.
+        //
+        // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
+
+        // Dock menu
+        reloadDockMenu()
+    }
+
+    /// Syncs a single menu shortcut for the given action. The action string is the same
+    /// action string used for the Ghostty configuration.
+    private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
+        guard let menu = menuItem else { return }
+
+        guard let shortcut = config.keyboardShortcut(for: action) else {
+            // No shortcut, clear the menu item
+            menu.keyEquivalent = ""
+            menu.keyEquivalentModifierMask = []
+            return
+        }
+
+        let keyEquivalent = shortcut.key.character.description
+        let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
+        menu.keyEquivalent = keyEquivalent
+        menu.keyEquivalentModifierMask = modifierMask
+
+        // Build a direct lookup for key-equivalent dispatch so we don't need to
+        // linearly walk the full menu hierarchy at event time.
+        guard let key = MenuShortcutKey(
+            keyEquivalent: keyEquivalent,
+            modifiers: modifierMask
+        ) else {
+            return
+        }
+
+        // Later registrations intentionally override earlier ones for the same key.
+        menuItemsByShortcut[key] = .init(menu)
+    }
+
+    /// Attempts to perform a menu key equivalent only for menu items that represent
+    /// Ghostty keybind actions. This is important because it lets our surface dispatch
+    /// bindings through the menu so they flash but also lets our surface override macOS built-ins
+    /// like Cmd+H.
+    func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
+        // Convert this event into the same normalized lookup key we use when
+        // syncing menu shortcuts from configuration.
+        guard let key = MenuShortcutKey(event: event) else {
+            return false
+        }
+
+        // If we don't have an entry for this key combo, no Ghostty-owned
+        // menu shortcut exists for this event.
+        guard let weakItem = menuItemsByShortcut[key] else {
+            return false
+        }
+
+        // Weak references can be nil if a menu item was deallocated after sync.
+        guard let item = weakItem.value else {
+            menuItemsByShortcut.removeValue(forKey: key)
+            return false
+        }
+
+        guard let parentMenu = item.menu else {
+            return false
+        }
+
+        // Keep enablement state fresh in case menu validation hasn't run yet.
+        parentMenu.update()
+        guard item.isEnabled else {
+            return false
+        }
+
+        let index = parentMenu.index(of: item)
+        guard index >= 0 else {
+            return false
+        }
+
+        parentMenu.performActionForItem(at: index)
+        return true
+    }
+
+    /// Hashable key for a menu shortcut match, normalized for quick lookup.
+    private struct MenuShortcutKey: Hashable {
+        private static let shortcutModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
+
+        private let keyEquivalent: String
+        private let modifiersRawValue: UInt
+
+        init?(keyEquivalent: String, modifiers: NSEvent.ModifierFlags) {
+            let normalized = keyEquivalent.lowercased()
+            guard !normalized.isEmpty else { return nil }
+
+            self.keyEquivalent = normalized
+            self.modifiersRawValue = modifiers.intersection(Self.shortcutModifiers).rawValue
+        }
+
+        init?(event: NSEvent) {
+            guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
+            self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
+        }
+    }
+}
+
 // MARK: Floating Windows
 
 extension AppDelegate {
@@ -1247,7 +1345,7 @@ extension AppDelegate {
     }
 
     @IBAction func useAsDefault(_ sender: NSMenuItem) {
-        let ud = UserDefaults.standard
+        let ud = UserDefaults.ghostty
         let key = TerminalWindow.defaultLevelKey
         if menuFloatOnTop?.state == .on {
             ud.set(NSWindow.Level.floating, forKey: key)

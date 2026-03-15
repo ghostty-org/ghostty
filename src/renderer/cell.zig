@@ -528,7 +528,7 @@ test "Cell constraint widths" {
     // symbol->nothing: 2
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -540,7 +540,7 @@ test "Cell constraint widths" {
     // symbol->character: 1
     {
         t.fullReset();
-        try s.nextSlice("z");
+        s.nextSlice("z");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -552,7 +552,7 @@ test "Cell constraint widths" {
     // symbol->space: 2
     {
         t.fullReset();
-        try s.nextSlice(" z");
+        s.nextSlice(" z");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -563,7 +563,7 @@ test "Cell constraint widths" {
     // symbol->no-break space: 1
     {
         t.fullReset();
-        try s.nextSlice("\u{00a0}z");
+        s.nextSlice("\u{00a0}z");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -575,7 +575,7 @@ test "Cell constraint widths" {
     // symbol->end of row: 1
     {
         t.fullReset();
-        try s.nextSlice("   ");
+        s.nextSlice("   ");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -587,7 +587,7 @@ test "Cell constraint widths" {
     // character->symbol: 2
     {
         t.fullReset();
-        try s.nextSlice("z");
+        s.nextSlice("z");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -599,7 +599,7 @@ test "Cell constraint widths" {
     // symbol->symbol: 1,1
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -616,7 +616,7 @@ test "Cell constraint widths" {
     // symbol->space->symbol: 2,2
     {
         t.fullReset();
-        try s.nextSlice(" ");
+        s.nextSlice(" ");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -633,7 +633,7 @@ test "Cell constraint widths" {
     // symbol->powerline: 1  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -645,7 +645,7 @@ test "Cell constraint widths" {
     // powerline->symbol: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -657,7 +657,7 @@ test "Cell constraint widths" {
     // powerline->nothing: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -669,7 +669,7 @@ test "Cell constraint widths" {
     // powerline->space: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice(" z");
+        s.nextSlice(" z");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),

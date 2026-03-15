@@ -53,7 +53,7 @@ extension Ghostty {
         /// - Parameters:
         ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
         ///   - finalize: Whether to finalize the configuration to populate default values.
-        static private func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
+        static func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
                 logger.critical("ghostty_config_new failed")
@@ -354,14 +354,14 @@ extension Ghostty {
             return MacOSWindowButtons(rawValue: str) ?? defaultValue
         }
 
-        var macosTitlebarStyle: String {
-            let defaultValue = "transparent"
+        var macosTitlebarStyle: MacOSTitlebarStyle {
+            let defaultValue = MacOSTitlebarStyle.transparent
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-titlebar-style"
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
             guard let ptr = v else { return defaultValue }
-            return String(cString: ptr)
+            return MacOSTitlebarStyle(rawValue: String(cString: ptr)) ?? defaultValue
         }
 
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
@@ -725,6 +725,14 @@ extension Ghostty {
             let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
             return buffer.map { Ghostty.Command(cValue: $0) }
         }
+
+        var progressStyle: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "progress-style"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
     }
 }
 
@@ -905,5 +913,10 @@ extension Ghostty.Config {
 
         static let bell = NotifyOnCommandFinishAction(rawValue: 1 << 0)
         static let notify = NotifyOnCommandFinishAction(rawValue: 1 << 1)
+    }
+
+    enum MacOSTitlebarStyle: String {
+        static let `default` = MacOSTitlebarStyle.transparent
+        case native, transparent, tabs, hidden
     }
 }

@@ -28,6 +28,8 @@
  * @section groups_sec API Reference
  *
  * The API is organized into the following groups:
+ * - @ref terminal "Terminal" - Complete terminal emulator state and rendering
+ * - @ref formatter "Formatter" - Format terminal content as plain text, VT sequences, or HTML
  * - @ref key "Key Encoding" - Encode key events into terminal sequences
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
@@ -42,6 +44,7 @@
  * - @ref c-vt-key-encode/src/main.c - Key encoding example
  * - @ref c-vt-paste/src/main.c - Paste safety check example
  * - @ref c-vt-sgr/src/main.c - SGR parser example
+ * - @ref c-vt-formatter/src/main.c - Terminal formatter example
  *
  */
 
@@ -65,6 +68,12 @@
  * styling sequences and extract text attributes like colors and underline styles.
  */
 
+/** @example c-vt-formatter/src/main.c
+ * This example demonstrates how to use the terminal and formatter APIs to
+ * create a terminal, write VT-encoded content into it, and format the screen
+ * contents as plain text.
+ */
+
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
@@ -72,8 +81,10 @@
 extern "C" {
 #endif
 
-#include <ghostty/vt/result.h>
+#include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
+#include <ghostty/vt/formatter.h>
+#include <ghostty/vt/terminal.h>
 #include <ghostty/vt/osc.h>
 #include <ghostty/vt/sgr.h>
 #include <ghostty/vt/key.h>

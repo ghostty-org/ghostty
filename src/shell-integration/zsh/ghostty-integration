@@ -131,32 +131,59 @@ _ghostty_deferred_init() {
                 # SIGCHLD if notify is set. Themes that update prompt
                 # asynchronously from a `zle -F` handler might still remove our
                 # marks. Oh well.
+
+                # Restore PS1/PS2 to their pre-mark state if nothing else has
+                # modified them since we last added marks. This avoids exposing
+                # PS1 with our marks to other hooks (which can break themes like
+                # Pure that use pattern matching to strip/rebuild the prompt).
+                # If PS1 was modified (by a theme, async update, etc.), we
+                # keep the modified version, prioritizing the theme's changes.
+                builtin local ps1_changed=0
+                if [[ -n ${_ghostty_saved_ps1+x} ]]; then
+                    if [[ $PS1 == $_ghostty_marked_ps1 ]]; then
+                        PS1=$_ghostty_saved_ps1
+                        PS2=$_ghostty_saved_ps2
+                    elif [[ $PS1 != $_ghostty_saved_ps1 ]]; then
+                        ps1_changed=1
+                    fi
+                fi
+
+                # Save the clean PS1/PS2 before we add marks.
+                _ghostty_saved_ps1=$PS1
+                _ghostty_saved_ps2=$PS2
+
+                # Add our marks. Since we always start from a clean PS1
+                # (either restored above or freshly set by a theme), we can
+                # unconditionally add mark1 and markB.
                 builtin local mark2=$'%{\e]133;A;k=s\a%}'
                 builtin local markB=$'%{\e]133;B\a%}'
-                # Add marks conditionally to avoid a situation where we have
-                # several marks in place. These conditions can have false
-                # positives and false negatives though.
-                #
-                # - False positive (with prompt_percent): PS1="%(?.$mark1.)"
-                # - False negative (with prompt_subst):   PS1='$mark1'
-                [[ $PS1 == *$mark1* ]] || PS1=${mark1}${PS1}
-                [[ $PS1 == *$markB* ]] || PS1=${PS1}${markB}
+                PS1=${mark1}${PS1}${markB}
+
                 # Handle multiline prompts by marking newline-separated
                 # continuation lines with k=s (mark2). We skip the newline
                 # immediately after mark1 to avoid introducing a double
                 # newline due to OSC 133;A's fresh-line behavior.
-                if [[ $PS1 == ${mark1}$'\n'* ]]; then
-                    builtin local rest=${PS1#${mark1}$'\n'}
-                    if [[ $rest == *$'\n'* ]]; then
-                        PS1=${mark1}$'\n'${rest//$'\n'/$'\n'${mark2}}
+                #
+                # We skip this when PS1 changed because injecting marks into
+                # newlines can break pattern matching in themes that
+                # strip/rebuild the prompt dynamically (e.g., Pure).
+                if (( ! ps1_changed )) && [[ $PS1 == *$'\n'* ]]; then
+                    if [[ $PS1 == ${mark1}$'\n'* ]]; then
+                        builtin local rest=${PS1#${mark1}$'\n'}
+                        if [[ $rest == *$'\n'* ]]; then
+                            PS1=${mark1}$'\n'${rest//$'\n'/$'\n'${mark2}}
+                        fi
+                    else
+                        PS1=${PS1//$'\n'/$'\n'${mark2}}
                     fi
-                elif [[ $PS1 == *$'\n'* ]]; then
-                    PS1=${PS1//$'\n'/$'\n'${mark2}}
                 fi
 
                 # PS2 mark is needed when clearing the prompt on resize
-                [[ $PS2 == *$mark2* ]] || PS2=${mark2}${PS2}
-                [[ $PS2 == *$markB* ]] || PS2=${PS2}${markB}
+                PS2=${mark2}${PS2}${markB}
+
+                # Save the marked PS1 so we can detect modifications
+                # by other hooks in the next cycle.
+                _ghostty_marked_ps1=$PS1
                 (( _ghostty_state = 2 ))
             else
                 # If our precmd hook is not the last, we cannot rely on prompt
@@ -188,17 +215,14 @@ _ghostty_deferred_init() {
     _ghostty_preexec() {
         builtin emulate -L zsh -o no_warn_create_global -o no_aliases
 
-        # This can potentially break user prompt. Oh well. The robustness of
-        # this code can be improved in the case prompt_subst is set because
-        # it'll allow us distinguish (not perfectly but close enough) between
-        # our own prompt, user prompt, and our own prompt with user additions on
-        # top. We cannot force prompt_subst on the user though, so we would
-        # still need this code for the no_prompt_subst case.
-        PS1=${PS1//$'%{\e]133;A;cl=line\a%}'}
-        PS1=${PS1//$'%{\e]133;A;k=s\a%}'}
-        PS1=${PS1//$'%{\e]133;B\a%}'}
-        PS2=${PS2//$'%{\e]133;A;k=s\a%}'}
-        PS2=${PS2//$'%{\e]133;B\a%}'}
+        # Restore the original PS1/PS2 if nothing else has modified them
+        # since our precmd added marks. This ensures other preexec hooks
+        # see a clean PS1 without our marks. If PS1 was modified (e.g.,
+        # by an async theme update), we leave it alone.
+        if [[ -n ${_ghostty_saved_ps1+x} && $PS1 == $_ghostty_marked_ps1 ]]; then
+            PS1=$_ghostty_saved_ps1
+            PS2=$_ghostty_saved_ps2
+        fi
 
         # This will work incorrectly in the presence of a preexec hook that
         # prints. For example, if MichaelAquilina/zsh-you-should-use installs
@@ -419,7 +443,7 @@ _ghostty_deferred_init() {
 
     builtin typeset -ag precmd_functions
     if (( $+functions[_ghostty_precmd] )); then
-        precmd_functions=(${precmd_functions:/_ghostty_deferred_init/_ghostty_precmd})
+        precmd_functions=(${precmd_functions:#_ghostty_deferred_init} _ghostty_precmd)
         _ghostty_precmd
     else
         precmd_functions=(${precmd_functions:#_ghostty_deferred_init})

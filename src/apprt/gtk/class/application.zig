@@ -740,6 +740,7 @@ pub const Application = extern struct {
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),
+            .set_tab_title => return Action.setTabTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -2542,6 +2543,30 @@ const Action = struct {
         switch (target) {
             .app => log.warn("set_title to app is unexpected", .{}),
             .surface => |surface| surface.rt_surface.gobj().setTitle(value.title),
+        }
+    }
+
+    pub fn setTabTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tab = ext.getAncestor(
+                    Tab,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a tab, ignoring set_tab_title", .{});
+                    return false;
+                };
+                tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
         }
     }
 

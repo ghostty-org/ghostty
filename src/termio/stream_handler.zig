@@ -176,6 +176,16 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
+    ) void {
+        self.vtFallible(action, value) catch |err| {
+            log.warn("error handling VT action action={} err={}", .{ action, err });
+        };
+    }
+
+    inline fn vtFallible(
+        self: *StreamHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
     ) !void {
         // The branch hints here are based on real world data
         // which indicates that the most common actions are:

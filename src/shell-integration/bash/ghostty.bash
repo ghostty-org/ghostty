@@ -195,20 +195,22 @@ function __ghostty_precmd() {
     _GHOSTTY_SAVE_PS1="$PS1"
     _GHOSTTY_SAVE_PS2="$PS2"
 
-    # Marks. We need to do fresh line (A) at the beginning of the prompt
-    # since if the cursor is not at the beginning of a line, the terminal
-    # will emit a newline.
-    PS1='\[\e]133;A;redraw=last;cl=line;aid='"$BASHPID"'\a\]'$PS1'\[\e]133;B\a\]'
-    PS2='\[\e]133;A;k=s\a\]'$PS2'\[\e]133;B\a\]'
+    # Use 133;P (not 133;A) inside PS1 to avoid fresh-line behavior on
+    # readline redraws (e.g., vi mode switches, Ctrl-L). The initial
+    # 133;A with fresh-line is emitted once via printf below.
+    PS1='\[\e]133;P;k=i\a\]'$PS1'\[\e]133;B\a\]'
+    PS2='\[\e]133;P;k=s\a\]'$PS2'\[\e]133;B\a\]'
 
-    # Bash doesn't redraw the leading lines in a multiline prompt so
-    # we mark the start of each line (after each newline) as a secondary
-    # prompt. This correctly handles multiline prompts by setting the first
-    # to primary and the subsequent lines to secondary.
-    if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
-      builtin local __ghostty_mark=$'\\[\\e]133;A;k=s\\a\\]'
-      PS1="${PS1//$'\n'/$'\n'$__ghostty_mark}"
-      PS1="${PS1//\\n/\\n$__ghostty_mark}"
+    # Bash doesn't redraw the leading lines in a multiline prompt so we mark
+    # the start of each line (after each newline) as a secondary prompt. This
+    # correctly handles multiline prompts by setting the first to primary and
+    # the subsequent lines to secondary.
+    #
+    # We only replace the \n prompt escape, not literal newlines ($'\n'),
+    # because literal newlines may appear inside $(...) command substitutions
+    # where inserting escape sequences would break shell syntax.
+    if [[ "$PS1" == *"\n"* ]]; then
+      PS1="${PS1//\\n/\\n$'\\[\\e]133;P;k=s\\a\\]'}"
     fi
 
     # Cursor
@@ -230,6 +232,9 @@ function __ghostty_precmd() {
     # End of current command. Report its status.
     builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
   fi
+
+  # Fresh line and start of prompt.
+  builtin printf "\e]133;A;redraw=last;cl=line;aid=%s\a" "$BASHPID"
 
   # unfortunately bash provides no hooks to detect cwd changes
   # in particular this means cwd reporting will not happen for a

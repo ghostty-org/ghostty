@@ -125,10 +125,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
-        self.stream.nextSlice(buf[0..n]) catch |err| {
-            log.warn("error processing data file chunk err={}", .{err});
-            return error.BenchmarkFailed;
-        };
+        self.stream.nextSlice(buf[0..n]);
     }
 }
 
@@ -142,9 +139,11 @@ const Handler = struct {
         self: *Handler,
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
-    ) !void {
+    ) void {
         switch (action) {
-            .print => try self.t.print(value.cp),
+            .print => self.t.print(value.cp) catch |err| {
+                log.warn("error processing benchmark print err={}", .{err});
+            },
             else => {},
         }
     }

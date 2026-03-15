@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Set Milestone for PR
         uses: hustcer/milestone-action@ebed8d5daafd855a600d7e665c1b130f06d24130 # v3.1
-        if: github.event.pull_request.merged == true
+        if: github.event.pull_request.merged == true && !contains(github.event.pull_request.title, 'VOUCHED') && !startsWith(github.event.pull_request.title, 'ci:')
         with:
           action: bind-pr # `bind-pr` is the default action
           github-token: ${{ secrets.GITHUB_TOKEN }}

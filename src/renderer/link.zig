@@ -148,7 +148,7 @@ test "renderCellMap" {
     var s = t.vtStream();
     defer s.deinit();
     const str = "1ABCD2EFGH\r\n3IJKL";
-    try s.nextSlice(str);
+    s.nextSlice(str);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -201,7 +201,7 @@ test "renderCellMap hover links" {
     var s = t.vtStream();
     defer s.deinit();
     const str = "1ABCD2EFGH\r\n3IJKL";
-    try s.nextSlice(str);
+    s.nextSlice(str);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -279,7 +279,7 @@ test "renderCellMap mods no match" {
     var s = t.vtStream();
     defer s.deinit();
     const str = "1ABCD2EFGH\r\n3IJKL";
-    try s.nextSlice(str);
+    s.nextSlice(str);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);

@@ -721,12 +721,10 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
                 log.err("error recording pty read in inspector err={}", .{err});
             };
 
-            self.terminal_stream.next(byte) catch |err|
-                log.err("error processing terminal data: {}", .{err});
+            self.terminal_stream.next(byte);
         }
     } else {
-        self.terminal_stream.nextSlice(buf) catch |err|
-            log.err("error processing terminal data: {}", .{err});
+        self.terminal_stream.nextSlice(buf);
     }
 
     // If our stream handling caused messages to be sent to the mailbox

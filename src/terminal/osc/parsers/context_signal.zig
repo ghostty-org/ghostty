@@ -16,6 +16,8 @@ const max_context_id_len = 64;
 
 /// A single OSC 3008 context signal command.
 pub const Command = struct {
+    pub const C = void;
+
     action: Action,
     /// The context identifier. Must be 1-64 characters in the 32..126 byte range.
     id: []const u8,

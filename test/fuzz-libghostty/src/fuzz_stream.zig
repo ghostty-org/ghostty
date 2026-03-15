@@ -43,11 +43,9 @@ pub export fn zig_fuzz_test(
 
     if (mode & 1 == 0) {
         // Slice path — exercises SIMD fast-path if enabled
-        stream.nextSlice(data) catch |err|
-            std.debug.panic("nextSlice: {}", .{err});
+        stream.nextSlice(data);
     } else {
         // Scalar path — exercises byte-at-a-time UTF-8 decoding
-        for (data) |byte| _ = stream.next(byte) catch |err|
-            std.debug.panic("next: {}", .{err});
+        for (data) |byte| stream.next(byte);
     }
 }

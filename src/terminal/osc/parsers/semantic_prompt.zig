@@ -14,6 +14,8 @@ const log = std.log.scoped(.osc_semantic_prompt);
 /// all except one do and the spec does also say to ignore unknown
 /// options. So, I think this is a fair interpretation.
 pub const Command = struct {
+    pub const C = void;
+
     action: Action,
     options_unvalidated: []const u8,
 

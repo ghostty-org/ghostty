@@ -639,7 +639,7 @@ pub fn init(
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
             .cursor_blink = config.@"cursor-style-blink",
-            .working_directory = config.@"working-directory",
+            .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
             .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
             .rt_pre_exec_info = .init(config),
@@ -5481,6 +5481,26 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .prompt_title,
             .tab,
         ),
+
+        .set_surface_title => |v| {
+            const title = try self.alloc.dupeZ(u8, v);
+            defer self.alloc.free(title);
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .set_title,
+                .{ .title = title },
+            );
+        },
+
+        .set_tab_title => |v| {
+            const title = try self.alloc.dupeZ(u8, v);
+            defer self.alloc.free(title);
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .set_tab_title,
+                .{ .title = title },
+            );
+        },
 
         .clear_screen => {
             // This is a duplicate of some of the logic in termio.clearScreen

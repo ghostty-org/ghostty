@@ -577,6 +577,16 @@ pub const Action = union(enum) {
     /// and persists across focus changes within the tab.
     prompt_tab_title,
 
+    /// Set the title for the current focused surface.
+    ///
+    /// If the title is empty, the surface title is reset to an empty title.
+    set_surface_title: []const u8,
+
+    /// Set the title for the current focused tab.
+    ///
+    /// If the title is empty, the tab title override is cleared.
+    set_tab_title: []const u8,
+
     /// Create a new split in the specified direction.
     ///
     /// Valid arguments:
@@ -1324,6 +1334,8 @@ pub const Action = union(enum) {
             .set_font_size,
             .prompt_surface_title,
             .prompt_tab_title,
+            .set_surface_title,
+            .set_tab_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -3292,6 +3304,16 @@ test "parse: action with string" {
         try testing.expect(binding.action == .esc);
         try testing.expectEqualStrings("A", binding.action.esc);
     }
+    {
+        const binding = try parseSingle("a=set_surface_title:surface");
+        try testing.expect(binding.action == .set_surface_title);
+        try testing.expectEqualStrings("surface", binding.action.set_surface_title);
+    }
+    {
+        const binding = try parseSingle("a=set_tab_title:tab");
+        try testing.expect(binding.action == .set_tab_title);
+        try testing.expectEqualStrings("tab", binding.action.set_tab_title);
+    }
 }
 
 test "parse: action with enum" {
@@ -4555,6 +4577,18 @@ test "action: format" {
     defer buf.deinit();
     try a.format(&buf.writer);
     try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.written());
+}
+
+test "action: format set title" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const a: Action = .{ .set_tab_title = "foo bar" };
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try a.format(&buf.writer);
+    try testing.expectEqualStrings("set_tab_title:foo bar", buf.written());
 }
 
 test "set: appendChain with no parent returns error" {
