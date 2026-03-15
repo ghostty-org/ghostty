@@ -14,18 +14,22 @@ popup = lazygit:position:center,width:88%,height:76%,keybind:ctrl+shift+g,comman
 
 ---
 
-## v2: Config Hot-Reload + Popup Polish
+## v2: Config Hot-Reload + Popup Polish (complete)
 
-Edit popup config, reload without rebuilding. Per-popup border color, opacity, working directory.
+Edit popup config, reload without rebuilding. Per-popup opacity and working directory.
 
 **Key deliverables:**
 - Config hot-reload for popup profiles (edit config → reload → popups update)
 - `cwd` property (inherit working directory or set explicit path)
 - `opacity` property (per-popup background transparency)
-- `border-color` property (per-popup border, like tmux `popup-border-style`)
-- `dismiss-key` property (Esc-to-close)
 
-**Status:** Not started
+**Config:**
+```
+popup = shell:cwd:~/projects,opacity:0.8,keybind:ctrl+shift+t
+popup = lazygit:opacity:0.9,command:lazygit,persist:false
+```
+
+**Status:** Complete
 
 ---
 
@@ -72,7 +76,7 @@ Gutter with relative line numbers during vi mode for fast jump navigation.
 ## Dependency Graph
 
 ```
-v1 (done) → v2 (config hot-reload)
+v1 (done) → v2 (done)
               ├→ v3 (sessions)        ← can run in parallel with v4
               └→ v4 (vi mode)         ← can run in parallel with v3
                   └→ v5 (rel numbers) ← requires v4

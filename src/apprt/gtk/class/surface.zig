@@ -709,6 +709,7 @@ pub const Surface = extern struct {
         overrides: struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
+            background_opacity: ?f64 = null,
 
             pub const none: @This() = .{};
         } = .none,
@@ -720,6 +721,7 @@ pub const Surface = extern struct {
         command: ?configpkg.Command = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
+        background_opacity: ?f64 = null,
 
         pub const none: @This() = .{};
     }) *Self {
@@ -731,6 +733,7 @@ pub const Surface = extern struct {
         priv.overrides = .{
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+            .background_opacity = overrides.background_opacity,
         };
         return self;
     }
@@ -3406,6 +3409,10 @@ pub const Surface = extern struct {
             var wd_val: configpkg.WorkingDirectory = .{ .path = try config_alloc.dupe(u8, wd) };
             try wd_val.finalize(config_alloc);
             config.@"working-directory" = wd_val;
+        }
+        // Apply popup background opacity override if set
+        if (priv.overrides.background_opacity) |opacity| {
+            config.@"background-opacity" = std.math.clamp(opacity, 0.0, 1.0);
         }
 
         // Properties that can impact surface init

@@ -1950,7 +1950,13 @@ const Action = struct {
 
         switch (target) {
             .surface => |core| core.rt_surface.surface.setConfig(config_obj),
-            .app => self.setConfig(config_obj),
+            .app => {
+                self.setConfig(config_obj);
+                // Update popup profiles on config reload
+                if (self.private().popup_manager) |*pm| {
+                    pm.updateProfileConfigs(new_config);
+                }
+            },
         }
     }
 

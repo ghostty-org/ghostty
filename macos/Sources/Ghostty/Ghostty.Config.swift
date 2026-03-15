@@ -623,6 +623,19 @@ extension Ghostty {
                 } else {
                     nil
                 }
+                let cwdStr: String? = if let cwdPtr = p.cwd {
+                    String(cString: cwdPtr)
+                } else {
+                    nil
+                }
+                // -1.0 is the sentinel for "not set" from the Zig C bridge.
+                // Any other value (including other negatives) is a user-specified
+                // opacity that will be clamped to 0.0-1.0 at surface creation time.
+                let opacityVal: Double? = if p.opacity == -1.0 {
+                    nil
+                } else {
+                    p.opacity
+                }
                 result[name] = PopupController.PopupProfileConfig(
                     position: PopupController.PopupProfileConfig.Position(rawValue: Int(p.position)) ?? .center,
                     widthValue: p.width_value,
@@ -631,7 +644,9 @@ extension Ghostty {
                     heightIsPercent: p.height_is_percent,
                     autohide: p.autohide,
                     persist: p.persist,
-                    command: cmd
+                    command: cmd,
+                    cwd: cwdStr,
+                    opacity: opacityVal
                 )
             }
             return result

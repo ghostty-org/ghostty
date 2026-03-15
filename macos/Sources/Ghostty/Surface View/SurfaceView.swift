@@ -662,6 +662,9 @@ extension Ghostty {
         /// Context for surface creation
         var context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW
 
+        /// Per-popup background opacity override (0.0-1.0). nil means use global config.
+        var backgroundOpacity: Double? = nil
+
         init() {}
 
         init(from config: ghostty_surface_config_s) {

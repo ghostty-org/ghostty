@@ -10,6 +10,20 @@ class PopupManager {
     /// The built-in profile name for the quick/dropdown terminal.
     static let quickProfileName = "quick"
 
+    /// Default configuration for the built-in quick terminal profile.
+    /// Extracted as a static constant so both init() and updateProfileConfigs()
+    /// reference the same definition.
+    private static let defaultQuickConfig = PopupController.PopupProfileConfig(
+        position: .top,
+        widthValue: 100,
+        widthIsPercent: true,
+        heightValue: 50,
+        heightIsPercent: true,
+        autohide: true,
+        persist: true,
+        command: nil
+    )
+
     private let ghosttyApp: Ghostty.App
     private(set) var controllers: [String: PopupController] = [:]
 
@@ -21,16 +35,7 @@ class PopupManager {
         self.ghosttyApp = ghosttyApp
         // Always register a "quick" profile with defaults that match
         // the existing quick terminal behavior.
-        profileConfigs[Self.quickProfileName] = PopupController.PopupProfileConfig(
-            position: .top,
-            widthValue: 100,
-            widthIsPercent: true,
-            heightValue: 50,
-            heightIsPercent: true,
-            autohide: true,
-            persist: true,
-            command: nil
-        )
+        profileConfigs[Self.quickProfileName] = Self.defaultQuickConfig
 
         // Load popup profiles from config (overrides default "quick" if
         // the user defined one explicitly).
@@ -69,19 +74,61 @@ class PopupManager {
     // MARK: - Profile Config Management
 
     /// Update the stored profile configurations (called when the Ghostty
-    /// config is reloaded).  Existing controllers are NOT recreated — they
-    /// keep the config they were created with.
+    /// config is reloaded).  Handles additions, changes, and removals:
+    /// - Removed profiles: hide and destroy any running controller
+    /// - New profiles: stored for lazy creation on next toggle/show
+    /// - Changed profiles: stored config updated; currently-visible popups
+    ///   keep running. Controllers are marked stale so the next toggle
+    ///   cycle (hide→show) recreates them with the new config.
     func updateProfileConfigs(_ configs: [String: PopupController.PopupProfileConfig]) {
-        for (name, config) in configs {
-            profileConfigs[name] = config
+        // Build the effective config map, preserving the built-in quick
+        // profile as a fallback so it is never accidentally dropped.
+        var effectiveConfigs = configs
+        if effectiveConfigs[Self.quickProfileName] == nil {
+            effectiveConfigs[Self.quickProfileName] = Self.defaultQuickConfig
         }
+
+        // Find and destroy controllers for truly removed profiles
+        let removedNames = Set(profileConfigs.keys).subtracting(effectiveConfigs.keys)
+        for name in removedNames {
+            if let controller = controllers[name] {
+                controller.hide()
+                controller.surfaceTree = .init()
+                controllers.removeValue(forKey: name)
+            }
+        }
+
+        // For changed profiles, mark existing controllers as stale.
+        // They keep running if visible — on the next toggle (hide→show
+        // cycle), getOrCreateController will notice the stale flag and
+        // recreate the controller with the new config.
+        for (name, newConfig) in effectiveConfigs {
+            if let oldConfig = profileConfigs[name], let controller = controllers[name] {
+                if !oldConfig.isEqual(to: newConfig) {
+                    controller.isStale = true
+                }
+            }
+        }
+
+        profileConfigs = effectiveConfigs
     }
 
     // MARK: - Private
 
     private func getOrCreateController(name: String) -> PopupController? {
         if let existing = controllers[name] {
-            return existing
+            // If the controller is stale (config changed since last reload)
+            // and currently hidden, destroy it so we recreate with new config.
+            // If it's visible, keep using it — it'll be recreated after the
+            // user hides it and toggles again.
+            if existing.isStale && !existing.visible {
+                existing.hide()
+                existing.surfaceTree = .init()
+                controllers.removeValue(forKey: name)
+                // Fall through to create a new controller below
+            } else {
+                return existing
+            }
         }
 
         guard let config = profileConfigs[name] else {

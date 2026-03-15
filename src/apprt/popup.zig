@@ -66,6 +66,8 @@ pub const PopupProfile = struct {
     command: ?[]const u8 = null,
     autohide: bool = true,
     persist: bool = true,
+    cwd: ?[]const u8 = null,
+    opacity: ?f64 = null,
 
     /// C-compatible representation of a PopupProfile.
     /// Sync with: ghostty_popup_profile_config_s in ghostty.h
@@ -81,12 +83,18 @@ pub const PopupProfile = struct {
         /// This points into separately allocated memory (dupeZ'd),
         /// because the source `command` field is `?[]const u8` (no sentinel).
         command: ?[*:0]const u8,
+        /// Sentinel-terminated CWD path, or null if not set.
+        cwd: ?[*:0]const u8,
+        /// Background opacity 0.0-1.0, or -1.0 if not set (extern structs can't have optionals).
+        opacity: f64,
     };
 
     /// Convert to C-compatible representation.
     /// `command_z` is the pre-allocated sentinel-terminated copy of `command`,
     /// or null if no command was specified.
-    pub fn cval(self: PopupProfile, command_z: ?[*:0]const u8) C {
+    /// `cwd_z` is the pre-allocated sentinel-terminated copy of `cwd`,
+    /// or null if no cwd was specified.
+    pub fn cval(self: PopupProfile, command_z: ?[*:0]const u8, cwd_z: ?[*:0]const u8) C {
         return .{
             .position = @intFromEnum(self.position),
             .width_value = self.width.value,
@@ -96,6 +104,8 @@ pub const PopupProfile = struct {
             .autohide = self.autohide,
             .persist = self.persist,
             .command = command_z,
+            .cwd = cwd_z,
+            .opacity = if (self.opacity) |o| o else -1.0,
         };
     }
 };
@@ -152,4 +162,23 @@ test "isValidName: invalid names" {
     try std.testing.expect(!isValidName("bad name"));
     try std.testing.expect(!isValidName("bad:name"));
     try std.testing.expect(!isValidName("bad@name"));
+}
+
+test "PopupProfile: default cwd and opacity are null" {
+    const p = PopupProfile{};
+    try std.testing.expect(p.cwd == null);
+    try std.testing.expect(p.opacity == null);
+}
+
+test "PopupProfile.C: opacity -1.0 means unset" {
+    const p = PopupProfile{};
+    const c = p.cval(null, null);
+    try std.testing.expectEqual(@as(f64, -1.0), c.opacity);
+    try std.testing.expect(c.cwd == null);
+}
+
+test "PopupProfile.C: opacity passes through" {
+    const p = PopupProfile{ .opacity = 0.8 };
+    const c = p.cval(null, null);
+    try std.testing.expectEqual(@as(f64, 0.8), c.opacity);
 }

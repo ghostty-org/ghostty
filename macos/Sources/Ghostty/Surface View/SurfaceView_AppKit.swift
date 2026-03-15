@@ -129,6 +129,10 @@ extension Ghostty {
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
 
+        /// Optional per-surface background opacity override. When set, overrides the global
+        /// background-opacity config for this surface only. Used by popup profiles.
+        private var opacityOverride: Double? = nil
+
         /// The background color within the color palette of the surface. This is only set if it is
         /// dynamically updated. Otherwise, the background color is the default background color.
         @Published private(set) var backgroundColor: Color?
@@ -258,8 +262,14 @@ extension Ghostty {
             self.id = uuid ?? .init()
 
             // Our initial config always is our application wide config.
+            // If a baseConfig supplies a backgroundOpacity override, store it and apply it.
             if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
-                self.derivedConfig = DerivedConfig(appDelegate.ghostty.config)
+                if let opacityOverride = baseConfig?.backgroundOpacity {
+                    self.opacityOverride = opacityOverride
+                    self.derivedConfig = DerivedConfig(appDelegate.ghostty.config, opacityOverride: opacityOverride)
+                } else {
+                    self.derivedConfig = DerivedConfig(appDelegate.ghostty.config)
+                }
             } else {
                 self.derivedConfig = DerivedConfig()
             }
@@ -747,9 +757,14 @@ extension Ghostty {
                 SwiftUI.Notification.Name.GhosttyConfigChangeKey
             ] as? Ghostty.Config else { return }
 
-            // Update our derived config
+            // Update our derived config, preserving any per-surface opacity override.
             DispatchQueue.main.async { [weak self] in
-                self?.derivedConfig = DerivedConfig(config)
+                guard let self else { return }
+                if let override = self.opacityOverride {
+                    self.derivedConfig = DerivedConfig(config, opacityOverride: override)
+                } else {
+                    self.derivedConfig = DerivedConfig(config)
+                }
             }
         }
 
@@ -1748,9 +1763,9 @@ extension Ghostty {
                 self.scrollbar = .system
             }
 
-            init(_ config: Ghostty.Config) {
+            init(_ config: Ghostty.Config, opacityOverride: Double? = nil) {
                 self.backgroundColor = config.backgroundColor
-                self.backgroundOpacity = config.backgroundOpacity
+                self.backgroundOpacity = opacityOverride ?? config.backgroundOpacity
                 self.backgroundBlur = config.backgroundBlur
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily
