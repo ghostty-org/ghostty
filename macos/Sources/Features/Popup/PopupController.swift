@@ -33,6 +33,19 @@ class PopupController: BaseTerminalController {
         var command: String? = nil
         var cwd: String? = nil
         var opacity: Double? = nil  // nil means inherit global background-opacity
+
+        func isEqual(to other: PopupProfileConfig) -> Bool {
+            return position == other.position &&
+                widthValue == other.widthValue &&
+                widthIsPercent == other.widthIsPercent &&
+                heightValue == other.heightValue &&
+                heightIsPercent == other.heightIsPercent &&
+                autohide == other.autohide &&
+                persist == other.persist &&
+                command == other.command &&
+                cwd == other.cwd &&
+                opacity == other.opacity
+        }
     }
 
     // MARK: - Properties
@@ -231,8 +244,11 @@ class PopupController: BaseTerminalController {
         if let cwd = profileConfig.cwd {
             config.workingDirectory = NSString(string: cwd).expandingTildeInPath
         } else {
-            // Try to inherit from the currently focused surface
-            if let controller = NSApp.keyWindow?.contentViewController as? BaseTerminalController,
+            // Try to inherit from the currently focused surface.
+            // Use windowController (not contentViewController) because
+            // TerminalController/PopupController extend NSWindowController
+            // (BaseTerminalController), not NSViewController.
+            if let controller = NSApp.keyWindow?.windowController as? BaseTerminalController,
                let surfaceView = controller.focusedSurface,
                let pwd = surfaceView.pwd {
                 config.workingDirectory = pwd

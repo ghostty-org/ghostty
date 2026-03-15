@@ -10,6 +10,20 @@ class PopupManager {
     /// The built-in profile name for the quick/dropdown terminal.
     static let quickProfileName = "quick"
 
+    /// Default configuration for the built-in quick terminal profile.
+    /// Extracted as a static constant so both init() and updateProfileConfigs()
+    /// reference the same definition.
+    private static let defaultQuickConfig = PopupController.PopupProfileConfig(
+        position: .top,
+        widthValue: 100,
+        widthIsPercent: true,
+        heightValue: 50,
+        heightIsPercent: true,
+        autohide: true,
+        persist: true,
+        command: nil
+    )
+
     private let ghosttyApp: Ghostty.App
     private(set) var controllers: [String: PopupController] = [:]
 
@@ -21,16 +35,7 @@ class PopupManager {
         self.ghosttyApp = ghosttyApp
         // Always register a "quick" profile with defaults that match
         // the existing quick terminal behavior.
-        profileConfigs[Self.quickProfileName] = PopupController.PopupProfileConfig(
-            position: .top,
-            widthValue: 100,
-            widthIsPercent: true,
-            heightValue: 50,
-            heightIsPercent: true,
-            autohide: true,
-            persist: true,
-            command: nil
-        )
+        profileConfigs[Self.quickProfileName] = Self.defaultQuickConfig
 
         // Load popup profiles from config (overrides default "quick" if
         // the user defined one explicitly).
@@ -76,12 +81,34 @@ class PopupManager {
         for name in removedNames {
             if let controller = controllers[name] {
                 controller.hide()
+                // Force-clear the surface tree so the process is torn down even
+                // for persistent popups (where hide() alone won't clear it).
+                controller.surfaceTree = .init()
                 controllers.removeValue(forKey: name)
             }
         }
 
-        // Update stored configs (handles new + changed profiles)
-        profileConfigs = configs
+        // Destroy controllers for profiles whose config changed so they will
+        // be recreated with the new config on the next toggle/show.
+        for (name, newConfig) in configs {
+            if let oldConfig = profileConfigs[name], let controller = controllers[name] {
+                if !oldConfig.isEqual(to: newConfig) {
+                    controller.hide()
+                    controller.surfaceTree = .init()
+                    controllers.removeValue(forKey: name)
+                }
+            }
+        }
+
+        // Build the updated config map, preserving the built-in quick profile
+        // as a fallback so it is never accidentally dropped when the user's
+        // config doesn't explicitly define it.
+        var updatedConfigs = configs
+        if updatedConfigs[Self.quickProfileName] == nil {
+            updatedConfigs[Self.quickProfileName] = Self.defaultQuickConfig
+        }
+
+        profileConfigs = updatedConfigs
     }
 
     // MARK: - Private

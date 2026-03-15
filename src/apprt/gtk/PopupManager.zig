@@ -177,30 +177,26 @@ pub const PopupManager = struct {
     /// and removals:
     /// - Removed profiles: hide and destroy any running popup instance
     /// - New profiles: stored for lazy creation on next toggle/show
-    /// - Changed profiles: updated config applied on next toggle
+    /// - Changed profiles: destroy existing window so it is recreated with the
+    ///   new config on next toggle (comparing profiles with owned string fields
+    ///   is complex, so we destroy all windows on reload — safe because windows
+    ///   are lazily recreated on next toggle/show).
     pub fn updateProfileConfigs(self: *PopupManager, config: *const configpkg.Config) void {
-        // 1. Find and destroy windows for removed profiles
-        var i: usize = 0;
-        while (i < self.window_names.items.len) {
-            const wname = self.window_names.items[i];
-            const still_exists = for (config.popup.names.items) |cname| {
-                if (std.mem.eql(u8, wname, cname)) break true;
-            } else false;
-
-            if (!still_exists) {
-                // Destroy the window if it still exists
-                if (self.window_refs.items[i].get()) |win| {
-                    defer win.unref();
-                    win.as(gtk.Window).destroy();
-                }
-                self.removeWindowAt(i);
-                // Don't increment i — removeWindowAt shifts elements down
-            } else {
-                i += 1;
+        // Destroy all existing popup windows. They will be recreated with the
+        // new config on the next toggle/show. This is the simplest correct
+        // approach because owned string fields (cwd, command) can't be compared
+        // by pointer after loadConfig dupes them.
+        // Always process index 0: removeWindowAt shifts elements down so the
+        // next entry slides into slot 0 automatically.
+        while (self.window_names.items.len > 0) {
+            if (self.window_refs.items[0].get()) |win| {
+                defer win.unref();
+                win.as(gtk.Window).destroy();
             }
+            self.removeWindowAt(0);
         }
 
-        // 2. Reload all profiles from new config (handles adds + changes)
+        // Reload all profiles from new config (handles adds + changes)
         self.loadConfig(config);
     }
 
