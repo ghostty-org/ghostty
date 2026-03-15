@@ -54,6 +54,11 @@ class PopupController: BaseTerminalController {
     let profileConfig: PopupProfileConfig
     private(set) var visible: Bool = false
 
+    /// Set to true by PopupManager when the profile config has changed
+    /// after a reload. The controller keeps running if visible, but will
+    /// be destroyed and recreated on the next toggle cycle.
+    var isStale: Bool = false
+
     /// The previously running application when the popup was shown.
     /// Restored on hide so the user returns to what they were doing.
     private var previousApp: NSRunningApplication?

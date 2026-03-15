@@ -35,6 +35,10 @@ pub const PopupManager = struct {
     /// destroyed externally (e.g., user closes window, GTK shutdown order).
     window_names: std.ArrayListUnmanaged([:0]const u8) = .empty,
     window_refs: std.ArrayListUnmanaged(WeakRef(Window)) = .empty,
+    /// Parallel to window_names/window_refs: true if the profile config
+    /// changed since the window was created. Stale windows are destroyed
+    /// and recreated on next toggle when hidden.
+    window_stale: std.ArrayListUnmanaged(bool) = .empty,
 
     pub fn init(alloc: Allocator) PopupManager {
         return .{
@@ -54,6 +58,7 @@ pub const PopupManager = struct {
         for (self.window_names.items) |name| self.alloc.free(name);
         self.window_names.deinit(self.alloc);
         self.window_refs.deinit(self.alloc);
+        self.window_stale.deinit(self.alloc);
     }
 
     /// Load popup profiles from the config. This replaces any previously
@@ -124,6 +129,11 @@ pub const PopupManager = struct {
             if (widget.isVisible() != 0) {
                 return self.hide(name);
             } else {
+                // If stale (config changed), destroy and recreate
+                if (self.isWindowStale(name)) {
+                    self.destroyWindow(name);
+                    return self.createAndShow(name);
+                }
                 widget.setVisible(1);
                 gtk.Window.present(win.as(gtk.Window));
                 return true;
@@ -140,6 +150,11 @@ pub const PopupManager = struct {
             defer win.unref();
             const widget = win.as(gtk.Widget);
             if (widget.isVisible() != 0) return true;
+            // If stale (config changed), destroy and recreate
+            if (self.isWindowStale(name)) {
+                self.destroyWindow(name);
+                return self.createAndShow(name);
+            }
             widget.setVisible(1);
             gtk.Window.present(win.as(gtk.Window));
             return true;
@@ -173,30 +188,40 @@ pub const PopupManager = struct {
         return true;
     }
 
-    /// Update popup profiles from a new config. Handles additions, changes,
-    /// and removals:
-    /// - Removed profiles: hide and destroy any running popup instance
+    /// Update popup profiles from a new config. Handles:
+    /// - Removed profiles: destroy any running popup window immediately
     /// - New profiles: stored for lazy creation on next toggle/show
-    /// - Changed profiles: destroy existing window so it is recreated with the
-    ///   new config on next toggle (comparing profiles with owned string fields
-    ///   is complex, so we destroy all windows on reload — safe because windows
-    ///   are lazily recreated on next toggle/show).
+    /// - Changed profiles: stored config updated; visible popups keep
+    ///   running. Windows are marked stale so the next toggle cycle
+    ///   (hide→show) destroys and recreates them with new config.
     pub fn updateProfileConfigs(self: *PopupManager, config: *const configpkg.Config) void {
-        // Destroy all existing popup windows. They will be recreated with the
-        // new config on the next toggle/show. This is the simplest correct
-        // approach because owned string fields (cwd, command) can't be compared
-        // by pointer after loadConfig dupes them.
-        // Always process index 0: removeWindowAt shifts elements down so the
-        // next entry slides into slot 0 automatically.
-        while (self.window_names.items.len > 0) {
-            if (self.window_refs.items[0].get()) |win| {
-                defer win.unref();
-                win.as(gtk.Window).destroy();
+        // 1. Destroy windows for truly removed profiles only
+        var i: usize = 0;
+        while (i < self.window_names.items.len) {
+            const wname = self.window_names.items[i];
+            const still_exists = for (config.popup.names.items) |cname| {
+                if (std.mem.eql(u8, wname, cname)) break true;
+            } else false;
+
+            if (!still_exists) {
+                if (self.window_refs.items[i].get()) |win| {
+                    defer win.unref();
+                    win.as(gtk.Window).destroy();
+                }
+                self.removeWindowAt(i);
+            } else {
+                i += 1;
             }
-            self.removeWindowAt(0);
         }
 
-        // Reload all profiles from new config (handles adds + changes)
+        // 2. Mark existing windows as stale — they'll be destroyed and
+        //    recreated on next toggle if hidden, or kept alive if visible
+        //    until the user toggles them.
+        for (self.window_names.items) |wname| {
+            self.markStaleIfChanged(wname, config);
+        }
+
+        // 3. Reload stored profiles from new config
         self.loadConfig(config);
     }
 
@@ -211,6 +236,7 @@ pub const PopupManager = struct {
         for (self.window_names.items) |name| self.alloc.free(name);
         self.window_names.clearRetainingCapacity();
         self.window_refs.clearRetainingCapacity();
+        self.window_stale.clearRetainingCapacity();
     }
 
     /// Create a new popup window and show it.
@@ -259,6 +285,14 @@ pub const PopupManager = struct {
         self.window_refs.append(self.alloc, weak_ref) catch |err| {
             log.warn("failed to track popup window ref: {}", .{err});
             const popped_name = self.window_names.pop();
+            self.alloc.free(popped_name);
+            win.as(gtk.Window).destroy();
+            return false;
+        };
+        self.window_stale.append(self.alloc, false) catch |err| {
+            log.warn("failed to track popup stale flag: {}", .{err});
+            const popped_name = self.window_names.pop();
+            _ = self.window_refs.pop();
             self.alloc.free(popped_name);
             win.as(gtk.Window).destroy();
             return false;
@@ -345,7 +379,59 @@ pub const PopupManager = struct {
     fn removeWindowAt(self: *PopupManager, idx: usize) void {
         const name = self.window_names.orderedRemove(idx);
         _ = self.window_refs.orderedRemove(idx);
+        _ = self.window_stale.orderedRemove(idx);
         self.alloc.free(name);
+    }
+
+    /// Check if a tracked window is marked stale (config changed since creation).
+    fn isWindowStale(self: *const PopupManager, name: []const u8) bool {
+        const idx = self.findWindowIndex(name) orelse return false;
+        return self.window_stale.items[idx];
+    }
+
+    /// Mark a window stale if its profile differs from the new config.
+    /// Compares the stored (old) profile against the new config's profile
+    /// for the same name. Uses field-by-field comparison for non-string
+    /// fields and content comparison for string fields.
+    fn markStaleIfChanged(self: *PopupManager, name: []const u8, config: *const configpkg.Config) void {
+        const win_idx = self.findWindowIndex(name) orelse return;
+        const old_profile = self.getProfile(name) orelse return;
+
+        // Find the new profile in config
+        for (config.popup.names.items, config.popup.profiles.items) |cname, new_profile| {
+            if (std.mem.eql(u8, name, cname)) {
+                // Compare all fields — non-string enums/ints/bools
+                if (old_profile.position != new_profile.position or
+                    old_profile.anchor != new_profile.anchor or
+                    !optionalDimensionEqual(old_profile.x, new_profile.x) or
+                    !optionalDimensionEqual(old_profile.y, new_profile.y) or
+                    old_profile.width.value != new_profile.width.value or
+                    old_profile.width.unit != new_profile.width.unit or
+                    old_profile.height.value != new_profile.height.value or
+                    old_profile.height.unit != new_profile.height.unit or
+                    old_profile.autohide != new_profile.autohide or
+                    old_profile.persist != new_profile.persist or
+                    !optionalF64Equal(old_profile.opacity, new_profile.opacity) or
+                    !optionalSliceEqual(old_profile.command, new_profile.command) or
+                    !optionalSliceEqual(old_profile.cwd, new_profile.cwd) or
+                    !optionalSliceEqual(old_profile.keybind, new_profile.keybind))
+                {
+                    self.window_stale.items[win_idx] = true;
+                    return;
+                }
+                return; // Not changed
+            }
+        }
+    }
+
+    /// Destroy a tracked popup window by name.
+    fn destroyWindow(self: *PopupManager, name: []const u8) void {
+        const idx = self.findWindowIndex(name) orelse return;
+        if (self.window_refs.items[idx].get()) |win| {
+            defer win.unref();
+            win.as(gtk.Window).destroy();
+        }
+        self.removeWindowAt(idx);
     }
 
     fn getProfile(self: *const PopupManager, name: []const u8) ?popupmod.PopupProfile {
@@ -355,3 +441,21 @@ pub const PopupManager = struct {
         return null;
     }
 };
+
+fn optionalDimensionEqual(a: ?popupmod.Dimension, b: ?popupmod.Dimension) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return a.?.value == b.?.value and a.?.unit == b.?.unit;
+}
+
+fn optionalSliceEqual(a: ?[]const u8, b: ?[]const u8) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return std.mem.eql(u8, a.?, b.?);
+}
+
+fn optionalF64Equal(a: ?f64, b: ?f64) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return a.? == b.?;
+}
