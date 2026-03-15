@@ -4844,8 +4844,13 @@ pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
         (try alloc.dupeZ(u8, cmd)).ptr
     else
         null;
+    const cwd_z: ?[*:0]const u8 = if (profile.cwd) |cwd|
+        (try alloc.dupeZ(u8, cwd)).ptr
+    else
+        null;
     try self.popup.commands_z.append(alloc, cmd_z);
-    try self.popup.profiles_c.append(alloc, profile.cval(cmd_z));
+    try self.popup.cwd_z.append(alloc, cwd_z);
+    try self.popup.profiles_c.append(alloc, profile.cval(cmd_z, cwd_z));
 }
 
 /// Convert a legacy QuickTerminalSize.Size to a popup Dimension.
@@ -9208,6 +9213,10 @@ pub const RepeatablePopup = struct {
     /// Indexed in parallel with names/profiles; null when no command.
     commands_z: std.ArrayListUnmanaged(?[*:0]const u8) = .empty,
 
+    /// Sentinel-terminated copies of CWD paths for the C API.
+    /// Indexed in parallel with names/profiles; null when no cwd.
+    cwd_z: std.ArrayListUnmanaged(?[*:0]const u8) = .empty,
+
     /// ghostty_config_popup_list_s
     pub const C = extern struct {
         names: [*][*:0]const u8,
@@ -9235,9 +9244,16 @@ pub const RepeatablePopup = struct {
             for (self.profiles.items) |profile| {
                 if (profile.keybind) |kb| alloc.free(kb);
                 if (profile.command) |cmd| alloc.free(cmd);
+                if (profile.cwd) |cwd| alloc.free(cwd);
             }
             for (self.commands_z.items) |cmd_z| {
                 if (cmd_z) |ptr| {
+                    const slice = std.mem.sliceTo(ptr, 0);
+                    alloc.free(slice);
+                }
+            }
+            for (self.cwd_z.items) |cz| {
+                if (cz) |ptr| {
                     const slice = std.mem.sliceTo(ptr, 0);
                     alloc.free(slice);
                 }
@@ -9247,6 +9263,7 @@ pub const RepeatablePopup = struct {
             self.names_c.clearRetainingCapacity();
             self.profiles_c.clearRetainingCapacity();
             self.commands_z.clearRetainingCapacity();
+            self.cwd_z.clearRetainingCapacity();
             return;
         }
 
@@ -9272,6 +9289,12 @@ pub const RepeatablePopup = struct {
         else
             null;
 
+        // Create sentinel-terminated copy of the cwd for C API.
+        const cwd_z_val: ?[*:0]const u8 = if (profile.cwd) |cwd|
+            (try alloc.dupeZ(u8, cwd)).ptr
+        else
+            null;
+
         const name = try alloc.dupeZ(u8, name_raw);
 
         // Last definition wins: if a popup with this name already
@@ -9281,15 +9304,21 @@ pub const RepeatablePopup = struct {
                 // Free old profile strings before overwriting.
                 if (self.profiles.items[i].keybind) |kb| alloc.free(kb);
                 if (self.profiles.items[i].command) |cmd| alloc.free(cmd);
+                if (self.profiles.items[i].cwd) |old_cwd| alloc.free(old_cwd);
                 if (self.commands_z.items[i]) |old_cmd| {
                     const slice = std.mem.sliceTo(old_cmd, 0);
+                    alloc.free(slice);
+                }
+                if (self.cwd_z.items[i]) |old_cwd_z| {
+                    const slice = std.mem.sliceTo(old_cwd_z, 0);
                     alloc.free(slice);
                 }
                 // Free the new name since we're not using it.
                 alloc.free(name);
                 self.profiles.items[i] = profile;
                 self.commands_z.items[i] = cmd_z;
-                self.profiles_c.items[i] = profile.cval(cmd_z);
+                self.cwd_z.items[i] = cwd_z_val;
+                self.profiles_c.items[i] = profile.cval(cmd_z, cwd_z_val);
                 return;
             }
         }
@@ -9297,8 +9326,9 @@ pub const RepeatablePopup = struct {
         try self.names.append(alloc, name);
         try self.profiles.append(alloc, profile);
         try self.names_c.append(alloc, name.ptr);
-        try self.profiles_c.append(alloc, profile.cval(cmd_z));
+        try self.profiles_c.append(alloc, profile.cval(cmd_z, cwd_z_val));
         try self.commands_z.append(alloc, cmd_z);
+        try self.cwd_z.append(alloc, cwd_z_val);
     }
 
     /// Look up a popup profile by name.
@@ -9327,14 +9357,22 @@ pub const RepeatablePopup = struct {
             if (profile.command) |cmd| {
                 cloned_profile.command = try alloc.dupe(u8, cmd);
             }
+            if (profile.cwd) |cwd| {
+                cloned_profile.cwd = try alloc.dupe(u8, cwd);
+            }
             try new.profiles.append(alloc, cloned_profile);
             // Re-create sentinel-terminated command copy for the clone.
             const new_cmd_z: ?[*:0]const u8 = if (cloned_profile.command) |cmd|
                 (try alloc.dupeZ(u8, cmd)).ptr
             else
                 null;
+            const new_cwd_z: ?[*:0]const u8 = if (cloned_profile.cwd) |cwd|
+                (try alloc.dupeZ(u8, cwd)).ptr
+            else
+                null;
             try new.commands_z.append(alloc, new_cmd_z);
-            try new.profiles_c.append(alloc, cloned_profile.cval(new_cmd_z));
+            try new.cwd_z.append(alloc, new_cwd_z);
+            try new.profiles_c.append(alloc, cloned_profile.cval(new_cmd_z, new_cwd_z));
         }
         return new;
     }
@@ -9344,9 +9382,16 @@ pub const RepeatablePopup = struct {
         for (self.profiles.items) |profile| {
             if (profile.keybind) |kb| alloc.free(kb);
             if (profile.command) |cmd| alloc.free(cmd);
+            if (profile.cwd) |cwd| alloc.free(cwd);
         }
         for (self.commands_z.items) |cmd_z| {
             if (cmd_z) |ptr| {
+                const slice = std.mem.sliceTo(ptr, 0);
+                alloc.free(slice);
+            }
+        }
+        for (self.cwd_z.items) |cz| {
+            if (cz) |ptr| {
                 const slice = std.mem.sliceTo(ptr, 0);
                 alloc.free(slice);
             }
@@ -9356,6 +9401,7 @@ pub const RepeatablePopup = struct {
         self.names_c.deinit(alloc);
         self.profiles_c.deinit(alloc);
         self.commands_z.deinit(alloc);
+        self.cwd_z.deinit(alloc);
     }
 
     /// Used by Formatter.
