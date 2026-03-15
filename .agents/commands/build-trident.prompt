@@ -1,0 +1,50 @@
+---
+description: Build and install Trident.app to /Applications
+---
+
+Build the Trident fork of Ghostty and install it to `/Applications/Trident.app`.
+
+## Arguments
+
+The user may pass `debug` as an argument to build a debug version. Otherwise, build a release version.
+
+## Release Build (default)
+
+1. Build libghostty with ReleaseFast optimization:
+   ```
+   zig build -Demit-macos-app=false -Doptimize=ReleaseFast
+   ```
+
+2. Build the macOS app with ReleaseLocal configuration:
+   ```
+   nix develop --command macos/build.nu --configuration ReleaseLocal
+   ```
+
+3. Install to /Applications:
+   ```
+   rm -rf /Applications/Trident.app && cp -R macos/build/ReleaseLocal/Trident.app /Applications/Trident.app
+   ```
+
+## Debug Build (when `debug` argument is passed)
+
+1. Build libghostty without optimization:
+   ```
+   zig build -Demit-macos-app=false
+   ```
+
+2. Build the macOS app with Debug configuration:
+   ```
+   nix develop --command macos/build.nu --configuration Debug
+   ```
+
+3. Install to /Applications:
+   ```
+   rm -rf /Applications/Trident.app && cp -R macos/build/Debug/Trident.app /Applications/Trident.app
+   ```
+
+## Notes
+
+- The zig build step must complete before the macOS app build
+- ReleaseFast is required for release builds to avoid the "debug build" warning banner
+- ReleaseLocal (not Release) is used because it includes the `disable-library-validation` entitlement needed for the ad-hoc-signed Sparkle framework
+- Report success or failure after each step; do not continue if a step fails

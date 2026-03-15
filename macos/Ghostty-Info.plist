@@ -52,6 +52,8 @@
 	<string></string>
 	<key>LSEnvironment</key>
 	<dict>
+		<key>GHOSTTY_CONFIG_PATH</key>
+		<string>/Users/tucker/.config/trident/config</string>
 		<key>GHOSTTY_MAC_LAUNCH_SOURCE</key>
 		<string>app</string>
 	</dict>
