@@ -86,7 +86,7 @@
                                     <action selector="showAbout:" target="-1" id="tGt-68-tLn"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Check for Updates..." id="GEA-5y-yzH">
+                            <menuItem title="Check for Updates…" id="GEA-5y-yzH">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="checkForUpdates:" target="bbz-4X-AYv" id="z2n-lC-48f"/>
@@ -264,7 +264,7 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <menu key="submenu" title="Find" id="vPo-Sd-cTP">
                                     <items>
-                                        <menuItem title="Find..." id="nwE-0w-30h">
+                                        <menuItem title="Find…" id="nwE-0w-30h">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
                                                 <action selector="find:" target="-1" id="PeY-3u-IxC"/>
@@ -338,13 +338,13 @@
                                     <action selector="toggleCommandPalette:" target="-1" id="FcT-XD-gM1"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Change Tab Title..." id="iac-lh-Cl7">
+                            <menuItem title="Change Tab Title…" id="iac-lh-Cl7">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="changeTabTitle:" target="-1" id="Jhl-9P-bMj"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Change Terminal Title..." id="24I-xg-qIq">
+                            <menuItem title="Change Terminal Title…" id="24I-xg-qIq">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="changeTitle:" target="-1" id="XuL-QB-Q9l"/>
