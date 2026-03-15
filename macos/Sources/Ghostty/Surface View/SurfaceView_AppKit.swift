@@ -1763,19 +1763,9 @@ extension Ghostty {
                 self.scrollbar = .system
             }
 
-            init(_ config: Ghostty.Config) {
+            init(_ config: Ghostty.Config, opacityOverride: Double? = nil) {
                 self.backgroundColor = config.backgroundColor
-                self.backgroundOpacity = config.backgroundOpacity
-                self.backgroundBlur = config.backgroundBlur
-                self.macosWindowShadow = config.macosWindowShadow
-                self.windowTitleFontFamily = config.windowTitleFontFamily
-                self.windowAppearance = .init(ghosttyConfig: config)
-                self.scrollbar = config.scrollbar
-            }
-
-            init(_ config: Ghostty.Config, opacityOverride: Double) {
-                self.backgroundColor = config.backgroundColor
-                self.backgroundOpacity = opacityOverride
+                self.backgroundOpacity = opacityOverride ?? config.backgroundOpacity
                 self.backgroundBlur = config.backgroundBlur
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily

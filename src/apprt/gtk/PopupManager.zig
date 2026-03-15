@@ -44,6 +44,10 @@ pub const PopupManager = struct {
 
     pub fn deinit(self: *PopupManager) void {
         for (self.profile_names.items) |name| self.alloc.free(name);
+        for (self.profiles.items) |profile| {
+            if (profile.command) |cmd| self.alloc.free(cmd);
+            if (profile.cwd) |cwd| self.alloc.free(cwd);
+        }
         self.profile_names.deinit(self.alloc);
         self.profiles.deinit(self.alloc);
 
@@ -56,8 +60,12 @@ pub const PopupManager = struct {
     /// stored profiles. It does NOT destroy existing windows -- those will
     /// be lazily cleaned up on next toggle/show/hide.
     pub fn loadConfig(self: *PopupManager, config: *const configpkg.Config) void {
-        // Free old name strings since we own them
+        // Free old name strings AND profile string fields since we own them
         for (self.profile_names.items) |name| self.alloc.free(name);
+        for (self.profiles.items) |profile| {
+            if (profile.command) |cmd| self.alloc.free(cmd);
+            if (profile.cwd) |cwd| self.alloc.free(cwd);
+        }
         self.profile_names.clearRetainingCapacity();
         self.profiles.clearRetainingCapacity();
 
@@ -66,15 +74,40 @@ pub const PopupManager = struct {
                 log.warn("failed to duplicate popup profile name: {}", .{err});
                 continue;
             };
+
+            // Deep-copy the profile so we own the string fields (cwd, command).
+            // The config may be freed after loadConfig returns, so borrowing
+            // slices from it would be a use-after-free.
+            var owned_profile = profile;
+            if (profile.command) |cmd| {
+                owned_profile.command = self.alloc.dupe(u8, cmd) catch |err| {
+                    log.warn("failed to duplicate popup command: {}", .{err});
+                    self.alloc.free(duped);
+                    continue;
+                };
+            }
+            if (profile.cwd) |cwd| {
+                owned_profile.cwd = self.alloc.dupe(u8, cwd) catch |err| {
+                    log.warn("failed to duplicate popup cwd: {}", .{err});
+                    if (owned_profile.command) |cmd| self.alloc.free(cmd);
+                    self.alloc.free(duped);
+                    continue;
+                };
+            }
+
             self.profile_names.append(self.alloc, duped) catch |err| {
                 log.warn("failed to store popup profile name: {}", .{err});
+                if (owned_profile.command) |cmd| self.alloc.free(cmd);
+                if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
                 self.alloc.free(duped);
                 continue;
             };
-            self.profiles.append(self.alloc, profile) catch |err| {
+            self.profiles.append(self.alloc, owned_profile) catch |err| {
                 log.warn("failed to store popup profile: {}", .{err});
                 const popped = self.profile_names.pop();
                 self.alloc.free(popped);
+                if (owned_profile.command) |cmd| self.alloc.free(cmd);
+                if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
                 continue;
             };
         }
@@ -244,9 +277,13 @@ pub const PopupManager = struct {
             .{},
         );
 
-        // Resolve working directory: explicit cwd > focused surface pwd > none
+        // Resolve working directory: explicit cwd > focused surface pwd > none.
+        // Track ownership so we only free allocations we made (not borrows from
+        // surface.getPwd() which is managed by the surface).
+        var wd_owned: bool = false;
         const working_directory: ?[:0]const u8 = wd: {
             if (profile.cwd) |cwd| {
+                wd_owned = true;
                 if (cwd.len > 0 and cwd[0] == '~') {
                     if (std.posix.getenv("HOME")) |home| {
                         break :wd std.fmt.allocPrintZ(
@@ -258,7 +295,7 @@ pub const PopupManager = struct {
                 }
                 break :wd self.alloc.dupeZ(u8, cwd) catch break :wd null;
             }
-            // Try to inherit from focused surface
+            // Try to inherit from focused surface (borrowed, not owned)
             const list = gtk.Window.listToplevels();
             defer list.free();
             var node_: ?*glib.List = list;
@@ -270,6 +307,9 @@ pub const PopupManager = struct {
                 break :wd surface.getPwd();
             }
             break :wd null;
+        };
+        defer if (wd_owned) {
+            if (working_directory) |wd| self.alloc.free(wd);
         };
 
         // Create initial tab
