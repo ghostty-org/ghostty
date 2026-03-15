@@ -16,8 +16,8 @@ pub inline fn home(buf: []u8) !?[]const u8 {
         .linux, .freebsd, .macos => try homeUnix(buf),
         .windows => try homeWindows(buf),
 
-        // iOS doesn't have a user-writable home directory
-        .ios => null,
+        // iOS/visionOS don't expose a standard user home directory model.
+        .ios, .visionos => null,
 
         else => @compileError("unimplemented"),
     };
@@ -126,9 +126,8 @@ pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
         // `~/` is not an idiom generally used on Windows
         .windows => return path,
 
-        // iOS doesn't have a user-writable home directory
-        .ios => return path,
-
+        // iOS/visionOS don't have a user-writable home directory
+        .ios, .visionos => return path,
         else => @compileError("unimplemented"),
     };
 }

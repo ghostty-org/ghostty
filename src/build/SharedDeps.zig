@@ -21,6 +21,11 @@ uucode_tables: std.Build.LazyPath,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
+pub const AddOptions = struct {
+    include_build_options: bool = true,
+    include_terminal_options: bool = true,
+    include_simd: bool = true,
+};
 
 pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
     const uucode_tables = blk: {
@@ -93,6 +98,14 @@ fn initTarget(
     const config = try b.allocator.create(Config);
     config.* = self.config.*;
     config.target = target;
+
+    // Some build options are target-dependent but inherited during retarget.
+    // Normalize visionOS to the supported subset.
+    if (target.result.os.tag == .visionos) {
+        config.sentry = false;
+        config.simd = false;
+    }
+
     self.config = config;
 
     // Setup our shared build options
@@ -103,6 +116,14 @@ fn initTarget(
 pub fn add(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
+) !LazyPathList {
+    return self.addWith(step, .{});
+}
+
+pub fn addWith(
+    self: *const SharedDeps,
+    step: *std.Build.Step.Compile,
+    add_options: AddOptions,
 ) !LazyPathList {
     const b = step.step.owner;
 
@@ -129,11 +150,17 @@ pub fn add(
         return static_libs;
     }
 
-    // Every exe gets build options populated
-    step.root_module.addOptions("build_options", self.options);
+    // Every exe gets build options populated.
+    // Some shared modules (e.g. lib-vt test modules) already own these options
+    // and must not be overridden in-place.
+    if (add_options.include_build_options) {
+        step.root_module.addOptions("build_options", self.options);
+    }
 
     // Every exe needs the terminal options
-    self.config.terminalOptions().add(b, step.root_module);
+    if (add_options.include_terminal_options) {
+        self.config.terminalOptions().add(b, step.root_module);
+    }
 
     // Freetype. We always include this even if our font backend doesn't
     // use it because Dear Imgui uses Freetype.
@@ -332,7 +359,7 @@ pub fn add(
     }
 
     // Simd
-    if (self.config.simd) try addSimd(
+    if (self.config.simd and add_options.include_simd) try addSimd(
         b,
         step.root_module,
         &static_libs,
@@ -380,11 +407,12 @@ pub fn add(
     if (step.rootModuleTarget().os.tag.isDarwin()) {
         try @import("apple_sdk").addPaths(b, step);
 
-        const metallib = self.metallib.?;
-        metallib.output.addStepDependencies(&step.step);
-        step.root_module.addAnonymousImport("ghostty_metallib", .{
-            .root_source_file = metallib.output,
-        });
+        if (self.metallib) |metallib| {
+            metallib.output.addStepDependencies(&step.step);
+            step.root_module.addAnonymousImport("ghostty_metallib", .{
+                .root_source_file = metallib.output,
+            });
+        }
     }
 
     // Other dependencies, mostly pure Zig
