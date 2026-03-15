@@ -312,7 +312,7 @@ fn motionJ(self: *ViMode) ViResult {
     while (i < count) : (i += 1) {
         if (self.cursor_pin.down(1)) |new_pin| {
             self.cursor_pin.* = new_pin;
-            self.cursor_pin.x = self.cursor_pin.x; // preserve x for now
+            // TODO: implement curswant (remember desired column across vertical moves)
         } else break;
     }
     // Clamp x to new line length
@@ -481,8 +481,8 @@ fn startPending(self: *ViMode, key: u8) ViResult {
 
 fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
     const effective_count = self.getEffectiveCount();
-    const half: usize = @max(vp.rows / 2, 1) * effective_count;
-    const full: usize = @max(vp.rows, 1) * effective_count;
+    const half: usize = std.math.mul(usize, @max(vp.rows / 2, 1), effective_count) catch std.math.maxInt(isize);
+    const full: usize = std.math.mul(usize, @max(vp.rows, 1), effective_count) catch std.math.maxInt(isize);
     const in_visual = self.sub_mode != .normal;
 
     switch (cp) {

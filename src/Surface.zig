@@ -2565,14 +2565,6 @@ fn updateViModeRenderState(self: *Surface) void {
     };
 }
 
-/// Update the terminal selection to match vi mode visual state.
-/// Creates/clears/updates the selection based on sub_mode and anchor.
-fn updateViSelection(self: *Surface) void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    self.updateViSelectionLocked();
-}
-
 /// Same as `updateViSelection` but assumes `renderer_state.mutex` is
 /// already held by the caller.
 fn updateViSelectionLocked(self: *Surface) void {
@@ -2661,45 +2653,6 @@ fn updateViSelectionLocked(self: *Surface) void {
             )) catch {};
         },
         .normal => unreachable,
-    }
-}
-
-/// If vi mode is active, check whether the cursor pin is within the
-/// current viewport. If not, scroll the viewport to bring it into view.
-fn ensureViCursorVisible(self: *Surface) void {
-    const vi = self.vi_mode orelse return;
-
-    self.renderer_state.mutex.lock();
-    const t: *terminal.Terminal = self.renderer_state.terminal;
-    const screen = t.screens.active;
-
-    // Get cursor position in screen coordinates
-    const cursor_screen_pt = screen.pages.pointFromPin(.screen, vi.cursor_pin.*);
-    // Get viewport top in screen coordinates
-    const vp_top_pin = screen.pages.pin(.{ .viewport = .{} }) orelse {
-        self.renderer_state.mutex.unlock();
-        return;
-    };
-    const vp_top_screen_pt = screen.pages.pointFromPin(.screen, vp_top_pin);
-    const rows = screen.pages.rows;
-    self.renderer_state.mutex.unlock();
-
-    const cursor_y = if (cursor_screen_pt) |pt| pt.screen.y else return;
-    const vp_top_y = if (vp_top_screen_pt) |pt| pt.screen.y else return;
-    const vp_bottom_y = vp_top_y + rows -| 1;
-
-    if (cursor_y < vp_top_y) {
-        // Cursor is above viewport — scroll up
-        const delta = vp_top_y - cursor_y;
-        self.queueIo(.{
-            .scroll_viewport = .{ .delta = -@as(isize, @intCast(delta)) },
-        }, .unlocked);
-    } else if (cursor_y > vp_bottom_y) {
-        // Cursor is below viewport — scroll down
-        const delta = cursor_y - vp_bottom_y;
-        self.queueIo(.{
-            .scroll_viewport = .{ .delta = @as(isize, @intCast(delta)) },
-        }, .unlocked);
     }
 }
 
