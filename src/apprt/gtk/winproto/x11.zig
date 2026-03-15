@@ -48,7 +48,7 @@ pub const App = struct {
         else
             "ghostty";
 
-        // Set the X11 window class property (WM_CLASS) if are are on an X11
+        // Set the X11 window class property (WM_CLASS) if we are on an X11
         // display.
         //
         // Note that we also set the program name here using g_set_prgname.

@@ -1972,12 +1972,12 @@ pub const CAPI = struct {
     ) bool {
         const action_str = action_ptr[0..action_len];
         const action = input.Binding.Action.parse(action_str) catch |err| {
-            log.err("error parsing binding action action={s} err={}", .{ action_str, err });
+            log.err("error parsing binding action={s} err={}", .{ action_str, err });
             return false;
         };
 
         return ptr.core_surface.performBindingAction(action) catch |err| {
-            log.err("error performing binding action action={f} err={}", .{ action, err });
+            log.err("error performing binding action={f} err={}", .{ action, err });
             return false;
         };
     }

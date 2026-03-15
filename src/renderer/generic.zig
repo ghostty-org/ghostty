@@ -1929,7 +1929,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.updateScreenSizeUniforms();
 
-            log.debug("screen size size={}", .{size});
+            log.debug("screen size={}", .{size});
         }
 
         /// Update uniforms that are based on the screen size.
