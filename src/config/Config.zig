@@ -5503,7 +5503,7 @@ pub const Color = struct {
         defer buf.deinit();
 
         var color: Color = .{ .r = 10, .g = 11, .b = 12 };
-        try color.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try color.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = #0a0b0c\n", buf.written());
     }
 
@@ -5581,7 +5581,7 @@ pub const TerminalColor = union(enum) {
         defer buf.deinit();
 
         var sc: TerminalColor = .@"cell-foreground";
-        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.written());
     }
 };
@@ -5633,7 +5633,7 @@ pub const BoldColor = union(enum) {
         defer buf.deinit();
 
         var sc: BoldColor = .bright;
-        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try testing.expectEqualSlices(u8, "a = bright\n", buf.written());
     }
 };
@@ -5770,7 +5770,7 @@ pub const ColorList = struct {
 
         var p: Self = .{};
         try p.parseCLI(alloc, "black,white");
-        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.written());
     }
 
@@ -5924,7 +5924,7 @@ pub const Palette = struct {
         defer buf.deinit();
 
         var list: Self = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = 0=#1d1f21\n", buf.written()[0..14]);
     }
 
@@ -6075,7 +6075,7 @@ pub const RepeatableString = struct {
         defer buf.deinit();
 
         var list: Self = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
@@ -6090,7 +6090,7 @@ pub const RepeatableString = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "A");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
@@ -6106,7 +6106,7 @@ pub const RepeatableString = struct {
         var list: Self = .{};
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "B");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.written());
     }
 };
@@ -6382,7 +6382,7 @@ pub const RepeatableFontVariation = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "wght = 200");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = wght=200\n", buf.written());
     }
 };
@@ -7443,7 +7443,7 @@ pub const Keybinds = struct {
 
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "shift+a=csi:hello");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = shift+a=csi:hello\n", buf.written());
     }
 
@@ -7460,7 +7460,7 @@ pub const Keybinds = struct {
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "ctrl+z>1=goto_tab:1");
         try list.parseCLI(alloc, "ctrl+z>2=goto_tab:2");
-        try list.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer, false));
 
         // Note they turn into translated keys because they match
         // their ASCII mapping.
@@ -7486,7 +7486,7 @@ pub const Keybinds = struct {
         try list.parseCLI(alloc, "ctrl+a>ctrl+b>w=close_window");
         try list.parseCLI(alloc, "ctrl+a>ctrl+c>t=new_tab");
         try list.parseCLI(alloc, "ctrl+b>ctrl+d>a=previous_tab");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
 
         // NB: This does not currently retain the order of the keybinds.
         const want =
@@ -7862,7 +7862,7 @@ pub const Keybinds = struct {
 
         var keybinds: Keybinds = .{};
         try keybinds.parseCLI(alloc, "foo/shift+a=csi:hello");
-        try keybinds.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
+        try keybinds.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer, false));
 
         try testing.expectEqualStrings("keybind = foo/shift+a=csi:hello\n", buf.written());
     }
@@ -7879,7 +7879,7 @@ pub const Keybinds = struct {
         var keybinds: Keybinds = .{};
         try keybinds.parseCLI(alloc, "shift+b=csi:world");
         try keybinds.parseCLI(alloc, "foo/shift+a=csi:hello");
-        try keybinds.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
+        try keybinds.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer, false));
 
         const output = buf.written();
         try testing.expect(std.mem.indexOf(u8, output, "keybind = shift+b=csi:world\n") != null);
@@ -8164,7 +8164,7 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+ABCD=Comic Sans");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = U+ABCD=Comic Sans\n", buf.written());
     }
 
@@ -8179,7 +8179,7 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0001 - U+0005=Verdana");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = U+0001-U+0005=Verdana\n", buf.written());
     }
 
@@ -8194,7 +8194,7 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0006-U+0009, U+ABCD=Courier");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8,
             \\a = U+0006-U+0009=Courier
             \\a = U+ABCD=Courier
@@ -8370,7 +8370,7 @@ pub const RepeatableClipboardCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+2500=U+002D");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = U+2500=U+002D\n", buf.written());
     }
 
@@ -8385,7 +8385,7 @@ pub const RepeatableClipboardCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+03A3=SUM");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = U+03A3=SUM\n", buf.written());
     }
 };
@@ -8479,7 +8479,7 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "default");
-        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = default\n", buf.written());
     }
 
@@ -8494,7 +8494,7 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "false");
-        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = false\n", buf.written());
     }
 
@@ -8509,7 +8509,7 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "bold");
-        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = bold\n", buf.written());
     }
 };
@@ -8794,7 +8794,7 @@ pub const RepeatableCommand = struct {
         defer buf.deinit();
 
         var list: RepeatableCommand = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
@@ -8809,7 +8809,7 @@ pub const RepeatableCommand = struct {
 
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:Bober");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:Bober\"\n", buf.written());
     }
 
@@ -8825,7 +8825,7 @@ pub const RepeatableCommand = struct {
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:kurwa");
         try list.parseCLI(alloc, "title:Ja,   description: pierdole,  action:text:jakie bydle");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = title:\"Bobr\",action:\"text:kurwa\"\na = title:\"Ja\",description:\"pierdole\",action:\"text:jakie bydle\"\n", buf.written());
     }
 
@@ -9144,7 +9144,7 @@ pub const MouseScrollMultiplier = struct {
         defer buf.deinit();
 
         var args: Self = .{ .precision = 1.5, .discrete = 2.5 };
-        try args.formatEntry(formatterpkg.entryFormatter("mouse-scroll-multiplier", &buf.writer));
+        try args.formatEntry(formatterpkg.entryFormatter("mouse-scroll-multiplier", &buf.writer, false));
         try testing.expectEqualSlices(u8, "mouse-scroll-multiplier = precision:1.5,discrete:2.5\n", buf.written());
     }
 };
@@ -10258,7 +10258,7 @@ test "test entryFormatter" {
     defer buf.deinit();
 
     var p: Duration = .{ .duration = std.math.maxInt(u64) };
-    try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+    try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
     try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.written());
 }
 

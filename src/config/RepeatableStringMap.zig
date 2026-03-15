@@ -150,7 +150,7 @@ test "RepeatableStringMap: formatConfig empty" {
     defer buf.deinit();
 
     var list: RepeatableStringMap = .{};
-    try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+    try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
     try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
 }
 
@@ -166,7 +166,7 @@ test "RepeatableStringMap: formatConfig single item" {
         defer buf.deinit();
         var map: RepeatableStringMap = .{};
         try map.parseCLI(alloc, "A=B");
-        try map.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try map.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A=B\n", buf.written());
     }
     {
@@ -174,7 +174,7 @@ test "RepeatableStringMap: formatConfig single item" {
         defer buf.deinit();
         var map: RepeatableStringMap = .{};
         try map.parseCLI(alloc, " A = B ");
-        try map.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try map.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A=B\n", buf.written());
     }
 }
@@ -192,7 +192,7 @@ test "RepeatableStringMap: formatConfig multiple items" {
         var list: RepeatableStringMap = .{};
         try list.parseCLI(alloc, "A=B");
         try list.parseCLI(alloc, "B = C");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A=B\na = B=C\n", buf.written());
     }
 }

@@ -75,7 +75,7 @@ pub fn run(alloc: Allocator) !u8 {
         return prettyPrint(arena.allocator(), config.keybind);
     } else {
         try config.keybind.formatEntryDocs(
-            configpkg.entryFormatter("keybind", writer),
+            configpkg.entryFormatter("keybind", writer, false),
             opts.docs,
         );
     }

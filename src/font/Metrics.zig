@@ -566,7 +566,7 @@ pub const Modifier = union(enum) {
         defer buf.deinit();
 
         const p = try parseCLI("24%");
-        try p.formatEntry(configpkg.entryFormatter("a", &buf.writer));
+        try p.formatEntry(configpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = 24%\n", buf.written());
     }
 
@@ -577,7 +577,7 @@ pub const Modifier = union(enum) {
         defer buf.deinit();
 
         const p = try parseCLI("-30");
-        try p.formatEntry(configpkg.entryFormatter("a", &buf.writer));
+        try p.formatEntry(configpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = -30\n", buf.written());
     }
 };

@@ -855,7 +855,7 @@ test "RemapSet: formatEntry empty" {
     defer buf.deinit();
 
     const set: RemapSet = .empty;
-    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer, false));
     try testing.expectEqualSlices(u8, "key-remap = \n", buf.written());
 }
 
@@ -872,7 +872,7 @@ test "RemapSet: formatEntry single sided" {
     try set.parse(testing.allocator, "left_ctrl=super");
     set.finalize();
 
-    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer, false));
     try testing.expectEqualSlices(u8, "key-remap = left_ctrl=left_super\n", buf.written());
 }
 
@@ -889,7 +889,7 @@ test "RemapSet: formatEntry unsided creates two entries" {
     try set.parse(testing.allocator, "ctrl=super");
     set.finalize();
 
-    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer, false));
     // Unsided creates both left and right mappings
     const written = buf.written();
     try testing.expect(std.mem.indexOf(u8, written, "left_ctrl=left_super") != null);
@@ -909,6 +909,6 @@ test "RemapSet: formatEntry right sided" {
     try set.parse(testing.allocator, "left_alt=right_ctrl");
     set.finalize();
 
-    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer, false));
     try testing.expectEqualSlices(u8, "key-remap = left_alt=right_ctrl\n", buf.written());
 }

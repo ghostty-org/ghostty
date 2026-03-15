@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const tui = @import("tui.zig");
 
 pub const Options = struct {
     /// If true, do not load the user configuration, only load the defaults.
@@ -16,6 +17,12 @@ pub const Options = struct {
     /// If true print the documentation above each option as a comment,
     /// if available.
     docs: bool = false,
+
+    /// If `true`, print without formatting even if printing to a tty
+    plain: bool = false,
+
+    /// Force links even if not a TTY
+    @"force-links": bool = false,
 
     pub fn deinit(self: Options) void {
         _ = self;
@@ -55,6 +62,12 @@ pub const Options = struct {
 ///   * `--docs`: Print the documentation above each option as a comment,
 ///     This is very noisy but is very useful to learn about available
 ///     options, especially paired with `--default`.
+///
+///   * `--plain`: Will disable formatting and make the output more friendly for
+///     Unix tooling. This is default when not printing to a TTY.
+///
+///   * `--force-links`: Force the use of OSC 8 links even if not printing to
+///     a TTY.
 pub fn run(alloc: Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
@@ -68,16 +81,19 @@ pub fn run(alloc: Allocator) !u8 {
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
     defer config.deinit();
 
+    // For some reason `std.fmt.format` isn't working here but it works in
+    // tests so we just do configfmt.format.
+    var stdout: std.fs.File = .stdout();
+
+    const links = opts.@"force-links" or (tui.can_pretty_print and !opts.plain and stdout.isTty());
     const configfmt: configpkg.FileFormatter = .{
         .alloc = alloc,
         .config = &config,
         .changed = !opts.default and opts.@"changes-only",
         .docs = opts.docs,
+        .links = links,
     };
 
-    // For some reason `std.fmt.format` isn't working here but it works in
-    // tests so we just do configfmt.format.
-    var stdout: std.fs.File = .stdout();
     var buffer: [4096]u8 = undefined;
     var stdout_writer = stdout.writer(&buffer);
     try configfmt.format(&stdout_writer.interface);
