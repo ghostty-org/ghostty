@@ -121,9 +121,10 @@ pub const PopupManager = struct {
             };
             self.profiles.append(self.alloc, owned_profile) catch |err| {
                 log.warn("failed to store popup profile: {}", .{err});
-                const popped = self.profile_names.pop();
-                const plain: []const u8 = popped;
-                self.alloc.free(plain);
+                if (self.profile_names.popOrNull()) |popped| {
+                    const plain: []const u8 = popped;
+                    self.alloc.free(plain);
+                }
                 if (owned_profile.keybind) |kb| self.alloc.free(kb);
                 if (owned_profile.command) |cmd| self.alloc.free(cmd);
                 if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
@@ -298,18 +299,20 @@ pub const PopupManager = struct {
         };
         self.window_refs.append(self.alloc, weak_ref) catch |err| {
             log.warn("failed to track popup window ref: {}", .{err});
-            const popped_name = self.window_names.pop();
-            const plain: []const u8 = popped_name;
-            self.alloc.free(plain);
+            if (self.window_names.popOrNull()) |popped_name| {
+                const plain: []const u8 = popped_name;
+                self.alloc.free(plain);
+            }
             win.as(gtk.Window).destroy();
             return false;
         };
         self.window_stale.append(self.alloc, false) catch |err| {
             log.warn("failed to track popup stale flag: {}", .{err});
-            const popped_name = self.window_names.pop();
-            _ = self.window_refs.pop();
-            const plain: []const u8 = popped_name;
-            self.alloc.free(plain);
+            if (self.window_names.popOrNull()) |popped_name| {
+                const plain: []const u8 = popped_name;
+                self.alloc.free(plain);
+            }
+            _ = self.window_refs.popOrNull();
             win.as(gtk.Window).destroy();
             return false;
         };
