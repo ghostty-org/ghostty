@@ -4139,7 +4139,7 @@ pub fn mouseButtonCallback(
                 const sel_ = if (mods.ctrlOrSuper())
                     self.io.terminal.screens.active.selectOutput(pin.*)
                 else
-                    self.io.terminal.screens.active.selectLine(.{ .pin = pin.* });
+                    self.io.terminal.screens.active.selectLine(.{ .pin = pin.*, .leading_whitespace = null });
                 if (sel_) |sel| {
                     try self.io.terminal.screens.active.select(sel);
                     try self.queueRender();
@@ -4438,7 +4438,8 @@ fn linkAtPin(
     const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
     const line = screen.selectLine(.{
         .pin = mouse_pin,
-        .whitespace = null,
+        .leading_whitespace = null,
+        .trailing_whitespace = null,
         .semantic_prompt_boundary = false,
     }) orelse return null;
 
@@ -4863,13 +4864,13 @@ fn dragLeftClickTriple(
 
     // Get the line selection under our current drag point. If there isn't a
     // line, do nothing.
-    const line = screen.selectLine(.{ .pin = drag_pin }) orelse return;
+    const line = screen.selectLine(.{ .pin = drag_pin, .leading_whitespace = null }) orelse return;
 
     // Get the selection under our click point. We first try to trim
     // whitespace if we've selected a word. But if no word exists then
     // we select the blank line.
-    const sel_ = screen.selectLine(.{ .pin = click_pin }) orelse
-        screen.selectLine(.{ .pin = click_pin, .whitespace = null });
+    const sel_ = screen.selectLine(.{ .pin = click_pin, .leading_whitespace = null }) orelse
+        screen.selectLine(.{ .pin = click_pin, .leading_whitespace = null, .trailing_whitespace = null });
 
     var sel = sel_ orelse return;
     if (drag_pin.before(click_pin)) {
