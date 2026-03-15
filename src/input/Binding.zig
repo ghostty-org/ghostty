@@ -569,6 +569,13 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Toggle between the current tab and the last active tab.
+    ///
+    /// This allows quick switching between two tabs. The first activation
+    /// switches to the last active tab, and subsequent activations toggle
+    /// between the two tabs.
+    toggle_last_tab,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -576,6 +583,11 @@ pub const Action = union(enum) {
     /// title set via this prompt overrides any title set by the terminal
     /// and persists across focus changes within the tab.
     prompt_tab_title,
+
+    /// Change the title of the current window via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the window.
+    prompt_window_title,
 
     /// Set the title for the current focused surface.
     ///
@@ -586,6 +598,11 @@ pub const Action = union(enum) {
     ///
     /// If the title is empty, the tab title override is cleared.
     set_tab_title: []const u8,
+
+    /// Set the title for the current window.
+    ///
+    /// If the title is empty, the window title override is cleared.
+    set_window_title: []const u8,
 
     /// Create a new split in the specified direction.
     ///
@@ -756,6 +773,11 @@ pub const Action = union(enum) {
     /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
     /// version can be found by running `ghostty +version`.
     toggle_command_palette,
+
+    /// Navigate the command palette results. If the command palette is not
+    /// currently open, this action has no effect. This moves the selection
+    /// highlight up or down in the filtered results list with wrapping.
+    navigate_command_palette: NavigateCommandPalette,
 
     /// Toggle the quick terminal.
     ///
@@ -992,6 +1014,11 @@ pub const Action = union(enum) {
         end,
         beginning_of_line,
         end_of_line,
+    };
+
+    pub const NavigateCommandPalette = enum {
+        previous,
+        next,
     };
 
     pub const SplitDirection = enum {
@@ -1319,6 +1346,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .search,
             .navigate_search,
+            .navigate_command_palette,
             .search_selection,
             .start_search,
             .end_search,
@@ -1334,8 +1362,10 @@ pub const Action = union(enum) {
             .set_font_size,
             .prompt_surface_title,
             .prompt_tab_title,
+            .prompt_window_title,
             .set_surface_title,
             .set_tab_title,
+            .set_window_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -1380,6 +1410,7 @@ pub const Action = union(enum) {
             .previous_tab,
             .next_tab,
             .last_tab,
+            .toggle_last_tab,
             .goto_tab,
             .move_tab,
             .toggle_tab_overview,

@@ -5330,6 +5330,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             s.state.wakeup.notify() catch {};
         },
 
+        .navigate_command_palette => |nav| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .navigate_command_palette,
+            switch (nav) {
+                inline else => |tag| @field(
+                    apprt.action.NavigateCommandPalette,
+                    @tagName(tag),
+                ),
+            },
+        ),
+
         .copy_to_clipboard => |format| {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
@@ -5502,6 +5513,22 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             );
         },
 
+        .prompt_window_title => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .prompt_title,
+            .window,
+        ),
+
+        .set_window_title => |v| {
+            const title = try self.alloc.dupeZ(u8, v);
+            defer self.alloc.free(title);
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .set_window_title,
+                .{ .title = title },
+            );
+        },
+
         .clear_screen => {
             // This is a duplicate of some of the logic in termio.clearScreen
             // but we need to do this here so we can know the answer before
@@ -5622,6 +5649,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         inline .previous_tab,
         .next_tab,
         .last_tab,
+        .toggle_last_tab,
         .goto_tab,
         => |v, tag| return try self.rt_app.performAction(
             .{ .surface = self },
@@ -5630,6 +5658,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .previous_tab => .previous,
                 .next_tab => .next,
                 .last_tab => .last,
+                .toggle_last_tab => .toggle_last,
                 .goto_tab => @enumFromInt(v),
                 else => comptime unreachable,
             },

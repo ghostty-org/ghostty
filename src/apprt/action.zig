@@ -117,6 +117,10 @@ pub const Action = union(Key) {
     /// Toggle the command palette.
     toggle_command_palette,
 
+    /// Navigate the command palette results. If there is no active command
+    /// palette, this is not performed.
+    navigate_command_palette: NavigateCommandPalette,
+
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
@@ -206,7 +210,7 @@ pub const Action = union(Key) {
 
     /// Set the title of the target to a prompted value. It is up to
     /// the apprt to prompt. The value specifies whether to prompt for the
-    /// surface title or the tab title.
+    /// surface title, tab title, or window title.
     prompt_title: PromptTitle,
 
     /// The current working directory has changed for the target terminal.
@@ -343,6 +347,13 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Prompt for the window title via a pop-up dialog.
+    prompt_window_title,
+
+    /// Set the window title to the requested value. If the value is
+    /// empty, the window title override is cleared.
+    set_window_title: SetTitle,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -357,6 +368,7 @@ pub const Action = union(Key) {
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,
+        navigate_command_palette,
         toggle_visibility,
         toggle_background_opacity,
         move_tab,
@@ -410,6 +422,8 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        prompt_window_title,
+        set_window_title,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -501,6 +515,16 @@ pub const SplitDirection = enum(c_int) {
     }
 };
 
+/// Navigate the command palette results. Direction can be previous or next.
+pub const NavigateCommandPalette = enum(c_int) {
+    previous,
+    next,
+
+    test "ghostty.h NavigateCommandPalette" {
+        try lib.checkGhosttyHEnum(NavigateCommandPalette, "GHOSTTY_NAVIGATE_COMMAND_PALETTE_");
+    }
+};
+
 // This is made extern (c_int) to make interop easier with our embedded
 // runtime. The small size cost doesn't make a difference in our union.
 pub const GotoSplit = enum(c_int) {
@@ -556,6 +580,7 @@ pub const GotoTab = enum(c_int) {
     previous = -1,
     next = -2,
     last = -3,
+    toggle_last = -4,
     _,
 
     // TODO: check non-exhaustive enums
@@ -637,10 +662,11 @@ pub const MouseVisibility = enum(c_int) {
     }
 };
 
-/// Whether to prompt for the surface title or tab title.
+/// Whether to prompt for the surface title, tab title, or window title.
 pub const PromptTitle = enum(c_int) {
     surface,
     tab,
+    window,
 
     test "ghostty.h PromptTitle" {
         try lib.checkGhosttyHEnum(PromptTitle, "GHOSTTY_PROMPT_TITLE_");

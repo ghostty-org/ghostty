@@ -438,6 +438,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the tab overview.",
         }},
 
+        .toggle_last_tab => comptime &.{.{
+            .action = .toggle_last_tab,
+            .title = "Toggle Last Tab",
+            .description = "Toggle between the current tab and the last active tab.",
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = "Change Terminal Title…",
@@ -449,6 +455,22 @@ fn actionCommands(action: Action.Key) []const Command {
             .title = "Change Tab Title…",
             .description = "Prompt for a new title for the current tab.",
         }},
+
+        .prompt_window_title => comptime &.{.{
+            .action = .prompt_window_title,
+            .title = "Change Window Title…",
+            .description = "Prompt for a new title for the current window.",
+        }},
+
+        .navigate_command_palette => comptime &.{ .{
+            .action = .{ .navigate_command_palette = .next },
+            .title = "Next Command Palette Result",
+            .description = "Navigate to the next result in the command palette, if any.",
+        }, .{
+            .action = .{ .navigate_command_palette = .previous },
+            .title = "Previous Command Palette Result",
+            .description = "Navigate to the previous result in the command palette, if any.",
+        } },
 
         .new_split => comptime &.{
             .{
@@ -691,6 +713,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .set_font_size,
         .set_surface_title,
         .set_tab_title,
+        .set_window_title,
         .search,
         .scroll_to_row,
         .scroll_page_fractional,

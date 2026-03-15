@@ -853,6 +853,12 @@ pub const Surface = extern struct {
         return self.as(gtk.Widget).activateAction("win.toggle-command-palette", null) != 0;
     }
 
+    pub fn navigateCommandPalette(self: *Self, direction: input.Binding.Action.NavigateCommandPalette) bool {
+        const window = self.window() orelse return false;
+        window.navigateCommandPalette(direction);
+        return true;
+    }
+
     pub fn controlInspector(
         self: *Self,
         value: apprt.Action.Value(.inspector),

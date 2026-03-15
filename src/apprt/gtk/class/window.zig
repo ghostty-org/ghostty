@@ -26,6 +26,7 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -225,6 +226,9 @@ pub const Window = extern struct {
         /// config on a per-window basis.
         window_decoration: ?configpkg.WindowDecoration = null,
 
+        /// The manually overridden title from `promptWindowTitle`.
+        title_override: ?[:0]const u8 = null,
+
         /// Binding group for our active tab.
         tab_bindings: *gobject.BindingGroup,
 
@@ -255,6 +259,10 @@ pub const Window = extern struct {
         /// Tab page that the context menu was opened for.
         /// setup by `setup-menu`.
         context_menu_page: ?*adw.TabPage = null,
+
+        /// The index of the last active tab, used for toggle_last_tab action.
+        /// Stores the previous tab index to enable swapping between two tabs.
+        last_active_tab_index: ?c_int = null,
 
         // Template bindings
         tab_overview: *adw.TabOverview,
@@ -553,6 +561,9 @@ pub const Window = extern struct {
         // If our target is the same as our current then we do nothing.
         if (goto == current) return false;
 
+        // Store the current tab index as the last active tab before switching
+        priv.last_active_tab_index = current;
+
         // Add the page and select it
         const page = tab_view.getNthPage(goto);
         tab_view.setSelectedPage(page);
@@ -599,6 +610,30 @@ pub const Window = extern struct {
         assert(desired_pos < total);
 
         return tab_view.reorderPage(page, desired_pos) != 0;
+    }
+
+    /// Toggle between the current tab and the last active tab.
+    /// Returns true if a tab switch occurred.
+    pub fn toggleLastTab(self: *Self) bool {
+        const priv = self.private();
+        const tab_view = priv.tab_view;
+
+        // Get our current tab numeric position
+        const selected = tab_view.getSelectedPage() orelse return false;
+        const current = tab_view.getPagePosition(selected);
+
+        // If we have a stored last active tab and it's different from current,
+        // swap to it.
+        if (priv.last_active_tab_index) |last_index| {
+            if (last_index != current) {
+                priv.last_active_tab_index = current;
+                const page = tab_view.getNthPage(last_index);
+                tab_view.setSelectedPage(page);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     pub fn toggleTabOverview(self: *Self) void {
@@ -857,6 +892,41 @@ pub const Window = extern struct {
 
     //---------------------------------------------------------------
     // Properties
+
+    /// Overridden title. This will generally be shown over the default
+    /// window title unless this is unset (null).
+    pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
+        priv.title_override = null;
+        if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
+        self.as(gtk.Window).setTitle(
+            priv.title_override orelse priv.title orelse "",
+        );
+    }
+
+    fn titleDialogSet(
+        _: *TitleDialog,
+        title_ptr: [*:0]const u8,
+        self: *Self,
+    ) callconv(.c) void {
+        const title = std.mem.span(title_ptr);
+        self.setTitleOverride(if (title.len == 0) null else title);
+    }
+
+    pub fn promptWindowTitle(self: *Self) void {
+        const priv = self.private();
+        const dialog = TitleDialog.new(.window, priv.title_override orelse priv.title orelse "");
+        _ = TitleDialog.signals.set.connect(
+            dialog,
+            *Self,
+            titleDialogSet,
+            self,
+            .{},
+        );
+
+        dialog.present(self.as(gtk.Widget));
+    }
 
     /// Whether this terminal is a quick terminal or not.
     pub fn isQuickTerminal(self: *Self) bool {
@@ -2009,6 +2079,16 @@ pub const Window = extern struct {
         // Tell the command palette to toggle itself. If the dialog gets
         // presented (instead of hidden) it will be modal over our window.
         command_palette.toggle(self);
+    }
+
+    fn navigateCommandPalette(self: *Window, direction: input.Binding.Action.NavigateCommandPalette) void {
+        const priv = self.private();
+
+        // Only navigate if we already have a command palette open
+        const command_palette = priv.command_palette.get() orelse return;
+        defer command_palette.unref();
+
+        command_palette.navigate(direction);
     }
 
     // React to a signal from a command palette asking an action to be performed.

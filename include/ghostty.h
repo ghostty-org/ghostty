@@ -547,6 +547,12 @@ typedef enum {
   GHOSTTY_SPLIT_DIRECTION_UP,
 } ghostty_action_split_direction_e;
 
+// apprt.action.NavigateCommandPalette
+typedef enum {
+  GHOSTTY_NAVIGATE_COMMAND_PALETTE_PREVIOUS,
+  GHOSTTY_NAVIGATE_COMMAND_PALETTE_NEXT,
+} ghostty_action_navigate_command_palette_e;
+
 // apprt.action.GotoSplit
 typedef enum {
   GHOSTTY_GOTO_SPLIT_PREVIOUS,
@@ -645,6 +651,7 @@ typedef struct {
 typedef enum {
   GHOSTTY_PROMPT_TITLE_SURFACE,
   GHOSTTY_PROMPT_TITLE_TAB,
+  GHOSTTY_PROMPT_TITLE_WINDOW,
 } ghostty_action_prompt_title_e;
 
 // apprt.action.Pwd.C
@@ -868,6 +875,7 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
+  GHOSTTY_ACTION_NAVIGATE_COMMAND_PALETTE,
   GHOSTTY_ACTION_TOGGLE_VISIBILITY,
   GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
   GHOSTTY_ACTION_MOVE_TAB,
@@ -921,6 +929,8 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_PROMPT_WINDOW_TITLE,
+  GHOSTTY_ACTION_SET_WINDOW_TITLE,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -962,6 +972,8 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_navigate_command_palette_e navigate_command_palette;
+  ghostty_action_set_title_s set_window_title;
 } ghostty_action_u;
 
 typedef struct {

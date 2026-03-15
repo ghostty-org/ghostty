@@ -6624,6 +6624,18 @@ pub const Keybinds = struct {
                 .{ .next_tab = {} },
                 .{ .performable = true },
             );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .move_tab = -1 },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .move_tab = 1 },
+                .{ .performable = true },
+            );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'o' }, .mods = .{ .ctrl = true, .shift = true } },

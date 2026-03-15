@@ -754,6 +754,7 @@ pub const Application = extern struct {
             .toggle_tab_overview => return Action.toggleTabOverview(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
+            .navigate_command_palette => return Action.navigateCommandPalette(target, value),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
@@ -2022,12 +2023,15 @@ const Action = struct {
                     return false;
                 };
 
-                return window.selectTab(switch (tab) {
-                    .previous => .previous,
-                    .next => .next,
-                    .last => .last,
-                    else => .{ .n = @intCast(@intFromEnum(tab)) },
-                });
+                return switch (tab) {
+                    .toggle_last => window.toggleLastTab(),
+                    else => window.selectTab(switch (tab) {
+                        .previous => .previous,
+                        .next => .next,
+                        .last => .last,
+                        else => .{ .n = @intCast(@intFromEnum(tab)) },
+                    }),
+                };
             },
         }
     }
@@ -2399,6 +2403,23 @@ const Action = struct {
                     },
                 }
             },
+            .window => {
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const window = ext.getAncestor(
+                            Window,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a window, ignoring prompt_window_title", .{});
+                            return false;
+                        };
+                        window.promptWindowTitle();
+                        return true;
+                    },
+                }
+            },
         }
     }
 
@@ -2565,6 +2586,30 @@ const Action = struct {
                     return false;
                 };
                 tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
+        }
+    }
+
+    pub fn setWindowTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_window_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring set_window_title", .{});
+                    return false;
+                };
+                window.setTitleOverride(if (value.title.len == 0) null else value.title);
                 return true;
             },
         }
@@ -2745,6 +2790,15 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().toggleCommandPalette();
+            },
+        }
+    }
+
+    pub fn navigateCommandPalette(target: apprt.Target, value: apprt.Action.Value(.navigate_command_palette)) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().navigateCommandPalette(value);
             },
         }
     }
