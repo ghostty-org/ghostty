@@ -169,11 +169,10 @@ command_timer: ?std.time.Instant = null,
 /// Search state
 search: ?Search = null,
 
-/// Last selected search match position (written by searchCallback on the
-/// search thread, read by surfaceMessageProcess on the app thread).
-/// The surface mailbox push in the callback acts as the synchronization
-/// barrier — the pin is always written before the mailbox message.
-last_search_match_pin: ?terminal.Pin = null,
+/// Flag set by the search callback when a match is selected. The app thread
+/// checks this and syncs the vi cursor to the viewport (the search system
+/// scrolls to show the match). No cross-thread pointer storage needed.
+last_search_match_selected: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
 /// Used to rate limit BEL handling.
 last_bell_time: ?std.time.Instant = null,
@@ -1153,15 +1152,26 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .search_selected => |v| {
-            // Sync vi cursor to the selected search match
-            if (self.vi_mode != null) {
-                if (self.last_search_match_pin) |match_pin| {
-                    self.renderer_state.mutex.lock();
-                    defer self.renderer_state.mutex.unlock();
-                    if (self.vi_mode) |*vi| {
-                        vi.cursor_pin.* = match_pin;
-                        self.updateViModeRenderState();
+            // Sync vi cursor to the viewport center when a match is selected.
+            // The search system scrolls the viewport to show the match, so
+            // positioning the cursor at viewport center approximates the match.
+            // We use an atomic flag (no cross-thread pointers) to avoid dangling refs.
+            if (self.vi_mode != null and self.last_search_match_selected.load(.acquire)) {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.vi_mode) |*vi| {
+                    const t: *terminal.Terminal = self.renderer_state.terminal;
+                    const screen = t.screens.active;
+                    // Position cursor at viewport top (search scrolled to show match)
+                    const vp_top = screen.pages.getTopLeft(.viewport);
+                    vi.cursor_pin.* = vp_top;
+                    // Try to move cursor down to approximate the middle
+                    const mid = screen.pages.rows / 2;
+                    var i: usize = 0;
+                    while (i < mid) : (i += 1) {
+                        if (vi.cursor_pin.down(1)) |p| vi.cursor_pin.* = p else break;
                     }
+                    self.updateViModeRenderState();
                 }
             }
 
@@ -1461,10 +1471,8 @@ fn searchCallback_(
                     .forever,
                 );
 
-                // Store the match pin for vi mode cursor sync.
-                // Written before the mailbox push (which acts as the
-                // synchronization barrier with the app thread).
-                self.last_search_match_pin = sel.highlight.startPin();
+                // Signal that a match was selected (for vi cursor sync).
+                self.last_search_match_selected.store(true, .release);
 
                 // Send the selected index to the surface mailbox
                 _ = self.surfaceMailbox().push(
@@ -1478,7 +1486,7 @@ fn searchCallback_(
                     .forever,
                 );
 
-                self.last_search_match_pin = null;
+                self.last_search_match_selected.store(false, .release);
 
                 // Reset the selected index
                 _ = self.surfaceMailbox().push(
@@ -2545,7 +2553,7 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
             s.deinit();
             self.search = null;
         }
-        self.last_search_match_pin = null;
+        self.last_search_match_selected.store(false, .release);
     }
 
     // Search triggers from vi mode (/ and ? keys)
@@ -5550,16 +5558,18 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // that GUIs can clean up stale stuff.
             const performed = self.search != null;
 
-            // If vi mode is active, sync cursor to last match before teardown.
-            if (self.vi_mode != null) {
-                if (self.last_search_match_pin) |match_pin| {
-                    self.renderer_state.mutex.lock();
-                    defer self.renderer_state.mutex.unlock();
-                    if (self.vi_mode) |*vi| {
-                        vi.cursor_pin.* = match_pin;
-                        self.updateViModeRenderState();
-                    }
+            // If vi mode is active, sync cursor to viewport (search scrolled to match).
+            if (self.vi_mode != null and self.last_search_match_selected.load(.acquire)) {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                if (self.vi_mode) |*vi| {
+                    const t: *terminal.Terminal = self.renderer_state.terminal;
+                    const screen = t.screens.active;
+                    const vp_top = screen.pages.getTopLeft(.viewport);
+                    vi.cursor_pin.* = vp_top;
+                    self.updateViModeRenderState();
                 }
+                self.last_search_match_selected.store(false, .release);
             }
 
             // In vi mode, keep the search state alive so n/N can
