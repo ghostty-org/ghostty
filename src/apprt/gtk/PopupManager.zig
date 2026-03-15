@@ -49,6 +49,7 @@ pub const PopupManager = struct {
     pub fn deinit(self: *PopupManager) void {
         for (self.profile_names.items) |name| self.alloc.free(name);
         for (self.profiles.items) |profile| {
+            if (profile.keybind) |kb| self.alloc.free(kb);
             if (profile.command) |cmd| self.alloc.free(cmd);
             if (profile.cwd) |cwd| self.alloc.free(cwd);
         }
@@ -68,6 +69,7 @@ pub const PopupManager = struct {
         // Free old name strings AND profile string fields since we own them
         for (self.profile_names.items) |name| self.alloc.free(name);
         for (self.profiles.items) |profile| {
+            if (profile.keybind) |kb| self.alloc.free(kb);
             if (profile.command) |cmd| self.alloc.free(cmd);
             if (profile.cwd) |cwd| self.alloc.free(cwd);
         }
@@ -99,9 +101,19 @@ pub const PopupManager = struct {
                     continue;
                 };
             }
+            if (profile.keybind) |kb| {
+                owned_profile.keybind = self.alloc.dupe(u8, kb) catch |err| {
+                    log.warn("failed to duplicate popup keybind: {}", .{err});
+                    if (owned_profile.command) |cmd| self.alloc.free(cmd);
+                    if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
+                    self.alloc.free(duped);
+                    continue;
+                };
+            }
 
             self.profile_names.append(self.alloc, duped) catch |err| {
                 log.warn("failed to store popup profile name: {}", .{err});
+                if (owned_profile.keybind) |kb| self.alloc.free(kb);
                 if (owned_profile.command) |cmd| self.alloc.free(cmd);
                 if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
                 self.alloc.free(duped);
@@ -111,6 +123,7 @@ pub const PopupManager = struct {
                 log.warn("failed to store popup profile: {}", .{err});
                 const popped = self.profile_names.pop();
                 self.alloc.free(popped);
+                if (owned_profile.keybind) |kb| self.alloc.free(kb);
                 if (owned_profile.command) |cmd| self.alloc.free(cmd);
                 if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
                 continue;
