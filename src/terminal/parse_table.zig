@@ -238,9 +238,30 @@ fn genTable() Table {
         // events
         single(&result, 0x19, source, source, .put);
         range(&result, 0, 0x17, source, source, .put);
+        single(&result, 0x18, source, source, .put); // CAN: override "anywhere" → ground
+        single(&result, 0x1A, source, source, .put); // SUB: override "anywhere" → ground
+        single(&result, 0x1B, source, source, .put); // ESC: override "anywhere" → escape
         range(&result, 0x1C, 0x1F, source, source, .put);
         range(&result, 0x20, 0x7E, source, source, .put);
         single(&result, 0x7F, source, source, .ignore);
+
+        // High bytes (0x80-0xFF): override "anywhere" transitions to stay
+        // in dcs_passthrough. tmux control mode protocol data contains raw
+        // UTF-8 in %output pane content. UTF-8 multi-byte sequences use:
+        //   - Continuation bytes: 0x80-0xBF
+        //   - 2-byte start bytes: 0xC0-0xDF
+        //   - 3-byte start bytes: 0xE0-0xEF
+        //   - 4-byte start bytes: 0xF0-0xF4
+        //
+        // Without these overrides, bytes >= 0xA0 would default to .none
+        // (silently dropped), mangling all non-ASCII UTF-8 text. Bytes
+        // 0x80-0x9F also need overrides to prevent "anywhere" C1 transitions
+        // from kicking the parser out of dcs_passthrough.
+        //
+        // 0x9C (C1 ST) is NOT overridden — it is the legitimate 8-bit DCS
+        // string terminator and must still transition to ground.
+        range(&result, 0x80, 0x9B, source, source, .put);
+        range(&result, 0x9D, 0xFF, source, source, .put);
     }
 
     // csi_param
@@ -385,4 +406,125 @@ test {
     // This forces comptime-evaluation of table, so we're just testing
     // that it succeeds in creation.
     _ = table;
+}
+
+test "dcs_passthrough: ESC stays in dcs_passthrough with put" {
+    const t = table;
+    const entry = t[0x1B][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry.state);
+    try @import("std").testing.expectEqual(Action.put, entry.action);
+}
+
+test "dcs_passthrough: CAN stays in dcs_passthrough with put" {
+    const t = table;
+    const entry = t[0x18][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry.state);
+    try @import("std").testing.expectEqual(Action.put, entry.action);
+}
+
+test "dcs_passthrough: SUB stays in dcs_passthrough with put" {
+    const t = table;
+    const entry = t[0x1A][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry.state);
+    try @import("std").testing.expectEqual(Action.put, entry.action);
+}
+
+test "dcs_passthrough: C1 0x80 stays in dcs_passthrough with put" {
+    const t = table;
+    const entry = t[0x80][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry.state);
+    try @import("std").testing.expectEqual(Action.put, entry.action);
+}
+
+test "dcs_passthrough: C1 0x9B (CSI) stays in dcs_passthrough with put" {
+    const t = table;
+    const entry = t[0x9B][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry.state);
+    try @import("std").testing.expectEqual(Action.put, entry.action);
+}
+
+test "dcs_passthrough: C1 0x9D (OSC) stays in dcs_passthrough with put" {
+    const t = table;
+    const entry = t[0x9D][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry.state);
+    try @import("std").testing.expectEqual(Action.put, entry.action);
+}
+
+test "dcs_passthrough: C1 ST (0x9C) still transitions to ground" {
+    const t = table;
+    const entry = t[0x9C][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.ground, entry.state);
+    try @import("std").testing.expectEqual(Action.none, entry.action);
+}
+
+test "dcs_passthrough: regular bytes still produce put" {
+    const t = table;
+    // Printable ASCII
+    const entry_a = t['A'][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry_a.state);
+    try @import("std").testing.expectEqual(Action.put, entry_a.action);
+
+    // Control byte in put range
+    const entry_0 = t[0x00][@intFromEnum(State.dcs_passthrough)];
+    try @import("std").testing.expectEqual(State.dcs_passthrough, entry_0.state);
+    try @import("std").testing.expectEqual(Action.put, entry_0.action);
+}
+
+test "dcs_passthrough: UTF-8 start bytes (0xC0-0xF4) produce put" {
+    const t = table;
+    const testing = @import("std").testing;
+
+    // 2-byte start: 0xC0 (start of 2-byte range)
+    const entry_c0 = t[0xC0][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_c0.state);
+    try testing.expectEqual(Action.put, entry_c0.action);
+
+    // 2-byte start: 0xDF (end of 2-byte range)
+    const entry_df = t[0xDF][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_df.state);
+    try testing.expectEqual(Action.put, entry_df.action);
+
+    // 3-byte start: 0xE2 (box-drawing U+250x starts with 0xE2)
+    const entry_e2 = t[0xE2][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_e2.state);
+    try testing.expectEqual(Action.put, entry_e2.action);
+
+    // 4-byte start: 0xF0 (emoji U+1Fxxx starts with 0xF0)
+    const entry_f0 = t[0xF0][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_f0.state);
+    try testing.expectEqual(Action.put, entry_f0.action);
+
+    // Last valid 4-byte start: 0xF4
+    const entry_f4 = t[0xF4][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_f4.state);
+    try testing.expectEqual(Action.put, entry_f4.action);
+}
+
+test "dcs_passthrough: UTF-8 continuation bytes 0xA0-0xBF produce put" {
+    const t = table;
+    const testing = @import("std").testing;
+
+    // 0xA0 — first continuation byte above C1 range
+    const entry_a0 = t[0xA0][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_a0.state);
+    try testing.expectEqual(Action.put, entry_a0.action);
+
+    // 0xBF — last continuation byte
+    const entry_bf = t[0xBF][@intFromEnum(State.dcs_passthrough)];
+    try testing.expectEqual(State.dcs_passthrough, entry_bf.state);
+    try testing.expectEqual(Action.put, entry_bf.action);
+}
+
+test "dcs_passthrough: all bytes 0xA0-0xFF stay in dcs_passthrough with put" {
+    const t = table;
+    const testing = @import("std").testing;
+
+    // Verify the entire 0xA0-0xFF range. These bytes appear in UTF-8
+    // encoded text within tmux %output lines and must be forwarded
+    // to the DCS handler, not silently dropped.
+    for (0xA0..0x100) |byte| {
+        const entry = t[byte][@intFromEnum(State.dcs_passthrough)];
+        try testing.expectEqual(State.dcs_passthrough, entry.state);
+        try testing.expectEqual(Action.put, entry.action);
+    }
 }
