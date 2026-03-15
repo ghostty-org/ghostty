@@ -324,20 +324,25 @@ fn highlightViCursor(
 }
 
 /// Draw a mode indicator bar at the bottom-left of the overlay for vi mode.
+/// The bar width matches the mode label length, and visual modes use a
+/// different color to provide visual distinction without text rendering.
 fn highlightViModeIndicator(
     self: *Overlay,
     alloc: Allocator,
     state: *const terminal.RenderState,
     text: []const u8,
 ) void {
-    _ = text; // Text rendering not yet available; draw a colored bar instead.
-
-    // Draw a small colored bar at the bottom-left corner spanning a few cells.
-    const bar_width: usize = @min(8, state.cols);
+    // Bar width matches the mode label length (e.g., "-- NORMAL --" = 14 cells)
+    const bar_width: usize = @min(if (text.len > 0) text.len else 8, state.cols);
     const bar_row: usize = if (state.rows > 0) state.rows - 1 else 0;
 
-    const fill_color = Color.vi_cursor.rectFill();
-    const border_color = Color.vi_cursor.rectBorder();
+    // Use different colors for different modes:
+    // NORMAL = amber (vi_cursor color), VISUAL modes = selection-like blue
+    const is_visual = text.len > 0 and (std.mem.indexOf(u8, text, "VISUAL") != null or
+        std.mem.indexOf(u8, text, "V-BLOCK") != null);
+
+    const fill_color = if (is_visual) vi_visual_fill() else Color.vi_cursor.rectFill();
+    const border_color = if (is_visual) vi_visual_border() else Color.vi_cursor.rectBorder();
 
     self.highlightGridRect(
         alloc,
@@ -350,6 +355,20 @@ fn highlightViModeIndicator(
     ) catch |err| {
         log.warn("Error drawing vi mode indicator: {}", .{err});
     };
+}
+
+/// Blue fill for visual mode indicator (distinct from normal mode amber).
+fn vi_visual_fill() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 100, .g = 160, .b = 255 }).asPixel());
+    rgba.a = 96;
+    return rgba.multiply().asPixel();
+}
+
+/// Blue border for visual mode indicator.
+fn vi_visual_border() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 100, .g = 160, .b = 255 }).asPixel());
+    rgba.a = 200;
+    return rgba.multiply().asPixel();
 }
 
 /// Creates a rectangle for highlighting a grid region. x/y/width/height

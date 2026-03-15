@@ -169,6 +169,12 @@ command_timer: ?std.time.Instant = null,
 /// Search state
 search: ?Search = null,
 
+/// Last selected search match position (written by searchCallback on the
+/// search thread, read by surfaceMessageProcess on the app thread).
+/// The surface mailbox push in the callback acts as the synchronization
+/// barrier — the pin is always written before the mailbox message.
+last_search_match_pin: ?terminal.Pin = null,
+
 /// Used to rate limit BEL handling.
 last_bell_time: ?std.time.Instant = null,
 
@@ -1147,6 +1153,18 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .search_selected => |v| {
+            // Sync vi cursor to the selected search match
+            if (self.vi_mode != null) {
+                if (self.last_search_match_pin) |match_pin| {
+                    self.renderer_state.mutex.lock();
+                    defer self.renderer_state.mutex.unlock();
+                    if (self.vi_mode) |*vi| {
+                        vi.cursor_pin.* = match_pin;
+                        self.updateViModeRenderState();
+                    }
+                }
+            }
+
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .search_selected,
@@ -1443,6 +1461,11 @@ fn searchCallback_(
                     .forever,
                 );
 
+                // Store the match pin for vi mode cursor sync.
+                // Written before the mailbox push (which acts as the
+                // synchronization barrier with the app thread).
+                self.last_search_match_pin = sel.highlight.startPin();
+
                 // Send the selected index to the surface mailbox
                 _ = self.surfaceMailbox().push(
                     .{ .search_selected = sel.idx },
@@ -1454,6 +1477,8 @@ fn searchCallback_(
                     .{ .search_selected_match = null },
                     .forever,
                 );
+
+                self.last_search_match_pin = null;
 
                 // Reset the selected index
                 _ = self.surfaceMailbox().push(
@@ -2511,6 +2536,16 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
     // Non-terminal operations below use their own synchronization.
     if (scroll_io) |io_msg| {
         self.queueIo(io_msg, .unlocked);
+    }
+
+    // If vi mode exited, tear down any lingering search state
+    // (search was kept alive during vi mode for n/N navigation).
+    if (result.exit) {
+        if (self.search) |*s| {
+            s.deinit();
+            self.search = null;
+        }
+        self.last_search_match_pin = null;
     }
 
     // Search triggers from vi mode (/ and ? keys)
@@ -5515,10 +5550,28 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // that GUIs can clean up stale stuff.
             const performed = self.search != null;
 
-            if (self.search) |*s| {
-                s.deinit();
-                self.search = null;
+            // If vi mode is active, sync cursor to last match before teardown.
+            if (self.vi_mode != null) {
+                if (self.last_search_match_pin) |match_pin| {
+                    self.renderer_state.mutex.lock();
+                    defer self.renderer_state.mutex.unlock();
+                    if (self.vi_mode) |*vi| {
+                        vi.cursor_pin.* = match_pin;
+                        self.updateViModeRenderState();
+                    }
+                }
             }
+
+            // In vi mode, keep the search state alive so n/N can
+            // continue navigating matches. Otherwise tear it down.
+            if (self.vi_mode == null) {
+                if (self.search) |*s| {
+                    s.deinit();
+                    self.search = null;
+                }
+            }
+            // Note: when vi mode exits (performViResult exit path),
+            // it should also tear down search if still alive.
 
             _ = try self.rt_app.performAction(
                 .{ .surface = self },

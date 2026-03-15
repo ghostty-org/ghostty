@@ -223,23 +223,33 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         return .{ .exit = true, .redraw = true };
     }
 
-    // Arrow keys and page keys — so users don't need to know vim keys
-    switch (event.key) {
-        .arrow_left => return self.motionH(),
-        .arrow_right => return self.motionL(),
-        .arrow_down => return self.motionJ(),
-        .arrow_up => return self.motionK(),
-        .page_up => return self.handleCtrlKey('b', vp),
-        .page_down => return self.handleCtrlKey('f', vp),
-        .home => {
+    // Arrow keys and page keys — routed through the same motion_result
+    // path as character motions so visual selection updates correctly.
+    const arrow_result: ?ViResult = switch (event.key) {
+        .arrow_left => self.motionH(),
+        .arrow_right => self.motionL(),
+        .arrow_down => self.motionJ(),
+        .arrow_up => self.motionK(),
+        .page_up => self.handleCtrlKey('b', vp),
+        .page_down => self.handleCtrlKey('f', vp),
+        .home => blk: {
             _ = self.getEffectiveCount();
-            const top_pin = t.screens.active.pages.pin(.{ .screen = .{} }) orelse return .{};
+            const top_pin = t.screens.active.pages.pin(.{ .screen = .{} }) orelse break :blk @as(?ViResult, .{});
             self.cursor_pin.* = top_pin;
             self.cursor_pin.x = 0;
-            return .{ .scroll_top = true, .redraw = true };
+            break :blk ViResult{ .scroll_top = true, .redraw = true };
         },
-        .end => return self.motionBigG(t),
-        else => {},
+        .end => self.motionBigG(t),
+        else => null,
+    };
+    if (arrow_result) |ar| {
+        // Apply visual selection fixup (same as character motions below)
+        if (self.sub_mode != .normal and ar.redraw and !ar.selection_changed) {
+            var result = ar;
+            result.selection_changed = true;
+            return result;
+        }
+        return ar;
     }
 
     // Ctrl+key motions (check before digit/letter dispatch)
