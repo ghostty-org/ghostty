@@ -412,7 +412,14 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    self.addUucode(b, step.root_module, target, optimize);
+    const uucode_mod = self.addUucode(b, step.root_module, target, optimize);
+    self.addItijah(
+        b,
+        step.root_module,
+        target,
+        optimize,
+        uucode_mod,
+    );
     if (b.lazyDependency("zf", .{
         .target = target,
         .optimize = optimize,
@@ -879,15 +886,38 @@ pub fn addUucode(
     module: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-) void {
+) ?*std.Build.Module {
     if (b.lazyDependency("uucode", .{
         .target = target,
         .optimize = optimize,
         .tables_path = self.uucode_tables,
         .build_config_path = b.path("src/build/uucode_config.zig"),
     })) |dep| {
-        module.addImport("uucode", dep.module("uucode"));
+        const uucode_mod = dep.module("uucode");
+        module.addImport("uucode", uucode_mod);
+        return uucode_mod;
     }
+
+    return null;
+}
+
+pub fn addItijah(
+    _: *const SharedDeps,
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    uucode_mod: ?*std.Build.Module,
+) void {
+    const uucode_ = uucode_mod orelse return;
+    const itijah_dep = b.lazyDependency("itijah", .{}) orelse return;
+    const itijah_mod = b.createModule(.{
+        .root_source_file = itijah_dep.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    itijah_mod.addImport("uucode", uucode_);
+    module.addImport("itijah", itijah_mod);
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by
