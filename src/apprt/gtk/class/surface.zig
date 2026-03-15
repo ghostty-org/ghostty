@@ -683,6 +683,8 @@ pub const Surface = extern struct {
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
+        context_menu_base_model: ?*gio.MenuModel = null,
+        context_menu_preview_model: ?*gio.Menu = null,
         drop_target: *gtk.DropTarget,
         progress_bar_overlay: *gtk.ProgressBar,
         error_page: *adw.StatusPage,
@@ -1448,6 +1450,42 @@ pub const Surface = extern struct {
         dialog.present(self.as(gtk.Widget));
     }
 
+    pub fn setContextMenuTimestampPreview(
+        self: *Self,
+        label: ?[:0]const u8,
+    ) void {
+        const priv = self.private();
+        const base_model = priv.context_menu_base_model orelse return;
+
+        if (label == null) {
+            priv.context_menu.setMenuModel(base_model);
+            return;
+        }
+
+        const preview_model = preview_model: {
+            if (priv.context_menu_preview_model) |model| break :preview_model model;
+            const model = gio.Menu.new();
+            priv.context_menu_preview_model = model;
+            break :preview_model model;
+        };
+        preview_model.removeAll();
+
+        const preview_section = gio.Menu.new();
+        defer preview_section.unref();
+        preview_section.append(label, "surface.timestamp-preview");
+        preview_model.appendSection(null, preview_section.as(gio.MenuModel));
+
+        const item_count = base_model.getNItems();
+        var i: c_int = 0;
+        while (i < item_count) : (i += 1) {
+            const item = gio.MenuItem.newFromModel(base_model, i);
+            defer item.unref();
+            preview_model.appendItem(item);
+        }
+
+        priv.context_menu.setMenuModel(preview_model.as(gio.MenuModel));
+    }
+
     /// Scale x/y by the GDK device scale.
     fn scaledCoordinates(
         self: *Self,
@@ -1798,6 +1836,11 @@ pub const Surface = extern struct {
         // Setup properties we can't set from our Blueprint file.
         self.as(gtk.Widget).setCursorFromName("text");
 
+        if (priv.context_menu.getMenuModel()) |model| {
+            model.as(gobject.Object).ref();
+            priv.context_menu_base_model = model;
+        }
+
         // Initialize our config
         self.propConfig(undefined, null);
     }
@@ -1811,6 +1854,11 @@ pub const Surface = extern struct {
                 actionPromptTitle,
                 null,
             ),
+            .init(
+                "timestamp-preview",
+                actionTimestampPreview,
+                null,
+            ),
             .initStateful(
                 "notify-on-next-command-finish",
                 actionNotifyOnNextCommandFinish,
@@ -1820,6 +1868,11 @@ pub const Surface = extern struct {
         };
 
         priv.action_group = ext.actions.addAsGroup(Self, self, "surface", &actions);
+        const action = gobject.ext.cast(
+            gio.SimpleAction,
+            priv.action_group.?.as(gio.ActionMap).lookupAction("timestamp-preview") orelse return,
+        ) orelse return;
+        action.setEnabled(0);
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1844,6 +1897,21 @@ pub const Surface = extern struct {
         if (priv.vadj) |v| {
             v.as(gobject.Object).unref();
             priv.vadj = null;
+        }
+
+        if (priv.action_group) |v| {
+            v.unref();
+            priv.action_group = null;
+        }
+
+        if (priv.context_menu_preview_model) |v| {
+            v.unref();
+            priv.context_menu_preview_model = null;
+        }
+
+        if (priv.context_menu_base_model) |v| {
+            v.as(gobject.Object).unref();
+            priv.context_menu_base_model = null;
         }
 
         if (priv.progress_bar_timer) |timer| {
@@ -2561,6 +2629,12 @@ pub const Surface = extern struct {
             log.warn("unable to perform prompt title action err={}", .{err});
         };
     }
+
+    pub fn actionTimestampPreview(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        _: *Self,
+    ) callconv(.c) void {}
 
     pub fn actionNotifyOnNextCommandFinish(
         action: *gio.SimpleAction,

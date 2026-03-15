@@ -1497,6 +1497,11 @@ extension Ghostty {
 
             // If we have a selection, add copy
             if let text = self.accessibilitySelectedText(), text.count > 0 {
+                if let timestampPreview = self.contextMenuTimestampPreview(for: text) {
+                    item = menu.addItem(withTitle: "Time: \(timestampPreview)", action: nil, keyEquivalent: "")
+                    item.isEnabled = false
+                    menu.addItem(.separator())
+                }
                 menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
             }
             menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
@@ -1525,6 +1530,31 @@ extension Ghostty {
             item = menu.addItem(withTitle: "Change Terminal Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
 
             return menu
+        }
+
+        private func contextMenuTimestampPreview(for selection: String) -> String? {
+            let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count == 10 || trimmed.count == 13 else { return nil }
+            let nonDigits = CharacterSet.decimalDigits.inverted
+            guard trimmed.rangeOfCharacter(from: nonDigits) == nil else { return nil }
+            guard let rawValue = Int64(trimmed) else { return nil }
+
+            let secondsSince1970: TimeInterval
+            switch trimmed.count {
+            case 10:
+                secondsSince1970 = TimeInterval(rawValue)
+            case 13:
+                secondsSince1970 = TimeInterval(rawValue) / 1000
+            default:
+                return nil
+            }
+
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.timeZone = .autoupdatingCurrent
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss 'GMT'xxx"
+            return formatter.string(from: Date(timeIntervalSince1970: secondsSince1970))
         }
 
         // MARK: Menu Handlers

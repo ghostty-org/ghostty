@@ -22,6 +22,7 @@ const winprotopkg = @import("../winproto.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
+const timestamp_preview = @import("../timestamp_preview.zig");
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
@@ -1629,10 +1630,31 @@ pub const Window = extern struct {
     }
 
     fn surfaceMenu(
-        _: *Surface,
+        surface: *Surface,
         self: *Self,
     ) callconv(.c) void {
         self.syncActions();
+
+        const alloc = Application.default().allocator();
+        const core_surface = surface.core() orelse {
+            surface.setContextMenuTimestampPreview(null);
+            return;
+        };
+
+        const selection = core_surface.selectionString(alloc) catch |err| {
+            log.warn("failed reading selection for context menu err={}", .{err});
+            surface.setContextMenuTimestampPreview(null);
+            return;
+        };
+        defer if (selection) |text| alloc.free(text);
+
+        var label_buf: [80]u8 = undefined;
+        const label = if (selection) |text|
+            timestamp_preview.formatSelectionMenuLabel(&label_buf, text)
+        else
+            null;
+
+        surface.setContextMenuTimestampPreview(label);
     }
 
     fn surfacePresentRequest(
