@@ -1264,11 +1264,35 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 const overlay_features: []const Overlay.Feature = overlay: {
-                    const insp = state.inspector orelse break :overlay &.{};
-                    const renderer_info = insp.rendererInfo();
-                    break :overlay renderer_info.overlayFeatures(
-                        arena_alloc,
-                    ) catch &.{};
+                    // Collect features from inspector and vi mode.
+                    var feature_list: std.ArrayListUnmanaged(Overlay.Feature) = .empty;
+
+                    // Inspector features
+                    if (state.inspector) |insp| {
+                        const renderer_info = insp.rendererInfo();
+                        const insp_features = renderer_info.overlayFeatures(
+                            arena_alloc,
+                        ) catch &.{};
+                        feature_list.appendSlice(arena_alloc, insp_features) catch {};
+                    }
+
+                    // Vi mode features
+                    if (state.vi_mode.active) {
+                        if (state.vi_mode.cursor_row) |row| {
+                            if (state.vi_mode.cursor_col) |col| {
+                                feature_list.append(arena_alloc, .{
+                                    .vi_cursor = .{ .row = row, .col = col },
+                                }) catch {};
+                            }
+                        }
+                        if (state.vi_mode.mode_text) |text| {
+                            feature_list.append(arena_alloc, .{
+                                .vi_mode_indicator = text,
+                            }) catch {};
+                        }
+                    }
+
+                    break :overlay feature_list.items;
                 };
 
                 break :critical .{
