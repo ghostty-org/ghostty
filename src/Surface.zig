@@ -2063,6 +2063,147 @@ fn resolvePathForOpening(
     return null;
 }
 
+/// Returns true if the text has a non-local URL scheme and therefore should
+/// not be validated against the local filesystem.
+fn isNonLocalUrl(text: []const u8) bool {
+    const prefixes = [_][]const u8{
+        "http://",
+        "https://",
+        "mailto:",
+        "ftp://",
+        "ssh:",
+        "git://",
+        "ssh://",
+        "tel:",
+        "magnet:",
+        "ipfs://",
+        "ipns://",
+        "gemini://",
+        "gopher://",
+        "news:",
+    };
+    for (prefixes) |prefix| {
+        if (std.ascii.startsWithIgnoreCase(text, prefix)) return true;
+    }
+
+    return false;
+}
+
+/// Trim a trailing `:line` or `:line:column` suffix if present.
+fn trimLineColumnSuffix(text: []const u8) []const u8 {
+    var end = text.len;
+    var removed: u2 = 0;
+    while (removed < 2) : (removed += 1) {
+        if (end == 0) break;
+
+        var i = end;
+        while (i > 0 and std.ascii.isDigit(text[i - 1])) i -= 1;
+        if (i == end or i == 0 or text[i - 1] != ':') break;
+        end = i - 1;
+    }
+
+    return if (removed > 0) text[0..end] else text;
+}
+
+fn expandLeadingEnvVar(
+    path: []const u8,
+    buf: []u8,
+) ?[]const u8 {
+    if (path.len < 2 or path[0] != '$') return path;
+    if (!(std.ascii.isAlphabetic(path[1]) or path[1] == '_')) return null;
+
+    var i: usize = 2;
+    while (i < path.len and (std.ascii.isAlphanumeric(path[i]) or path[i] == '_')) {
+        i += 1;
+    }
+
+    // We only support the `$VAR/...` style path prefix.
+    if (i < path.len and path[i] != '/') return null;
+
+    const value = std.posix.getenv(path[1..i]) orelse return null;
+    const rest = path[i..];
+    if (value.len + rest.len > buf.len) return null;
+
+    @memcpy(buf[0..value.len], value);
+    @memcpy(buf[value.len .. value.len + rest.len], rest);
+    return buf[0 .. value.len + rest.len];
+}
+
+fn localPathExists(
+    self: *Surface,
+    path: []const u8,
+) bool {
+    var path_buf_home: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf_env: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf_resolved: [std.fs.max_path_bytes]u8 = undefined;
+
+    var candidate = std.mem.trimRight(u8, path, " ");
+    if (candidate.len == 0) return false;
+
+    candidate = internal_os.expandHome(candidate, &path_buf_home) catch
+        return false;
+    candidate = expandLeadingEnvVar(candidate, &path_buf_env) orelse
+        return false;
+
+    if (std.fs.path.isAbsolute(candidate)) {
+        std.fs.accessAbsolute(candidate, .{}) catch return false;
+        return true;
+    }
+
+    const terminal_pwd = self.io.terminal.getPwd() orelse return false;
+    var resolve_fba = std.heap.FixedBufferAllocator.init(&path_buf_resolved);
+    const resolved = std.fs.path.resolve(
+        resolve_fba.allocator(),
+        &.{ terminal_pwd, candidate },
+    ) catch return false;
+
+    std.fs.accessAbsolute(resolved, .{}) catch return false;
+    return true;
+}
+
+/// Return the local path target that exists on disk, optionally stripping
+/// a trailing `:line[:column]` suffix when needed.
+fn existingLocalPathTarget(
+    self: *Surface,
+    target: []const u8,
+) ?[]const u8 {
+    const trimmed = std.mem.trimRight(u8, target, " ");
+    if (trimmed.len == 0) return null;
+
+    if (self.localPathExists(trimmed)) return trimmed;
+
+    const no_lc = trimLineColumnSuffix(trimmed);
+    if (!std.mem.eql(u8, no_lc, trimmed) and self.localPathExists(no_lc)) return no_lc;
+
+    return null;
+}
+
+fn linkTargetExists(
+    self: *Surface,
+    target: []const u8,
+) bool {
+    const trimmed = std.mem.trimRight(u8, target, " ");
+    if (trimmed.len == 0) return false;
+
+    // Non-local URLs should remain linkable regardless of filesystem state.
+    if (isNonLocalUrl(trimmed)) return true;
+
+    // `file:` URLs are local by definition, so validate their local path.
+    if (std.mem.startsWith(u8, trimmed, "file:")) {
+        const uri = internal_os.uri.parse(trimmed, .{
+            .mac_address = true,
+            .raw_path = true,
+        }) catch return false;
+        if (!std.mem.eql(u8, uri.scheme, "file")) return false;
+
+        var raw_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const path = uri.path.toRaw(&raw_buf) catch return false;
+        return self.localPathExists(path);
+    }
+
+    return self.existingLocalPathTarget(trimmed) != null;
+}
+
 /// Returns the x/y coordinate of where the IME (Input Method Editor)
 /// keyboard should be rendered.
 pub fn imePoint(self: *const Surface) apprt.IMEPos {
@@ -4463,6 +4604,17 @@ fn linkAtPin(
             defer match.deinit();
             const sel = match.selection();
             if (!sel.contains(screen, mouse_pin)) continue;
+
+            // Local filesystem paths should only be linkable if they exist.
+            if (link.action == .open) {
+                const target = try self.io.terminal.screens.active.selectionString(self.alloc, .{
+                    .sel = sel,
+                    .trim = false,
+                });
+                defer self.alloc.free(target);
+                if (!self.linkTargetExists(target)) continue;
+            }
+
             return .{
                 .action = link.action,
                 .selection = sel,
@@ -4506,10 +4658,25 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
             });
             defer self.alloc.free(str);
 
-            const resolved_path = try self.resolvePathForOpening(str);
+            const open_target = blk: {
+                const trimmed = std.mem.trimRight(u8, str, " ");
+
+                // Keep non-local URLs and file URLs intact; they aren't path-only
+                // strings and may include characters that are significant.
+                if (isNonLocalUrl(trimmed)) break :blk trimmed;
+                if (std.mem.startsWith(u8, trimmed, "file:")) break :blk trimmed;
+
+                // For local file references like `foo.zig:12:5`, open the
+                // underlying existing path (`foo.zig`) instead of the suffix form.
+                if (self.existingLocalPathTarget(trimmed)) |local| break :blk local;
+
+                break :blk trimmed;
+            };
+
+            const resolved_path = try self.resolvePathForOpening(open_target);
             defer if (resolved_path) |p| self.alloc.free(p);
 
-            const url_to_open = resolved_path orelse str;
+            const url_to_open = resolved_path orelse open_target;
             try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
         },
 
