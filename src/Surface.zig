@@ -5915,6 +5915,16 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .io => self.queueIo(.{ .crash = {} }, .unlocked),
         },
 
+        .colorize_tab => |hex| {
+            const color = try terminal.color.RGB.parse(hex);
+            return try self.rt_app.performAction(.{ .surface = self }, .color_change, .{
+                .kind = .tab,
+                .r = color.r,
+                .g = color.g,
+                .b = color.b,
+            });
+        },
+
         .adjust_selection => |direction| {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
