@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const glib = @import("glib");
 const gio = @import("gio");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
@@ -139,6 +140,37 @@ pub const PopupManager = struct {
         return true;
     }
 
+    /// Update popup profiles from a new config. Handles additions, changes,
+    /// and removals:
+    /// - Removed profiles: hide and destroy any running popup instance
+    /// - New profiles: stored for lazy creation on next toggle/show
+    /// - Changed profiles: updated config applied on next toggle
+    pub fn updateProfileConfigs(self: *PopupManager, config: *const configpkg.Config) void {
+        // 1. Find and destroy windows for removed profiles
+        var i: usize = 0;
+        while (i < self.window_names.items.len) {
+            const wname = self.window_names.items[i];
+            const still_exists = for (config.popup.names.items) |cname| {
+                if (std.mem.eql(u8, wname, cname)) break true;
+            } else false;
+
+            if (!still_exists) {
+                // Destroy the window if it still exists
+                if (self.window_refs.items[i].get()) |win| {
+                    defer win.unref();
+                    win.as(gtk.Window).destroy();
+                }
+                self.removeWindowAt(i);
+                // Don't increment i — removeWindowAt shifts elements down
+            } else {
+                i += 1;
+            }
+        }
+
+        // 2. Reload all profiles from new config (handles adds + changes)
+        self.loadConfig(config);
+    }
+
     /// Hide (or destroy) all popup windows. Called during quit.
     pub fn hideAll(self: *PopupManager) void {
         for (self.window_refs.items) |*ref| {
@@ -165,7 +197,7 @@ pub const PopupManager = struct {
         };
 
         // Verify the profile exists
-        _ = self.getProfile(name) orelse {
+        const profile = self.getProfile(name) orelse {
             log.warn("no popup profile found for name '{s}'", .{name});
             return false;
         };
@@ -212,8 +244,39 @@ pub const PopupManager = struct {
             .{},
         );
 
+        // Resolve working directory: explicit cwd > focused surface pwd > none
+        const working_directory: ?[:0]const u8 = wd: {
+            if (profile.cwd) |cwd| {
+                if (cwd.len > 0 and cwd[0] == '~') {
+                    if (std.posix.getenv("HOME")) |home| {
+                        break :wd std.fmt.allocPrintZ(
+                            self.alloc,
+                            "{s}{s}",
+                            .{ home, cwd[1..] },
+                        ) catch break :wd null;
+                    }
+                }
+                break :wd self.alloc.dupeZ(u8, cwd) catch break :wd null;
+            }
+            // Try to inherit from focused surface
+            const list = gtk.Window.listToplevels();
+            defer list.free();
+            var node_: ?*glib.List = list;
+            while (node_) |node| : (node_ = node.f_next) {
+                const gtk_window: *gtk.Window = @ptrCast(@alignCast(node.f_data orelse continue));
+                if (gtk_window.isActive() == 0) continue;
+                const ghostty_win = gobject.ext.cast(Window, gtk_window) orelse continue;
+                const surface = ghostty_win.getActiveSurface() orelse continue;
+                break :wd surface.getPwd();
+            }
+            break :wd null;
+        };
+
         // Create initial tab
-        win.newTabForWindow(null, .none);
+        win.newTabForWindow(null, .{
+            .working_directory = working_directory,
+            .background_opacity = profile.opacity,
+        });
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
