@@ -2998,6 +2998,22 @@ fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
     const cursor_pin = self.cursor.page_pin.*;
     if (cursor_pin.eql(click_pin)) return .zero;
 
+    // If click pin is in the prompt area, traverse down the prompt rows.
+    // Allow cursor movement only if one of the rows contains input.
+    if (click_pin.rowAndCell().cell.semantic_content == .prompt) {
+        var row_pin = click_pin;
+        prompt: while (true) {
+            const rac = row_pin.rowAndCell();
+            const cells = row_pin.node.data.getCells(rac.row);
+            for (cells) |cell| {
+                if (cell.semantic_content == .input) break :prompt;
+            }
+
+            if (!rac.row.wrap) return .zero;
+            row_pin = row_pin.down(1) orelse return .zero;
+        }
+    }
+
     // If our cursor is before our click, we're only emitting right inputs.
     if (cursor_pin.before(click_pin)) {
         var count: usize = 0;
@@ -7348,7 +7364,7 @@ test "Screen: resize more cols with cursor at prompt" {
     defer s.deinit();
 
     // zig fmt: off
-    try s.testWriteString("ABCDE\n"); 
+    try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_eol });
@@ -7388,7 +7404,7 @@ test "Screen: resize more cols with cursor not at prompt" {
     defer s.deinit();
 
     // zig fmt: off
-    try s.testWriteString("ABCDE\n"); 
+    try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_eol });
@@ -10110,6 +10126,53 @@ test "Screen: promptClickMove line left basic" {
 
     try testing.expectEqual(@as(usize, 4), result.left);
     try testing.expectEqual(@as(usize, 0), result.right);
+}
+
+test "Screen: promptClickMove ignores click on prompt-only line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> \n");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(PromptClickMove.zero, result);
+}
+
+test "Screen: promptClickMove click on wrapped multi-line prompt moves to input start" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString(">>>>>>>>>>>>");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hi");
+
+    s.cursorAbsolute(4, 1);
+
+    const click_first_prompt_row = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?;
+    const result_first_prompt_row = s.promptClickMove(click_first_prompt_row);
+    try testing.expectEqual(@as(usize, 2), result_first_prompt_row.left);
+    try testing.expectEqual(@as(usize, 0), result_first_prompt_row.right);
+
+    const click_second_prompt_row = s.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?;
+    const result_second_prompt_row = s.promptClickMove(click_second_prompt_row);
+    try testing.expectEqual(@as(usize, 2), result_second_prompt_row.left);
+    try testing.expectEqual(@as(usize, 0), result_second_prompt_row.right);
 }
 
 test "Screen: promptClickMove line left skips non-input cells" {
