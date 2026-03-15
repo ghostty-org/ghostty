@@ -31,6 +31,8 @@ class PopupController: BaseTerminalController {
         var autohide: Bool = true
         var persist: Bool = true
         var command: String? = nil
+        var cwd: String? = nil
+        var opacity: Double? = nil  // nil means inherit global background-opacity
     }
 
     // MARK: - Properties

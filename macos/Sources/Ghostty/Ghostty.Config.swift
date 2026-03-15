@@ -623,6 +623,16 @@ extension Ghostty {
                 } else {
                     nil
                 }
+                let cwdStr: String? = if let cwdPtr = p.cwd {
+                    String(cString: cwdPtr)
+                } else {
+                    nil
+                }
+                let opacityVal: Double? = if p.opacity >= 0 {
+                    p.opacity
+                } else {
+                    nil
+                }
                 result[name] = PopupController.PopupProfileConfig(
                     position: PopupController.PopupProfileConfig.Position(rawValue: Int(p.position)) ?? .center,
                     widthValue: p.width_value,
@@ -631,7 +641,9 @@ extension Ghostty {
                     heightIsPercent: p.height_is_percent,
                     autohide: p.autohide,
                     persist: p.persist,
-                    command: cmd
+                    command: cmd,
+                    cwd: cwdStr,
+                    opacity: opacityVal
                 )
             }
             return result
