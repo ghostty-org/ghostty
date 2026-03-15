@@ -405,22 +405,25 @@ extension Ghostty {
         @State private var corner: Corner = .topRight
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
-        @FocusState private var isSearchFieldFocused: Bool
+        @State private var isSearchFieldFocused: Bool = false
 
         private let padding: CGFloat = 8
 
         var body: some View {
             GeometryReader { geo in
                 HStack(spacing: 4) {
-                    TextField("Search", text: $searchState.needle)
-                    .textFieldStyle(.plain)
+                    GhosttySearchField(
+                        text: $searchState.needle,
+                        surfaceView: surfaceView,
+                        onClose: onClose,
+                        isFocused: $isSearchFieldFocused
+                    )
                     .frame(width: 180)
                     .padding(.leading, 8)
                     .padding(.trailing, 50)
                     .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.1))
                     .cornerRadius(6)
-                    .focused($isSearchFieldFocused)
                     .overlay(alignment: .trailing) {
                         if let selected = searchState.selected {
                             Text("\(selected + 1)/\(searchState.total, default: "?")")
@@ -435,23 +438,6 @@ extension Ghostty {
                                 .monospacedDigit()
                                 .padding(.trailing, 8)
                         }
-                    }
-#if canImport(AppKit)
-                    .onExitCommand {
-                        if searchState.needle.isEmpty {
-                            onClose()
-                        } else {
-                            Ghostty.moveFocus(to: surfaceView)
-                        }
-                    }
-#endif
-                    .backport.onKeyPress(.return) { modifiers in
-                        guard let surface = surfaceView.surface else { return .ignored }
-                        let action = modifiers.contains(.shift)
-                        ? "navigate_search:previous"
-                        : "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
-                        return .handled
                     }
 
                     Button(action: {

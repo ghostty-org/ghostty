@@ -1595,7 +1595,7 @@ extension Ghostty {
 
         @IBAction func findNext(_ sender: Any?) {
             guard let surface = self.surface else { return }
-            let action = "search:next"
+            let action = "navigate_search:next"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
@@ -1603,7 +1603,7 @@ extension Ghostty {
 
         @IBAction func findPrevious(_ sender: Any?) {
             guard let surface = self.surface else { return }
-            let action = "search:previous"
+            let action = "navigate_search:previous"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
