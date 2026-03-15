@@ -121,7 +121,7 @@ pub const PopupManager = struct {
             };
             self.profiles.append(self.alloc, owned_profile) catch |err| {
                 log.warn("failed to store popup profile: {}", .{err});
-                if (self.profile_names.popOrNull()) |popped| {
+                if (self.profile_names.pop()) |popped| {
                     const plain: []const u8 = popped;
                     self.alloc.free(plain);
                 }
@@ -299,7 +299,7 @@ pub const PopupManager = struct {
         };
         self.window_refs.append(self.alloc, weak_ref) catch |err| {
             log.warn("failed to track popup window ref: {}", .{err});
-            if (self.window_names.popOrNull()) |popped_name| {
+            if (self.window_names.pop()) |popped_name| {
                 const plain: []const u8 = popped_name;
                 self.alloc.free(plain);
             }
@@ -308,11 +308,11 @@ pub const PopupManager = struct {
         };
         self.window_stale.append(self.alloc, false) catch |err| {
             log.warn("failed to track popup stale flag: {}", .{err});
-            if (self.window_names.popOrNull()) |popped_name| {
+            if (self.window_names.pop()) |popped_name| {
                 const plain: []const u8 = popped_name;
                 self.alloc.free(plain);
             }
-            _ = self.window_refs.popOrNull();
+            _ = self.window_refs.pop();
             win.as(gtk.Window).destroy();
             return false;
         };
