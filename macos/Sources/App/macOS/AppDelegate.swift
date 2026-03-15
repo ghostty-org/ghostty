@@ -790,6 +790,9 @@ class AppDelegate: NSObject,
         syncMenuShortcuts(config)
         TerminalController.all.forEach { $0.relabelTabs() }
 
+        // Update popup profiles on config reload
+        popupManager.updateProfileConfigs(config.popupProfiles)
+
         // Update our badge since config can change what we show.
         syncDockBadge()
 

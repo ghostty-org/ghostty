@@ -69,12 +69,19 @@ class PopupManager {
     // MARK: - Profile Config Management
 
     /// Update the stored profile configurations (called when the Ghostty
-    /// config is reloaded).  Existing controllers are NOT recreated — they
-    /// keep the config they were created with.
+    /// config is reloaded).  Handles additions, changes, and removals.
     func updateProfileConfigs(_ configs: [String: PopupController.PopupProfileConfig]) {
-        for (name, config) in configs {
-            profileConfigs[name] = config
+        // Find and destroy controllers for removed profiles
+        let removedNames = Set(profileConfigs.keys).subtracting(configs.keys)
+        for name in removedNames {
+            if let controller = controllers[name] {
+                controller.hide()
+                controllers.removeValue(forKey: name)
+            }
         }
+
+        // Update stored configs (handles new + changed profiles)
+        profileConfigs = configs
     }
 
     // MARK: - Private
