@@ -2009,6 +2009,24 @@ pub fn dumpTextLocked(
     };
 }
 
+// ---------------------------------------------------------------
+// Accessibility helpers
+// ---------------------------------------------------------------
+
+pub const AccessibilityContext = terminal.Screen.AccessibilityContext;
+
+/// Creates a pre-computed accessibility context (text + viewport
+/// range). The context is self-contained and can be used without
+/// holding the terminal mutex.
+pub fn createAccessibilityContext(
+    self: *Surface,
+    alloc: Allocator,
+) !*AccessibilityContext {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.io.terminal.screens.active.createAccessibilityContext(alloc);
+}
+
 /// Returns true if the terminal has a selection.
 pub fn hasSelection(self: *const Surface) bool {
     self.renderer_state.mutex.lock();
