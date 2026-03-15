@@ -144,7 +144,7 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         break :blk std.unicode.utf8Decode(event.utf8[0..len]) catch 0;
     } else 0;
 
-    // Handle pending multi-key sequences (e.g. gg)
+    // Handle pending multi-key sequences (e.g. gg, m{a-z}, '{a-z})
     if (self.pending_key) |pending| {
         self.pending_key = null;
         if (pending == 'g' and cp == 'g') {
@@ -155,19 +155,73 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
                 self.cursor_pin.x = 0;
             }
             self.count = null;
-            return .{ .scroll_top = true, .redraw = true };
+            var result: ViResult = .{ .scroll_top = true, .redraw = true };
+            if (self.sub_mode != .normal) result.selection_changed = true;
+            return result;
+        }
+        if (pending == 'm') {
+            // m{a-z}: set mark at current cursor position
+            if (cp >= 'a' and cp <= 'z') {
+                const idx = @as(usize, @intCast(cp - 'a'));
+                const screen = t.screens.active;
+                // Untrack old mark if it exists
+                if (self.marks[idx]) |old_pin| {
+                    screen.pages.untrackPin(old_pin);
+                }
+                // Track a new pin at current cursor position
+                self.marks[idx] = screen.pages.trackPin(self.cursor_pin.*) catch {
+                    self.marks[idx] = null;
+                    return .{ .redraw = true };
+                };
+                return .{ .redraw = true };
+            }
+            return .{ .redraw = true };
+        }
+        if (pending == '\'') {
+            // '{a-z}: jump to mark
+            if (cp >= 'a' and cp <= 'z') {
+                const idx = @as(usize, @intCast(cp - 'a'));
+                if (self.marks[idx]) |mark_pin| {
+                    if (mark_pin.garbage) {
+                        const screen = t.screens.active;
+                        screen.pages.untrackPin(mark_pin);
+                        self.marks[idx] = null;
+                    } else {
+                        self.cursor_pin.* = mark_pin.*;
+                        var result: ViResult = .{ .redraw = true };
+                        if (self.sub_mode != .normal) result.selection_changed = true;
+                        return result;
+                    }
+                }
+                return .{ .redraw = true };
+            }
+            return .{ .redraw = true };
         }
         // Unknown pending sequence — ignore
         return .{ .redraw = true };
     }
 
-    // Exit keys
-    if (event.key == .escape or cp == 'q' or event.key == .enter) {
+    // Escape key handling: if in visual mode, return to normal; otherwise exit.
+    if (event.key == .escape) {
+        self.pending_key = null;
+        self.count = null;
+        if (self.sub_mode != .normal) {
+            self.sub_mode = .normal;
+            return .{ .selection_changed = true, .redraw = true };
+        }
+        return .{ .exit = true, .redraw = true };
+    }
+
+    // Other exit keys
+    if (cp == 'q' or event.key == .enter) {
         return .{ .exit = true, .redraw = true };
     }
 
     // Ctrl+key motions (check before digit/letter dispatch)
     if (event.mods.ctrl) {
+        if (cp == 'v') {
+            return self.toggleVisualMode(.visual_block);
+        }
         return self.handleCtrlKey(cp, vp);
     }
 
@@ -183,7 +237,7 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
     }
 
     // Motion dispatch
-    return switch (cp) {
+    const motion_result: ViResult = switch (cp) {
         'h' => self.motionH(),
         'l' => self.motionL(),
         'j' => self.motionJ(),
@@ -199,8 +253,23 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         'w' => self.motionW(),
         'b' => self.motionB(),
         'e' => self.motionE(),
+        'v' => self.toggleVisualMode(.visual),
+        'V' => self.toggleVisualMode(.visual_line),
+        'y' => self.handleYank(),
+        'Y' => self.handleYankLine(),
+        'm' => self.startPending('m'),
+        '\'' => self.startPending('\''),
         else => .{ .redraw = true },
     };
+
+    // If we're in a visual sub-mode and a motion moved the cursor,
+    // mark the selection as changed so Surface can update it.
+    if (self.sub_mode != .normal and motion_result.redraw and !motion_result.selection_changed) {
+        var result = motion_result;
+        result.selection_changed = true;
+        return result;
+    }
+    return motion_result;
 }
 
 // ── h/l motions ──────────────────────────────────────────────────────
@@ -327,12 +396,52 @@ fn motionBigL(self: *ViMode, vp: ViewportInfo) ViResult {
     return .{ .redraw = true };
 }
 
+// ── Visual mode toggling ─────────────────────────────────────────────
+
+fn toggleVisualMode(self: *ViMode, target: SubMode) ViResult {
+    self.count = null;
+    if (self.sub_mode == target) {
+        // Toggling same mode off → return to normal
+        self.sub_mode = .normal;
+    } else {
+        // Enter target visual mode (or switch between visual modes)
+        self.sub_mode = target;
+    }
+    return .{ .selection_changed = true, .redraw = true };
+}
+
+// ── Yank ─────────────────────────────────────────────────────────────
+
+fn handleYank(self: *ViMode) ViResult {
+    self.count = null;
+    if (self.sub_mode != .normal) {
+        // Yank the visual selection
+        return .{ .copy_clipboard = true, .exit = true, .redraw = true };
+    }
+    return .{ .redraw = true };
+}
+
+fn handleYankLine(self: *ViMode) ViResult {
+    self.count = null;
+    // Y: yank current line — temporarily enter visual_line to select the line
+    self.sub_mode = .visual_line;
+    return .{ .selection_changed = true, .copy_clipboard = true, .exit = true, .redraw = true };
+}
+
+// ── Pending key helpers ──────────────────────────────────────────────
+
+fn startPending(self: *ViMode, key: u8) ViResult {
+    self.pending_key = key;
+    return .{ .redraw = false };
+}
+
 // ── Ctrl+u/d/b/f scroll motions ─────────────────────────────────────
 
 fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
     self.count = null;
     const half: usize = @max(vp.rows / 2, 1);
     const full: usize = @max(vp.rows, 1);
+    const in_visual = self.sub_mode != .normal;
 
     switch (cp) {
         'u' => {
@@ -343,7 +452,7 @@ fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
                     self.cursor_pin.* = new_pin;
                 } else break;
             }
-            return .{ .scroll_delta = -@as(isize, @intCast(half)), .redraw = true };
+            return .{ .scroll_delta = -@as(isize, @intCast(half)), .selection_changed = in_visual, .redraw = true };
         },
         'd' => {
             // Half page down
@@ -353,7 +462,7 @@ fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
                     self.cursor_pin.* = new_pin;
                 } else break;
             }
-            return .{ .scroll_delta = @as(isize, @intCast(half)), .redraw = true };
+            return .{ .scroll_delta = @as(isize, @intCast(half)), .selection_changed = in_visual, .redraw = true };
         },
         'b' => {
             // Full page up
@@ -363,7 +472,7 @@ fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
                     self.cursor_pin.* = new_pin;
                 } else break;
             }
-            return .{ .scroll_delta = -@as(isize, @intCast(full)), .redraw = true };
+            return .{ .scroll_delta = -@as(isize, @intCast(full)), .selection_changed = in_visual, .redraw = true };
         },
         'f' => {
             // Full page down
@@ -373,7 +482,7 @@ fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
                     self.cursor_pin.* = new_pin;
                 } else break;
             }
-            return .{ .scroll_delta = @as(isize, @intCast(full)), .redraw = true };
+            return .{ .scroll_delta = @as(isize, @intCast(full)), .selection_changed = in_visual, .redraw = true };
         },
         else => return .{ .redraw = true },
     }

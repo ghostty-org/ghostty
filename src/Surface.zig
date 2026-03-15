@@ -2425,6 +2425,26 @@ fn queueRender(self: *Surface) !void {
 
 /// Apply the side-effects described in a ViResult to the surface.
 fn performViResult(self: *Surface, result: ViMode.ViResult) void {
+    // Update selection before copy or exit so the selection state is current
+    if (result.selection_changed) {
+        self.updateViSelection();
+    }
+
+    // Copy to clipboard before exiting (so the selection is still available)
+    if (result.copy_clipboard) {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        if (self.io.terminal.screens.active.selection) |sel| {
+            self.copySelectionToClipboards(
+                sel,
+                &.{.standard},
+                .plain,
+            ) catch |err| {
+                log.warn("vi mode: failed to copy selection: {}", .{err});
+            };
+        }
+    }
+
     if (result.exit) {
         if (self.vi_mode) |*vi| {
             {
@@ -2432,7 +2452,7 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
                 defer self.renderer_state.mutex.unlock();
                 const t: *terminal.Terminal = self.renderer_state.terminal;
                 const screen = t.screens.active;
-                screen.selection = null;
+                screen.clearSelection();
                 vi.deinit(&screen.pages);
                 // Clear vi mode render state while mutex is held
                 self.renderer_state.vi_mode = .{};
@@ -2491,6 +2511,71 @@ fn updateViModeRenderState(self: *Surface) void {
             .visual_block => "V-BLOCK",
         },
     };
+}
+
+/// Update the terminal selection to match vi mode visual state.
+/// Creates/clears/updates the selection based on sub_mode and anchor.
+fn updateViSelection(self: *Surface) void {
+    const vi = &(self.vi_mode orelse return);
+
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    const screen = t.screens.active;
+
+    if (vi.sub_mode == .normal) {
+        // Exiting visual mode — clear selection and release anchor
+        screen.clearSelection();
+        if (vi.selection_anchor) |anchor| {
+            screen.pages.untrackPin(anchor);
+            vi.selection_anchor = null;
+        }
+        return;
+    }
+
+    // Entering or updating visual mode — ensure anchor exists
+    if (vi.selection_anchor == null) {
+        vi.selection_anchor = screen.pages.trackPin(vi.cursor_pin.*) catch {
+            return;
+        };
+    }
+
+    const anchor = vi.selection_anchor.?;
+
+    // Build start/end pins from anchor and cursor
+    var start_pin = anchor.*;
+    var end_pin = vi.cursor_pin.*;
+
+    switch (vi.sub_mode) {
+        .visual => {
+            // Character-wise: anchor to cursor, no modifications
+            screen.select(terminal.Selection.init(
+                start_pin,
+                end_pin,
+                false,
+            )) catch {};
+        },
+        .visual_line => {
+            // Line-wise: extend to full lines
+            start_pin.x = 0;
+            end_pin.x = @intCast(screen.pages.cols - 1);
+            screen.select(terminal.Selection.init(
+                start_pin,
+                end_pin,
+                false,
+            )) catch {};
+        },
+        .visual_block => {
+            // Block/rectangle selection
+            screen.select(terminal.Selection.init(
+                start_pin,
+                end_pin,
+                true,
+            )) catch {};
+        },
+        .normal => unreachable,
+    }
 }
 
 /// If vi mode is active, check whether the cursor pin is within the
