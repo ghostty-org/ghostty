@@ -191,6 +191,7 @@ pub const SavedCursor = struct {
     protected: bool,
     pending_wrap: bool,
     origin: bool,
+    cursor_blinking: bool,
     charset: CharsetState,
 };
 

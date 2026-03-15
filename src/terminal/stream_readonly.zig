@@ -87,8 +87,8 @@ pub const Handler = struct {
             ),
             .cursor_style => {
                 const blink = switch (value) {
-                    .default, .steady_block, .steady_bar, .steady_underline => false,
-                    .blinking_block, .blinking_bar, .blinking_underline => true,
+                    .steady_block, .steady_bar, .steady_underline => false,
+                    .default, .blinking_block, .blinking_bar, .blinking_underline => true,
                 };
                 const style: Screen.CursorStyle = switch (value) {
                     .default, .blinking_block, .steady_block => .block,
