@@ -2489,11 +2489,14 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
         _ = self.performBindingAction(.start_search) catch {};
     }
 
-    // Search navigation from vi mode (n and N keys)
+    // Search navigation from vi mode (n and N keys).
+    // Ghostty's search .next walks newer→older (toward top of scrollback),
+    // but vi's n after / should go toward bottom (forward = older→newer).
+    // So we invert: vi "next" → search .previous, vi "prev" → search .next.
     if (result.navigate_search_next) {
-        _ = self.performBindingAction(.{ .navigate_search = .next }) catch {};
-    } else if (result.navigate_search_prev) {
         _ = self.performBindingAction(.{ .navigate_search = .previous }) catch {};
+    } else if (result.navigate_search_prev) {
+        _ = self.performBindingAction(.{ .navigate_search = .next }) catch {};
     }
 
     if (result.redraw) {
@@ -2504,12 +2507,20 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
 /// Update the vi mode fields in renderer_state from current vi_mode.
 /// Caller MUST hold renderer_state.mutex.
 fn updateViModeRenderState(self: *Surface) void {
-    const vi = self.vi_mode orelse {
+    const vi = &(self.vi_mode orelse {
         self.renderer_state.vi_mode = .{};
         return;
-    };
+    });
     const t: *terminal.Terminal = self.renderer_state.terminal;
     const screen = t.screens.active;
+
+    // If cursor_pin was garbage-collected (backing page pruned),
+    // reset cursor to viewport top-left as spec requires.
+    if (vi.cursor_pin.garbage) {
+        const top = screen.pages.getTopLeft(.viewport);
+        vi.cursor_pin.* = top;
+    }
+
     const vp_point = screen.pages.pointFromPin(.viewport, vi.cursor_pin.*);
 
     self.renderer_state.vi_mode = .{
@@ -2555,6 +2566,15 @@ fn updateViSelection(self: *Surface) void {
 
     const anchor = vi.selection_anchor.?;
 
+    // If anchor pin was garbage-collected, clear selection and exit visual mode.
+    if (anchor.garbage) {
+        screen.clearSelection();
+        screen.pages.untrackPin(anchor);
+        vi.selection_anchor = null;
+        vi.sub_mode = .normal;
+        return;
+    }
+
     // Build start/end pins from anchor and cursor
     var start_pin = anchor.*;
     var end_pin = vi.cursor_pin.*;
@@ -2569,9 +2589,29 @@ fn updateViSelection(self: *Surface) void {
             )) catch {};
         },
         .visual_line => {
-            // Line-wise: extend to full lines
-            start_pin.x = 0;
-            end_pin.x = @intCast(screen.pages.cols - 1);
+            // Line-wise: both rows need full coverage regardless of
+            // selection direction (cursor may be above or below anchor).
+            // Determine which pin is "top" (earlier in screen) and which
+            // is "bottom" by comparing screen coordinates.
+            const start_pt = screen.pages.pointFromPin(.screen, start_pin);
+            const end_pt = screen.pages.pointFromPin(.screen, end_pin);
+            if (start_pt != null and end_pt != null) {
+                const sy = start_pt.?.screen.y;
+                const ey = end_pt.?.screen.y;
+                if (sy <= ey) {
+                    // Forward: start is top, end is bottom
+                    start_pin.x = 0;
+                    end_pin.x = @intCast(screen.pages.cols - 1);
+                } else {
+                    // Backward: end is top, start is bottom
+                    end_pin.x = 0;
+                    start_pin.x = @intCast(screen.pages.cols - 1);
+                }
+            } else {
+                // Fallback: just set both to full width
+                start_pin.x = 0;
+                end_pin.x = @intCast(screen.pages.cols - 1);
+            }
             screen.select(terminal.Selection.init(
                 start_pin,
                 end_pin,
@@ -6001,10 +6041,28 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             defer self.renderer_state.mutex.unlock();
             const t: *terminal.Terminal = self.renderer_state.terminal;
             const screen = t.screens.active;
-            const cursor_pin = screen.pages.trackPin(screen.cursor.page_pin.*) catch |err| {
+
+            // Decide initial cursor position:
+            // If viewport is at active area (not scrolled), start at terminal cursor.
+            // If viewport is scrolled away, start at viewport top-left.
+            const initial_pin = if (screen.pages.viewport == .active)
+                screen.cursor.page_pin.*
+            else
+                screen.pages.getTopLeft(.viewport);
+
+            const cursor_pin = screen.pages.trackPin(initial_pin) catch |err| {
                 log.err("vi mode: failed to track cursor pin: {}", .{err});
                 return false;
             };
+
+            // Pin the viewport so new PTY output doesn't auto-scroll.
+            // When viewport is .active, pin it at the current active area top.
+            if (screen.pages.viewport == .active) {
+                const active_top = screen.pages.getTopLeft(.active);
+                screen.pages.scroll(.{ .pin = active_top });
+            }
+            // If already .pin or .top, viewport is already frozen.
+
             self.vi_mode = ViMode.init(cursor_pin);
             self.updateViModeRenderState();
             self.queueRender() catch {};
