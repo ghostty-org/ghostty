@@ -54,6 +54,10 @@ pub fn build(b: *std.Build) !void {
         "update-translations",
         "Update translation files",
     );
+    const terminfo_step = b.step(
+        "terminfo",
+        "Build Ghostty terminfo source files",
+    );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
@@ -91,6 +95,20 @@ pub fn build(b: *std.Build) !void {
         check_step.dependOn(dist.install_step);
     }
 
+    // Ghostty terminfo source artifacts
+    const terminfo = try buildpkg.GhosttyTerminfo.init(b, &deps);
+    {
+        terminfo_step.dependOn(terminfo.installTerminfoSource(
+            b,
+            &config,
+        ));
+        if (terminfo.installTermcapSource(
+            b,
+            &config,
+        )) |cap_step| {
+            terminfo_step.dependOn(cap_step);
+        }
+    }
     // libghostty (internal, big)
     const libghostty_shared = try buildpkg.GhosttyLib.initShared(
         b,
@@ -290,7 +308,6 @@ pub fn build(b: *std.Build) !void {
         });
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
-
         // Verify our internal libghostty header.
         const ghostty_h = b.addTranslateC(.{
             .root_source_file = b.path("include/ghostty.h"),
