@@ -4,7 +4,7 @@ const c = @import("c.zig").c;
 pub const Context = c.GladGLContext;
 
 /// This is the current context. Set this var manually prior to calling
-/// any of this package's functions. I know its nasty to have a global but
+/// any of this package's functions. I know it's nasty to have a global but
 /// this makes it match OpenGL API styles where it also operates on a
 /// threadlocal global.
 pub threadlocal var context: Context = undefined;

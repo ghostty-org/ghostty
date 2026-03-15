@@ -18,7 +18,7 @@ pub fn disableDefaultFontFeatures(face: *const font.Face) bool {
     // This function used to do something, but we integrated the logic
     // we checked for directly into our shaping algorithm. It's likely
     // there are other broken fonts for other reasons so I'm keeping this
-    // around so its easy to add more checks in the future.
+    // around so it's easy to add more checks in the future.
     return false;
 
     // var buf: [64]u8 = undefined;

@@ -108,7 +108,7 @@ pub fn threadEnter(
         ),
 
         // If we're executing via Flatpak then we can't do
-        // traditional process watching (its implemented
+        // traditional process watching (it's implemented
         // as a special case in os/flatpak.zig) since the
         // command is on the host.
         .flatpak => null,
@@ -494,7 +494,7 @@ pub const ThreadData = struct {
     // enough to satisfy most write requests. It must be a power of 2.
     const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
 
-    /// Process start time and boolean of whether its already exited.
+    /// Process start time and boolean of whether it's already exited.
     start: std.time.Instant,
     exited: bool = false,
 
@@ -1187,7 +1187,7 @@ const Subprocess = struct {
 
     fn getpgid(pid: c.pid_t) ?c.pid_t {
         // Get our process group ID. Before the child pid calls setsid
-        // the pgid will be ours because we forked it. Its possible that
+        // the pgid will be ours because we forked it. It's possible that
         // we may be calling this before setsid if we are killing a surface
         // VERY quickly after starting it.
         const my_pgid = c.getpgid(0);
@@ -1205,7 +1205,7 @@ const Subprocess = struct {
                 continue;
             }
 
-            // Don't know why it would be zero but its not a valid pid
+            // Don't know why it would be zero but it's not a valid pid
             if (pgid == 0) return null;
 
             // If the pid doesn't exist then... we're done!
@@ -1478,7 +1478,7 @@ fn execCommand(
         // There is another issue: `login(1)` on macOS 14.3 and earlier
         // checked for ".hushlogin" in the working directory. This means
         // that if we specify "-l" then we won't get hushlogin honored
-        // if its in the home directory (which is standard). To get
+        // if it's in the home directory (which is standard). To get
         // around this, we check for hushlogin ourselves and if present
         // specify the "-q" flag to login(1).
         //

@@ -32,7 +32,7 @@ pub const mode_string = mode: {
 pub const artifact = Artifact.detect();
 
 /// Our build configuration. We re-export a lot of these back at the
-/// top-level so its a bit cleaner to use throughout the code. See the doc
+/// top-level so it's a bit cleaner to use throughout the code. See the doc
 /// comments in BuildConfig for details on each.
 const config = BuildConfig.fromOptions();
 pub const exe_entrypoint = config.exe_entrypoint;

@@ -162,7 +162,7 @@ pub const StreamHandler = struct {
         defer self.renderer_state.mutex.lock();
         self.renderer_wakeup.notify() catch |err| {
             // This is an EXTREMELY unlikely case. We still don't return
-            // and attempt to send the message because its most likely
+            // and attempt to send the message because it's most likely
             // that everything is fine, but log in case a freeze happens.
             log.warn(
                 "failed to notify renderer, may deadlock err={}",

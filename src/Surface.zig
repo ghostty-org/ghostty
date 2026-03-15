@@ -4968,14 +4968,14 @@ fn mouseSelection(
         break :ebs drag_pin.before(click_pin);
     };
 
-    // Whether or not the the click pin cell
+    // Whether or not the click pin cell
     // should be included in the selection.
     const include_click_cell = if (end_before_start)
         click_x_frac >= threshold_point
     else
         click_x_frac < threshold_point;
 
-    // Whether or not the the drag pin cell
+    // Whether or not the drag pin cell
     // should be included in the selection.
     const include_drag_cell = if (end_before_start)
         drag_x_frac < threshold_point

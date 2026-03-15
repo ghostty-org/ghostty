@@ -740,7 +740,7 @@ pub const RenderState = struct {
     /// we can adjust this later.
     ///
     /// NOTE: There is a limitation in that wrapped lines before/after
-    /// the the top/bottom line of the viewport are not included, since
+    /// the top/bottom line of the viewport are not included, since
     /// the render state cuts them off.
     pub fn string(
         self: *const RenderState,

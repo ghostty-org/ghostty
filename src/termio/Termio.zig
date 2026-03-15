@@ -67,7 +67,7 @@ terminal_stream: StreamHandler.Stream,
 last_cursor_reset: ?std.time.Instant = null,
 
 /// State we have for thread enter. This may be null if we don't need
-/// to keep track of any state or if its already been freed.
+/// to keep track of any state or if it's already been freed.
 thread_enter_state: ?*ThreadEnterState = null,
 
 /// The state we need to keep around only until we enter the IO
@@ -391,7 +391,7 @@ pub fn threadExit(self: *Termio, data: *ThreadData) void {
     self.backend.threadExit(data);
 }
 
-/// Send a message to the the mailbox. Depending on the mailbox type in
+/// Send a message to the mailbox. Depending on the mailbox type in
 /// use this may process now or it may just enqueue and process later.
 ///
 /// This will also notify the mailbox thread to process the message. If
@@ -609,7 +609,7 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
             // Clear all Kitty graphics state for this screen. This copies
             // Kitty's behavior when Cmd+K deletes all Kitty graphics. I
             // didn't spend time researching whether it only deletes Kitty
-            // graphics that are placed baove the cursor or if it deletes
+            // graphics that are placed above the cursor or if it deletes
             // all of them. We delete all of them for now but if this behavior
             // isn't fully correct we should fix this later.
             self.terminal.screens.active.kitty_images.delete(

@@ -1,6 +1,6 @@
 //! Represents the "writer" thread for terminal IO. The reader side is
 //! handled by the Termio struct itself and dependent on the underlying
-//! implementation (i.e. if its a pty, manual, etc.).
+//! implementation (i.e. if it's a pty, manual, etc.).
 //!
 //! The writer thread does handle writing bytes to the pty but also handles
 //! different events such as starting synchronized output, changing some
@@ -474,7 +474,7 @@ fn startScrollTimer(self: *Thread, cb: *CallbackData) void {
     switch (self.scroll_c.state()) {
         // If it is already active, e.g. startScrollTimer is called multiple
         // times, then we just return. We can't simply check `scroll_active`
-        // because its possible that `stopScrollTimer` was called but there
+        // because it's possible that `stopScrollTimer` was called but there
         // was no loop tick between then and now to halt out completion.
         .active => return,
 

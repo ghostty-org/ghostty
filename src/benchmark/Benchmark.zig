@@ -38,9 +38,9 @@ pub fn run(
     // Our result accumulator. This will be returned at the end of the run.
     var result: RunResult = .{};
 
-    // If we're on macOS, we setup signposts so its easier to find
+    // If we're on macOS, we setup signposts so it's easier to find
     // the results in Instruments. There's a lot of nasty comptime stuff
-    // here but its just to ensure this does nothing on other platforms.
+    // here but it's just to ensure this does nothing on other platforms.
     const signpost_name = "ghostty";
     const signpost: if (builtin.target.os.tag.isDarwin()) struct {
         log: *macos.os.Log,
