@@ -364,7 +364,7 @@ class BaseTerminalController: NSWindowController,
         alert.informativeText = "Leave blank to restore the default."
         alert.alertStyle = .informational
 
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        let textField = AlertTextFieldWithMenuSupport(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
         textField.stringValue = titleOverride ?? window.title
         alert.accessoryView = textField
 
@@ -1536,6 +1536,41 @@ extension BaseTerminalController {
             // subscriptions for old/removed surfaces when the tree changes.
             .switchToLatest()
             .eraseToAnyPublisher()
+    }
+}
+
+// MARK: - AlertTextFieldWithMenuSupport
+
+/// A custom NSTextField that properly supports standard macOS text editing menu commands
+/// (cut, copy, paste) when used as an accessory view in NSAlert dialogs.
+/// This ensures cmd+c, cmd+x, and cmd+v work as expected in the rename tab dialog.
+private class AlertTextFieldWithMenuSupport: NSTextField {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Handle standard macOS text editing commands through the responder chain.
+        // This allows cmd+c (copy), cmd+x (cut), cmd+v (paste), and cmd+a (select all)
+        // to work properly in alert accessory text fields.
+        if event.type == .keyDown {
+            let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let isCommandKey = modifierFlags.contains(.command)
+
+            if isCommandKey {
+                let characters = event.characters ?? ""
+                switch characters {
+                case "c": // cmd+c (copy)
+                    return NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: self)
+                case "x": // cmd+x (cut)
+                    return NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self)
+                case "v": // cmd+v (paste)
+                    return NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: self)
+                case "a": // cmd+a (select all)
+                    return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self)
+                default:
+                    break
+                }
+            }
+        }
+
+        return super.performKeyEquivalent(with: event)
     }
 }
 
