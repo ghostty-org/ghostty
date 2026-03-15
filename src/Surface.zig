@@ -2425,15 +2425,22 @@ fn queueRender(self: *Surface) !void {
 
 /// Apply the side-effects described in a ViResult to the surface.
 fn performViResult(self: *Surface, result: ViMode.ViResult) void {
-    // Update selection before copy or exit so the selection state is current
+    // Scroll delta to apply after releasing the lock (if any).
+    var scroll_io: ?termio.Message = null;
+
+    // --- Begin single lock span for all terminal state operations ---
+    self.renderer_state.mutex.lock();
+
+    // Update selection before copy or exit so the selection state is current.
+    // Inlined from updateViSelection — caller already holds the mutex.
     if (result.selection_changed) {
-        self.updateViSelection();
+        self.updateViSelectionLocked();
     }
 
-    // Copy to clipboard before exiting (so the selection is still available)
+    // Copy to clipboard before exiting (so the selection is still available).
+    // copySelectionToClipboards reads from the screen but does not acquire
+    // the mutex itself, so it is safe to call while we hold it.
     if (result.copy_clipboard) {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
         if (self.io.terminal.screens.active.selection) |sel| {
             self.copySelectionToClipboards(
                 sel,
@@ -2447,43 +2454,65 @@ fn performViResult(self: *Surface, result: ViMode.ViResult) void {
 
     if (result.exit) {
         if (self.vi_mode) |*vi| {
-            {
-                self.renderer_state.mutex.lock();
-                defer self.renderer_state.mutex.unlock();
-                const t: *terminal.Terminal = self.renderer_state.terminal;
-                const screen = t.screens.active;
-                screen.clearSelection();
-                vi.deinit(&screen.pages);
-                // Clear vi mode render state while mutex is held
-                self.renderer_state.vi_mode = .{};
-            }
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            const screen = t.screens.active;
+            screen.clearSelection();
+            // deinit calls untrackPin which mutates the page list — must
+            // happen while the lock is held.
+            vi.deinit(&screen.pages);
+            self.renderer_state.vi_mode = .{};
             self.vi_mode = null;
-            self.queueIo(.{
-                .scroll_viewport = .{ .bottom = {} },
-            }, .unlocked);
+            scroll_io = .{ .scroll_viewport = .{ .bottom = {} } };
         }
     } else {
-        // Vi mode is still active, update render state with current position
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
+        // Vi mode is still active, update render state with current position.
         self.updateViModeRenderState();
+
+        // Determine scroll I/O while we still have terminal state access.
+        if (result.scroll_top) {
+            scroll_io = .{ .scroll_viewport = .{ .top = {} } };
+        } else if (result.scroll_bottom) {
+            scroll_io = .{ .scroll_viewport = .{ .bottom = {} } };
+        } else if (result.scroll_delta) |delta| {
+            scroll_io = .{ .scroll_viewport = .{ .delta = delta } };
+        } else if (result.redraw) {
+            // Inline ensureViCursorVisible logic — compute scroll delta
+            // while the lock is held, apply after release.
+            if (self.vi_mode) |vi| {
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                const screen = t.screens.active;
+                const cursor_screen_pt = screen.pages.pointFromPin(.screen, vi.cursor_pin.*);
+                const vp_top_pin = screen.pages.pin(.{ .viewport = .{} });
+                if (vp_top_pin) |vtp| {
+                    const vp_top_screen_pt = screen.pages.pointFromPin(.screen, vtp);
+                    const rows = screen.pages.rows;
+                    const cursor_y = if (cursor_screen_pt) |pt| pt.screen.y else null;
+                    const vp_top_y = if (vp_top_screen_pt) |pt| pt.screen.y else null;
+                    if (cursor_y != null and vp_top_y != null) {
+                        const cy = cursor_y.?;
+                        const vy = vp_top_y.?;
+                        const vp_bottom_y = vy + rows -| 1;
+                        if (cy < vy) {
+                            const delta = vy - cy;
+                            scroll_io = .{ .scroll_viewport = .{ .delta = -@as(isize, @intCast(delta)) } };
+                        } else if (cy > vp_bottom_y) {
+                            const delta = cy - vp_bottom_y;
+                            scroll_io = .{ .scroll_viewport = .{ .delta = @as(isize, @intCast(delta)) } };
+                        }
+                    }
+                }
+            }
+        }
     }
-    if (result.scroll_top) {
-        self.queueIo(.{
-            .scroll_viewport = .{ .top = {} },
-        }, .unlocked);
-    } else if (result.scroll_bottom) {
-        self.queueIo(.{
-            .scroll_viewport = .{ .bottom = {} },
-        }, .unlocked);
-    } else if (result.scroll_delta) |delta| {
-        self.queueIo(.{
-            .scroll_viewport = .{ .delta = delta },
-        }, .unlocked);
-    } else if (result.redraw and !result.exit) {
-        // Ensure vi cursor stays visible by scrolling if needed
-        self.ensureViCursorVisible();
+
+    // --- Release lock: all terminal state reads/writes are done ---
+    self.renderer_state.mutex.unlock();
+
+    // Non-terminal operations below use their own synchronization.
+    if (scroll_io) |io_msg| {
+        self.queueIo(io_msg, .unlocked);
     }
+
     // Search triggers from vi mode (/ and ? keys)
     if (result.start_search_forward or result.start_search_backward) {
         _ = self.performBindingAction(.start_search) catch {};
@@ -2539,10 +2568,15 @@ fn updateViModeRenderState(self: *Surface) void {
 /// Update the terminal selection to match vi mode visual state.
 /// Creates/clears/updates the selection based on sub_mode and anchor.
 fn updateViSelection(self: *Surface) void {
-    const vi = &(self.vi_mode orelse return);
-
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
+    self.updateViSelectionLocked();
+}
+
+/// Same as `updateViSelection` but assumes `renderer_state.mutex` is
+/// already held by the caller.
+fn updateViSelectionLocked(self: *Surface) void {
+    const vi = &(self.vi_mode orelse return);
 
     const t: *terminal.Terminal = self.renderer_state.terminal;
     const screen = t.screens.active;
