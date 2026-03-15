@@ -226,6 +226,23 @@ class PopupController: BaseTerminalController {
         if let cmd = profileConfig.command, !cmd.isEmpty {
             config.command = cmd
         }
+
+        // Set working directory: explicit cwd > focused surface pwd > default
+        if let cwd = profileConfig.cwd {
+            config.workingDirectory = NSString(string: cwd).expandingTildeInPath
+        } else {
+            // Try to inherit from the currently focused surface
+            if let controller = NSApp.keyWindow?.contentViewController as? BaseTerminalController,
+               let surfaceView = controller.focusedSurface,
+               let pwd = surfaceView.pwd {
+                config.workingDirectory = pwd
+            }
+        }
+
+        if let opacity = profileConfig.opacity {
+            config.backgroundOpacity = max(0.0, min(1.0, opacity))
+        }
+
         return config
     }
 
