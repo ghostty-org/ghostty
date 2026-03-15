@@ -499,6 +499,8 @@ typedef struct {
   bool autohide;
   bool persist;
   const char* command;
+  const char* cwd;
+  double opacity;
 } ghostty_popup_profile_config_s;
 
 // config.Config.RepeatablePopup.C
