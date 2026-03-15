@@ -3,6 +3,7 @@ const terminal = @import("terminal/main.zig");
 const input = @import("input.zig");
 const PageList = terminal.PageList;
 const Pin = PageList.Pin;
+const Cell = terminal.page.Cell;
 
 const ViMode = @This();
 
@@ -58,12 +59,84 @@ pub fn deinit(self: *ViMode, pages: *PageList) void {
     }
 }
 
+/// Consume the accumulated count prefix, returning 1 if none was set.
+fn getEffectiveCount(self: *ViMode) u32 {
+    const c = self.count orelse 1;
+    self.count = null;
+    return c;
+}
+
+/// Returns the column index of the last non-empty cell on the row
+/// that `p` points to, or 0 if the entire row is empty.
+fn lineLength(p: Pin) u16 {
+    const all_cells = p.cells(.all);
+    var last: u16 = 0;
+    for (all_cells, 0..) |cell, i| {
+        if (cell.codepoint() != 0 and cell.codepoint() != ' ') {
+            last = @intCast(i);
+        }
+    }
+    return last;
+}
+
+/// Returns the column of the first non-whitespace cell on the row, or 0.
+fn firstNonBlank(p: Pin) u16 {
+    const all_cells = p.cells(.all);
+    for (all_cells, 0..) |cell, i| {
+        const cp = cell.codepoint();
+        if (cp != 0 and cp != ' ' and cp != '\t') {
+            return @intCast(i);
+        }
+    }
+    return 0;
+}
+
+/// Check whether the cell at pin position is a "word" character
+/// (non-whitespace, non-empty).
+fn isWordChar(p: Pin) bool {
+    const all_cells = p.cells(.all);
+    if (p.x >= all_cells.len) return false;
+    const cp = all_cells[p.x].codepoint();
+    return cp != 0 and cp != ' ' and cp != '\t';
+}
+
+/// Advance pin one character to the right, wrapping to next line if needed.
+/// Returns null if we can't advance further (end of scrollback).
+fn advanceChar(p: Pin) ?Pin {
+    const all_cells = p.cells(.all);
+    if (p.x + 1 < all_cells.len) {
+        var next = p;
+        next.x += 1;
+        return next;
+    }
+    // Wrap to next line
+    if (p.down(1)) |next_row| {
+        var next = next_row;
+        next.x = 0;
+        return next;
+    }
+    return null;
+}
+
+/// Move pin one character to the left, wrapping to previous line if needed.
+/// Returns null if we can't retreat further (start of scrollback).
+fn retreatChar(p: Pin) ?Pin {
+    if (p.x > 0) {
+        var prev = p;
+        prev.x -= 1;
+        return prev;
+    }
+    // Wrap to previous line end
+    if (p.up(1)) |prev_row| {
+        var prev = prev_row;
+        prev.x = lineLength(prev);
+        return prev;
+    }
+    return null;
+}
+
 /// Process a key event. Returns side-effects for Surface.
 pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: input.KeyEvent) ViResult {
-    _ = t;
-    _ = vp;
-    _ = self;
-
     // Decode the first codepoint from the UTF-8 text, if any.
     const cp: u21 = if (event.utf8.len > 0) blk: {
         const len = std.unicode.utf8ByteSequenceLength(event.utf8[0]) catch break :blk 0;
@@ -71,10 +144,330 @@ pub fn handleKey(self: *ViMode, t: *terminal.Terminal, vp: ViewportInfo, event: 
         break :blk std.unicode.utf8Decode(event.utf8[0..len]) catch 0;
     } else 0;
 
+    // Handle pending multi-key sequences (e.g. gg)
+    if (self.pending_key) |pending| {
+        self.pending_key = null;
+        if (pending == 'g' and cp == 'g') {
+            // gg: jump to top of scrollback
+            const screen = t.screens.active;
+            if (screen.pages.pin(.{ .screen = .{} })) |top_pin| {
+                self.cursor_pin.* = top_pin;
+                self.cursor_pin.x = 0;
+            }
+            self.count = null;
+            return .{ .scroll_top = true, .redraw = true };
+        }
+        // Unknown pending sequence — ignore
+        return .{ .redraw = true };
+    }
+
+    // Exit keys
     if (event.key == .escape or cp == 'q' or event.key == .enter) {
         return .{ .exit = true, .redraw = true };
     }
 
+    // Ctrl+key motions (check before digit/letter dispatch)
+    if (event.mods.ctrl) {
+        return self.handleCtrlKey(cp, vp);
+    }
+
+    // Count accumulation: digits 1-9 always start/extend count,
+    // digit 0 extends count only if already accumulating.
+    if (cp >= '1' and cp <= '9') {
+        self.count = (self.count orelse 0) * 10 + @as(u32, @intCast(cp - '0'));
+        return .{ .redraw = false };
+    }
+    if (cp == '0' and self.count != null) {
+        self.count = self.count.? * 10;
+        return .{ .redraw = false };
+    }
+
+    // Motion dispatch
+    return switch (cp) {
+        'h' => self.motionH(),
+        'l' => self.motionL(),
+        'j' => self.motionJ(),
+        'k' => self.motionK(),
+        '0' => self.motionZero(),
+        '$' => self.motionDollar(),
+        '^' => self.motionCaret(),
+        'G' => self.motionBigG(t),
+        'H' => self.motionBigH(vp),
+        'M' => self.motionBigM(vp),
+        'L' => self.motionBigL(vp),
+        'g' => self.motionSmallG(),
+        'w' => self.motionW(),
+        'b' => self.motionB(),
+        'e' => self.motionE(),
+        else => .{ .redraw = true },
+    };
+}
+
+// ── h/l motions ──────────────────────────────────────────────────────
+
+fn motionH(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    if (self.cursor_pin.x >= count) {
+        self.cursor_pin.x -= @intCast(count);
+    } else {
+        self.cursor_pin.x = 0;
+    }
+    return .{ .redraw = true };
+}
+
+fn motionL(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    const max_x = lineLength(self.cursor_pin.*);
+    const new_x = @as(u32, self.cursor_pin.x) + count;
+    self.cursor_pin.x = if (new_x > max_x) max_x else @intCast(new_x);
+    return .{ .redraw = true };
+}
+
+// ── j/k motions ──────────────────────────────────────────────────────
+
+fn motionJ(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        if (self.cursor_pin.down(1)) |new_pin| {
+            self.cursor_pin.* = new_pin;
+            self.cursor_pin.x = self.cursor_pin.x; // preserve x for now
+        } else break;
+    }
+    // Clamp x to new line length
+    const max_x = lineLength(self.cursor_pin.*);
+    if (self.cursor_pin.x > max_x) {
+        self.cursor_pin.x = max_x;
+    }
+    return .{ .redraw = true };
+}
+
+fn motionK(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        if (self.cursor_pin.up(1)) |new_pin| {
+            self.cursor_pin.* = new_pin;
+            self.cursor_pin.x = self.cursor_pin.x;
+        } else break;
+    }
+    const max_x = lineLength(self.cursor_pin.*);
+    if (self.cursor_pin.x > max_x) {
+        self.cursor_pin.x = max_x;
+    }
+    return .{ .redraw = true };
+}
+
+// ── 0, $, ^ motions ─────────────────────────────────────────────────
+
+fn motionZero(self: *ViMode) ViResult {
+    self.count = null;
+    self.cursor_pin.x = 0;
+    return .{ .redraw = true };
+}
+
+fn motionDollar(self: *ViMode) ViResult {
+    self.count = null;
+    self.cursor_pin.x = lineLength(self.cursor_pin.*);
+    return .{ .redraw = true };
+}
+
+fn motionCaret(self: *ViMode) ViResult {
+    self.count = null;
+    self.cursor_pin.x = firstNonBlank(self.cursor_pin.*);
+    return .{ .redraw = true };
+}
+
+// ── gg, G, H, M, L motions ──────────────────────────────────────────
+
+fn motionSmallG(self: *ViMode) ViResult {
+    self.pending_key = 'g';
+    return .{ .redraw = false };
+}
+
+fn motionBigG(self: *ViMode, t: *terminal.Terminal) ViResult {
+    self.count = null;
+    const screen = t.screens.active;
+    if (screen.pages.pin(.{ .active = .{} })) |bottom_pin| {
+        self.cursor_pin.* = bottom_pin;
+        self.cursor_pin.x = 0;
+    }
+    return .{ .scroll_bottom = true, .redraw = true };
+}
+
+fn motionBigH(self: *ViMode, vp: ViewportInfo) ViResult {
+    self.count = null;
+    self.cursor_pin.* = vp.top;
+    self.cursor_pin.x = firstNonBlank(self.cursor_pin.*);
+    return .{ .redraw = true };
+}
+
+fn motionBigM(self: *ViMode, vp: ViewportInfo) ViResult {
+    self.count = null;
+    const mid = vp.rows / 2;
+    var pin = vp.top;
+    if (pin.down(mid)) |mid_pin| {
+        pin = mid_pin;
+    }
+    self.cursor_pin.* = pin;
+    self.cursor_pin.x = firstNonBlank(self.cursor_pin.*);
+    return .{ .redraw = true };
+}
+
+fn motionBigL(self: *ViMode, vp: ViewportInfo) ViResult {
+    self.count = null;
+    var pin = vp.top;
+    // Go to the last row of the viewport (rows - 1)
+    const bottom_offset = if (vp.rows > 0) vp.rows - 1 else 0;
+    if (pin.down(bottom_offset)) |bot_pin| {
+        pin = bot_pin;
+    }
+    self.cursor_pin.* = pin;
+    self.cursor_pin.x = firstNonBlank(self.cursor_pin.*);
+    return .{ .redraw = true };
+}
+
+// ── Ctrl+u/d/b/f scroll motions ─────────────────────────────────────
+
+fn handleCtrlKey(self: *ViMode, cp: u21, vp: ViewportInfo) ViResult {
+    self.count = null;
+    const half: usize = @max(vp.rows / 2, 1);
+    const full: usize = @max(vp.rows, 1);
+
+    switch (cp) {
+        'u' => {
+            // Half page up
+            var i: usize = 0;
+            while (i < half) : (i += 1) {
+                if (self.cursor_pin.up(1)) |new_pin| {
+                    self.cursor_pin.* = new_pin;
+                } else break;
+            }
+            return .{ .scroll_delta = -@as(isize, @intCast(half)), .redraw = true };
+        },
+        'd' => {
+            // Half page down
+            var i: usize = 0;
+            while (i < half) : (i += 1) {
+                if (self.cursor_pin.down(1)) |new_pin| {
+                    self.cursor_pin.* = new_pin;
+                } else break;
+            }
+            return .{ .scroll_delta = @as(isize, @intCast(half)), .redraw = true };
+        },
+        'b' => {
+            // Full page up
+            var i: usize = 0;
+            while (i < full) : (i += 1) {
+                if (self.cursor_pin.up(1)) |new_pin| {
+                    self.cursor_pin.* = new_pin;
+                } else break;
+            }
+            return .{ .scroll_delta = -@as(isize, @intCast(full)), .redraw = true };
+        },
+        'f' => {
+            // Full page down
+            var i: usize = 0;
+            while (i < full) : (i += 1) {
+                if (self.cursor_pin.down(1)) |new_pin| {
+                    self.cursor_pin.* = new_pin;
+                } else break;
+            }
+            return .{ .scroll_delta = @as(isize, @intCast(full)), .redraw = true };
+        },
+        else => return .{ .redraw = true },
+    }
+}
+
+// ── w/b/e word motions ──────────────────────────────────────────────
+
+fn motionW(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    var pin = self.cursor_pin.*;
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        // Skip current word (non-whitespace characters)
+        while (isWordChar(pin)) {
+            if (advanceChar(pin)) |next| {
+                pin = next;
+            } else {
+                self.cursor_pin.* = pin;
+                return .{ .redraw = true };
+            }
+        }
+        // Skip whitespace
+        while (!isWordChar(pin)) {
+            if (advanceChar(pin)) |next| {
+                pin = next;
+            } else {
+                self.cursor_pin.* = pin;
+                return .{ .redraw = true };
+            }
+        }
+    }
+    self.cursor_pin.* = pin;
+    return .{ .redraw = true };
+}
+
+fn motionB(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    var pin = self.cursor_pin.*;
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        // Move back one character first to get off current position
+        if (retreatChar(pin)) |prev| {
+            pin = prev;
+        } else {
+            break;
+        }
+        // Skip whitespace backwards
+        while (!isWordChar(pin)) {
+            if (retreatChar(pin)) |prev| {
+                pin = prev;
+            } else {
+                self.cursor_pin.* = pin;
+                return .{ .redraw = true };
+            }
+        }
+        // Skip word characters backwards to find start of word
+        while (isWordChar(pin)) {
+            if (retreatChar(pin)) |prev| {
+                if (!isWordChar(prev)) break;
+                pin = prev;
+            } else break;
+        }
+    }
+    self.cursor_pin.* = pin;
+    return .{ .redraw = true };
+}
+
+fn motionE(self: *ViMode) ViResult {
+    const count = self.getEffectiveCount();
+    var pin = self.cursor_pin.*;
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        // Advance one character to get off current position
+        if (advanceChar(pin)) |next| {
+            pin = next;
+        } else break;
+        // Skip whitespace
+        while (!isWordChar(pin)) {
+            if (advanceChar(pin)) |next| {
+                pin = next;
+            } else {
+                self.cursor_pin.* = pin;
+                return .{ .redraw = true };
+            }
+        }
+        // Move to end of word
+        while (isWordChar(pin)) {
+            if (advanceChar(pin)) |next| {
+                if (!isWordChar(next)) break;
+                pin = next;
+            } else break;
+        }
+    }
+    self.cursor_pin.* = pin;
     return .{ .redraw = true };
 }
 
