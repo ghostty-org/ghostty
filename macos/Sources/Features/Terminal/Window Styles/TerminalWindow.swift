@@ -187,6 +187,32 @@ class TerminalWindow: NSWindow {
         super.sendEvent(event)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // If the tab title editor is active, send the action directly to the
+        // field editor. The editor sits in the tab bar (outside the content
+        // view hierarchy), so the normal performKeyEquivalent walk through the
+        // content view never reaches it, and the menu dispatch does not reliably
+        // fire during this phase. Sending the action directly is both simpler
+        // and more reliable.
+        if let fieldEditor = tabTitleEditor.activeFieldEditor,
+           event.type == .keyDown,
+           event.modifierFlags.contains(.command) {
+            let action: Selector? = switch event.charactersIgnoringModifiers {
+            case "c": #selector(NSText.copy(_:))
+            case "x": #selector(NSText.cut(_:))
+            case "v": #selector(NSText.paste(_:))
+            case "a": #selector(NSText.selectAll(_:))
+            default: nil
+            }
+
+            if let action {
+                NSApp.sendAction(action, to: fieldEditor, from: nil)
+                return true
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func close() {
         tabTitleEditor.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)

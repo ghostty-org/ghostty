@@ -343,6 +343,11 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
         }
     }
 
+    /// Returns the active field editor if inline editing is in progress, nil otherwise.
+    var activeFieldEditor: NSTextView? {
+        inlineTitleEditor?.currentEditor() as? NSTextView
+    }
+
     // MARK: NSTextFieldDelegate
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
