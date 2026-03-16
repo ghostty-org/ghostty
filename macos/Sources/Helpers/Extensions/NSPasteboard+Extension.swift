@@ -35,6 +35,8 @@ extension NSPasteboard {
     /// Gets the contents of the pasteboard as a string following a specific set of semantics.
     /// Does these things in order:
     /// - Tries to get the absolute filesystem path of the file in the pasteboard if there is one and ensures the file path is properly escaped.
+    /// - Tries to get image data from the pasteboard (e.g. screenshots captured to clipboard),
+    ///   writes it to a temp file, and returns the escaped path.
     /// - Tries to get any string from the pasteboard.
     /// If all of the above fail, returns None.
     func getOpinionatedStringContents() -> String? {
@@ -43,6 +45,29 @@ extension NSPasteboard {
             return urls
                 .map { $0.isFileURL ? Ghostty.Shell.escape($0.path) : $0.absoluteString }
                 .joined(separator: " ")
+        }
+
+        // Check for image data in the clipboard (e.g. macOS screenshot to clipboard
+        // via Cmd+Shift+Ctrl+4). Write to a temp file and return the escaped path
+        // so that terminal applications like Claude Code can consume it.
+        if let imageData = self.data(forType: .png) ?? self.data(forType: .tiff) {
+            let fileName = "ghostty-paste-\(UUID().uuidString).png"
+            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(fileName)
+            do {
+                // If we got TIFF data, convert to PNG for broader compatibility
+                if self.data(forType: .png) == nil,
+                   let tiffImage = NSImage(data: imageData),
+                   let tiffData = tiffImage.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]) {
+                    try pngData.write(to: tempURL)
+                } else {
+                    try imageData.write(to: tempURL)
+                }
+                return Ghostty.Shell.escape(tempURL.path)
+            } catch {
+                // Fall through to string fallback
+            }
         }
 
         return self.string(forType: .string)
