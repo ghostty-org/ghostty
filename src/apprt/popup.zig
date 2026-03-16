@@ -177,8 +177,8 @@ test "PopupProfile.C: opacity -1.0 means unset" {
     try std.testing.expect(c.cwd == null);
 }
 
-test "PopupProfile.C: opacity passes through" {
-    const p = PopupProfile{ .opacity = 0.8 };
+test "PopupProfile.C: opacity passes through stored value" {
+    const p = PopupProfile{ .opacity = -0.5 };
     const c = p.cval(null, null);
-    try std.testing.expectEqual(@as(f64, 0.8), c.opacity);
+    try std.testing.expectEqual(@as(f64, -0.5), c.opacity);
 }

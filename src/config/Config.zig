@@ -9276,12 +9276,15 @@ pub const RepeatablePopup = struct {
 
         const remainder = input[colon_idx + 1 ..];
 
-        const profile = try cli.args.parseAutoStruct(
+        var profile = try cli.args.parseAutoStruct(
             popupmod.PopupProfile,
             alloc,
             remainder,
             null,
         );
+        if (profile.opacity) |o| {
+            profile.opacity = std.math.clamp(o, 0.0, 1.0);
+        }
 
         // Create sentinel-terminated copy of the command for C API.
         const cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
@@ -11478,4 +11481,27 @@ test "popup: invalid name rejected" {
     try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad name:width:80%"));
     try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad@name:width:80%"));
     try testing.expectEqual(@as(usize, 0), popups.names.items.len);
+}
+
+test "popup: opacity is clamped during CLI parsing" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "low:opacity:-1.0");
+    try popups.parseCLI(alloc, "high:opacity:1.5");
+
+    const low = popups.get("low");
+    try testing.expect(low != null);
+    if (low) |p| {
+        try testing.expectEqual(@as(?f64, 0.0), p.opacity);
+    }
+
+    const high = popups.get("high");
+    try testing.expect(high != null);
+    if (high) |p| {
+        try testing.expectEqual(@as(?f64, 1.0), p.opacity);
+    }
 }
