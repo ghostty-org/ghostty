@@ -229,6 +229,9 @@ pub const PopupManager = struct {
             }
         }
 
+        // IMPORTANT: markStaleIfChanged must run BEFORE loadConfig because it
+        // reads old profile string fields (cwd, command, keybind) that loadConfig
+        // will free and replace. Reordering these steps causes use-after-free.
         // 2. Mark existing windows as stale — they'll be destroyed and
         //    recreated on next toggle if hidden, or kept alive if visible
         //    until the user toggles them.
