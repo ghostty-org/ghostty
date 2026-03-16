@@ -1,5 +1,24 @@
 # Session Notes — Ghostties
 
+## Mar 16, 2026 (Session 7)
+
+### Merged v1.3.0 Branch to Main
+
+- Merged `merge/upstream-v1.3` into `main` — clean fast-forward, 484 commits, no conflicts
+- Commit: `104481181` now HEAD of main
+- Confirmed `feat/ghostties-animation` branch stays separate (Remotion teaser, 3 commits)
+- No other outstanding branches to merge
+
+### In Progress
+- Terminal canvas padding: keep 8pt inset/card appearance when sidebar is closed (currently zeroes out to flush)
+- Not yet implemented — exploring approach
+
+### Notes for Next Session
+- Implement closed-mode padding retention in `WorkspaceViewContainer.swift`
+- Push main to origin after session notes commit
+
+---
+
 ## Mar 11, 2026 (Session 6)
 
 ### Dark Mode Fixes — Config Propagation + Canvas/Card Color Distinction
