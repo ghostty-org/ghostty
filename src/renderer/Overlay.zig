@@ -342,15 +342,17 @@ fn highlightViModeIndicator(
         std.mem.indexOf(u8, text, "V-BLOCK") != null);
 
     const fill_color = if (is_visual) vi_visual_fill() else Color.vi_cursor.rectFill();
-    const border_color = if (is_visual) vi_visual_border() else Color.vi_cursor.rectBorder();
 
+    // Use fill color for both fill and border to avoid the visual
+    // artifact of two distinct bars (border top + border bottom)
+    // when the indicator is only 1 cell tall.
     self.highlightGridRect(
         alloc,
         0,
         bar_row,
         bar_width,
         1,
-        border_color,
+        fill_color,
         fill_color,
     ) catch |err| {
         log.warn("Error drawing vi mode indicator: {}", .{err});
