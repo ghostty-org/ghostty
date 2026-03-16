@@ -76,6 +76,7 @@ pub const Parser = struct {
     action: Action,
     flags: Flags = .{},
     chain: bool,
+    is_else: bool,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -89,6 +90,11 @@ pub const Parser = struct {
         /// invalid actions for chains such as `unbind`. We expect downstream
         /// consumers to validate that the action is valid for chaining.
         chain: Action,
+
+        /// An else action `else=<action>` that should be used as the
+        /// fallback when a performable binding's action cannot be performed.
+        /// Like chain, any action is parsed and downstream consumers validate.
+        @"else": Action,
     };
 
     pub fn init(raw_input: []const u8) Error!Parser {
@@ -125,9 +131,10 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
-        // Detect chains. Chains must not have flags.
+        // Detect chains and else. Neither can have flags.
         const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
-        if (chain and start_idx > 0) return Error.InvalidFormat;
+        const is_else = std.mem.eql(u8, input[0..eql_idx], "else");
+        if ((chain or is_else) and start_idx > 0) return Error.InvalidFormat;
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -137,11 +144,12 @@ pub const Parser = struct {
                 // for chained inputs. The `next` will never yield this
                 // because we have chain set. When we find a nicer way to
                 // do this we can remove it, the e2e is tested.
-                .input = if (chain) "a" else input[0..eql_idx],
+                .input = if (chain or is_else) "a" else input[0..eql_idx],
             },
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
             .chain = chain,
+            .is_else = is_else,
         };
     }
 
@@ -197,8 +205,9 @@ pub const Parser = struct {
             return .{ .leader = trigger };
         }
 
-        // If we're a chain then return it as-is.
+        // If we're a chain or else then return it as-is.
         if (self.chain) return .{ .chain = self.action };
+        if (self.is_else) return .{ .@"else" = self.action };
 
         // Out of triggers, yield the final action.
         return .{ .binding = .{
@@ -255,6 +264,7 @@ fn parseSingle(raw_input: []const u8) (Error || error{
         .leader => error.UnexpectedSequence,
         .binding => elem.binding,
         .chain => error.UnexpectedChain,
+        .@"else" => error.UnexpectedChain,
     };
 }
 
@@ -2056,6 +2066,8 @@ pub const Set = struct {
         key_ptr: *Trigger,
         value_ptr: *Value,
         set: *Set,
+        /// When true, subsequent chain= appends to the else branch.
+        in_else: bool = false,
     };
 
     /// The entry type for the forward mapping of trigger to action.
@@ -2133,8 +2145,21 @@ pub const Set = struct {
                 .leaf => |leaf| {
                     // When we get to the leaf, the buffer_stream contains
                     // the full sequence of keys needed to reach this action.
+                    const pos = buffer.end;
                     buffer.print("={f}", .{leaf.action}) catch return error.OutOfMemory;
                     try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
+
+                    // Format else actions if present.
+                    for (leaf.else_actions.items, 0..) |else_action, i| {
+                        buffer.end = 0;
+                        if (i == 0) {
+                            buffer.print("else={f}", .{else_action}) catch return error.OutOfMemory;
+                        } else {
+                            buffer.print("chain={f}", .{else_action}) catch return error.OutOfMemory;
+                        }
+                        try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
+                        buffer.end = pos;
+                    }
                 },
 
                 .leaf_chained => |leaf| {
@@ -2149,6 +2174,18 @@ pub const Set = struct {
                         try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
                         buffer.end = pos;
                     }
+
+                    // Format else actions if present.
+                    for (leaf.else_actions.items, 0..) |else_action, i| {
+                        buffer.end = 0;
+                        if (i == 0) {
+                            buffer.print("else={f}", .{else_action}) catch return error.OutOfMemory;
+                        } else {
+                            buffer.print("chain={f}", .{else_action}) catch return error.OutOfMemory;
+                        }
+                        try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
+                        buffer.end = pos;
+                    }
                 },
             }
         }
@@ -2159,15 +2196,36 @@ pub const Set = struct {
     pub const Leaf = struct {
         action: Action,
         flags: Flags,
+        else_actions: std.ArrayList(Action) = .empty,
 
         pub fn clone(
             self: Leaf,
             alloc: Allocator,
         ) Allocator.Error!Leaf {
+            var cloned_else = try self.else_actions.clone(alloc);
+            errdefer cloned_else.deinit(alloc);
+            for (cloned_else.items) |*action| {
+                action.* = try action.clone(alloc);
+            }
             return .{
                 .action = try self.action.clone(alloc),
                 .flags = self.flags,
+                .else_actions = cloned_else,
             };
+        }
+
+        pub fn deinit(self: *Leaf, alloc: Allocator) void {
+            self.else_actions.deinit(alloc);
+        }
+
+        pub fn equal(self: Leaf, other: Leaf) bool {
+            if (self.flags != other.flags) return false;
+            if (!deepEqual(Action, self.action, other.action)) return false;
+            if (self.else_actions.items.len != other.else_actions.items.len) return false;
+            for (self.else_actions.items, other.else_actions.items) |a1, a2| {
+                if (!deepEqual(Action, a1, a2)) return false;
+            }
+            return true;
         }
 
         pub fn hash(self: Leaf) u64 {
@@ -2181,6 +2239,7 @@ pub const Set = struct {
             return .{
                 .flags = self.flags,
                 .actions = .{ .single = .{self.action} },
+                .else_actions = self.else_actions.items,
             };
         }
     };
@@ -2189,6 +2248,7 @@ pub const Set = struct {
     pub const LeafChained = struct {
         actions: std.ArrayList(Action),
         flags: Flags,
+        else_actions: std.ArrayList(Action) = .empty,
 
         pub fn clone(
             self: LeafChained,
@@ -2199,20 +2259,28 @@ pub const Set = struct {
             for (cloned_actions.items) |*action| {
                 action.* = try action.clone(alloc);
             }
+            var cloned_else = try self.else_actions.clone(alloc);
+            errdefer cloned_else.deinit(alloc);
+            for (cloned_else.items) |*action| {
+                action.* = try action.clone(alloc);
+            }
             return .{
                 .actions = cloned_actions,
                 .flags = self.flags,
+                .else_actions = cloned_else,
             };
         }
 
         pub fn deinit(self: *LeafChained, alloc: Allocator) void {
             self.actions.deinit(alloc);
+            self.else_actions.deinit(alloc);
         }
 
         pub fn generic(self: *const LeafChained) GenericLeaf {
             return .{
                 .flags = self.flags,
                 .actions = .{ .many = self.actions.items },
+                .else_actions = self.else_actions.items,
             };
         }
     };
@@ -2225,6 +2293,7 @@ pub const Set = struct {
             single: [1]Action,
             many: []const Action,
         },
+        else_actions: []const Action = &.{},
 
         pub fn actionsSlice(self: *const GenericLeaf) []const Action {
             return switch (self.actions) {
@@ -2248,7 +2317,7 @@ pub const Set = struct {
 
             .leaf_chained => |*l| l.deinit(alloc),
 
-            .leaf => {},
+            .leaf => |*l| l.deinit(alloc),
         };
 
         self.bindings.deinit(alloc);
@@ -2297,6 +2366,12 @@ pub const Set = struct {
                 // If we had an invalid action for a chain (e.g. unbind).
                 error.InvalidChainAction => return error.InvalidFormat,
 
+                // If else was used on a non-performable binding.
+                error.ElseRequiresPerformable => return error.InvalidFormat,
+
+                // If else was used more than once on the same binding.
+                error.DuplicateElse => return error.InvalidFormat,
+
                 // Unrecoverable
                 error.OutOfMemory => return error.OutOfMemory,
             }
@@ -2324,6 +2399,8 @@ pub const Set = struct {
         NoChainParent,
         UnexpectedEndOfInput,
         InvalidChainAction,
+        ElseRequiresPerformable,
+        DuplicateElse,
     };
 
     /// Returns the set that was ultimately updated if a binding was
@@ -2363,6 +2440,8 @@ pub const Set = struct {
                         error.NoChainParent,
                         error.UnexpectedEndOfInput,
                         error.InvalidChainAction,
+                        error.ElseRequiresPerformable,
+                        error.DuplicateElse,
                         error.OutOfMemory,
                         => err,
                     },
@@ -2424,6 +2503,8 @@ pub const Set = struct {
                     error.NoChainParent,
                     error.UnexpectedEndOfInput,
                     error.InvalidChainAction,
+                    error.ElseRequiresPerformable,
+                    error.DuplicateElse,
                     error.OutOfMemory,
                     => return err,
                 };
@@ -2452,6 +2533,15 @@ pub const Set = struct {
                 // Unbind is not valid for chains.
                 if (action == .unbind) return error.InvalidChainAction;
                 try set.appendChain(alloc, action);
+                return set;
+            },
+
+            .@"else" => |action| {
+                // Else can only happen on the root.
+                assert(set == root);
+                // Unbind is not valid for else.
+                if (action == .unbind) return error.InvalidChainAction;
+                try set.appendElse(alloc, action);
                 return set;
             },
         }
@@ -2510,14 +2600,17 @@ pub const Set = struct {
 
             // If we have an existing binding for this trigger, we have to
             // update the reverse mapping to remove the old action.
-            .leaf => if (track_reverse) {
-                const t_hash = t.hash();
-                for (0.., self.reverse.values()) |i, *value| {
-                    if (t_hash == value.hash()) {
-                        self.reverse.swapRemoveAt(i);
-                        break;
+            .leaf => |*leaf| {
+                if (track_reverse) {
+                    const t_hash = t.hash();
+                    for (0.., self.reverse.values()) |i, *value| {
+                        if (t_hash == value.hash()) {
+                            self.reverse.swapRemoveAt(i);
+                            break;
+                        }
                     }
                 }
+                leaf.deinit(alloc);
             },
 
             // Chained leaves aren't in the reverse mapping so we just
@@ -2556,6 +2649,17 @@ pub const Set = struct {
         assert(action != .unbind);
 
         const parent = self.chain_parent orelse return error.NoChainParent;
+
+        // If we're in the else branch, append to else_actions instead.
+        if (parent.in_else) {
+            switch (parent.value_ptr.*) {
+                .leader => unreachable,
+                .leaf => |*leaf| try leaf.else_actions.append(alloc, action),
+                .leaf_chained => |*leaf| try leaf.else_actions.append(alloc, action),
+            }
+            return;
+        }
+
         switch (parent.value_ptr.*) {
             // Leader can never be a chain parent. Verified through various
             // assertions and unit tests.
@@ -2587,6 +2691,7 @@ pub const Set = struct {
                 parent.value_ptr.* = .{ .leaf_chained = .{
                     .actions = actions,
                     .flags = leaf.flags,
+                    .else_actions = leaf.else_actions,
                 } };
 
                 // Clean up our reverse mapping. Chained actions are not
@@ -2599,6 +2704,44 @@ pub const Set = struct {
                 );
             },
         }
+    }
+
+    /// Append an else fallback action to the prior set action.
+    ///
+    /// The else action is used as a fallback when a performable binding's
+    /// action cannot be performed. It is an error to use else on a
+    /// non-performable binding, or to use else more than once.
+    pub fn appendElse(
+        self: *Set,
+        alloc: Allocator,
+        action: Action,
+    ) (Allocator.Error || error{ NoChainParent, ElseRequiresPerformable, DuplicateElse })!void {
+        assert(action != .unbind);
+
+        const parent = &(self.chain_parent orelse return error.NoChainParent);
+
+        // Cannot use else if already in the else branch (duplicate else).
+        if (parent.in_else) return error.DuplicateElse;
+
+        switch (parent.value_ptr.*) {
+            .leader => unreachable,
+
+            .leaf => |*leaf| {
+                if (!leaf.flags.performable) return error.ElseRequiresPerformable;
+                // First else on a leaf — else_actions must be empty.
+                assert(leaf.else_actions.items.len == 0);
+                try leaf.else_actions.append(alloc, action);
+            },
+
+            .leaf_chained => |*leaf| {
+                if (!leaf.flags.performable) return error.ElseRequiresPerformable;
+                assert(leaf.else_actions.items.len == 0);
+                try leaf.else_actions.append(alloc, action);
+            },
+        }
+
+        // Switch to else branch so subsequent chains append there.
+        parent.in_else = true;
     }
 
     /// Get a binding for a given trigger.
@@ -2683,10 +2826,13 @@ pub const Set = struct {
             },
 
             // For an action we need to fix up the reverse mapping.
-            .leaf => |leaf| self.fixupReverseForAction(
-                leaf.action,
-                t,
-            ),
+            .leaf => |*leaf| {
+                self.fixupReverseForAction(
+                    leaf.action,
+                    t,
+                );
+                leaf.deinit(alloc);
+            },
 
             // Chained leaves are never in our reverse mapping so no
             // cleanup is required.
@@ -4841,6 +4987,253 @@ test "set: formatEntries leaf_chained with text action" {
     const expected =
         \\keybind = a=text:hello
         \\keybind = chain=text:world
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "parse: else" {
+    const testing = std.testing;
+
+    // Valid
+    {
+        var p = try Parser.init("else=new_tab");
+        try testing.expectEqual(Parser.Elem{
+            .@"else" = .new_tab,
+        }, try p.next());
+        try testing.expect(try p.next() == null);
+    }
+
+    // Else can't have flags
+    try testing.expectError(error.InvalidFormat, Parser.init("global:else=ignore"));
+    try testing.expectError(error.InvalidFormat, Parser.init("performable:else=ignore"));
+}
+
+test "set: parseAndPut else on performable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    // Should still be a leaf with else_actions
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        const leaf = entry.leaf;
+        try testing.expect(leaf.action == .new_window);
+        try testing.expect(leaf.flags.performable);
+        try testing.expectEqual(@as(usize, 1), leaf.else_actions.items.len);
+        try testing.expect(leaf.else_actions.items[0] == .new_tab);
+    }
+}
+
+test "set: parseAndPut else on non-performable is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=new_tab"));
+}
+
+test "set: parseAndPut else without parent is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=new_tab"));
+}
+
+test "set: parseAndPut duplicate else is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=close_surface"));
+}
+
+test "set: parseAndPut chain then else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // performable action, chain on performed branch, then else branch
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expect(chained.flags.performable);
+        try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .close_surface);
+        try testing.expectEqual(@as(usize, 1), chained.else_actions.items.len);
+        try testing.expect(chained.else_actions.items[0] == .new_tab);
+    }
+}
+
+test "set: parseAndPut else then chain appends to else branch" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // performable action, else branch, chain on else branch
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        const leaf = entry.leaf;
+        try testing.expect(leaf.action == .new_window);
+        try testing.expect(leaf.flags.performable);
+        try testing.expectEqual(@as(usize, 2), leaf.else_actions.items.len);
+        try testing.expect(leaf.else_actions.items[0] == .new_tab);
+        try testing.expect(leaf.else_actions.items[1] == .close_surface);
+    }
+}
+
+test "set: parseAndPut else with unbind is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=unbind"));
+}
+
+test "set: parseAndPut chain on both branches" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Full config: performed branch with chains, then else branch with chains
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "chain=toggle_fullscreen");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+
+        // Performed branch: new_window, close_surface
+        try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .close_surface);
+
+        // Else branch: new_tab, toggle_fullscreen
+        try testing.expectEqual(@as(usize, 2), chained.else_actions.items.len);
+        try testing.expect(chained.else_actions.items[0] == .new_tab);
+        try testing.expect(chained.else_actions.items[1] == .toggle_fullscreen);
+    }
+}
+
+test "set: clone with else_actions" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    var cloned = try s.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    const entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf);
+    try testing.expectEqual(@as(usize, 1), entry.leaf.else_actions.items.len);
+    try testing.expect(entry.leaf.else_actions.items[0] == .new_tab);
+}
+
+test "set: formatEntries with else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    // Note: the trigger format does not include flag prefixes like performable:
+    // so the serialized output won't have it. This is an existing limitation.
+    const expected =
+        \\keybind = a=new_window
+        \\keybind = else=new_tab
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: formatEntries with chain and else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "chain=toggle_fullscreen");
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = a=new_window
+        \\keybind = chain=close_surface
+        \\keybind = else=new_tab
+        \\keybind = chain=toggle_fullscreen
         \\
     ;
     try testing.expectEqualStrings(expected, output.written());
