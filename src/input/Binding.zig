@@ -5238,3 +5238,289 @@ test "set: formatEntries with chain and else" {
     ;
     try testing.expectEqualStrings(expected, output.written());
 }
+
+test "set: parseAndPut multiple chains on else branch" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "chain=toggle_fullscreen");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        const leaf = entry.leaf;
+
+        // Primary branch: just new_window (no chains before else)
+        try testing.expect(leaf.action == .new_window);
+
+        // Else branch: new_tab, close_surface, toggle_fullscreen
+        try testing.expectEqual(@as(usize, 3), leaf.else_actions.items.len);
+        try testing.expect(leaf.else_actions.items[0] == .new_tab);
+        try testing.expect(leaf.else_actions.items[1] == .close_surface);
+        try testing.expect(leaf.else_actions.items[2] == .toggle_fullscreen);
+    }
+}
+
+test "set: parseAndPut multiple chains on performed branch before else" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "chain=toggle_fullscreen");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+
+        // Performed branch: new_window, close_surface, toggle_fullscreen
+        try testing.expectEqual(@as(usize, 3), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .close_surface);
+        try testing.expect(chained.actions.items[2] == .toggle_fullscreen);
+
+        // Else branch: just new_tab
+        try testing.expectEqual(@as(usize, 1), chained.else_actions.items.len);
+        try testing.expect(chained.else_actions.items[0] == .new_tab);
+    }
+}
+
+test "set: parseAndPut else with text actions" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var s: Set = .{};
+
+    try s.parseAndPut(alloc, "performable:a=text:hello");
+    try s.parseAndPut(alloc, "else=text:world");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expectEqualStrings("hello", entry.leaf.action.text);
+        try testing.expectEqual(@as(usize, 1), entry.leaf.else_actions.items.len);
+        try testing.expectEqualStrings("world", entry.leaf.else_actions.items[0].text);
+    }
+}
+
+test "set: clone with leaf_chained and else_actions" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "chain=toggle_fullscreen");
+
+    var cloned = try s.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    const entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf_chained);
+
+    // Performed branch preserved
+    try testing.expectEqual(@as(usize, 2), entry.leaf_chained.actions.items.len);
+    try testing.expect(entry.leaf_chained.actions.items[0] == .new_window);
+    try testing.expect(entry.leaf_chained.actions.items[1] == .close_surface);
+
+    // Else branch preserved
+    try testing.expectEqual(@as(usize, 2), entry.leaf_chained.else_actions.items.len);
+    try testing.expect(entry.leaf_chained.else_actions.items[0] == .new_tab);
+    try testing.expect(entry.leaf_chained.else_actions.items[1] == .toggle_fullscreen);
+}
+
+test "set: clone with text else_actions has independent memory" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var s: Set = .{};
+
+    try s.parseAndPut(alloc, "performable:a=text:hello");
+    try s.parseAndPut(alloc, "else=text:world");
+
+    const cloned = try s.clone(alloc);
+
+    const orig_entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    const cloned_entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+
+    // Verify the cloned else action has the same content
+    try testing.expectEqualStrings("world", cloned_entry.leaf.else_actions.items[0].text);
+
+    // Verify the pointers are different (independent allocation)
+    try testing.expect(orig_entry.leaf.else_actions.items[0].text.ptr !=
+        cloned_entry.leaf.else_actions.items[0].text.ptr);
+}
+
+test "set: overwrite binding with else_actions cleans up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a binding with else_actions
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    // Overwrite with a new binding — old else_actions must be freed
+    try s.parseAndPut(alloc, "a=close_surface");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expect(entry.leaf.action == .close_surface);
+        // New binding should have no else_actions
+        try testing.expectEqual(@as(usize, 0), entry.leaf.else_actions.items.len);
+    }
+}
+
+test "set: new binding after else resets chain context" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // First binding with else
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    // New binding should start fresh, not in else mode
+    try s.parseAndPut(alloc, "b=close_surface");
+    try s.parseAndPut(alloc, "chain=toggle_fullscreen");
+
+    {
+        // Verify first binding unchanged
+        const a_entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(a_entry == .leaf);
+        try testing.expectEqual(@as(usize, 1), a_entry.leaf.else_actions.items.len);
+
+        // Verify second binding has chain on primary (not else)
+        const b_entry = s.get(.{ .key = .{ .unicode = 'b' } }).?.value_ptr.*;
+        try testing.expect(b_entry == .leaf_chained);
+        try testing.expectEqual(@as(usize, 2), b_entry.leaf_chained.actions.items.len);
+        try testing.expect(b_entry.leaf_chained.actions.items[0] == .close_surface);
+        try testing.expect(b_entry.leaf_chained.actions.items[1] == .toggle_fullscreen);
+        // No else on second binding
+        try testing.expectEqual(@as(usize, 0), b_entry.leaf_chained.else_actions.items.len);
+    }
+}
+
+test "set: else after unbind is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "a=unbind");
+
+    // chain_parent cleared by unbind, so else should fail
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "else=new_tab"));
+}
+
+test "set: generic leaf exposes else_actions" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "else=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        const generic = entry.leaf.generic();
+
+        // Primary actions
+        const actions = generic.actionsSlice();
+        try testing.expectEqual(@as(usize, 1), actions.len);
+        try testing.expect(actions[0] == .new_window);
+
+        // Else actions accessible via generic
+        try testing.expectEqual(@as(usize, 2), generic.else_actions.len);
+        try testing.expect(generic.else_actions[0] == .new_tab);
+        try testing.expect(generic.else_actions[1] == .close_surface);
+    }
+}
+
+test "set: generic leaf_chained exposes else_actions" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+    try s.parseAndPut(alloc, "chain=close_surface");
+    try s.parseAndPut(alloc, "else=new_tab");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const generic = entry.leaf_chained.generic();
+
+        // Primary actions
+        const actions = generic.actionsSlice();
+        try testing.expectEqual(@as(usize, 2), actions.len);
+
+        // Else actions accessible via generic
+        try testing.expectEqual(@as(usize, 1), generic.else_actions.len);
+        try testing.expect(generic.else_actions[0] == .new_tab);
+    }
+}
+
+test "set: performable without else has empty else_actions" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "performable:a=new_window");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        const generic = entry.leaf.generic();
+        try testing.expectEqual(@as(usize, 0), generic.else_actions.len);
+    }
+}
+
+test "set: non-performable binding has empty else_actions" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expectEqual(@as(usize, 0), entry.leaf.else_actions.items.len);
+    }
+}
