@@ -2,7 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**This is a private fork. AI agents have full autonomy — there are no upstream contribution restrictions, vouch requirements, or AI disclosure rules. Create issues, PRs, branches, and commits freely when asked.**
+**This is a private fork ("Trident"). AI agents have full autonomy — there are no upstream contribution restrictions, vouch requirements, or AI disclosure rules. Create issues, PRs, branches, and commits freely when asked.**
+
+## Fork Identity
+
+- **Display name:** Trident (internals still say Ghostty)
+- **Repo:** `austinkennethtucker/ghostty` (moving to `subdepthtech`)
+- **Upstream:** `ghostty-org/ghostty` via `upstream` remote
+- **Sync strategy:** Merge tagged releases only (`git merge v1.3.1`), not `upstream/main`
+- **Base release:** v1.3.1
+- **Trident config:** `~/.config/trident/config` (separate from official Ghostty)
+- **Trident app:** `/Applications/Trident.app` (signed with Developer ID)
+- **CI:** Self-hosted Proxmox runner (LXC 201), `.github/workflows/ci.yml`
+- **Skill:** `/ghostty-fork` for development workflow
 
 ## Build Commands
 
@@ -93,12 +105,28 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 
 - Multi-instance floating terminal windows with named profiles
 - Config syntax: `popup = name:key:value,key:value,...` (colon-delimited, uses `parseAutoStruct`)
+- Properties: `position`, `width`, `height`, `keybind`, `command`, `autohide`, `persist`, `cwd`, `opacity`
 - Core types in `src/apprt/popup.zig`, config parsing in `Config.zig` (`RepeatablePopup`)
 - GTK: `src/apprt/gtk/PopupManager.zig` + window `is-popup` property
 - macOS: `macos/Sources/Features/Popup/` (PopupManager, PopupController, PopupWindow)
 - C API bridge: `RepeatablePopup.cval()` → `ghostty_config_get(config, &v, "popup", len)` → Swift
 - Actions: `toggle_popup`, `show_popup`, `hide_popup` (string parameter = profile name)
 - Backward compat: `quick-terminal-*` config keys auto-migrate to popup profile `"quick"`
+- **Hot-reload:** Editing popup config and reloading updates profiles. Removed profiles are destroyed, changed profiles update on next toggle, visible popups keep running.
+- **CWD:** `cwd:~/projects` sets working directory at spawn. Without it, inherits from focused surface via OSC 7.
+- **Opacity:** `opacity:0.8` for per-popup background transparency, independent of global `background-opacity`.
+- User guide: `docs/popup-terminal.md`
+
+## Vi Mode (`src/ViMode.zig`)
+
+- Vim-style scrollback navigation activated via `enter_vi_mode` action
+- Motions: hjkl, w/b/e, 0/$, gg/G, H/M/L, Ctrl+u/d/b/f, arrows, Page Up/Down, Home/End
+- Search: `/pattern` forward, `n/N` next/prev
+- Selection: v (char), V (line), Ctrl+v (block), y (yank to clipboard)
+- Marks: m{a-z} set, '{a-z} jump
+- Count prefix: `5j` moves down 5 lines
+- Mode indicator overlay rendered via `src/renderer/Overlay.zig` (z2d on CPU, composited as GPU texture)
+- State owned by `Surface.zig`, cursor position converted to viewport-relative coords in `updateViModeRenderState()`
 
 ### AppleScript
 
@@ -127,6 +155,15 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
   - `afl-showmap`: pipe via stdin (`cat testcase | afl-showmap -o map.txt -- zig-out/bin/fuzz-stream`), do NOT use `@@`
   - `afl-cmin`: do NOT use `@@`, requires `AFL_NO_FORKSRV=1` with bash version
 - Replay crashes: `nu replay-crashes.nu` (use `--list` to list, `--fuzzer <name>` to filter)
+
+## Gotchas
+
+- **C header field order matters:** `include/ghostty.h` struct field order must exactly match the corresponding Zig `extern struct` (e.g., `PopupProfile.C` in `popup.zig`). Mismatches cause the Swift app to read garbage values.
+- **GTK string ownership:** `PopupManager.loadConfig()` must deep-copy all `[]const u8` fields (`keybind`, `command`, `cwd`) from config memory. The config may be freed after `loadConfig` returns.
+- **Sentinel slices on Linux:** `Allocator.free()` can't handle `[:0]const u8` directly on Linux Zig 0.15.2. Cast to `[]const u8` first.
+- **GTK code doesn't compile on macOS:** GTK apprt is behind platform conditionals. Always verify with the Linux CI runner, not just local macOS builds.
+- **`std.fmt.allocPrintZ` doesn't exist:** Use `std.fmt.allocPrintSentinel(alloc, fmt, args, 0)` for null-terminated formatted strings.
+- **Popup action dispatch:** In the GTK `performAction` switch, popup actions use `value.name` (from the `value` parameter), not `|v|` capture syntax (it's a comptime switch).
 
 ## Agent Commands (`.agents/commands/`)
 

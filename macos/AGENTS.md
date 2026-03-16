@@ -1,4 +1,4 @@
-# macOS Ghostty Application
+# macOS Trident (Ghostty Fork) Application
 
 - Use `swiftlint` for formatting and linting Swift code.
 - If code outside of `macos/` directory is modified, use
@@ -9,6 +9,15 @@
   - Build: `macos/build.nu [--scheme Ghostty] [--configuration Debug] [--action build]`
   - Output: `macos/build/<configuration>/Ghostty.app` (e.g. `macos/build/Debug/Ghostty.app`)
 - Run unit tests directly with `macos/build.nu --action test`
+
+## Fork-Specific
+
+- **Popup terminal:** `macos/Sources/Features/Popup/` (PopupManager, PopupController, PopupWindow)
+- **Vi mode:** Overlay rendering in `src/renderer/Overlay.zig`, state in `src/ViMode.zig`
+- **C API bridge for popups:** `PopupProfile.C` fields in `popup.zig` must match `ghostty_popup_profile_config_s` in `include/ghostty.h` exactly
+- **Config bridge:** `Ghostty.Config.swift` `popupProfiles` computed property reads popup config from C API
+- **Trident install:** Built app is copied to `/Applications/Trident.app` with `CFBundleDisplayName = Trident` and `GHOSTTY_CONFIG_PATH` pointing to `~/.config/trident/config`
+- **Signing:** `codesign --force --deep --sign "Developer ID Application: Austin Tucker (3364PH2HE3)"`
 
 ## AppleScript
 
