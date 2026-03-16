@@ -18,6 +18,28 @@ const file_load = @import("file_load.zig");
 ///
 /// The returned value is allocated using the provided allocator.
 pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
+    // If GHOSTTY_CONFIG_PATH is set, use it directly. This allows forks
+    // (e.g. Trident) to redirect the Settings menu to their own config
+    // file via an environment variable.
+    if (std.posix.getenv("GHOSTTY_CONFIG_PATH")) |env_path| {
+        if (env_path.len > 0) {
+            // Create the directory and file if needed, then return.
+            if (std.fs.path.dirname(env_path)) |dir| {
+                try std.fs.cwd().makePath(dir);
+            }
+            _ = std.fs.createFileAbsolute(
+                env_path,
+                .{ .exclusive = true },
+            ) catch |err| {
+                switch (err) {
+                    error.PathAlreadyExists => {},
+                    else => return err,
+                }
+            };
+            return try alloc_gpa.dupeZ(u8, env_path);
+        }
+    }
+
     // Use an arena to make memory management easier in here.
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
