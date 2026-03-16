@@ -84,6 +84,7 @@ gpanders
 guilhermetk
 hakonhagland
 halosatrio
+-highimpact-dev Disrespectful AI user
 hqnna
 hulet
 icodesign
