@@ -585,7 +585,7 @@ extension Ghostty {
                 toggleMaximize(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
-                toggleQuickTerminal(app, target: target)
+                toggleQuickTerminalViaPopup(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_POPUP:
                 togglePopup(app, target: target, v: action.action.toggle_popup)
@@ -1592,6 +1592,17 @@ extension Ghostty {
         ) {
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
             appDelegate.toggleQuickTerminal(self)
+        }
+
+        /// Route toggle_quick_terminal through the popup system using
+        /// the "quick" profile name so that `popup = quick:...` config
+        /// is respected.
+        private static func toggleQuickTerminalViaPopup(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+            appDelegate.popupManager.toggle("quick")
         }
 
         private static func togglePopup(
