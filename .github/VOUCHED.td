@@ -29,8 +29,11 @@ alaasdk
 alanmoyano
 alexfeijoo44
 alexjuca
+alosarjos
 amadeus
 andrejdaskalov
+anhthang
+anmitalidev
 anthonyzhoon
 atomk
 balazs-szucs
@@ -48,6 +51,7 @@ charliie-dev
 chernetskyi
 chronologos
 cmwetherell
+crayxt
 craziestowl
 curtismoncoq
 d-dudas
@@ -114,6 +118,7 @@ markdorison
 markhuot
 marrocco-simone
 matkotiric
+micaeljarniac
 michielvk
 miguelelgallo
 mihi314
