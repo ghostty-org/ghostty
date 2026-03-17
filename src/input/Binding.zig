@@ -2041,6 +2041,14 @@ pub const Set = struct {
     /// integration with GUI toolkits.
     reverse: ReverseMap = .{},
 
+    /// A reverse map that includes ALL bindings, including performable ones.
+    /// This is used by GUI toolkits (such as macOS AppKit) that need to
+    /// display keyboard shortcuts on menu items for performable bindings.
+    /// Unlike GTK, AppKit can handle performable bindings through the
+    /// standard menu → first responder chain, so menu shortcuts are needed
+    /// for correct behavior (e.g., CMD+C in text fields).
+    reverse_menu: ReverseMap = .{},
+
     /// The chain parent is the information necessary to attach a chained
     /// action to the proper location in our mapping. It tracks both the
     /// entry in the hashmap and the set it belongs to, which is needed
@@ -2253,6 +2261,7 @@ pub const Set = struct {
 
         self.bindings.deinit(alloc);
         self.reverse.deinit(alloc);
+        self.reverse_menu.deinit(alloc);
         self.* = undefined;
     }
 
@@ -2510,11 +2519,20 @@ pub const Set = struct {
 
             // If we have an existing binding for this trigger, we have to
             // update the reverse mapping to remove the old action.
-            .leaf => if (track_reverse) {
+            .leaf => {
                 const t_hash = t.hash();
-                for (0.., self.reverse.values()) |i, *value| {
+                if (track_reverse) {
+                    for (0.., self.reverse.values()) |i, *value| {
+                        if (t_hash == value.hash()) {
+                            self.reverse.swapRemoveAt(i);
+                            break;
+                        }
+                    }
+                }
+                // Always clean up the menu reverse map
+                for (0.., self.reverse_menu.values()) |i, *value| {
                     if (t_hash == value.hash()) {
-                        self.reverse.swapRemoveAt(i);
+                        self.reverse_menu.swapRemoveAt(i);
                         break;
                     }
                 }
@@ -2534,7 +2552,15 @@ pub const Set = struct {
         errdefer _ = self.bindings.swapRemove(t);
 
         if (track_reverse) try self.reverse.put(alloc, action, t);
-        errdefer if (track_reverse) self.reverse.remove(action);
+        errdefer {
+            if (track_reverse) _ = self.reverse.swapRemove(action);
+        }
+
+        // Always populate the menu reverse map (includes performable bindings)
+        try self.reverse_menu.put(alloc, action, t);
+        errdefer {
+            _ = self.reverse_menu.swapRemove(action);
+        }
 
         // Invariant: after successful put, chain_parent must be valid and point
         // to the entry we just added/updated.
@@ -2610,6 +2636,13 @@ pub const Set = struct {
     /// triggers so this will return the first one found.
     pub fn getTrigger(self: Set, a: Action) ?Trigger {
         return self.reverse.get(a);
+    }
+
+    /// Get a trigger for the given action, including performable bindings.
+    /// This is used for menu shortcut display where performable bindings
+    /// should still appear as keyboard shortcuts on menu items.
+    pub fn getTriggerForMenu(self: Set, a: Action) ?Trigger {
+        return self.reverse_menu.get(a);
     }
 
     /// Get an entry for the given key event. This will attempt to find
@@ -2717,7 +2750,18 @@ pub const Set = struct {
         action: Action,
         old: Trigger,
     ) void {
-        const entry = self.reverse.getEntry(action) orelse return;
+        self.fixupReverseMapForAction(&self.reverse, action, old);
+        self.fixupReverseMapForAction(&self.reverse_menu, action, old);
+    }
+
+    /// Fix up a single reverse map after removing an action.
+    fn fixupReverseMapForAction(
+        self: *Set,
+        map: *ReverseMap,
+        action: Action,
+        old: Trigger,
+    ) void {
+        const entry = map.getEntry(action) orelse return;
 
         // If our value is not the same as the old trigger, we can
         // ignore it because our reverse mapping points somewhere else.
@@ -2741,7 +2785,7 @@ pub const Set = struct {
 
         // No other trigger points to this action so we remove
         // the reverse mapping completely.
-        _ = self.reverse.swapRemove(action);
+        _ = map.swapRemove(action);
     }
 
     /// Deep clone the set.
@@ -2749,6 +2793,7 @@ pub const Set = struct {
         var result: Set = .{
             .bindings = try self.bindings.clone(alloc),
             .reverse = try self.reverse.clone(alloc),
+            .reverse_menu = try self.reverse_menu.clone(alloc),
         };
 
         // If we have any leaders we need to clone them.
@@ -2772,9 +2817,12 @@ pub const Set = struct {
             };
         }
 
-        // We need to clone the action keys in the reverse map since
+        // We need to clone the action keys in the reverse maps since
         // they may contain allocated values.
         for (result.reverse.keys()) |*action| {
+            action.* = try action.clone(alloc);
+        }
+        for (result.reverse_menu.keys()) |*action| {
             action.* = try action.clone(alloc);
         }
 
@@ -4057,6 +4105,48 @@ test "set: performable is not part of reverse mappings" {
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
         try testing.expect(trigger.key.unicode == 'a');
+    }
+}
+
+test "set: performable is part of reverse menu mappings" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Non-performable binding: appears in both reverse and reverse_menu
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'a');
+        const menu_trigger = s.getTriggerForMenu(.{ .new_window = {} }).?;
+        try testing.expect(menu_trigger.key.unicode == 'a');
+    }
+
+    // Performable binding: excluded from reverse, but appears in reverse_menu
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'b' } },
+        .{ .new_window = {} },
+        .{ .performable = true },
+    );
+    {
+        // reverse map still points to 'a' (non-performable)
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'a');
+        // reverse_menu map updated to 'b' (most recent, including performable)
+        const menu_trigger = s.getTriggerForMenu(.{ .new_window = {} }).?;
+        try testing.expect(menu_trigger.key.unicode == 'b');
+    }
+
+    // Removal of performable: reverse unchanged, reverse_menu restores to 'a'
+    s.remove(alloc, .{ .key = .{ .unicode = 'b' } });
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'a');
+        const menu_trigger = s.getTriggerForMenu(.{ .new_window = {} }).?;
+        try testing.expect(menu_trigger.key.unicode == 'a');
     }
 }
 
