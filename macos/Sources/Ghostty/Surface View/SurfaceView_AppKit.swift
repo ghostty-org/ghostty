@@ -1244,6 +1244,23 @@ extension Ghostty {
                 return false
             }
 
+            // Safety net: don't intercept when another view is first responder.
+            // SwiftUI's @FocusState may not trigger AppKit's resignFirstResponder,
+            // so the `focused` flag above can be stale. We check directly whether
+            // this view (or its IME field editor) is the actual first responder.
+            if let window = self.window {
+                let fr = window.firstResponder
+                if fr !== self {
+                    // Allow through if the first responder is our field editor
+                    // (NSTextView whose delegate is us) for IME composition.
+                    if let tv = fr as? NSTextView, tv.delegate === self {
+                        // This is our field editor, proceed normally
+                    } else {
+                        return false
+                    }
+                }
+            }
+
             // Get information about if this is a binding.
             let bindingFlags = surfaceModel.flatMap { surface in
                 var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
