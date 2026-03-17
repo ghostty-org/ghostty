@@ -6816,20 +6816,15 @@ pub const Keybinds = struct {
                         .mods = mods,
                     },
                     .{ .goto_tab = (i - start) + 1 },
-                    .{
-                        // On macOS we keep this not performable so that the
-                        // keyboard shortcuts in tabs work. In the future the
-                        // correct fix is to fix the reverse mapping lookup
-                        // to allow us to lookup performable keybinds
-                        // conditionally.
-                        .performable = !builtin.target.os.tag.isDarwin(),
-                    },
+                    .{ .performable = true },
                 );
 
                 // Important: this must be the LAST binding set so that the
                 // libghostty trigger API returns this one for the action,
                 // so that things like the macOS tab bar key equivalent label
-                // work properly.
+                // work properly. The reverse_menu map (used for menu shortcut
+                // display) includes performable bindings, so these shortcuts
+                // still appear on macOS tab menu items.
                 try self.set.putFlags(
                     alloc,
                     .{
@@ -6837,9 +6832,7 @@ pub const Keybinds = struct {
                         .mods = mods,
                     },
                     .{ .goto_tab = (i - start) + 1 },
-                    .{
-                        .performable = !builtin.target.os.tag.isDarwin(),
-                    },
+                    .{ .performable = true },
                 );
             }
             try self.set.putFlags(
@@ -6849,10 +6842,7 @@ pub const Keybinds = struct {
                     .mods = mods,
                 },
                 .{ .last_tab = {} },
-                .{
-                    // See comment above with the numeric goto_tab
-                    .performable = !builtin.target.os.tag.isDarwin(),
-                },
+                .{ .performable = true },
             );
         }
 
