@@ -2998,9 +2998,11 @@ fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
     const cursor_pin = self.cursor.page_pin.*;
     if (cursor_pin.eql(click_pin)) return .zero;
 
+    const click_rac = click_pin.rowAndCell();
+
     // If click pin is in the prompt area, traverse down the prompt rows.
     // Allow cursor movement only if one of the rows contains input.
-    if (click_pin.rowAndCell().cell.semantic_content == .prompt) {
+    if (click_rac.row.semantic_prompt != .none) {
         var row_pin = click_pin;
         prompt: while (true) {
             const rac = row_pin.rowAndCell();
@@ -10142,10 +10144,15 @@ test "Screen: promptClickMove ignores click on prompt-only line" {
     s.cursorSetSemanticContent(.{ .input = .clear_explicit });
     try s.testWriteString("hello");
 
-    const click_pin = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?;
-    const result = s.promptClickMove(click_pin);
+    const click_on_top_left = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?;
+    const result = s.promptClickMove(click_on_top_left);
 
     try testing.expectEqual(PromptClickMove.zero, result);
+
+    const click_on_blank_cell = s.pages.pin(.{ .active = .{ .x = 10, .y = 0 } }).?;
+    const blank_result = s.promptClickMove(click_on_blank_cell);
+
+    try testing.expectEqual(PromptClickMove.zero, blank_result);
 }
 
 test "Screen: promptClickMove click on wrapped multi-line prompt moves to input start" {
