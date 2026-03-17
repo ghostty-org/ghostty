@@ -2703,6 +2703,18 @@ keybind: Keybinds = .{},
 /// Only implemented on macOS.
 @"quick-terminal-animation-duration": f64 = 0.2,
 
+/// The opacity level (opposite of transparency) of the background for the
+/// quick terminal. A value of 1 is fully opaque and a value of 0 is fully
+/// transparent. A value less than 0 or greater than 1 will be clamped to
+/// the nearest valid value.
+///
+/// This behaves identically to `background-opacity` but applies only to the
+/// quick terminal window. When set, it overrides `background-opacity` for the
+/// quick terminal. When unset, the quick terminal uses `background-opacity`.
+///
+/// Only implemented on macOS.
+@"quick-terminal-background-opacity": ?f64 = null,
+
 /// Automatically hide the quick terminal when focus shifts to another window.
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 ///
