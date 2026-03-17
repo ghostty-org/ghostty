@@ -125,6 +125,12 @@ pub fn isRectangleSelectState(mods: input.Mods) bool {
         mods.ctrlOrSuper() and mods.alt;
 }
 
+/// Returns true if the current mouse modifier state should suppress
+/// actionable link hover so selection-oriented mouse states keep precedence.
+pub fn shouldSuppressLinkHover(mods: input.Mods) bool {
+    return isRectangleSelectState(mods);
+}
+
 test "keyToMouseShape" {
     const testing = std.testing;
 
@@ -333,4 +339,13 @@ test "keyToMouseShape" {
         const got = m.keyToMouseShape();
         try testing.expect(want == got);
     }
+}
+
+test "shouldSuppressLinkHover" {
+    const testing = std.testing;
+
+    try testing.expect(!shouldSuppressLinkHover(.{}));
+    try testing.expect(!shouldSuppressLinkHover(.{ .shift = true }));
+    try testing.expect(!shouldSuppressLinkHover(.{ .shift = true, .super = true }));
+    try testing.expect(shouldSuppressLinkHover(.{ .ctrl = true, .alt = true }));
 }

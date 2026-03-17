@@ -1414,13 +1414,27 @@ scrollbar: Scrollbar = .system,
 /// TODO: This can't currently be set!
 link: RepeatableLink = .{},
 
-/// Enable URL matching. URLs are matched on hover with control (Linux) or
-/// command (macOS) pressed and open using the default system application for
-/// the linked URL.
+/// Enable URL matching. URLs are matched on hover and open using the default
+/// system application for the linked URL.
+///
+/// The modifier required to make matched URLs actionable is controlled by
+/// `link-url-modifier`. By default this requires control (Linux) or command
+/// (macOS).
 ///
 /// The URL matcher is always lowest priority of any configured links (see
 /// `link`). If you want to customize URL matching, use `link` and disable this.
 @"link-url": bool = true,
+
+/// Which modifier, if any, is required before URLs become clickable with the
+/// mouse.
+///
+/// This applies to both automatically detected URLs and OSC 8 hyperlinks.
+///
+/// Possible values are:
+///
+///   * `ctrl-or-super` - Require control on Linux and command on macOS.
+///   * `none` - No modifier is required.
+@"link-url-modifier": LinkUrlModifier = .@"ctrl-or-super",
 
 /// Show link previews for a matched URL.
 ///
@@ -3851,7 +3865,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
     try result.link.links.append(alloc, .{
         .regex = url.regex,
         .action = .{ .open = {} },
-        .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+        .highlight = result.@"link-url-modifier".highlight(),
     });
 
     return result;
@@ -4659,9 +4673,12 @@ pub fn finalize(self: *Config) !void {
     if (self.@"window-width" > 0) self.@"window-width" = @max(10, self.@"window-width");
     if (self.@"window-height" > 0) self.@"window-height" = @max(4, self.@"window-height");
 
-    // If URLs are disabled, cut off the first link. The first link is
-    // always the URL matcher.
-    if (!self.@"link-url") self.link.links.items = self.link.links.items[1..];
+    // The first link is always our built-in URL matcher, which can be
+    // disabled entirely or have its hover requirements updated here.
+    if (self.link.links.items.len > 0) {
+        self.link.links.items[0].highlight = self.@"link-url-modifier".highlight();
+        if (!self.@"link-url") self.link.links.items = self.link.links.items[1..];
+    }
 
     // We warn when the quit-after-last-window-closed-delay is set to a very
     // short value because it can cause Ghostty to quit before the first
@@ -5265,6 +5282,25 @@ pub const LinkPreviews = enum {
     false,
     true,
     osc8,
+};
+
+pub const LinkUrlModifier = enum {
+    none,
+    @"ctrl-or-super",
+
+    pub fn highlight(self: LinkUrlModifier) inputpkg.Link.Highlight {
+        return switch (self) {
+            .none => .{ .hover = {} },
+            .@"ctrl-or-super" => .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+        };
+    }
+
+    pub fn matches(self: LinkUrlModifier, mods: inputpkg.Mods) bool {
+        return switch (self) {
+            .none => true,
+            .@"ctrl-or-super" => mods.equal(inputpkg.ctrlOrSuper(.{})),
+        };
+    }
 };
 
 /// See working-directory
@@ -10873,4 +10909,66 @@ test "compatibility: window new-window" {
             cfg.@"macos-dock-drop-behavior",
         );
     }
+}
+
+test "LinkUrlModifier matches and highlight" {
+    const testing = std.testing;
+    const required_mods = inputpkg.ctrlOrSuper(.{});
+    const wrong_mods: inputpkg.Mods = if (required_mods.ctrl)
+        .{ .super = true }
+    else
+        .{ .ctrl = true };
+
+    try testing.expect(LinkUrlModifier.none.matches(.{}));
+    try testing.expect(LinkUrlModifier.none.matches(required_mods));
+    try testing.expect(!LinkUrlModifier.@"ctrl-or-super".matches(.{}));
+    try testing.expect(LinkUrlModifier.@"ctrl-or-super".matches(required_mods));
+    try testing.expect(!LinkUrlModifier.@"ctrl-or-super".matches(wrong_mods));
+
+    switch (LinkUrlModifier.none.highlight()) {
+        .hover => {},
+        else => return error.TestUnexpectedResult,
+    }
+
+    switch (LinkUrlModifier.@"ctrl-or-super".highlight()) {
+        .hover_mods => |mods| try testing.expect(mods.equal(inputpkg.ctrlOrSuper(.{}))),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "link-url-modifier updates built-in url matcher" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    var it: TestIterator = .{ .data = &.{
+        "--link-url-modifier=none",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    // The first built-in link is the default URL matcher.
+    switch (cfg.link.links.items[0].highlight) {
+        .hover => {},
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "link-url-modifier with link-url disabled" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    var it: TestIterator = .{ .data = &.{
+        "--link-url=false",
+        "--link-url-modifier=none",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expectEqual(@as(usize, 0), cfg.link.links.items.len);
 }

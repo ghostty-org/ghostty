@@ -331,6 +331,7 @@ const DerivedConfig = struct {
     title_report: bool,
     links: []DerivedConfig.Link,
     link_previews: configpkg.LinkPreviews,
+    link_url_modifier: configpkg.LinkUrlModifier,
     scroll_to_bottom: configpkg.Config.ScrollToBottom,
     notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
@@ -409,6 +410,7 @@ const DerivedConfig = struct {
             .title_report = config.@"title-report",
             .links = links,
             .link_previews = config.@"link-previews",
+            .link_url_modifier = config.@"link-url-modifier",
             .scroll_to_bottom = config.@"scroll-to-bottom",
             .notify_on_command_finish = config.@"notify-on-command-finish",
             .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
@@ -1563,6 +1565,12 @@ fn mouseRefreshLinks(
     // isn't a link OR if we shouldn't be showing links for some reason
     // (see further comments for cases).
     const link_: ?apprt.action.MouseOverLink, const preview: bool = link: {
+        // Selection-oriented mouse modifier states take precedence over
+        // actionable link hover so users can still access those gestures
+        // without links taking over the cursor.
+        if (SurfaceMouse.shouldSuppressLinkHover(self.mouse.mods))
+            break :link .{ null, false };
+
         // If we clicked and our mouse moved cells then we never
         // highlight links until the mouse is unclicked. This follows
         // standard macOS and Linux behavior where a click and drag cancels
@@ -4243,8 +4251,9 @@ fn linkAtPos(
     // Get our comparison mods
     const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
-    // If we have the proper modifiers set then we can check for OSC8 links.
-    if (mouse_mods.equal(input.ctrlOrSuper(.{}))) hyperlink: {
+    // OSC8 hyperlinks follow the same modifier behavior as the built-in URL
+    // matcher.
+    if (self.config.link_url_modifier.matches(mouse_mods)) hyperlink: {
         const rac = mouse_pin.rowAndCell();
         const cell = rac.cell;
         if (!cell.hyperlink) break :hyperlink;

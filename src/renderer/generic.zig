@@ -1249,10 +1249,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // If our mouse isn't hovering, we have no links.
                     const vp = state.mouse.point orelse break :osc8 .empty;
 
-                    // If the right mods aren't pressed, then we can't match.
-                    if (!state.mouse.mods.equal(inputpkg.ctrlOrSuper(.{})))
-                        break :osc8 .empty;
-
+                    // The surface only sets mouse.point when the hovered link
+                    // is actionable, so we can use it directly here.
                     break :osc8 self.terminal_state.linkCells(
                         arena_alloc,
                         vp,
