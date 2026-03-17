@@ -49,16 +49,23 @@ pub fn commandType(command_: Command) callconv(.c) osc.Command.Key {
     return command.*;
 }
 
+/// C: GhosttySemanticPromptAction
+pub const SemanticPromptAction = osc.semantic_prompt.Command.Action;
+
 /// C: GhosttyOscCommandData
 pub const CommandData = enum(c_int) {
     invalid = 0,
     change_window_title_str = 1,
+    semantic_prompt_action = 2,
+    semantic_prompt_exit_code = 3,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: CommandData) type {
         return switch (self) {
             .invalid => void,
             .change_window_title_str => [*:0]const u8,
+            .semantic_prompt_action => *SemanticPromptAction,
+            .semantic_prompt_exit_code => *i32,
         };
     }
 };
@@ -94,6 +101,18 @@ fn commandDataTyped(
         .invalid => return false,
         .change_window_title_str => switch (command.*) {
             .change_window_title => |v| out.* = v.ptr,
+            else => return false,
+        },
+        .semantic_prompt_action => switch (command.*) {
+            .semantic_prompt => |v| out.* = v.action,
+            else => return false,
+        },
+        .semantic_prompt_exit_code => switch (command.*) {
+            .semantic_prompt => |v| {
+                if (v.readOption(.exit_code)) |exit_code| {
+                    out.* = exit_code;
+                } else return false;
+            },
             else => return false,
         },
     }

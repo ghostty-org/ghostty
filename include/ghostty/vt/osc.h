@@ -86,6 +86,22 @@ typedef enum {
 } GhosttyOscCommandType;
 
 /**
+ * Semantic prompt action types.
+ *
+ * @ingroup osc
+ */
+typedef enum {
+  GHOSTTY_SEMANTIC_PROMPT_FRESH_LINE = 0,
+  GHOSTTY_SEMANTIC_PROMPT_FRESH_LINE_NEW_PROMPT = 1,
+  GHOSTTY_SEMANTIC_PROMPT_NEW_COMMAND = 2,
+  GHOSTTY_SEMANTIC_PROMPT_PROMPT_START = 3,
+  GHOSTTY_SEMANTIC_PROMPT_END_PROMPT_START_INPUT = 4,
+  GHOSTTY_SEMANTIC_PROMPT_END_PROMPT_START_INPUT_TERMINATE_EOL = 5,
+  GHOSTTY_SEMANTIC_PROMPT_END_INPUT_START_OUTPUT = 6,
+  GHOSTTY_SEMANTIC_PROMPT_END_COMMAND = 7,
+} GhosttySemanticPromptAction;
+
+/**
  * OSC command data types.
  * 
  * These values specify what type of data to extract from an OSC command
@@ -108,6 +124,26 @@ typedef enum {
    * the same parser instance. Memory is owned by the parser.
    */
   GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR = 1,
+
+  /**
+   * Semantic prompt action.
+   *
+   * Valid for: GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT
+   *
+   * Output type: GhosttySemanticPromptAction *
+   */
+  GHOSTTY_OSC_DATA_SEMANTIC_PROMPT_ACTION = 2,
+
+  /**
+   * Semantic prompt exit code.
+   *
+   * Valid for: GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT (only for GHOSTTY_SEMANTIC_PROMPT_END_COMMAND)
+   *
+   * Output type: int32_t *
+   *
+   * If no exit code was provided, extraction will fail and return false.
+   */
+  GHOSTTY_OSC_DATA_SEMANTIC_PROMPT_EXIT_CODE = 3,
 } GhosttyOscCommandData;
 
 /**
