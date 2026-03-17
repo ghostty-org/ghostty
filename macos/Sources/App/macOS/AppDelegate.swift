@@ -1220,7 +1220,7 @@ extension AppDelegate {
     private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
         guard let menu = menuItem else { return }
 
-        guard let shortcut = config.keyboardShortcut(for: action) else {
+        guard let shortcut = config.keyboardShortcutForMenu(for: action) else {
             // No shortcut, clear the menu item
             menu.keyEquivalent = ""
             menu.keyEquivalentModifierMask = []

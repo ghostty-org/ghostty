@@ -118,6 +118,18 @@ extension Ghostty {
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
             return Ghostty.keyboardShortcut(for: trigger)
         }
+
+        /// Return the key equivalent for the given action, including performable bindings.
+        /// This is used for menu shortcut display where performable bindings should still
+        /// appear as keyboard shortcuts on menu items. Without this, standard shortcuts like
+        /// CMD+C (copy) would be cleared from the Edit menu because `copy_to_clipboard` is
+        /// a performable binding excluded from the standard reverse map.
+        func keyboardShortcutForMenu(for action: String) -> KeyboardShortcut? {
+            guard let cfg = self.config else { return nil }
+
+            let trigger = ghostty_config_trigger_for_menu(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
+            return Ghostty.keyboardShortcut(for: trigger)
+        }
 #endif
 
         // MARK: - Configuration Values

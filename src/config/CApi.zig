@@ -120,6 +120,29 @@ fn config_trigger_(
     return trigger.cval();
 }
 
+/// Same as ghostty_config_trigger but includes performable bindings.
+/// Used for menu shortcut display where performable bindings should
+/// still appear as keyboard shortcuts on menu items.
+export fn ghostty_config_trigger_for_menu(
+    self: *Config,
+    str: [*]const u8,
+    len: usize,
+) inputpkg.Binding.Trigger.C {
+    return config_trigger_for_menu_(self, str[0..len]) catch |err| err: {
+        log.err("error finding menu trigger err={}", .{err});
+        break :err .{};
+    };
+}
+
+fn config_trigger_for_menu_(
+    self: *Config,
+    str: []const u8,
+) !inputpkg.Binding.Trigger.C {
+    const action = try inputpkg.Binding.Action.parse(str);
+    const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTriggerForMenu(action) orelse .{};
+    return trigger.cval();
+}
+
 export fn ghostty_config_diagnostics_count(self: *Config) u32 {
     return @intCast(self._diagnostics.items().len);
 }
