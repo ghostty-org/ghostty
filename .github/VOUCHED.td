@@ -84,6 +84,7 @@ guilhermetk
 hakonhagland
 halosatrio
 heaths
+heddxh heddxh
 -highimpact-dev Disrespectful AI user
 hqnna
 hulet
