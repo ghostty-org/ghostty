@@ -156,3 +156,66 @@ test "change window title" {
     try testing.expect(commandData(cmd, .change_window_title_str, @ptrCast(&title)));
     try testing.expectEqualStrings("a", std.mem.span(title));
 }
+
+test "semantic prompt" {
+    const testing = std.testing;
+    var p: Parser = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &p,
+    ));
+    defer free(p);
+
+    // Parse it
+    next(p, '1');
+    next(p, '3');
+    next(p, '3');
+    next(p, ';');
+    next(p, 'A');
+    next(p, ';');
+    next(p, 'a');
+    next(p, 'i');
+    next(p, 'd');
+    next(p, '=');
+    next(p, '1');
+    next(p, '4');
+    const cmd = end(p, 0);
+    try testing.expectEqual(.semantic_prompt, commandType(cmd));
+
+    // Extract the action
+    var action: SemanticPromptAction = undefined;
+    try testing.expect(commandData(cmd, .semantic_prompt_action, @ptrCast(&action)));
+    try testing.expectEqual(SemanticPromptAction.fresh_line_new_prompt, action);
+}
+
+test "semantic prompt with exit code" {
+    const testing = std.testing;
+    var p: Parser = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &p,
+    ));
+    defer free(p);
+
+    // Parse it
+    next(p, '1');
+    next(p, '3');
+    next(p, '3');
+    next(p, ';');
+    next(p, 'D');
+    next(p, ';');
+    next(p, '4');
+    next(p, '2');
+    const cmd = end(p, 0);
+    try testing.expectEqual(.semantic_prompt, commandType(cmd));
+
+    // Extract the action
+    var action: SemanticPromptAction = undefined;
+    try testing.expect(commandData(cmd, .semantic_prompt_action, @ptrCast(&action)));
+    try testing.expectEqual(SemanticPromptAction.end_command, action);
+
+    // Extract the exit code
+    var exit_code: i32 = 0;
+    try testing.expect(commandData(cmd, .semantic_prompt_exit_code, @ptrCast(&exit_code)));
+    try testing.expectEqual(@as(i32, 42), exit_code);
+}
