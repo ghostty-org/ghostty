@@ -67,6 +67,12 @@ pub const Message = union(enum) {
     /// period of time so that a bad actor can't hang the terminal.
     start_synchronized_output: void,
 
+    /// Start a one-shot timer that fires a `prompt_click_timeout`
+    /// message back to the surface after the given number of
+    /// milliseconds. Used to delay prompt click execution so that
+    /// double/triple clicks can cancel it.
+    start_prompt_click_timer: u32,
+
     /// Enable or disable linefeed mode (mode 20).
     linefeed_mode: bool,
 

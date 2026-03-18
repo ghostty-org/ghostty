@@ -82,6 +82,10 @@ pub const Message = union(enum) {
     /// the viewport to follow the mouse cursor.
     selection_scroll_tick: bool,
 
+    /// The prompt click delay timer has fired. The surface should
+    /// execute the pending prompt click if it hasn't been cancelled.
+    prompt_click_timeout: void,
+
     /// The terminal has reported a change in the working directory.
     pwd_change: WriteReq,
 

@@ -149,6 +149,11 @@ focused: bool = true,
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
+/// Pending prompt click data when cursor-click-to-move is enabled.
+/// Set on mouse release, cleared on the next mouse press or when
+/// the prompt click timer fires and the click is executed.
+prompt_click_data: ?PromptClickData = null,
+
 /// True if the surface is in read-only mode. When read-only, no input
 /// is sent to the PTY but terminal-level operations like selections,
 /// (native) scrolling, and copy keybinds still work. Warn before quit is
@@ -1109,6 +1114,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();
         },
+
+        .prompt_click_timeout => self.executePromptClick(),
 
         .start_command => {
             self.command_timer = try .now();
@@ -3858,6 +3865,11 @@ pub fn mouseButtonCallback(
     // For left button clicks we always record some information for
     // selection/highlighting purposes.
     if (button == .left and action == .press) click: {
+        // Cancel any pending deferred prompt click. A new press means
+        // either a multi-click (which should select, not move) or a
+        // completely new click sequence.
+        self.prompt_click_data = null;
+
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         const t: *terminal.Terminal = self.renderer_state.terminal;
@@ -4100,31 +4112,22 @@ pub fn mouseButtonCallback(
     return false;
 }
 
+/// Validate and prepare a deferred prompt click. Instead of executing
+/// the click immediately, the click data is stored and a timer is
+/// started. If the user double/triple-clicks within the timer
+/// interval, the pending click is cancelled (on the next press).
+/// Otherwise the timer fires and executePromptClick runs.
 fn maybePromptClick(self: *Surface) !bool {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     const t: *terminal.Terminal = self.renderer_state.terminal;
     const screen: *terminal.Screen = t.screens.active;
 
-    // If our screen doesn't handle any prompt clicks, then we never
-    // do anything.
     if (screen.semantic_prompt.click == .none) return false;
-
-    // If cursor-click-to-move is disabled, we don't do any prompt clicking.
     if (!self.config.cursor_click_to_move) return false;
-
-    // If our cursor isn't currently at a prompt then we don't handle
-    // prompt clicks because we can't move if we're not in a prompt!
     if (!t.cursorIsAtPrompt()) return false;
-
-    // If we have a selection currently, then releasing the mouse
-    // completes the selection and we don't do prompt moving. I don't
-    // love this logic, I think it should be generalized to "if the
-    // mouse release was on a different cell than the mouse press" but
-    // our mouse state at the time of writing this doesn't support that.
     if (screen.selection != null) return false;
 
-    // Get the pin for our mouse click.
     const pos = try self.rt_surface.getCursorPos();
     const pos_vp = self.posToViewport(pos.x, pos.y);
     const click_pin: terminal.Pin = pin: {
@@ -4134,88 +4137,104 @@ fn maybePromptClick(self: *Surface) !bool {
                 .y = pos_vp.y,
             },
         }) orelse {
-            // See mouseButtonCallback for explanation
             if (comptime std.debug.runtime_safety) unreachable;
             return false;
         };
-
         break :pin pin;
     };
 
-    // Get our cursor's most current prompt.
     const prompt_pin: terminal.Pin = prompt_pin: {
-        var it = screen.cursor.page_pin.promptIterator(
-            .left_up,
-            null,
-        );
+        var it = screen.cursor.page_pin.promptIterator(.left_up, null);
         break :prompt_pin it.next() orelse {
-            // This shouldn't be possible because we asserted we're at
-            // a prompt above, so we MUST find some prompt in a left_up search.
             log.warn("cursor is at prompt but no prompt found", .{});
             if (comptime std.debug.runtime_safety) unreachable;
             return false;
         };
     };
 
-    // If our mouse click is before the prompt, we don't move.
-    // We DO ALLOW clicks AFTER the prompt, specifically with Kitty's
-    // click_events=1 since we rely on the shell to validate out of
-    // bounds clicks. This matches Kitty's logic as best I can tell.
     if (click_pin.before(prompt_pin)) return false;
 
-    // At this point we've established:
-    // - Screen supports prompt clicks
-    // - Cursor is at a prompt
-    // - Click is at or below our prompt
-    switch (screen.semantic_prompt.click) {
-        // Guarded at the start of this function
+    // Store the click data for deferred execution.
+    self.prompt_click_data = switch (screen.semantic_prompt.click) {
         .none => unreachable,
-
-        .click_events => {
-            // For the event, we always send a left-click press event.
-            // This matches what Kitty sends.
-            var data: termio.Message.WriteReq.Small.Array = undefined;
-            const resp = try std.fmt.bufPrint(
-                &data,
-                "\x1B[<0;{d};{d}M",
-                .{ pos_vp.x + 1, pos_vp.y + 1 },
-            );
-
-            // Not that noisy since this only happens on prompt clicks.
-            log.debug(
-                "sending click_events=1 event=ESC{s}",
-                .{resp[1..]},
-            );
-
-            // Ask our IO thread to write the data
-            self.queueIo(.{ .write_small = .{
-                .data = data,
-                .len = @intCast(resp.len),
-            } }, .locked);
+        .click_events => .{
+            .mode = .click_events,
+            .vp_x = pos_vp.x + 1,
+            .vp_y = pos_vp.y + 1,
         },
-
-        .cl => {
-            const left_arrow = if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
-            const right_arrow = if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
-
+        .cl => cl: {
             const move = screen.promptClickMove(click_pin);
-            for (0..move.left) |_| {
-                self.queueIo(
-                    .{ .write_stable = left_arrow },
-                    .locked,
-                );
-            }
-            for (0..move.right) |_| {
-                self.queueIo(
-                    .{ .write_stable = right_arrow },
-                    .locked,
-                );
-            }
+            break :cl .{
+                .mode = .cl,
+                .left = move.left,
+                .right = move.right,
+                .cursor_keys = t.modes.get(.cursor_keys),
+            };
         },
-    }
+    };
+
+    // Start the delay timer. The timeout equals the multi-click
+    // interval so a double/triple-click can cancel the pending click.
+    const timeout_ms: u32 = @intCast(self.config.mouse_interval / std.time.ns_per_ms);
+    self.queueIo(
+        .{ .start_prompt_click_timer = timeout_ms },
+        .locked,
+    );
 
     return true;
 }
+
+/// Execute the stored prompt click, if any. Called when the prompt
+/// click timer fires and the click hasn't been cancelled.
+fn executePromptClick(self: *Surface) void {
+    const data = self.prompt_click_data orelse return;
+    self.prompt_click_data = null;
+
+    switch (data.mode) {
+        .click_events => {
+            var buf: termio.Message.WriteReq.Small.Array = undefined;
+            const resp = std.fmt.bufPrint(
+                &buf,
+                "\x1B[<0;{d};{d}M",
+                .{ data.vp_x, data.vp_y },
+            ) catch return;
+
+            log.debug("sending deferred click_events event=ESC{s}", .{resp[1..]});
+            self.queueIo(.{ .write_small = .{
+                .data = buf,
+                .len = @intCast(resp.len),
+            } }, .unlocked);
+        },
+
+        .cl => {
+            const left_arrow: []const u8 = if (data.cursor_keys) "\x1bOD" else "\x1b[D";
+            const right_arrow: []const u8 = if (data.cursor_keys) "\x1bOC" else "\x1b[C";
+
+            for (0..data.left) |_| {
+                self.queueIo(.{ .write_stable = left_arrow }, .unlocked);
+            }
+            for (0..data.right) |_| {
+                self.queueIo(.{ .write_stable = right_arrow }, .unlocked);
+            }
+        },
+    }
+}
+
+/// Stored data for a deferred prompt click. The click is validated
+/// at mouse-release time but executed only after the click-repeat
+/// interval expires (so double/triple clicks can cancel it).
+const PromptClickData = struct {
+    const Mode = enum { click_events, cl };
+    mode: Mode,
+    /// Viewport position (1-based) for click_events mode.
+    vp_x: usize = 0,
+    vp_y: usize = 0,
+    /// Arrow key move counts for cl mode.
+    left: usize = 0,
+    right: usize = 0,
+    /// Whether cursor key mode is active (for cl mode).
+    cursor_keys: bool = false,
+};
 
 const Link = struct {
     action: input.Link.Action,

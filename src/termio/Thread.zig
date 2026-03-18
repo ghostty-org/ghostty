@@ -72,6 +72,12 @@ sync_reset: xev.Timer,
 sync_reset_c: xev.Completion = .{},
 sync_reset_cancel_c: xev.Completion = .{},
 
+/// One-shot timer for delaying prompt clicks so that double/triple
+/// clicks can cancel them. See Surface.maybePromptClick.
+prompt_click: xev.Timer,
+prompt_click_c: xev.Completion = .{},
+prompt_click_cancel_c: xev.Completion = .{},
+
 flags: packed struct {
     /// This is set to true only when an abnormal exit is detected. It
     /// tells our mailbox system to drain and ignore all messages.
@@ -111,6 +117,10 @@ pub fn init(
     var sync_reset_h = try xev.Timer.init();
     errdefer sync_reset_h.deinit();
 
+    // This timer is used to delay prompt clicks.
+    var prompt_click_h = try xev.Timer.init();
+    errdefer prompt_click_h.deinit();
+
     return Thread{
         .alloc = alloc,
         .loop = loop,
@@ -118,6 +128,7 @@ pub fn init(
         .scroll = scroll_h,
         .coalesce = coalesce_h,
         .sync_reset = sync_reset_h,
+        .prompt_click = prompt_click_h,
     };
 }
 
@@ -127,6 +138,7 @@ pub fn deinit(self: *Thread) void {
     self.scroll.deinit();
     self.coalesce.deinit();
     self.sync_reset.deinit();
+    self.prompt_click.deinit();
     self.stop.deinit();
     self.loop.deinit();
 }
@@ -331,6 +343,7 @@ fn drainMailbox(
             },
             .jump_to_prompt => |v| try io.jumpToPrompt(v),
             .start_synchronized_output => self.startSynchronizedOutput(cb),
+            .start_prompt_click_timer => |ms| self.startPromptClickTimer(cb, ms),
             .linefeed_mode => |v| self.flags.linefeed_mode = v,
             .focused => |v| try io.focusGained(data, v),
             .write_small => |v| try io.queueWrite(
@@ -390,6 +403,40 @@ fn handleResize(self: *Thread, cb: *CallbackData, resize: renderer.Size) void {
         cb,
         coalesceCallback,
     );
+}
+
+fn startPromptClickTimer(self: *Thread, cb: *CallbackData, timeout_ms: u32) void {
+    self.prompt_click.reset(
+        &self.loop,
+        &self.prompt_click_c,
+        &self.prompt_click_cancel_c,
+        timeout_ms,
+        CallbackData,
+        cb,
+        promptClickCallback,
+    );
+}
+
+fn promptClickCallback(
+    cb_: ?*CallbackData,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch |err| switch (err) {
+        error.Canceled => return .disarm,
+        else => {
+            log.warn("error during prompt click timer callback err={}", .{err});
+            return .disarm;
+        },
+    };
+
+    const cb = cb_ orelse return .disarm;
+    _ = cb.surface_mailbox.push(
+        .{ .prompt_click_timeout = {} },
+        .{ .instant = {} },
+    );
+    return .disarm;
 }
 
 fn syncResetCallback(
