@@ -97,6 +97,12 @@ pub const Options = struct {
     /// is currently only space characters (0x20).
     trim: bool = true,
 
+    /// Trim leading whitespace on lines with other text. This only affects
+    /// leading whitespace on rows that have at least one other cell with text.
+    /// Completely blank lines are unaffected. Whitespace is currently only
+    /// space characters (0x20).
+    trim_leading: bool = false,
+
     /// Replace matching Unicode codepoints with some other values.
     /// This will use the last matching range found in the list.
     codepoint_map: ?std.MultiArrayList(CodepointMap) = .{},
@@ -882,6 +888,7 @@ pub const PageFormatter = struct {
     ) std.Io.Writer.Error!TrailingState {
         var blank_rows: usize = 0;
         var blank_cells: usize = 0;
+        var leading_done: bool = false;
 
         // Continue our prior trailing state if we have it, but only if we're
         // starting from the beginning (start_y and start_x are both 0).
@@ -1114,7 +1121,10 @@ pub const PageFormatter = struct {
 
             // If the row doesn't continue a wrap then we need to reset
             // our blank cell count.
-            if (!row.wrap_continuation or !self.opts.unwrap) blank_cells = 0;
+            if (!row.wrap_continuation or !self.opts.unwrap) {
+                blank_cells = 0;
+                leading_done = false;
+            }
 
             // Go through each cell and print it
             for (cells_subset, row_start_x..) |*cell, x_usize| {
@@ -1125,6 +1135,12 @@ pub const PageFormatter = struct {
                 switch (cell.wide) {
                     .narrow, .wide => {},
                     .spacer_head, .spacer_tail => continue,
+                }
+
+                // Skip leading spaces when trim_leading is enabled.
+                if (!leading_done and self.opts.trim_leading) {
+                    if (cell.codepoint() == ' ') continue;
+                    leading_done = true;
                 }
 
                 // If we have a zero value, then we accumulate a counter. We
@@ -6278,4 +6294,117 @@ test "Page HTML hyperlink point map maps closing to previous cell" {
     for (closing_idx..closing_idx + "</a>".len) |i| {
         try testing.expectEqual(expected_coord, point_map.items[i]);
     }
+}
+
+test "Page plain trim_leading" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    s.nextSlice("   hello\r\n   world");
+
+    const pages = &t.screens.active.pages;
+    try testing.expect(pages.pages.first != null);
+    try testing.expect(pages.pages.first == pages.pages.last);
+
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{
+        .emit = .plain,
+        .trim_leading = true,
+    });
+
+    _ = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello\nworld", output);
+}
+
+test "Page plain trim_leading disabled by default" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    s.nextSlice("   hello\r\n   world");
+
+    const pages = &t.screens.active.pages;
+    try testing.expect(pages.pages.first != null);
+    try testing.expect(pages.pages.first == pages.pages.last);
+
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .plain);
+
+    _ = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("   hello\n   world", output);
+}
+
+test "Page plain trim_leading preserves wrap continuation spaces" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    // Use small cols so the text wraps
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // "hello     world" is 15 chars. With 10 cols:
+    // row 0: "hello     " (wrap=true)
+    // row 1: "world" (wrap_continuation=true)
+    // But we want leading spaces on the continuation row.
+    // Let's use: "hello  " + "   world" which is 13 chars.
+    // row 0: "hello     " (10 chars, wrap=true) -- 5 chars + 5 spaces
+    // row 1: "   world" (wrap_continuation=true) -- 3 spaces + 5 chars
+    // Actually the terminal writes sequentially, so "hello        world" (13 chars):
+    // row 0 gets "hello     " (fills 10 cols) -> wraps
+    // row 1 gets "   world"
+    s.nextSlice("hello        world");
+
+    const pages = &t.screens.active.pages;
+    try testing.expect(pages.pages.first != null);
+    try testing.expect(pages.pages.first == pages.pages.last);
+
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{
+        .emit = .plain,
+        .unwrap = true,
+        .trim_leading = true,
+    });
+
+    _ = try formatter.formatWithState(&builder.writer);
+    const output = builder.writer.buffered();
+    // With unwrap=true, the continuation row's leading spaces are mid-line
+    // content and should NOT be trimmed. The leading spaces on row 0 (the
+    // start of the logical line) should be trimmed though -- but row 0 starts
+    // with "hello" so there are no leading spaces to trim there.
+    // Result: "hello        world" unwrapped as one line, no leading trim needed.
+    try testing.expectEqualStrings("hello        world", output);
 }
