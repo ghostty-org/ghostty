@@ -274,163 +274,95 @@ fn wndProc(
     wparam: usize,
     lparam: isize,
 ) callconv(.c) isize {
-    // Try to get the Surface from GWLP_USERDATA. For the message-only window
-    // we store the App pointer instead (set in init); for regular windows we
-    // store the Surface pointer (set in Surface.init).
-    //
-    // During window creation (before SetWindowLongPtrW), this will be 0.
+    // GWLP_USERDATA stores either an *App (message-only window) or
+    // *Surface (visible windows). We disambiguate by checking the message:
+    // WM_APP_WAKEUP only goes to the message-only window.
     const userdata = w32.GetWindowLongPtrW(hwnd, w32.GWLP_USERDATA);
 
-    switch (msg) {
-        WM_APP_WAKEUP => {
-            // This comes to the message-only window. The userdata is the App.
-            if (userdata != 0) {
-                const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                app.tick();
-            }
-            return 0;
-        },
+    // Handle app-level wakeup message (message-only window, userdata is *App).
+    if (msg == WM_APP_WAKEUP) {
+        if (userdata != 0) {
+            const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
+            app.tick();
+        }
+        return 0;
+    }
 
+    // All other messages are for visible (surface) windows.
+    // If userdata is 0 (during creation) or this is a non-surface window,
+    // fall through to DefWindowProc.
+    const surface: *Surface = if (userdata != 0)
+        @ptrFromInt(@as(usize, @bitCast(userdata)))
+    else
+        return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+
+    // Guard: verify this is actually a surface window, not the msg-only window.
+    // The msg-only window can receive WM_DESTROY during shutdown.
+    if (surface.hwnd == null or surface.hwnd.? != hwnd)
+        return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+
+    switch (msg) {
         w32.WM_SIZE => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                const width: u32 = @intCast(lparam & 0xFFFF);
-                const height: u32 = @intCast((lparam >> 16) & 0xFFFF);
-                surface.handleResize(width, height);
-            }
+            const width: u32 = @intCast(lparam & 0xFFFF);
+            const height: u32 = @intCast((lparam >> 16) & 0xFFFF);
+            surface.handleResize(width, height);
             return 0;
         },
 
         w32.WM_CLOSE => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.close(false);
-            }
+            surface.close(false);
             return 0;
         },
 
         w32.WM_DESTROY => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleDestroy();
-            }
+            surface.handleDestroy();
             return 0;
         },
 
         w32.WM_PAINT => {
-            // For now just validate the paint region
             _ = w32.ValidateRect(hwnd, null);
             return 0;
         },
 
         w32.WM_DPICHANGED => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleDpiChange();
-            }
+            surface.handleDpiChange();
             return 0;
         },
 
         w32.WM_KEYDOWN, w32.WM_SYSKEYDOWN => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleKeyEvent(wparam, lparam, .press);
-            }
+            surface.handleKeyEvent(wparam, lparam, .press);
             return 0;
         },
 
         w32.WM_KEYUP, w32.WM_SYSKEYUP => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleKeyEvent(wparam, lparam, .release);
-            }
+            surface.handleKeyEvent(wparam, lparam, .release);
             return 0;
         },
 
         w32.WM_CHAR => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleCharEvent(wparam);
-            }
+            surface.handleCharEvent(wparam);
             return 0;
         },
 
-        w32.WM_LBUTTONDOWN => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseButton(.left, .press, lparam);
-            }
-            return 0;
-        },
-        w32.WM_LBUTTONUP => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseButton(.left, .release, lparam);
-            }
-            return 0;
-        },
-
-        w32.WM_RBUTTONDOWN => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseButton(.right, .press, lparam);
-            }
-            return 0;
-        },
-        w32.WM_RBUTTONUP => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseButton(.right, .release, lparam);
-            }
-            return 0;
-        },
-
-        w32.WM_MBUTTONDOWN => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseButton(.middle, .press, lparam);
-            }
-            return 0;
-        },
-        w32.WM_MBUTTONUP => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseButton(.middle, .release, lparam);
-            }
-            return 0;
-        },
+        w32.WM_LBUTTONDOWN => { surface.handleMouseButton(.left, .press, lparam); return 0; },
+        w32.WM_LBUTTONUP => { surface.handleMouseButton(.left, .release, lparam); return 0; },
+        w32.WM_RBUTTONDOWN => { surface.handleMouseButton(.right, .press, lparam); return 0; },
+        w32.WM_RBUTTONUP => { surface.handleMouseButton(.right, .release, lparam); return 0; },
+        w32.WM_MBUTTONDOWN => { surface.handleMouseButton(.middle, .press, lparam); return 0; },
+        w32.WM_MBUTTONUP => { surface.handleMouseButton(.middle, .release, lparam); return 0; },
 
         w32.WM_MOUSEMOVE => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseMove(lparam);
-            }
+            surface.handleMouseMove(lparam);
             return 0;
         },
 
         w32.WM_MOUSEWHEEL => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleMouseWheel(wparam);
-            }
+            surface.handleMouseWheel(wparam);
             return 0;
         },
 
-        w32.WM_SETFOCUS => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleFocus(true);
-            }
-            return 0;
-        },
-
-        w32.WM_KILLFOCUS => {
-            if (userdata != 0) {
-                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
-                surface.handleFocus(false);
-            }
-            return 0;
-        },
+        w32.WM_SETFOCUS => { surface.handleFocus(true); return 0; },
+        w32.WM_KILLFOCUS => { surface.handleFocus(false); return 0; },
 
         else => return w32.DefWindowProcW(hwnd, msg, wparam, lparam),
     }

@@ -39,6 +39,10 @@ app: *App,
 /// the window and WGL context. Manages fonts, renderer, PTY, and IO.
 core_surface: CoreSurface = undefined,
 
+/// Buffered high surrogate from WM_CHAR for supplementary plane characters.
+/// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages (surrogate pair).
+high_surrogate: u16 = 0,
+
 /// Initialize a new Surface by creating a Win32 window and WGL context,
 /// then initialize the core terminal surface (fonts, renderer, PTY, IO).
 pub fn init(self: *Surface, app: *App) !void {
@@ -49,6 +53,10 @@ pub fn init(self: *Surface, app: *App) !void {
     // Create the window through the App
     const hwnd = try app.createWindow();
     self.hwnd = hwnd;
+    errdefer {
+        _ = w32.DestroyWindow(hwnd);
+        self.hwnd = null;
+    }
 
     // Store the Surface pointer in the window's GWLP_USERDATA so that
     // the WndProc can retrieve it.
@@ -58,6 +66,10 @@ pub fn init(self: *Surface, app: *App) !void {
     // the lifetime of the window.
     self.hdc = w32.GetDC(hwnd);
     if (self.hdc == null) return error.Win32Error;
+    errdefer {
+        _ = w32.ReleaseDC(hwnd, self.hdc.?);
+        self.hdc = null;
+    }
 
     // Set up the pixel format for OpenGL
     try self.setupPixelFormat();
@@ -65,6 +77,11 @@ pub fn init(self: *Surface, app: *App) !void {
     // Create the WGL context
     self.hglrc = w32.wglCreateContext(self.hdc.?);
     if (self.hglrc == null) return error.Win32Error;
+    errdefer {
+        _ = w32.wglMakeCurrent(null, null);
+        _ = w32.wglDeleteContext(self.hglrc.?);
+        self.hglrc = null;
+    }
 
     // Query the initial DPI and size
     self.updateDpiScale();
@@ -277,7 +294,7 @@ pub fn clipboardRequest(
     };
     defer alloc.free(utf8);
 
-    // Build a null-terminated version for completeClipboardRequest.
+    // Null-terminate for completeClipboardRequest.
     const utf8z = try alloc.dupeZ(u8, utf8);
     defer alloc.free(utf8z);
 
@@ -368,11 +385,8 @@ pub fn defaultTermioEnv(self: *const Surface) !std.process.EnvMap {
     var env = try internal_os.getEnvMap(alloc);
     errdefer env.deinit();
 
-    // Set TERM
-    try env.put("TERM", "xterm-256color");
-
-    // COLORTERM signals 24-bit color support
-    try env.put("COLORTERM", "truecolor");
+    // TERM and COLORTERM are set by termio/Exec.zig with platform-aware
+    // logic (checking for terminfo, resources_dir, etc.). Do not set them here.
 
     return env;
 }
@@ -396,8 +410,17 @@ pub fn setTitle(self: *Surface, title: [:0]const u8) void {
 
 /// Handle WM_SIZE.
 pub fn handleResize(self: *Surface, width: u32, height: u32) void {
+    // Skip zero-size events (minimized windows).
+    if (width == 0 or height == 0) return;
+
     self.width = width;
     self.height = height;
+
+    // Notify the core surface so it recalculates the terminal grid,
+    // updates the renderer viewport, and sends SIGWINCH to the PTY.
+    self.core_surface.sizeCallback(.{ .width = width, .height = height }) catch |err| {
+        log.err("sizeCallback error: {}", .{err});
+    };
 }
 
 /// Handle WM_DESTROY.
@@ -457,15 +480,35 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
 }
 
 /// Handle WM_CHAR — character input after translation.
+/// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages
+/// containing a UTF-16 surrogate pair (high then low).
 pub fn handleCharEvent(self: *Surface, wparam: usize) void {
     const char_code: u16 = @intCast(wparam & 0xFFFF);
 
     // Skip control characters that are handled via WM_KEYDOWN
     if (char_code < 0x20 and char_code != '\t' and char_code != '\r' and char_code != '\n') return;
 
-    // Convert UTF-16 code unit to UTF-8
+    // Handle UTF-16 surrogate pairs for codepoints > U+FFFF (e.g. emoji).
+    const codepoint: u21 = if (char_code >= 0xD800 and char_code <= 0xDBFF) {
+        // High surrogate — buffer it and wait for the low surrogate.
+        self.high_surrogate = char_code;
+        return;
+    } else if (char_code >= 0xDC00 and char_code <= 0xDFFF) blk: {
+        // Low surrogate — combine with buffered high surrogate.
+        if (self.high_surrogate != 0) {
+            const hi: u21 = self.high_surrogate;
+            self.high_surrogate = 0;
+            break :blk @intCast((@as(u21, hi - 0xD800) << 10) + (@as(u21, char_code) - 0xDC00) + 0x10000);
+        }
+        // Low surrogate without preceding high — invalid, skip.
+        return;
+    } else blk: {
+        self.high_surrogate = 0; // Reset any stale high surrogate.
+        break :blk @intCast(char_code);
+    };
+
+    // Convert codepoint to UTF-8
     var utf8_buf: [4]u8 = undefined;
-    const codepoint: u21 = @intCast(char_code);
     const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch return;
 
     self.core_surface.textCallback(utf8_buf[0..len]) catch |err| {
