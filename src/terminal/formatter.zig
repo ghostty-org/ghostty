@@ -1139,9 +1139,12 @@ pub const PageFormatter = struct {
                     .spacer_head, .spacer_tail => continue,
                 }
 
-                // Skip leading spaces when trim_leading is enabled.
+                // Skip leading whitespace when trim_leading is enabled.
+                // This includes both space characters (0x20) and empty cells
+                // (codepoint 0), which some programs use for indentation via
+                // cursor positioning.
                 if (!leading_done and self.opts.trim_leading) {
-                    if (cell.codepoint() == ' ') continue;
+                    if (cell.codepoint() == ' ' or !cell.hasText()) continue;
                     leading_done = true;
                     blank_cells = 0;
                 }
