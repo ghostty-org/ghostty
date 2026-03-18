@@ -104,13 +104,13 @@ fn commandDataTyped(
             else => return false,
         },
         .semantic_prompt_action => switch (command.*) {
-            .semantic_prompt => |v| out.* = v.action,
+            .semantic_prompt => |v| out.*.* = v.action,
             else => return false,
         },
         .semantic_prompt_exit_code => switch (command.*) {
             .semantic_prompt => |v| {
                 if (v.readOption(.exit_code)) |exit_code| {
-                    out.* = exit_code;
+                    out.*.* = exit_code;
                 } else return false;
             },
             else => return false,
