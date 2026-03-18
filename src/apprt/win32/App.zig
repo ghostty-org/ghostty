@@ -340,7 +340,9 @@ fn wndProc(
         },
 
         w32.WM_CHAR => {
-            surface.handleCharEvent(wparam);
+            // Text input is handled through keyCallback's key encoding
+            // in handleKeyEvent. WM_CHAR would duplicate the input.
+            // TODO: Re-enable for IME (input method editor) support.
             return 0;
         },
 
