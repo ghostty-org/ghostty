@@ -17,7 +17,7 @@ pub const Result = struct {
 fn isFilenameChar(c: u8) bool {
     return switch (c) {
         'a'...'z', 'A'...'Z', '0'...'9' => true,
-        '.', '-', '_', '+', '~', ':', '@' => true,
+        '.', '-', '_', '+', '~', ':' => true,
         else => false,
     };
 }
@@ -56,6 +56,11 @@ fn extractQuoted(alloc: std.mem.Allocator, text: []const u8, offset: usize) ?Res
         }
         return null;
     };
+
+    // Verify cursor is inside this quoted string (no closing quote between open and offset)
+    for (text[open + 1 .. offset]) |c| {
+        if (c == quote_char) return null; // Cursor is between two quoted strings
+    }
 
     // Find the closing quote
     var close: usize = offset + 1;

@@ -231,7 +231,7 @@ const FileCheck = struct {
 
 const FileCheckCacheEntry = struct {
     exists: bool,
-    resolved_path: [std.fs.max_path_bytes]u8 = undefined,
+    resolved_path: [1024]u8 = undefined,
     resolved_path_len: u16 = 0,
 
     fn resolvedPathSlice(self: *const FileCheckCacheEntry) ?[]const u8 {
@@ -1719,24 +1719,24 @@ fn mouseRefreshLinks(
                 };
             },
 
-            ._open_file => {
+            ._open_file => |cache_key| {
                 const str = try self.io.terminal.screens.active.selectionString(alloc, .{
                     .sel = link.selection,
                     .trim = false,
                 });
 
-                const terminal_pwd = self.io.terminal.getPwd();
-                const preview_url = if (terminal_pwd) |p| preview: {
-                    const key = std.hash.Wyhash.hash(0, str) ^
-                        std.hash.Wyhash.hash(1, p);
-                    if (self.file_check_cache.get(key)) |entry| {
-                        break :preview entry.resolvedPathSlice() orelse str;
+                // Use cache key from action to look up resolved path for preview
+                if (self.file_check_cache.get(cache_key)) |entry| {
+                    if (entry.resolvedPathSlice()) |resolved| {
+                        break :link .{
+                            .{ .url = try alloc.dupeZ(u8, resolved) },
+                            self.config.link_previews == .true,
+                        };
                     }
-                    break :preview str;
-                } else str;
+                }
 
                 break :link .{
-                    .{ .url = try alloc.dupeZ(u8, preview_url) },
+                    .{ .url = try alloc.dupeZ(u8, str) },
                     self.config.link_previews == .true,
                 };
             },
@@ -4387,7 +4387,6 @@ fn linkAtPos(
     }
 
     // Check regex links first
-    // Check regex links first
     if (try self.linkAtPin(mouse_pin, mouse_mods)) |link| return link;
 
     // Phase 3: Bare filename detection via file existence check.
@@ -4499,7 +4498,7 @@ fn fileCheckAtPin(self: *Surface, mouse_pin: terminal.Pin) !?Link {
             const sel_start = strmap.map[result.start];
             const sel_end = strmap.map[result.end - 1];
             const sel = terminal.Selection.init(sel_start, sel_end, false);
-            return .{ .action = ._open_file, .selection = sel };
+            return .{ .action = .{ ._open_file = cache_key }, .selection = sel };
         }
         return null;
     }
@@ -4561,19 +4560,9 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
             try self.openUrl(.{ .kind = .unknown, .url = uri });
         },
 
-        ._open_file => {
-            const str = try self.io.terminal.screens.active.selectionString(self.alloc, .{
-                .sel = link.selection,
-                .trim = false,
-            });
-            defer self.alloc.free(str);
-
-            const terminal_pwd = self.io.terminal.getPwd() orelse return false;
-            const cache_key = std.hash.Wyhash.hash(0, str) ^
-                std.hash.Wyhash.hash(1, terminal_pwd);
+        ._open_file => |cache_key| {
             const entry = self.file_check_cache.get(cache_key) orelse return false;
             const resolved = entry.resolvedPathSlice() orelse return false;
-
             try self.openUrl(.{ .kind = .unknown, .url = resolved });
         },
     }
@@ -5443,21 +5432,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                         break :url_text try self.alloc.dupeZ(u8, uri);
                     },
 
-                    ._open_file => url_text: {
+                    ._open_file => |cache_key| url_text: {
                         // For file check links, get the resolved path from cache
-                        const str = (self.io.terminal.screens.active.selectionString(self.alloc, .{
-                            .sel = link_info.selection,
-                            .trim = false,
-                        })) catch |err| {
-                            log.err("error reading file link string err={}", .{err});
-                            return false;
-                        };
-                        defer self.alloc.free(str);
-
-                        const terminal_pwd = self.io.terminal.getPwd() orelse return false;
-                        const key = std.hash.Wyhash.hash(0, str) ^
-                            std.hash.Wyhash.hash(1, terminal_pwd);
-                        const entry = self.file_check_cache.get(key) orelse return false;
+                        const entry = self.file_check_cache.get(cache_key) orelse return false;
                         const resolved = entry.resolvedPathSlice() orelse return false;
                         break :url_text try self.alloc.dupeZ(u8, resolved);
                     },

@@ -32,7 +32,8 @@ pub const Action = union(enum) {
 
     /// Open a file whose existence was confirmed by the async file checker.
     /// The resolved path is retrieved from the Surface's file check cache.
-    _open_file: void,
+    /// The payload is the cache key (u64) used to look up the resolved path.
+    _open_file: u64,
 };
 
 pub const Highlight = union(enum) {
