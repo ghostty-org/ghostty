@@ -331,6 +331,107 @@ fn wndProc(
             return 0;
         },
 
+        w32.WM_KEYDOWN, w32.WM_SYSKEYDOWN => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleKeyEvent(wparam, lparam, .press);
+            }
+            return 0;
+        },
+
+        w32.WM_KEYUP, w32.WM_SYSKEYUP => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleKeyEvent(wparam, lparam, .release);
+            }
+            return 0;
+        },
+
+        w32.WM_CHAR => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleCharEvent(wparam);
+            }
+            return 0;
+        },
+
+        w32.WM_LBUTTONDOWN => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseButton(.left, .press, lparam);
+            }
+            return 0;
+        },
+        w32.WM_LBUTTONUP => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseButton(.left, .release, lparam);
+            }
+            return 0;
+        },
+
+        w32.WM_RBUTTONDOWN => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseButton(.right, .press, lparam);
+            }
+            return 0;
+        },
+        w32.WM_RBUTTONUP => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseButton(.right, .release, lparam);
+            }
+            return 0;
+        },
+
+        w32.WM_MBUTTONDOWN => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseButton(.middle, .press, lparam);
+            }
+            return 0;
+        },
+        w32.WM_MBUTTONUP => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseButton(.middle, .release, lparam);
+            }
+            return 0;
+        },
+
+        w32.WM_MOUSEMOVE => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseMove(lparam);
+            }
+            return 0;
+        },
+
+        w32.WM_MOUSEWHEEL => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleMouseWheel(wparam);
+            }
+            return 0;
+        },
+
+        w32.WM_SETFOCUS => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleFocus(true);
+            }
+            return 0;
+        },
+
+        w32.WM_KILLFOCUS => {
+            if (userdata != 0) {
+                const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                surface.handleFocus(false);
+            }
+            return 0;
+        },
+
         else => return w32.DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }

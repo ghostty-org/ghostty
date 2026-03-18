@@ -91,8 +91,112 @@ pub const WM_APP: u32 = 0x8000;
 pub const WM_CLOSE: u32 = 0x0010;
 pub const WM_DESTROY: u32 = 0x0002;
 pub const WM_SIZE: u32 = 0x0005;
+pub const WM_SETFOCUS: u32 = 0x0007;
+pub const WM_KILLFOCUS: u32 = 0x0008;
 pub const WM_PAINT: u32 = 0x000F;
+pub const WM_KEYDOWN: u32 = 0x0100;
+pub const WM_KEYUP: u32 = 0x0101;
+pub const WM_CHAR: u32 = 0x0102;
+pub const WM_SYSKEYDOWN: u32 = 0x0104;
+pub const WM_SYSKEYUP: u32 = 0x0105;
+pub const WM_MOUSEMOVE: u32 = 0x0200;
+pub const WM_LBUTTONDOWN: u32 = 0x0201;
+pub const WM_LBUTTONUP: u32 = 0x0202;
+pub const WM_RBUTTONDOWN: u32 = 0x0204;
+pub const WM_RBUTTONUP: u32 = 0x0205;
+pub const WM_MBUTTONDOWN: u32 = 0x0207;
+pub const WM_MBUTTONUP: u32 = 0x0208;
+pub const WM_MOUSEWHEEL: u32 = 0x020A;
 pub const WM_DPICHANGED: u32 = 0x02E0;
+
+// Virtual key codes
+pub const VK_BACK: u16 = 0x08;
+pub const VK_TAB: u16 = 0x09;
+pub const VK_RETURN: u16 = 0x0D;
+pub const VK_SHIFT: u16 = 0x10;
+pub const VK_CONTROL: u16 = 0x11;
+pub const VK_MENU: u16 = 0x12; // Alt key
+pub const VK_PAUSE: u16 = 0x13;
+pub const VK_CAPITAL: u16 = 0x14; // Caps Lock
+pub const VK_ESCAPE: u16 = 0x1B;
+pub const VK_SPACE: u16 = 0x20;
+pub const VK_PRIOR: u16 = 0x21; // Page Up
+pub const VK_NEXT: u16 = 0x22; // Page Down
+pub const VK_END: u16 = 0x23;
+pub const VK_HOME: u16 = 0x24;
+pub const VK_LEFT: u16 = 0x25;
+pub const VK_UP: u16 = 0x26;
+pub const VK_RIGHT: u16 = 0x27;
+pub const VK_DOWN: u16 = 0x28;
+pub const VK_INSERT: u16 = 0x2D;
+pub const VK_DELETE: u16 = 0x2E;
+// 0-9 keys are 0x30-0x39 (same as ASCII)
+// A-Z keys are 0x41-0x5A (same as ASCII uppercase)
+pub const VK_LWIN: u16 = 0x5B;
+pub const VK_RWIN: u16 = 0x5C;
+pub const VK_APPS: u16 = 0x5D; // Context menu key
+pub const VK_NUMPAD0: u16 = 0x60;
+pub const VK_NUMPAD1: u16 = 0x61;
+pub const VK_NUMPAD2: u16 = 0x62;
+pub const VK_NUMPAD3: u16 = 0x63;
+pub const VK_NUMPAD4: u16 = 0x64;
+pub const VK_NUMPAD5: u16 = 0x65;
+pub const VK_NUMPAD6: u16 = 0x66;
+pub const VK_NUMPAD7: u16 = 0x67;
+pub const VK_NUMPAD8: u16 = 0x68;
+pub const VK_NUMPAD9: u16 = 0x69;
+pub const VK_MULTIPLY: u16 = 0x6A;
+pub const VK_ADD: u16 = 0x6B;
+pub const VK_SEPARATOR: u16 = 0x6C;
+pub const VK_SUBTRACT: u16 = 0x6D;
+pub const VK_DECIMAL: u16 = 0x6E;
+pub const VK_DIVIDE: u16 = 0x6F;
+pub const VK_F1: u16 = 0x70;
+pub const VK_F2: u16 = 0x71;
+pub const VK_F3: u16 = 0x72;
+pub const VK_F4: u16 = 0x73;
+pub const VK_F5: u16 = 0x74;
+pub const VK_F6: u16 = 0x75;
+pub const VK_F7: u16 = 0x76;
+pub const VK_F8: u16 = 0x77;
+pub const VK_F9: u16 = 0x78;
+pub const VK_F10: u16 = 0x79;
+pub const VK_F11: u16 = 0x7A;
+pub const VK_F12: u16 = 0x7B;
+pub const VK_F13: u16 = 0x7C;
+pub const VK_F14: u16 = 0x7D;
+pub const VK_F15: u16 = 0x7E;
+pub const VK_F16: u16 = 0x7F;
+pub const VK_F17: u16 = 0x80;
+pub const VK_F18: u16 = 0x81;
+pub const VK_F19: u16 = 0x82;
+pub const VK_F20: u16 = 0x83;
+pub const VK_F21: u16 = 0x84;
+pub const VK_F22: u16 = 0x85;
+pub const VK_F23: u16 = 0x86;
+pub const VK_F24: u16 = 0x87;
+pub const VK_NUMLOCK: u16 = 0x90;
+pub const VK_SCROLL: u16 = 0x91;
+pub const VK_LSHIFT: u16 = 0xA0;
+pub const VK_RSHIFT: u16 = 0xA1;
+pub const VK_LCONTROL: u16 = 0xA2;
+pub const VK_RCONTROL: u16 = 0xA3;
+pub const VK_LMENU: u16 = 0xA4;
+pub const VK_RMENU: u16 = 0xA5;
+pub const VK_OEM_1: u16 = 0xBA; // ';:' on US
+pub const VK_OEM_PLUS: u16 = 0xBB; // '=+' on US
+pub const VK_OEM_COMMA: u16 = 0xBC; // ',<' on US
+pub const VK_OEM_MINUS: u16 = 0xBD; // '-_' on US
+pub const VK_OEM_PERIOD: u16 = 0xBE; // '.>' on US
+pub const VK_OEM_2: u16 = 0xBF; // '/?' on US
+pub const VK_OEM_3: u16 = 0xC0; // '`~' on US
+pub const VK_OEM_4: u16 = 0xDB; // '[{' on US
+pub const VK_OEM_5: u16 = 0xDC; // '\|' on US
+pub const VK_OEM_6: u16 = 0xDD; // ']}' on US
+pub const VK_OEM_7: u16 = 0xDE; // ''"' on US
+
+// WHEEL_DELTA for mouse wheel normalization
+pub const WHEEL_DELTA: i16 = 120;
 
 // Show window commands
 pub const SW_SHOW: i32 = 5;
@@ -242,6 +346,10 @@ pub extern "user32" fn LoadCursorW(
     hInstance: ?HINSTANCE,
     lpCursorName: ?[*:0]const u16,
 ) callconv(.c) ?HCURSOR;
+
+pub extern "user32" fn GetKeyState(
+    nVirtKey: i32,
+) callconv(.c) i16;
 
 pub extern "kernel32" fn GetModuleHandleW(
     lpModuleName: ?[*:0]const u16,
