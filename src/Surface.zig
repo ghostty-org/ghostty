@@ -940,6 +940,27 @@ pub fn needsConfirmQuit(self: *Surface) bool {
     };
 }
 
+/// Returns the foreground process group ID for this terminal, or -1 if
+/// the process has exited or the PID cannot be determined.
+///
+/// Note: on POSIX this returns the result of tcgetpgrp() on the master pty
+/// fd, which is the PGID of the foreground process group. For a shell
+/// running a program, this is the PID of that program (the group leader),
+/// not the shell's PID.
+pub fn foregroundPid(self: *Surface) i64 {
+    if (self.child_exited) return -1;
+    return self.io.backend.foregroundPid();
+}
+
+/// Returns the slave pty device path for this terminal (e.g. "/dev/ttys016"),
+/// or null if the process has exited or the path is unavailable.
+///
+/// The returned pointer is valid for the lifetime of the surface.
+pub fn ttyName(self: *Surface) ?[*:0]const u8 {
+    if (self.child_exited) return null;
+    return self.io.backend.ttyName();
+}
+
 /// Called from the app thread to handle mailbox messages to our specific
 /// surface.
 pub fn handleMessage(self: *Surface, msg: Message) !void {

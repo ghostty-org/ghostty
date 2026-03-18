@@ -265,6 +265,16 @@ pub fn resize(
     return try self.subprocess.resize(grid_size, screen_size);
 }
 
+/// See Subprocess.foregroundPid.
+pub fn foregroundPid(self: *Exec) i64 {
+    return self.subprocess.foregroundPid();
+}
+
+/// See Subprocess.ttyName.
+pub fn ttyName(self: *Exec) ?[*:0]const u8 {
+    return self.subprocess.ttyName();
+}
+
 fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
@@ -575,6 +585,7 @@ const Subprocess = struct {
     const c = @cImport({
         @cInclude("errno.h");
         @cInclude("signal.h");
+        @cInclude("stdlib.h");
         @cInclude("unistd.h");
     });
 
@@ -586,6 +597,11 @@ const Subprocess = struct {
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
     process: ?Process = null,
+
+    /// The slave pty device name (e.g. "/dev/ttys016"), captured at subprocess
+    /// start so callers can query it without holding any pty fd open.
+    /// Null on Windows or if the pty wasn't opened yet.
+    tty_name: ?[:0]const u8 = null,
 
     rt_pre_exec_info: Command.RtPreExecInfo,
     rt_post_fork_info: Command.RtPostForkInfo,
@@ -908,7 +924,23 @@ const Subprocess = struct {
 
             pty.deinit();
             self.pty = null;
+            self.tty_name = null;
         };
+
+        // Capture the slave device name from the master fd while we still
+        // hold both fds. We copy into the arena so the string outlives the
+        // pty.slave fd, which is closed once the child is up.
+        // Use ptsname_r (the re-entrant variant) for thread safety when
+        // multiple terminals open simultaneously.
+        if (comptime builtin.os.tag != .windows) {
+            var tty_buf: [1024:0]u8 = undefined;
+            if (c.ptsname_r(pty.master, &tty_buf, tty_buf.len) == 0) {
+                self.tty_name = self.arena.allocator().dupeZ(
+                    u8,
+                    std.mem.sliceTo(&tty_buf, 0),
+                ) catch null;
+            }
+        }
 
         // Cleanup we only run in our parent when we successfully start
         // the process.
@@ -1127,6 +1159,23 @@ const Subprocess = struct {
                 .ws_ypixel = std.math.cast(u16, screen_size.height) orelse std.math.maxInt(u16),
             });
         }
+    }
+
+    /// Returns the process group ID of the foreground process running in this
+    /// terminal, or -1 if it cannot be determined (pty not open, process
+    /// exited, or unsupported platform).
+    pub fn foregroundPid(self: *Subprocess) i64 {
+        if (comptime builtin.os.tag == .windows) return -1;
+        const pty = self.pty orelse return -1;
+        const pgid = c.tcgetpgrp(pty.master);
+        return if (pgid < 0) -1 else @intCast(pgid);
+    }
+
+    /// Returns the slave pty device path (e.g. "/dev/ttys016"), or null if
+    /// unavailable. The pointer is valid for the lifetime of this Subprocess.
+    pub fn ttyName(self: *Subprocess) ?[*:0]const u8 {
+        const name = self.tty_name orelse return null;
+        return name.ptr;
     }
 
     /// Kill the underlying subprocess. This sends a SIGHUP to the child

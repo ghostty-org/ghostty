@@ -1598,6 +1598,19 @@ pub const CAPI = struct {
         return surface.core_surface.child_exited;
     }
 
+    /// Returns the foreground process group ID for the terminal, or -1 if
+    /// the process has exited or the PID cannot be determined.
+    export fn ghostty_surface_foreground_pid(surface: *Surface) i64 {
+        return surface.core_surface.foregroundPid();
+    }
+
+    /// Returns a null-terminated string with the slave pty device path
+    /// (e.g. "/dev/ttys016"), or NULL if unavailable. The pointer is valid
+    /// for the lifetime of the surface.
+    export fn ghostty_surface_tty_name(surface: *Surface) ?[*:0]const u8 {
+        return surface.core_surface.ttyName();
+    }
+
     /// Returns true if the surface has a selection.
     export fn ghostty_surface_has_selection(surface: *Surface) bool {
         return surface.core_surface.hasSelection();

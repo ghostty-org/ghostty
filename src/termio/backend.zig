@@ -100,6 +100,22 @@ pub const Backend = union(Kind) {
             ),
         }
     }
+
+    /// Returns the foreground process group ID for the terminal, or -1 if
+    /// unavailable. See Exec.foregroundPid for details.
+    pub fn foregroundPid(self: *Backend) i64 {
+        return switch (self.*) {
+            .exec => |*exec| exec.foregroundPid(),
+        };
+    }
+
+    /// Returns the slave pty device path, or null if unavailable.
+    /// See Exec.ttyName for details.
+    pub fn ttyName(self: *Backend) ?[*:0]const u8 {
+        return switch (self.*) {
+            .exec => |*exec| exec.ttyName(),
+        };
+    }
 };
 
 /// Termio thread data. See termio.ThreadData for docs.

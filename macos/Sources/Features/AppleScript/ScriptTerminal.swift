@@ -53,6 +53,31 @@ final class ScriptTerminal: NSObject {
         return surfaceView?.pwd ?? ""
     }
 
+    /// Exposed as the AppleScript `pid` property.
+    ///
+    /// Returns the foreground process group ID (result of `tcgetpgrp`) for
+    /// this terminal, or -1 if the process has exited or is unavailable.
+    /// For a shell running a program, this is typically the program's PID.
+    @objc(pid)
+    var pid: Int {
+        guard NSApp.isAppleScriptEnabled else { return -1 }
+        guard let surface = surfaceView?.surface else { return -1 }
+        return Int(ghostty_surface_foreground_pid(surface))
+    }
+
+    /// Exposed as the AppleScript `tty` property.
+    ///
+    /// Returns the slave pty device path (e.g. "/dev/ttys016"), or an empty
+    /// string if unavailable. Useful for uniquely identifying the terminal
+    /// device when correlating with process output from tools like `ps`.
+    @objc(tty)
+    var tty: String {
+        guard NSApp.isAppleScriptEnabled else { return "" }
+        guard let surface = surfaceView?.surface else { return "" }
+        guard let name = ghostty_surface_tty_name(surface) else { return "" }
+        return String(cString: name)
+    }
+
     /// Used by command handling (`perform action ... on <terminal>`).
     func perform(action: String) -> Bool {
         guard NSApp.isAppleScriptEnabled else { return false }

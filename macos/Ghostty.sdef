@@ -90,6 +90,8 @@
         <cocoa key="title"/>
       </property>
       <property name="working directory" code="Gwdr" type="text" access="r" description="Current working directory for the terminal process."/>
+      <property name="pid" code="Gpid" type="integer" access="r" description="Foreground process group ID (PGID) for this terminal (result of tcgetpgrp). For a shell running a program this is the program&apos;s PID. Returns -1 if unavailable."/>
+      <property name="tty" code="Gtty" type="text" access="r" description="Slave pty device path for this terminal (e.g. /dev/ttys016). Empty string if unavailable."/>
       <responds-to command="split">
         <cocoa method="handleSplitCommand:"/>
       </responds-to>
