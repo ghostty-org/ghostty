@@ -117,6 +117,9 @@ pub const Action = union(Key) {
     /// Toggle the command palette.
     toggle_command_palette,
 
+    /// Navigate the command palette selection up or down.
+    navigate_command_palette: input.Binding.Action.NavigateCommandPalette,
+
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
@@ -357,6 +360,7 @@ pub const Action = union(Key) {
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,
+        navigate_command_palette,
         toggle_visibility,
         toggle_background_opacity,
         move_tab,

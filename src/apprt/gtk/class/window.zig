@@ -2017,6 +2017,15 @@ pub const Window = extern struct {
         self.performBindingAction(action.*);
     }
 
+    /// Navigate the command palette selection. If the command palette is not
+    /// currently open, this is a no-op.
+    pub fn navigateCommandPalette(self: *Window, direction: input.Binding.Action.NavigateCommandPalette) void {
+        const priv = self.private();
+        const command_palette = priv.command_palette.get() orelse return;
+        defer command_palette.unref();
+        command_palette.navigate(direction);
+    }
+
     /// React to a GTK action requesting that the command palette be toggled.
     fn actionToggleCommandPalette(
         _: *gio.SimpleAction,

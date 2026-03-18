@@ -191,6 +191,20 @@ struct CommandPaletteView: View {
                 query = ""
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyCommandPaletteNavigate)) { notification in
+            guard isPresented else { return }
+            guard let direction = notification.userInfo?["direction"] as? Int else { return }
+            if filteredOptions.isEmpty { return }
+            if direction > 0 {
+                // Next
+                let current = selectedIndex ?? UInt.max
+                selectedIndex = (current >= UInt(filteredOptions.count - 1)) ? 0 : current + 1
+            } else {
+                // Previous
+                let current = selectedIndex ?? UInt(filteredOptions.count)
+                selectedIndex = (current == 0) ? UInt(filteredOptions.count - 1) : current - 1
+            }
+        }
         .task {
             // Grab focus on the first appearance.
             // This happens right after onAppear,

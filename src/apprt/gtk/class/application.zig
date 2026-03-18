@@ -755,6 +755,7 @@ pub const Application = extern struct {
             .toggle_tab_overview => return Action.toggleTabOverview(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
+            .navigate_command_palette => |v| return Action.navigateCommandPalette(target, v),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
@@ -2746,6 +2747,21 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().toggleCommandPalette();
+            },
+        }
+    }
+
+    pub fn navigateCommandPalette(
+        target: apprt.Target,
+        direction: input.Binding.Action.NavigateCommandPalette,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                const widget = surface.rt_surface.gobj().as(gtk.Widget);
+                const window = ext.getAncestor(Window, widget) orelse return false;
+                window.navigateCommandPalette(direction);
+                return true;
             },
         }
     }

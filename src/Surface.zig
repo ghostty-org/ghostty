@@ -5604,6 +5604,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .navigate_command_palette => |nav| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .navigate_command_palette,
+            nav,
+        ),
+
         .toggle_background_opacity => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_background_opacity,

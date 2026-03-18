@@ -547,6 +547,12 @@ typedef enum {
   GHOSTTY_SPLIT_DIRECTION_UP,
 } ghostty_action_split_direction_e;
 
+// input.Binding.Action.NavigateCommandPalette
+typedef enum {
+  GHOSTTY_NAVIGATE_COMMAND_PALETTE_PREVIOUS,
+  GHOSTTY_NAVIGATE_COMMAND_PALETTE_NEXT,
+} ghostty_action_navigate_command_palette_e;
+
 // apprt.action.GotoSplit
 typedef enum {
   GHOSTTY_GOTO_SPLIT_PREVIOUS,
@@ -868,6 +874,7 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
+  GHOSTTY_ACTION_NAVIGATE_COMMAND_PALETTE,
   GHOSTTY_ACTION_TOGGLE_VISIBILITY,
   GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
   GHOSTTY_ACTION_MOVE_TAB,
@@ -925,6 +932,7 @@ typedef enum {
 
 typedef union {
   ghostty_action_split_direction_e new_split;
+  ghostty_action_navigate_command_palette_e navigate_command_palette;
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;

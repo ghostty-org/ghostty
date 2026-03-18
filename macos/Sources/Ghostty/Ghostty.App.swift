@@ -581,6 +581,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
                 toggleCommandPalette(app, target: target)
 
+            case GHOSTTY_ACTION_NAVIGATE_COMMAND_PALETTE:
+                navigateCommandPalette(app, target: target, v: action.action.navigate_command_palette)
+
             case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
                 toggleMaximize(app, target: target)
 
@@ -1004,6 +1007,33 @@ extension Ghostty {
                 NotificationCenter.default.post(
                     name: .ghosttyCommandPaletteDidToggle,
                     object: surfaceView
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func navigateCommandPalette(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_navigate_command_palette_e) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                let direction: Int = switch v {
+                case GHOSTTY_NAVIGATE_COMMAND_PALETTE_NEXT: 1
+                case GHOSTTY_NAVIGATE_COMMAND_PALETTE_PREVIOUS: -1
+                default: 0
+                }
+                NotificationCenter.default.post(
+                    name: .ghosttyCommandPaletteNavigate,
+                    object: surfaceView,
+                    userInfo: ["direction": direction]
                 )
 
             default:

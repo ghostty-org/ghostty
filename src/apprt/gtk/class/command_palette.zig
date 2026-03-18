@@ -325,6 +325,21 @@ pub const CommandPalette = extern struct {
         _ = priv.search.as(gtk.Widget).grabFocus();
     }
 
+    /// Move the selection in the command palette by one item in the given
+    /// direction. Wraps around at list boundaries.
+    pub fn navigate(self: *CommandPalette, direction: input.Binding.Action.NavigateCommandPalette) void {
+        const priv = self.private();
+        const n_items = priv.model.as(gio.ListModel).getNItems();
+        if (n_items == 0) return;
+
+        const current = priv.model.getSelected();
+        const new_pos: c_uint = switch (direction) {
+            .next => if (current + 1 >= n_items) 0 else current + 1,
+            .previous => if (current == 0) n_items - 1 else current - 1,
+        };
+        priv.model.setSelected(new_pos);
+    }
+
     /// Helper function to send a signal containing the action that should be
     /// performed.
     fn activated(self: *CommandPalette, pos: c_uint) void {
