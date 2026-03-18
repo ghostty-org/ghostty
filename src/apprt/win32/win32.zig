@@ -355,6 +355,19 @@ pub extern "kernel32" fn GetModuleHandleW(
     lpModuleName: ?[*:0]const u16,
 ) callconv(.c) ?HINSTANCE;
 
+pub extern "user32" fn ToUnicode(
+    wVirtKey: u32,
+    wScanCode: u32,
+    lpKeyState: *const [256]u8,
+    pwszBuff: [*]u16,
+    cchBuff: i32,
+    wFlags: u32,
+) callconv(.c) i32;
+
+pub extern "user32" fn GetKeyboardState(
+    lpKeyState: *[256]u8,
+) callconv(.c) i32;
+
 // -----------------------------------------------------------------------
 // Clipboard API
 // -----------------------------------------------------------------------

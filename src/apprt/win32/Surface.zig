@@ -479,10 +479,43 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
     // Try to get the unshifted codepoint for this key
     const unshifted_codepoint: u21 = if (key.codepoint()) |cp| cp else 0;
 
+    // Use ToUnicode to translate the key press into UTF-16 text,
+    // then convert to UTF-8 for the key event. Only for press/repeat.
+    var utf8_buf: [16]u8 = undefined;
+    var utf8_text: []const u8 = "";
+    var consumed_mods: input.Mods = .{};
+
+    if (actual_action == .press or actual_action == .repeat) {
+        var keyboard_state: [256]u8 = undefined;
+        if (w32.GetKeyboardState(&keyboard_state) != 0) {
+            const scancode: u32 = @intCast((lparam >> 16) & 0x1FF);
+            var utf16_buf: [4]u16 = undefined;
+            const result = w32.ToUnicode(
+                @intCast(vk),
+                scancode,
+                &keyboard_state,
+                &utf16_buf,
+                utf16_buf.len,
+                0,
+            );
+            if (result > 0) {
+                const utf16_slice = utf16_buf[0..@intCast(result)];
+                const len = std.unicode.utf16LeToUtf8(&utf8_buf, utf16_slice) catch 0;
+                if (len > 0) {
+                    utf8_text = utf8_buf[0..len];
+                    // Shift was consumed to produce the text (e.g., Shift+a = 'A')
+                    if (mods.shift) consumed_mods.shift = true;
+                }
+            }
+        }
+    }
+
     const event = input.KeyEvent{
         .action = actual_action,
         .key = key,
         .mods = mods,
+        .consumed_mods = consumed_mods,
+        .utf8 = utf8_text,
         .unshifted_codepoint = unshifted_codepoint,
     };
 
