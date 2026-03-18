@@ -108,6 +108,9 @@ pub const Message = union(enum) {
     /// Selected search index change
     search_selected: ?usize,
 
+    /// Result of an async file existence check.
+    file_check_result: FileCheckResult,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 
@@ -128,6 +131,28 @@ pub const Message = union(enum) {
 
             .none => void,
         };
+    };
+
+    pub const FileCheckResult = struct {
+        /// The candidate word that was checked.
+        word: [255]u8 = undefined,
+        word_len: u8 = 0,
+
+        /// The terminal PWD at time of check.
+        pwd: WriteReq = .{ .small = .{} },
+
+        /// The resolved absolute path if the file exists, null otherwise.
+        resolved_path: ?WriteReq = null,
+
+        pub fn wordSlice(self: FileCheckResult) []const u8 {
+            return self.word[0..self.word_len];
+        }
+
+        /// Free heap-allocated WriteReq data.
+        pub fn deinit(self: FileCheckResult) void {
+            self.pwd.deinit();
+            if (self.resolved_path) |rp| rp.deinit();
+        }
     };
 };
 
