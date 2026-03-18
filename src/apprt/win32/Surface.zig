@@ -431,7 +431,11 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
     // updates the renderer viewport, and sends SIGWINCH to the PTY.
     self.core_surface.sizeCallback(.{ .width = width, .height = height }) catch |err| {
         log.err("sizeCallback error: {}", .{err});
+        return;
     };
+
+    // Wake the renderer to redraw at the new size immediately.
+    self.core_surface.renderer_thread.wakeup.notify() catch {};
 }
 
 /// Handle WM_DESTROY.
@@ -500,11 +504,19 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
             );
             if (result > 0) {
                 const utf16_slice = utf16_buf[0..@intCast(result)];
-                const len = std.unicode.utf16LeToUtf8(&utf8_buf, utf16_slice) catch 0;
-                if (len > 0) {
-                    utf8_text = utf8_buf[0..len];
-                    // Shift was consumed to produce the text (e.g., Shift+a = 'A')
-                    if (mods.shift) consumed_mods.shift = true;
+                // Only use the text if it's a printable character.
+                // When Ctrl is held, ToUnicode returns control chars
+                // (0x01-0x1A) which would interfere with the core's
+                // Ctrl+key binding/encoding. Let the core handle
+                // modifier combos via key + mods fields instead.
+                const is_printable = utf16_slice[0] >= 0x20;
+                if (is_printable) {
+                    const len = std.unicode.utf16LeToUtf8(&utf8_buf, utf16_slice) catch 0;
+                    if (len > 0) {
+                        utf8_text = utf8_buf[0..len];
+                        // Shift was consumed to produce the text (e.g., Shift+a = 'A')
+                        if (mods.shift) consumed_mods.shift = true;
+                    }
                 }
             }
         }

@@ -79,7 +79,7 @@ pub fn init(
     // Register the window class
     const wc = w32.WNDCLASSEXW{
         .cbSize = @sizeOf(w32.WNDCLASSEXW),
-        .style = w32.CS_HREDRAW | w32.CS_VREDRAW | w32.CS_OWNDC,
+        .style = w32.CS_OWNDC,
         .lpfnWndProc = &wndProc,
         .cbClsExtra = 0,
         .cbWndExtra = 0,
@@ -320,7 +320,13 @@ fn wndProc(
         },
 
         w32.WM_PAINT => {
+            // Validate the paint region to stop Windows from
+            // sending more WM_PAINT messages, then wake the
+            // renderer thread to redraw.
             _ = w32.ValidateRect(hwnd, null);
+            if (surface.core_surface_ready) {
+                surface.core_surface.renderer_thread.wakeup.notify() catch {};
+            }
             return 0;
         },
 
