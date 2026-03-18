@@ -618,6 +618,79 @@ struct SplitTreeTests {
         #expect(spatial.slots(in: .down, from: .leaf(view: view2)).isEmpty)
     }
 
+    // MARK: - slotsWrapped tests
+
+    /// Horizontal split: going left from left pane wraps to the right pane.
+    @Test func slotsWrappedHorizontalLeftFromLeftEdge() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let wrapped = spatial.slotsWrapped(in: .left, from: .leaf(view: view1))
+        #expect(wrapped.contains { $0.node == .leaf(view: view2) })
+    }
+
+    /// Horizontal split: going right from right pane wraps to the left pane.
+    @Test func slotsWrappedHorizontalRightFromRightEdge() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let wrapped = spatial.slotsWrapped(in: .right, from: .leaf(view: view2))
+        #expect(wrapped.contains { $0.node == .leaf(view: view1) })
+    }
+
+    /// Vertical split: going up from the top pane wraps to the bottom pane.
+    @Test func slotsWrappedVerticalUpFromTopEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        // view1 is at the top (minY=0); going up should wrap to view2 (bottom)
+        let wrapped = spatial.slotsWrapped(in: .up, from: .leaf(view: view1))
+        #expect(wrapped.contains { $0.node == .leaf(view: view2) })
+    }
+
+    /// Vertical split: going down from the bottom pane wraps to the top pane.
+    @Test func slotsWrappedVerticalDownFromBottomEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        // view2 is at the bottom (maxY = height); going down wraps to view1 (top)
+        let wrapped = spatial.slotsWrapped(in: .down, from: .leaf(view: view2))
+        #expect(wrapped.contains { $0.node == .leaf(view: view1) })
+    }
+
+    /// When direct neighbours exist, slotsWrapped behaves identically to slots.
+    @Test func slotsWrappedReturnsSameAsSlotWhenNeighbourExists() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+        let direct = spatial.slots(in: .right, from: .leaf(view: view1))
+        let wrapped = spatial.slotsWrapped(in: .right, from: .leaf(view: view1))
+        #expect(direct.map(\.node) == wrapped.map(\.node))
+    }
+
+    /// 2x2 grid: going left from the left column wraps to the spatially nearest
+    /// pane in the right column (same row, not the one diagonally far).
+    @Test func slotsWrappedGridSpatialAwareness() throws {
+        // Layout:  view1 | view2
+        //          view3 | view4
+        let view1 = MockView()
+        let view2 = MockView()
+        let view3 = MockView()
+        let view4 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+        tree = try tree.inserting(view: view3, at: view1, direction: .down)
+        tree = try tree.inserting(view: view4, at: view2, direction: .down)
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 800))
+
+        // From view1 (top-left), going left wraps to the top-right column.
+        // view2 should be the nearest (same row), not view4 (different row).
+        let wrappedLeft = spatial.slotsWrapped(in: .left, from: .leaf(view: view1))
+        let leafNodes = wrappedLeft.filter { if case .leaf = $0.node { return true }; return false }
+        #expect(leafNodes.first?.node == .leaf(view: view2))
+    }
+
     // Set/Dictionary usage is the only path that exercises StructuralIdentity.hash(into:)
     @Test func structuralIdentityHashableBehavior() throws {
         let (tree, _, _) = try makeHorizontalSplit()

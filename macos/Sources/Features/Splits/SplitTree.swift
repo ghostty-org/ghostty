@@ -200,9 +200,9 @@ extension SplitTree {
             return allLeaves[index]
 
         case .spatial(let spatialDirection):
-            // Get spatial representation and find best candidate
+            // Get spatial representation and find best candidate (with wrapping)
             let spatial = root.spatial()
-            let nodes = spatial.slots(in: spatialDirection, from: currentNode)
+            let nodes = spatial.slotsWrapped(in: spatialDirection, from: currentNode)
 
             // If we have no nodes in the direction specified then we don't do
             // anything.
@@ -1101,6 +1101,72 @@ extension SplitTree.Spatial {
             slot.bounds.minX == overallBounds.minX
         case .right:
             slot.bounds.maxX == overallBounds.maxX
+        }
+    }
+
+    /// Like `slots(in:from:)` but wraps around spatially when there are no
+    /// direct neighbours in `direction`.
+    ///
+    /// If direct neighbours exist the call is equivalent to `slots(in:from:)`.
+    /// Otherwise the reference bounds are shifted by the full grid extent so
+    /// that slots on the far side become the nearest candidates, matching the
+    /// behaviour already implemented for GTK in PR #10811.
+    func slotsWrapped(in direction: Direction, from referenceNode: SplitTree.Node) -> [Slot] {
+        let direct = slots(in: direction, from: referenceNode)
+        if !direct.isEmpty { return direct }
+
+        guard let refSlot = slots.first(where: { $0.node == referenceNode }) else { return [] }
+        let overallBounds = slots.reduce(CGRect.null) { $0.union($1.bounds) }
+        guard !overallBounds.isEmpty else { return [] }
+
+        // Shift the reference rect by the full grid extent in the opposite
+        // direction so the "far" slots satisfy the same directional filter.
+        //
+        // Coordinate system: Y increases downward (standard screen/view coords),
+        // so "up" means smaller Y and "down" means larger Y.
+        let shiftedRef: CGRect
+        switch direction {
+        case .left:
+            shiftedRef = refSlot.bounds.offsetBy(dx: overallBounds.width, dy: 0)
+        case .right:
+            shiftedRef = refSlot.bounds.offsetBy(dx: -overallBounds.width, dy: 0)
+        case .up:
+            shiftedRef = refSlot.bounds.offsetBy(dx: 0, dy: overallBounds.height)
+        case .down:
+            shiftedRef = refSlot.bounds.offsetBy(dx: 0, dy: -overallBounds.height)
+        }
+
+        func distance(from rect1: CGRect, to rect2: CGRect) -> Double {
+            let dx = rect2.minX - rect1.minX
+            let dy = rect2.minY - rect1.minY
+            return sqrt(dx * dx + dy * dy)
+        }
+
+        switch direction {
+        case .left:
+            return slots.filter {
+                $0.node != referenceNode && $0.bounds.maxX <= shiftedRef.minX
+            }.sorted {
+                distance(from: shiftedRef, to: $0.bounds) < distance(from: shiftedRef, to: $1.bounds)
+            }
+        case .right:
+            return slots.filter {
+                $0.node != referenceNode && $0.bounds.minX >= shiftedRef.maxX
+            }.sorted {
+                distance(from: shiftedRef, to: $0.bounds) < distance(from: shiftedRef, to: $1.bounds)
+            }
+        case .up:
+            return slots.filter {
+                $0.node != referenceNode && $0.bounds.maxY <= shiftedRef.minY
+            }.sorted {
+                distance(from: shiftedRef, to: $0.bounds) < distance(from: shiftedRef, to: $1.bounds)
+            }
+        case .down:
+            return slots.filter {
+                $0.node != referenceNode && $0.bounds.minY >= shiftedRef.maxY
+            }.sorted {
+                distance(from: shiftedRef, to: $0.bounds) < distance(from: shiftedRef, to: $1.bounds)
+            }
         }
     }
 }
