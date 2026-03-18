@@ -33,6 +33,15 @@ pub const swap_chain_count = 1;
 
 const log = std.log.scoped(.opengl);
 
+/// WGL declarations for Win32 OpenGL context management.
+/// Only defined when building for the win32 apprt.
+const wgl = if (apprt.runtime == apprt.win32) struct {
+    extern "opengl32" fn wglMakeCurrent(
+        hdc: ?*anyopaque,
+        hglrc: ?*anyopaque,
+    ) callconv(.c) i32;
+} else struct {};
+
 /// We require at least OpenGL 4.3
 pub const MIN_VERSION_MAJOR = 4;
 pub const MIN_VERSION_MINOR = 3;
@@ -160,8 +169,6 @@ fn prepareContext(getProcAddress: anytype) !void {
 
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    _ = surface;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -176,7 +183,24 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         },
 
         apprt.win32 => {
-            // TODO: WGL context initialization will be implemented later.
+            // For Win32/WGL, surfaceInit is called on the main thread.
+            // We temporarily make the WGL context current to load GL
+            // functions via GLAD, then release it so the renderer thread
+            // can claim it later in threadEnter.
+            const hdc = surface.hdc orelse return error.InvalidSurface;
+            const hglrc = surface.hglrc orelse return error.InvalidSurface;
+
+            if (wgl.wglMakeCurrent(hdc, hglrc) == 0)
+                return error.WGLMakeCurrentFailed;
+
+            // Load GL functions. Passing null tells GLAD to use its
+            // built-in loader which on Windows uses opengl32.dll +
+            // wglGetProcAddress.
+            try prepareContext(null);
+
+            // Release the context from the main thread so the renderer
+            // thread can make it current later.
+            _ = wgl.wglMakeCurrent(null, null);
         },
     }
 
@@ -200,7 +224,6 @@ pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
@@ -219,7 +242,16 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.win32 => {
-            // TODO: WGL thread enter will be implemented later.
+            // Make the WGL context current on the renderer thread.
+            const hdc = surface.hdc orelse return error.InvalidSurface;
+            const hglrc = surface.hglrc orelse return error.InvalidSurface;
+
+            if (wgl.wglMakeCurrent(hdc, hglrc) == 0)
+                return error.WGLMakeCurrentFailed;
+
+            // Reload GL functions on this thread since OpenGL is
+            // thread-local state.
+            try prepareContext(null);
         },
     }
 }
@@ -241,7 +273,8 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.win32 => {
-            // TODO: WGL thread exit will be implemented later.
+            // Release the WGL context from the renderer thread.
+            _ = wgl.wglMakeCurrent(null, null);
         },
     }
 }
@@ -258,7 +291,9 @@ pub fn displayRealized(self: *const OpenGL) void {
         },
 
         apprt.win32 => {
-            // TODO: WGL display realized will be implemented later.
+            // No-op for Win32. The WGL context is fully set up
+            // during surfaceInit; there is no deferred realization
+            // like GTK's GLArea.
         },
 
         else => @compileError("only GTK should be calling displayRealized"),
