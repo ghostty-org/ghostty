@@ -1695,7 +1695,21 @@ fn mouseRefreshLinks(
             }
         }
 
-        const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
+        const link = (try self.linkAtPos(pos)) orelse {
+            self.renderer_state.mouse.file_check_match_start = null;
+            self.renderer_state.mouse.file_check_match_end = null;
+            break :link .{ null, false };
+        };
+
+        // Clear file check match for non-file-check links (set below for _open_file)
+        switch (link.action) {
+            ._open_file => {},
+            else => {
+                self.renderer_state.mouse.file_check_match_start = null;
+                self.renderer_state.mouse.file_check_match_end = null;
+            },
+        }
+
         switch (link.action) {
             .open => {
                 const str = try self.io.terminal.screens.active.selectionString(alloc, .{
@@ -1726,6 +1740,13 @@ fn mouseRefreshLinks(
                     .sel = link.selection,
                     .trim = false,
                 });
+
+                // Set file check match coordinates for renderer underline
+                const screen = self.renderer_state.terminal.screens.active;
+                self.renderer_state.mouse.file_check_match_start =
+                    if (screen.pages.pointFromPin(.viewport, link.selection.start())) |pt| pt.coord() else null;
+                self.renderer_state.mouse.file_check_match_end =
+                    if (screen.pages.pointFromPin(.viewport, link.selection.end())) |pt| pt.coord() else null;
 
                 // Use cache key from action to look up resolved path for preview
                 if (self.file_check_cache.get(cache_key)) |entry| {
@@ -4694,6 +4715,8 @@ pub fn cursorPosCallback(
 
         // No mouse point so we don't highlight links
         self.renderer_state.mouse.point = null;
+        self.renderer_state.mouse.file_check_match_start = null;
+        self.renderer_state.mouse.file_check_match_end = null;
 
         // Mark the link's row as dirty, but continue with updating the
         // mouse state below so we can scroll when our position is negative.
@@ -4732,6 +4755,8 @@ pub fn cursorPosCallback(
     // want to set it when we're not selecting or doing any other mouse
     // event.
     self.renderer_state.mouse.point = null;
+    self.renderer_state.mouse.file_check_match_start = null;
+    self.renderer_state.mouse.file_check_match_end = null;
 
     // If we have an inspector, we need to always record position information
     if (self.inspector) |insp| {

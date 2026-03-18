@@ -40,6 +40,12 @@ pub const Mouse = struct {
     /// This could really just be mods in general and we probably will
     /// move it out of mouse state at some point.
     mods: inputpkg.Mods = .{},
+
+    /// When a bare filename link is detected by the file check system,
+    /// this holds the viewport coordinates of the link's start and end
+    /// so the renderer can underline them.
+    file_check_match_start: ?terminalpkg.point.Coordinate = null,
+    file_check_match_end: ?terminalpkg.point.Coordinate = null,
 };
 
 /// The pre-edit state. See Surface.preeditCallback for more information.

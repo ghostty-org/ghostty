@@ -1291,6 +1291,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 log.warn("error searching for regex links err={}", .{err});
             };
 
+            // Add file check match cells (bare filename detection).
+            // Read from critical.mouse (snapshot taken under mutex) not state.mouse.
+            // Bare filenames are always single-line, so we only handle same-row matches.
+            if (critical.mouse.file_check_match_start) |start| {
+                if (critical.mouse.file_check_match_end) |end| {
+                    if (start.y == end.y) {
+                        var x = start.x;
+                        while (x <= end.x) : (x += 1) {
+                            critical.links.put(arena_alloc, .{
+                                .x = @intCast(x),
+                                .y = @intCast(start.y),
+                            }, {}) catch break;
+                        }
+                    }
+                }
+            }
+
             // Clear our highlight state and update.
             if (self.search_matches_dirty or self.terminal_state.dirty != .false) {
                 self.search_matches_dirty = false;
