@@ -32,6 +32,8 @@ const terminal = @import("terminal/main.zig");
 const configpkg = @import("config.zig");
 const Duration = configpkg.Config.Duration;
 const input = @import("input.zig");
+const file_check = @import("terminal/file_check.zig");
+const CacheTable = @import("datastruct/main.zig").CacheTable;
 const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
@@ -165,6 +167,12 @@ command_timer: ?std.time.Instant = null,
 /// Search state
 search: ?Search = null,
 
+/// File check thread for bare filename detection
+file_check_thread: ?FileCheck = null,
+
+/// Cache of file existence results for bare filename detection
+file_check_cache: FileCheckCache = .{ .context = .{} },
+
 /// Used to rate limit BEL handling.
 last_bell_time: ?std.time.Instant = null,
 
@@ -206,6 +214,42 @@ const Search = struct {
         self.state.deinit();
     }
 };
+
+const FileCheck = struct {
+    state: file_check.Thread,
+    thread: std.Thread,
+
+    pub fn deinit(self: *FileCheck) void {
+        self.state.stop.notify() catch |err| log.err(
+            "error notifying file check thread to stop, may stall err={}",
+            .{err},
+        );
+        self.thread.join();
+        self.state.deinit();
+    }
+};
+
+const FileCheckCacheEntry = struct {
+    exists: bool,
+    resolved_path: [std.fs.max_path_bytes]u8 = undefined,
+    resolved_path_len: u16 = 0,
+
+    fn resolvedPathSlice(self: *const FileCheckCacheEntry) ?[]const u8 {
+        if (!self.exists) return null;
+        return self.resolved_path[0..self.resolved_path_len];
+    }
+};
+
+const FileCheckCacheContext = struct {
+    pub fn hash(_: *const @This(), key: u64) u64 {
+        return key;
+    }
+    pub fn eql(_: *const @This(), a: u64, b: u64) bool {
+        return a == b;
+    }
+};
+
+const FileCheckCache = CacheTable(u64, FileCheckCacheEntry, FileCheckCacheContext, 64, 4);
 
 /// Mouse state for the surface.
 const Mouse = struct {
@@ -713,6 +757,36 @@ pub fn init(
     );
     self.io_thr.setName("io") catch {};
 
+    // Start file check thread
+    fc_init: {
+        var fc_state = file_check.Thread.init(self.alloc, .{
+            .result_cb = &fileCheckCallback,
+            .result_userdata = self,
+        }) catch |err| {
+            log.warn("failed to init file check thread: {}", .{err});
+            break :fc_init;
+        };
+        errdefer fc_state.deinit();
+
+        self.file_check_thread = .{
+            .state = fc_state,
+            .thread = undefined,
+        };
+        const fc: *FileCheck = &self.file_check_thread.?;
+
+        fc.thread = std.Thread.spawn(
+            .{},
+            file_check.Thread.threadMain,
+            .{&fc.state},
+        ) catch |err| {
+            log.warn("failed to spawn file check thread: {}", .{err});
+            fc.state.deinit();
+            self.file_check_thread = null;
+            break :fc_init;
+        };
+        fc.thread.setName("file-check") catch {};
+    }
+
     // Determine our initial window size if configured. We need to do this
     // quite late in the process because our height/width are in grid dimensions,
     // so we need to know our cell sizes first.
@@ -776,6 +850,9 @@ pub fn init(
 pub fn deinit(self: *Surface) void {
     // Stop search thread
     if (self.search) |*s| s.deinit();
+
+    // Stop file check thread
+    if (self.file_check_thread) |*fc| fc.deinit();
 
     // Stop rendering thread
     {
@@ -1045,6 +1122,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .pwd_change => |w| {
             defer w.deinit();
+            self.file_check_cache.clear();
 
             // We always allocate for this because we need to null-terminate.
             const str = try self.alloc.dupeZ(u8, w.slice());
@@ -1148,6 +1226,40 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .search_selected,
                 .{ .selected = v },
             );
+        },
+
+        .file_check_result => |result| {
+            defer result.deinit();
+
+            const word = result.wordSlice();
+            const pwd_slice = result.pwd.slice();
+            const cache_key = std.hash.Wyhash.hash(0, word) ^
+                std.hash.Wyhash.hash(1, pwd_slice);
+
+            var entry: FileCheckCacheEntry = .{ .exists = result.resolved_path != null };
+            if (result.resolved_path) |rp| {
+                const path = rp.slice();
+                if (path.len <= entry.resolved_path.len) {
+                    @memcpy(entry.resolved_path[0..path.len], path);
+                    entry.resolved_path_len = @intCast(path.len);
+                } else {
+                    entry.exists = false;
+                }
+            }
+
+            _ = self.file_check_cache.put(cache_key, entry);
+
+            // Refresh links — must hold renderer mutex
+            if (self.mouse.link_point) |link_point| {
+                const pos = self.rt_surface.getCursorPos() catch return;
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                self.mouseRefreshLinks(
+                    pos,
+                    link_point,
+                    self.mouse.over_link,
+                ) catch {};
+            }
         },
     }
 }
@@ -1387,6 +1499,11 @@ fn passwordInput(self: *Surface, v: bool) !void {
     try self.queueRender();
 }
 
+fn fileCheckCallback(result: apprt.surface.Message.FileCheckResult, ud: ?*anyopaque) void {
+    const self: *Surface = @ptrCast(@alignCast(ud.?));
+    _ = self.surfaceMailbox().push(.{ .file_check_result = result }, .{ .instant = {} });
+}
+
 fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
     // IMPORTANT: This function is run on the SEARCH THREAD! It is NOT SAFE
     // to access anything other than values that never change on the surface.
@@ -1604,6 +1721,28 @@ fn mouseRefreshLinks(
                 break :link .{
                     .{ .url = try alloc.dupeZ(u8, uri) },
                     self.config.link_previews != .false,
+                };
+            },
+
+            ._open_file => {
+                const str = try self.io.terminal.screens.active.selectionString(alloc, .{
+                    .sel = link.selection,
+                    .trim = false,
+                });
+
+                const terminal_pwd = self.io.terminal.getPwd();
+                const preview_url = if (terminal_pwd) |p| preview: {
+                    const key = std.hash.Wyhash.hash(0, str) ^
+                        std.hash.Wyhash.hash(1, p);
+                    if (self.file_check_cache.get(key)) |entry| {
+                        break :preview entry.resolvedPathSlice() orelse str;
+                    }
+                    break :preview str;
+                } else str;
+
+                break :link .{
+                    .{ .url = try alloc.dupeZ(u8, preview_url) },
+                    self.config.link_previews == .true,
                 };
             },
         }
@@ -4252,8 +4391,14 @@ fn linkAtPos(
         return .{ .action = ._open_osc8, .selection = sel };
     }
 
-    // Fall back to configured links
-    return try self.linkAtPin(mouse_pin, mouse_mods);
+    // Check regex links first
+    if (try self.linkAtPin(mouse_pin, mouse_mods)) |link| return link;
+
+    // Phase 3: Bare filename detection via file existence check.
+    // Only when Cmd/Super is held.
+    if (!mouse_mods.equal(input.ctrlOrSuper(.{}))) return null;
+
+    return try self.fileCheckAtPin(mouse_pin);
 }
 
 /// Detects if a link is present at the given pin.
@@ -4307,6 +4452,68 @@ fn linkAtPin(
     return null;
 }
 
+/// Detects if a bare filename (without path separators) is present at the
+/// given pin and exists in the terminal's working directory.
+///
+/// Requires the renderer state mutex is held.
+fn fileCheckAtPin(self: *Surface, mouse_pin: terminal.Pin) !?Link {
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+    const terminal_pwd = self.io.terminal.getPwd() orelse return null;
+
+    const line = screen.selectLine(.{
+        .pin = mouse_pin,
+        .whitespace = null,
+        .semantic_prompt_boundary = false,
+    }) orelse return null;
+
+    var strmap: terminal.StringMap = undefined;
+    const line_str = try screen.selectionString(self.alloc, .{
+        .sel = line,
+        .trim = false,
+        .map = &strmap,
+    });
+    defer self.alloc.free(line_str);
+    defer strmap.deinit(self.alloc);
+
+    // Find string offset for mouse_pin by scanning the map array
+    const offset: usize = offset: {
+        const mouse_pt = screen.pages.pointFromPin(.screen, mouse_pin) orelse return null;
+        for (strmap.map, 0..) |pin, i| {
+            const pt = screen.pages.pointFromPin(.screen, pin) orelse continue;
+            if (std.meta.eql(pt, mouse_pt)) break :offset i;
+        }
+        return null;
+    };
+
+    const result = file_check.WordExtractor.extract(self.alloc, line_str, offset) orelse return null;
+    defer self.alloc.free(result.word);
+
+    // Skip paths with '/' — handled by regex pipeline
+    if (std.mem.indexOfScalar(u8, result.word, '/') != null) return null;
+
+    const cache_key = std.hash.Wyhash.hash(0, result.word) ^
+        std.hash.Wyhash.hash(1, terminal_pwd);
+
+    if (self.file_check_cache.get(cache_key)) |entry| {
+        if (entry.exists) {
+            if (result.start >= strmap.map.len or
+                result.end == 0 or
+                result.end - 1 >= strmap.map.len) return null;
+            const sel_start = strmap.map[result.start];
+            const sel_end = strmap.map[result.end - 1];
+            const sel = terminal.Selection.init(sel_start, sel_end, false);
+            return .{ .action = ._open_file, .selection = sel };
+        }
+        return null;
+    }
+
+    // Cache miss — submit async check
+    if (self.file_check_thread) |*fc| {
+        fc.state.submit(result.word, terminal_pwd);
+    }
+    return null;
+}
+
 /// This returns the mouse mods to consider for link highlighting or
 /// other purposes taking into account when shift is pressed for releasing
 /// the mouse from capture.
@@ -4353,6 +4560,22 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 return false;
             };
             try self.openUrl(.{ .kind = .unknown, .url = uri });
+        },
+
+        ._open_file => {
+            const str = try self.io.terminal.screens.active.selectionString(self.alloc, .{
+                .sel = link.selection,
+                .trim = false,
+            });
+            defer self.alloc.free(str);
+
+            const terminal_pwd = self.io.terminal.getPwd() orelse return false;
+            const cache_key = std.hash.Wyhash.hash(0, str) ^
+                std.hash.Wyhash.hash(1, terminal_pwd);
+            const entry = self.file_check_cache.get(cache_key) orelse return false;
+            const resolved = entry.resolvedPathSlice() orelse return false;
+
+            try self.openUrl(.{ .kind = .unknown, .url = resolved });
         },
     }
 
@@ -5219,6 +5442,25 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                             return false;
                         };
                         break :url_text try self.alloc.dupeZ(u8, uri);
+                    },
+
+                    ._open_file => url_text: {
+                        // For file check links, get the resolved path from cache
+                        const str = (self.io.terminal.screens.active.selectionString(self.alloc, .{
+                            .sel = link_info.selection,
+                            .trim = false,
+                        })) catch |err| {
+                            log.err("error reading file link string err={}", .{err});
+                            return false;
+                        };
+                        defer self.alloc.free(str);
+
+                        const terminal_pwd = self.io.terminal.getPwd() orelse return false;
+                        const key = std.hash.Wyhash.hash(0, str) ^
+                            std.hash.Wyhash.hash(1, terminal_pwd);
+                        const entry = self.file_check_cache.get(key) orelse return false;
+                        const resolved = entry.resolvedPathSlice() orelse return false;
+                        break :url_text try self.alloc.dupeZ(u8, resolved);
                     },
                 };
                 defer self.alloc.free(url_text);
