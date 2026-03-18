@@ -298,6 +298,7 @@ const DerivedConfig = struct {
     clipboard_read: configpkg.ClipboardAccess,
     clipboard_write: configpkg.ClipboardAccess,
     clipboard_trim_trailing_spaces: bool,
+    clipboard_trim_leading_spaces: bool,
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
@@ -376,6 +377,7 @@ const DerivedConfig = struct {
             .clipboard_read = config.@"clipboard-read",
             .clipboard_write = config.@"clipboard-write",
             .clipboard_trim_trailing_spaces = config.@"clipboard-trim-trailing-spaces",
+            .clipboard_trim_leading_spaces = config.@"clipboard-trim-leading-spaces",
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
@@ -2202,6 +2204,7 @@ fn copySelectionToClipboards(
         .emit = .plain, // We'll override this below
         .unwrap = true,
         .trim = self.config.clipboard_trim_trailing_spaces,
+        .trim_leading = self.config.clipboard_trim_leading_spaces,
         .codepoint_map = self.config.clipboard_codepoint_map.map.list,
         .background = self.io.terminal.colors.background.get(),
         .foreground = self.io.terminal.colors.foreground.get(),
