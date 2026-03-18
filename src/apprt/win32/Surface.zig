@@ -34,12 +34,12 @@ scale: f32 = 1.0,
 /// The parent App.
 app: *App,
 
-/// The core terminal surface. This is not initialized until the full
-/// surface init pipeline runs (Task 8). Until then, calling core() is
-/// unsafe but compilation requires the field and method to exist.
+/// The core terminal surface. Initialized by init() after creating
+/// the window and WGL context. Manages fonts, renderer, PTY, and IO.
 core_surface: CoreSurface = undefined,
 
-/// Initialize a new Surface by creating a Win32 window and WGL context.
+/// Initialize a new Surface by creating a Win32 window and WGL context,
+/// then initialize the core terminal surface (fonts, renderer, PTY, IO).
 pub fn init(self: *Surface, app: *App) !void {
     self.* = .{
         .app = app,
@@ -74,9 +74,37 @@ pub fn init(self: *Surface, app: *App) !void {
         self.height,
         self.scale,
     });
+
+    // --- Core terminal surface initialization ---
+    const alloc = app.core_app.alloc;
+
+    // Register this surface with the core app.
+    try app.core_app.addSurface(self);
+    errdefer app.core_app.deleteSurface(self);
+
+    // Create a config copy for this surface.
+    var config = try apprt.surface.newConfig(app.core_app, &app.config, .window);
+    defer config.deinit();
+
+    // Initialize the core surface. This sets up fonts, the renderer, PTY,
+    // and spawns the renderer + IO threads.
+    try self.core_surface.init(
+        alloc,
+        &config,
+        app.core_app,
+        app,
+        self,
+    );
 }
 
 pub fn deinit(self: *Surface) void {
+    // Deinit the core surface first (stops renderer/IO threads, cleans up
+    // terminal state, PTY, fonts, etc.).
+    self.core_surface.deinit();
+
+    // Unregister from the core app's surface list.
+    self.app.core_app.deleteSurface(self);
+
     if (self.hglrc) |hglrc| {
         // Ensure the context is not current before deleting
         _ = w32.wglMakeCurrent(null, null);
@@ -270,9 +298,18 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
 
 /// Handle WM_DESTROY.
 pub fn handleDestroy(self: *Surface) void {
-    _ = self;
-    // Note: the window is already being destroyed at this point.
-    // In the future, this should notify core_app that the surface is gone.
+    // The window is already being destroyed at this point.
+    // Clear the hwnd so deinit() doesn't try to destroy it again.
+    self.hwnd = null;
+
+    // Grab the allocator and app pointer before deinit clears them.
+    const alloc = self.app.core_app.alloc;
+
+    // Deinit the surface (core surface, WGL, etc.)
+    self.deinit();
+
+    // Free the heap-allocated Surface.
+    alloc.destroy(self);
 }
 
 /// Handle WM_DPICHANGED.

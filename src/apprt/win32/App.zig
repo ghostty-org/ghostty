@@ -29,6 +29,10 @@ const CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow");
 /// The core application.
 core_app: *CoreApp,
 
+/// The configuration for the application. Loaded during init and
+/// updated in response to config_change actions.
+config: Config,
+
 /// A message-only window used to receive WM_APP_WAKEUP.
 /// This is not a visible window; it just participates in the message loop.
 msg_hwnd: ?w32.HWND = null,
@@ -52,8 +56,23 @@ pub fn init(
     const hinstance = w32.GetModuleHandleW(null) orelse
         return error.Win32Error;
 
+    // Load the configuration for this application.
+    const alloc = core_app.alloc;
+    var config = Config.load(alloc) catch |err| err: {
+        log.err("failed to load config: {}", .{err});
+        var def: Config = try .default(alloc);
+        errdefer def.deinit();
+        try def.addDiagnosticFmt(
+            "error loading user configuration: {}",
+            .{err},
+        );
+        break :err def;
+    };
+    errdefer config.deinit();
+
     self.* = .{
         .core_app = core_app,
+        .config = config,
         .hinstance = hinstance,
     };
 
@@ -99,8 +118,11 @@ pub fn init(
 }
 
 pub fn run(self: *App) !void {
-    // Create the initial window
-    var initial_surface: Surface = undefined;
+    // Create the initial window (heap-allocated because renderer/IO
+    // threads hold references to the surface).
+    const alloc = self.core_app.alloc;
+    const initial_surface = try alloc.create(Surface);
+    errdefer alloc.destroy(initial_surface);
     try initial_surface.init(self);
 
     // Enter the Win32 message loop
@@ -120,6 +142,8 @@ pub fn terminate(self: *App) void {
         _ = w32.DestroyWindow(hwnd);
         self.msg_hwnd = null;
     }
+
+    self.config.deinit();
 }
 
 /// Wake up the message loop from any thread by posting a message
@@ -154,9 +178,14 @@ pub fn performAction(
         },
 
         .new_window => {
-            var surface: Surface = undefined;
+            const alloc = self.core_app.alloc;
+            const surface = alloc.create(Surface) catch |err| {
+                log.err("failed to allocate new surface err={}", .{err});
+                return true;
+            };
             surface.init(self) catch |err| {
                 log.err("failed to create new window err={}", .{err});
+                alloc.destroy(surface);
                 return true;
             };
             return true;
@@ -186,6 +215,17 @@ pub fn performAction(
                     w32.PostQuitMessage(0);
                 },
                 .stop => {},
+            }
+            return true;
+        },
+
+        .config_change => {
+            // Update our stored config with the new one.
+            if (value.config.clone(self.core_app.alloc)) |new_config| {
+                self.config.deinit();
+                self.config = new_config;
+            } else |err| {
+                log.err("error updating app config err={}", .{err});
             }
             return true;
         },
