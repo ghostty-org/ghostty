@@ -38,6 +38,16 @@ pub const App = struct {
         _ = self;
     }
 
+    /// IPC from external processes. Not yet implemented for Win32.
+    pub fn performIpc(
+        _: Allocator,
+        _: apprt.ipc.Target,
+        comptime action: apprt.ipc.Action.Key,
+        _: apprt.ipc.Action.Value(action),
+    ) !bool {
+        return false;
+    }
+
     pub fn performAction(
         self: *App,
         target: apprt.Target,
