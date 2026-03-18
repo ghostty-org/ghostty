@@ -67,6 +67,11 @@ pub fn _(msgid: [*:0]const u8) [*:0]const u8 {
     return dgettext(build_config.bundle_id, msgid);
 }
 
+/// Mark a string for translation without translating it immediately.
+pub fn N_(msgid: [:0]const u8) [:0]const u8 {
+    return msgid;
+}
+
 /// Canonicalize a locale name from a platform-specific value to
 /// a POSIX-compliant value. This is a thin layer over the unexported
 /// gnulib-lib function in gettext that does this already.

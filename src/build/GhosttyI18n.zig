@@ -66,6 +66,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "--language=C", // Silence the "unknown extension" errors
         "--from-code=UTF-8",
         "--keyword=_",
+        "--keyword=N_",
         "--keyword=C_:1c,2",
     });
 
@@ -146,6 +147,11 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
             xgettext.addFileInput(b.path(path));
         }
     }
+
+    // For localization of command palette
+    const command_palette_path = "src/input/command.zig";
+    xgettext.addArg(command_palette_path);
+    xgettext.addFileInput(b.path(command_palette_path));
 
     // Add support for localizing our `nautilus` integration
     const xgettext_py = b.addSystemCommand(&.{
