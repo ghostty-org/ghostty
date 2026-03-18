@@ -355,6 +355,50 @@ pub extern "kernel32" fn GetModuleHandleW(
     lpModuleName: ?[*:0]const u16,
 ) callconv(.c) ?HINSTANCE;
 
+// -----------------------------------------------------------------------
+// Clipboard API
+// -----------------------------------------------------------------------
+
+// Clipboard format: Unicode text (UTF-16LE, null-terminated)
+pub const CF_UNICODETEXT: u32 = 13;
+
+// GlobalAlloc flags
+pub const GMEM_MOVEABLE: u32 = 0x0002;
+
+pub extern "user32" fn OpenClipboard(
+    hWndNewOwner: ?HWND,
+) callconv(.c) i32;
+
+pub extern "user32" fn CloseClipboard() callconv(.c) i32;
+
+pub extern "user32" fn EmptyClipboard() callconv(.c) i32;
+
+pub extern "user32" fn GetClipboardData(
+    uFormat: u32,
+) callconv(.c) ?*anyopaque;
+
+pub extern "user32" fn SetClipboardData(
+    uFormat: u32,
+    hMem: *anyopaque,
+) callconv(.c) ?*anyopaque;
+
+pub extern "kernel32" fn GlobalAlloc(
+    uFlags: u32,
+    dwBytes: usize,
+) callconv(.c) ?*anyopaque;
+
+pub extern "kernel32" fn GlobalLock(
+    hMem: *anyopaque,
+) callconv(.c) ?[*]u8;
+
+pub extern "kernel32" fn GlobalUnlock(
+    hMem: *anyopaque,
+) callconv(.c) i32;
+
+pub extern "kernel32" fn GlobalFree(
+    hMem: *anyopaque,
+) callconv(.c) ?*anyopaque;
+
 pub extern "gdi32" fn ChoosePixelFormat(
     hdc: HDC,
     ppfd: *const PIXELFORMATDESCRIPTOR,
