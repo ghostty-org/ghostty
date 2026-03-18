@@ -42,6 +42,12 @@ const wgl = if (apprt.runtime == apprt.win32) struct {
     ) callconv(.c) i32;
     extern "opengl32" fn wglGetCurrentDC() callconv(.c) ?*anyopaque;
     extern "gdi32" fn SwapBuffers(hdc: ?*anyopaque) callconv(.c) i32;
+    extern "user32" fn WindowFromDC(hdc: ?*anyopaque) callconv(.c) ?std.os.windows.HWND;
+    const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+    extern "user32" fn GetClientRect(
+        hwnd: std.os.windows.HWND,
+        rect: *RECT,
+    ) callconv(.c) i32;
 } else struct {};
 
 /// We require at least OpenGL 4.3
@@ -347,6 +353,29 @@ pub fn initShaders(
 /// Get the current size of the runtime surface.
 pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
     _ = self;
+
+    // On Win32, query the actual window client rect instead of
+    // GL_VIEWPORT. GL_VIEWPORT is only updated when we call
+    // glViewport explicitly (no framework does it for us), creating
+    // a chicken-and-egg problem during resize. The Win32 Surface
+    // caches the client dimensions from WM_SIZE.
+    if (comptime apprt.runtime == apprt.win32) {
+        // Use the thread-local WGL DC to find our HWND, then query
+        // the actual window client rect for the current size.
+        const hdc = wgl.wglGetCurrentDC() orelse return error.NoCurrentContext;
+        const hwnd = wgl.WindowFromDC(hdc) orelse return error.NoWindow;
+        var rect: wgl.RECT = undefined;
+        if (wgl.GetClientRect(hwnd, &rect) != 0) {
+            const w: u32 = @intCast(rect.right - rect.left);
+            const h: u32 = @intCast(rect.bottom - rect.top);
+            if (w > 0 and h > 0) {
+                // Update glViewport to match
+                gl.glad.context.Viewport.?(0, 0, @intCast(w), @intCast(h));
+                return .{ .width = w, .height = h };
+            }
+        }
+    }
+
     var viewport: [4]gl.c.GLint = undefined;
     gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
     return .{
