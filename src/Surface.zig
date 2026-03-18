@@ -1231,11 +1231,6 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .file_check_result => |result| {
             defer result.deinit();
 
-            const word = result.wordSlice();
-            const pwd_slice = result.pwd.slice();
-            const cache_key = std.hash.Wyhash.hash(0, word) ^
-                std.hash.Wyhash.hash(1, pwd_slice);
-
             var entry: FileCheckCacheEntry = .{ .exists = result.resolved_path != null };
             if (result.resolved_path) |rp| {
                 const path = rp.slice();
@@ -1247,7 +1242,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 }
             }
 
-            _ = self.file_check_cache.put(cache_key, entry);
+            _ = self.file_check_cache.put(result.cache_key, entry);
 
             // Refresh links — must hold renderer mutex
             if (self.mouse.link_point) |link_point| {
@@ -4392,11 +4387,13 @@ fn linkAtPos(
     }
 
     // Check regex links first
+    // Check regex links first
     if (try self.linkAtPin(mouse_pin, mouse_mods)) |link| return link;
 
     // Phase 3: Bare filename detection via file existence check.
-    // Only when Cmd/Super is held.
-    if (!mouse_mods.equal(input.ctrlOrSuper(.{}))) return null;
+    // Only when Cmd/Super is held. Compare only key bits (not sides/locks)
+    // because mouse.mods is set via binding() which zeroes side bits.
+    if (mouse_mods.keys().int() != input.ctrlOrSuper(.{}).keys().int()) return null;
 
     return try self.fileCheckAtPin(mouse_pin);
 }
@@ -4506,6 +4503,8 @@ fn fileCheckAtPin(self: *Surface, mouse_pin: terminal.Pin) !?Link {
         }
         return null;
     }
+
+    log.info("fileCheckAtPin: cache miss, submitting async check", .{});
 
     // Cache miss — submit async check
     if (self.file_check_thread) |*fc| {

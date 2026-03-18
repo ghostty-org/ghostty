@@ -172,23 +172,14 @@ fn handleCheck(self: *Thread, req: CheckRequest) void {
 }
 
 fn sendResult(self: *Thread, word: []const u8, pwd: []const u8, resolved: ?[]const u8) void {
-    var result: apprt.surface.Message.FileCheckResult = .{};
-
-    if (word.len > result.word.len) return;
-    @memcpy(result.word[0..word.len], word);
-    result.word_len = @intCast(word.len);
-
-    if (apprt.surface.Message.WriteReq.init(self.alloc, pwd)) |req| {
-        result.pwd = req;
-    } else |_| {
-        return;
-    }
+    var result: apprt.surface.Message.FileCheckResult = .{
+        .cache_key = std.hash.Wyhash.hash(0, word) ^ std.hash.Wyhash.hash(1, pwd),
+    };
 
     if (resolved) |path| {
         if (apprt.surface.Message.WriteReq.init(self.alloc, path)) |req| {
             result.resolved_path = req;
         } else |_| {
-            result.pwd.deinit();
             return;
         }
     }
