@@ -29,6 +29,10 @@ pub const Action = union(enum) {
     /// Open the OSC8 hyperlink under the mouse position. _-prefixed means
     /// this can't be user-specified, it's only used internally.
     _open_osc8: void,
+
+    /// Open a file whose existence was confirmed by the async file checker.
+    /// The resolved path is retrieved from the Surface's file check cache.
+    _open_file: void,
 };
 
 pub const Highlight = union(enum) {
