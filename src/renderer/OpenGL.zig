@@ -377,6 +377,11 @@ pub fn present(self: *OpenGL, target: Target) !void {
         log.err("Error re-enabling GL_FRAMEBUFFER_SRGB, err={}", .{err});
     };
 
+    // Update the viewport to match the target dimensions. On Win32
+    // there's no framework (like GTK's GLArea) that automatically
+    // updates glViewport when the window resizes.
+    gl.glad.context.Viewport.?(0, 0, @intCast(target.width), @intCast(target.height));
+
     // Bind the target for reading.
     const fbobind = try target.framebuffer.bind(.read);
     defer fbobind.unbind();

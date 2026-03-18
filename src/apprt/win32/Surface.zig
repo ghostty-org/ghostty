@@ -442,7 +442,14 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
 pub fn handleDestroy(self: *Surface) void {
     // The window is already being destroyed at this point.
     // Clear the hwnd so deinit() doesn't try to destroy it again.
+    const hwnd = self.hwnd;
     self.hwnd = null;
+
+    // Clear GWLP_USERDATA BEFORE freeing, so any subsequent messages
+    // (WM_NCDESTROY etc.) see userdata=0 and go to DefWindowProc.
+    if (hwnd) |h| {
+        _ = w32.SetWindowLongPtrW(h, w32.GWLP_USERDATA, 0);
+    }
 
     // Grab the allocator and app pointer before deinit clears them.
     const alloc = self.app.core_app.alloc;
