@@ -77,17 +77,16 @@ pub const Parser = struct {
             // Drop because we're in a broken state.
             .broken => return null,
 
-            // Waiting for a notification so if the byte is not '%' then
-            // we're in a broken state. Control mode output should always
-            // be wrapped in '%begin/%end' orelse we expect a notification.
-            // Return an exit notification.
-            .idle => if (byte != '%') {
-                self.broken();
-                return .{ .exit = {} };
-            } else {
+            // Waiting for a notification. Control mode output should always
+            // be wrapped in '%begin/%end' or start with '%'. However, some
+            // tmux versions (3.6+) may send stray bytes between notifications.
+            // We skip everything until we see '%' to start the next notification,
+            // rather than breaking the connection.
+            .idle => if (byte == '%') {
                 self.buffer.clearRetainingCapacity();
                 self.state = .notification;
             },
+            // All other bytes in idle state are silently skipped.
 
             // If we're in a notification and its not a newline then
             // we accumulate. If it is a newline then we have a

@@ -219,6 +219,12 @@ param_acc_idx: u8,
 /// Parser for OSC sequences
 osc_parser: osc.Parser,
 
+/// True when the current DCS is tmux control mode (DCS 1000p). In this
+/// mode, the parser keeps all bytes inside dcs_passthrough because the
+/// tmux %output data carries raw ESC sequences and high bytes that would
+/// otherwise trigger "anywhere" transitions and prematurely unhook the DCS.
+tmux_dcs: bool = false,
+
 pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
@@ -253,8 +259,22 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
 
     // log.info("next: {x}", .{c});
 
-    const next_state = effect.state;
-    const action = effect.action;
+    // tmux control mode fix: the %output notifications carry raw terminal
+    // data including ESC sequences and UTF-8 bytes (0x80+). The standard
+    // VT parser "anywhere" transitions would exit dcs_passthrough on these
+    // bytes (ESC→escape, 0x80-0x8F→ground, 0x9B→csi_entry, etc.), which
+    // prematurely unhooks the DCS and kills the tmux control session.
+    //
+    // This override ONLY applies to tmux DCS 1000p (identified at entry).
+    // Non-tmux DCS (XTGETTCAP, DECRQSS, etc.) use standard VT transitions.
+    // The tmux control parser (control.zig) handles its own protocol framing
+    // and will return .exit when the connection should end, which triggers
+    // dcs_unhook via the stream handler.
+    const next_state, const action = if (self.tmux_dcs and
+        self.state == .dcs_passthrough and effect.state != .dcs_passthrough)
+        .{ State.dcs_passthrough, TransitionAction.put }
+    else
+        .{ effect.state, effect.action };
 
     // After generating the actions, we set our next state.
     defer self.state = next_state;
@@ -271,7 +291,10 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
                 Action{ .osc_dispatch = cmd.* }
             else
                 null,
-            .dcs_passthrough => Action{ .dcs_unhook = {} },
+            .dcs_passthrough => dcs_exit: {
+                self.tmux_dcs = false;
+                break :dcs_exit Action{ .dcs_unhook = {} };
+            },
             .sos_pm_apc_string => Action{ .apc_end = {} },
             else => null,
         },
@@ -296,6 +319,9 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
                     self.params[self.params_idx] = self.param_acc;
                     self.params_idx += 1;
                 }
+                // Detect tmux control mode DCS 1000p
+                self.tmux_dcs = (self.params_idx == 1 and
+                    self.params[0] == 1000 and c == 'p');
                 break :dcs_hook .{
                     .dcs_hook = .{
                         .intermediates = self.intermediates[0..self.intermediates_idx],
