@@ -544,6 +544,14 @@ pub fn add(
         switch (self.config.app_runtime) {
             .none => {},
             .gtk => try self.addGtkNg(step),
+            .win32 => {
+                // Link Windows system libraries for Win32 runtime
+                if (step.rootModuleTarget().os.tag == .windows) {
+                    step.linkSystemLibrary2("opengl32", .{});
+                    step.linkSystemLibrary2("gdi32", .{});
+                    step.linkSystemLibrary2("user32", .{});
+                }
+            },
         }
     }
 

@@ -43,7 +43,9 @@ pub const Backend = enum {
         // macOS also supports "coretext_freetype" but there is no scenario
         // that is the default. It is only used by people who want to
         // self-compile Ghostty and prefer the freetype aesthetic.
-        return if (target.os.tag.isDarwin()) .coretext else .fontconfig_freetype;
+        if (target.os.tag.isDarwin()) return .coretext;
+        if (target.os.tag == .windows) return .freetype;
+        return .fontconfig_freetype;
     }
 
     // All the functions below can be called at comptime or runtime to

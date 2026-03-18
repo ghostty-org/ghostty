@@ -174,6 +174,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
         },
+
+        apprt.win32 => {
+            // TODO: WGL context initialization will be implemented later.
+        },
     }
 
     // These are very noisy so this is commented, but easy to uncomment
@@ -213,6 +217,10 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
         },
+
+        apprt.win32 => {
+            // TODO: WGL thread enter will be implemented later.
+        },
     }
 }
 
@@ -231,6 +239,10 @@ pub fn threadExit(self: *const OpenGL) void {
         apprt.embedded => {
             // TODO: see threadEnter
         },
+
+        apprt.win32 => {
+            // TODO: WGL thread exit will be implemented later.
+        },
     }
 }
 
@@ -243,6 +255,10 @@ pub fn displayRealized(self: *const OpenGL) void {
                 "Error preparing GL context in displayRealized, err={}",
                 .{err},
             );
+        },
+
+        apprt.win32 => {
+            // TODO: WGL display realized will be implemented later.
         },
 
         else => @compileError("only GTK should be calling displayRealized"),
