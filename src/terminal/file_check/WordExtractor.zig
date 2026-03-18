@@ -280,6 +280,19 @@ test "extract cursor in middle of word" {
     try std.testing.expectEqual(@as(usize, 14), r.end);
 }
 
+test "extract quoted false positive between two quoted strings" {
+    // Cursor on "and" between two separate quoted strings — should NOT match
+    const r = extract(std.testing.allocator, "\"file1.txt\" and \"file2.txt\"", 13);
+    try std.testing.expect(r == null);
+}
+
+test "extract does not match email-like patterns" {
+    // @ is not in filename charset, so user@host should not match as a filename
+    const r = extract(std.testing.allocator, "user@hostname is here", 0) orelse unreachable;
+    defer std.testing.allocator.free(r.word);
+    try std.testing.expectEqualStrings("user", r.word);
+}
+
 test "stripLineCol" {
     try std.testing.expectEqualStrings("file.rb", stripLineCol("file.rb"));
     try std.testing.expectEqualStrings("file.rb", stripLineCol("file.rb:52"));

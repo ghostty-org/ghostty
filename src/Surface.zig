@@ -1494,6 +1494,8 @@ fn passwordInput(self: *Surface, v: bool) !void {
     try self.queueRender();
 }
 
+/// IMPORTANT: This function is run on the FILE CHECK THREAD! It is NOT SAFE
+/// to access any Surface state here except through the mailbox.
 fn fileCheckCallback(result: apprt.surface.Message.FileCheckResult, ud: ?*anyopaque) void {
     const self: *Surface = @ptrCast(@alignCast(ud.?));
     _ = self.surfaceMailbox().push(.{ .file_check_result = result }, .{ .instant = {} });
@@ -4502,8 +4504,6 @@ fn fileCheckAtPin(self: *Surface, mouse_pin: terminal.Pin) !?Link {
         }
         return null;
     }
-
-    log.info("fileCheckAtPin: cache miss, submitting async check", .{});
 
     // Cache miss — submit async check
     if (self.file_check_thread) |*fc| {
