@@ -220,6 +220,14 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
     _ = surface;
+
+    // On Win32, release the WGL context from the main thread so the
+    // renderer thread can make it current in threadEnter. The context
+    // was kept current since surfaceInit to allow Renderer.init() to
+    // create GL resources.
+    if (comptime apprt.runtime == apprt.win32) {
+        _ = wgl.wglMakeCurrent(null, null);
+    }
 }
 
 /// Callback called by renderer.Thread when it begins.
