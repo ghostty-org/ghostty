@@ -101,8 +101,13 @@ pub fn threadEnter(
     };
     errdefer self.subprocess.stop();
 
-    // Watcher to detect subprocess exit
-    var process: ?xev.Process = if (self.subprocess.process) |v| switch (v) {
+    // Watcher to detect subprocess exit.
+    // On Windows, xev.Process has a type signature mismatch (posix.pid_t = void)
+    // so we skip xev-based process watching and instead spawn a thread that
+    // waits on the process handle and calls processExit via the event loop.
+    var process: ?xev.Process = if (comptime builtin.os.tag == .windows)
+        null
+    else if (self.subprocess.process) |v| switch (v) {
         .fork_exec => |cmd| try xev.Process.init(
             cmd.pid orelse return error.ProcessNoPid,
         ),

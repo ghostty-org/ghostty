@@ -105,8 +105,8 @@ pseudo_console: if (builtin.os.tag == .windows) ?windows.exp.HPCON else void =
 /// for a more user-friendly API.
 data: ?*anyopaque = null,
 
-/// Process ID is set after start is called.
-pid: ?posix.pid_t = null,
+/// Process ID (POSIX) or process handle (Windows), set after start is called.
+pid: if (builtin.os.tag == .windows) ?windows.HANDLE else ?posix.pid_t = null,
 
 /// The various methods a process may exit.
 pub const Exit = if (builtin.os.tag == .windows) union(enum) {
