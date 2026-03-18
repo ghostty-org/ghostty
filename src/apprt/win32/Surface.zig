@@ -39,6 +39,11 @@ app: *App,
 /// the window and WGL context. Manages fonts, renderer, PTY, and IO.
 core_surface: CoreSurface = undefined,
 
+/// Whether core_surface has been fully initialized. Win32 messages
+/// (WM_SETFOCUS, WM_SIZE, etc.) can arrive during init before
+/// core_surface is ready — handlers must check this flag.
+core_surface_ready: bool = false,
+
 /// Buffered high surrogate from WM_CHAR for supplementary plane characters.
 /// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages (surrogate pair).
 high_surrogate: u16 = 0,
@@ -113,6 +118,10 @@ pub fn init(self: *Surface, app: *App) !void {
         app,
         self,
     );
+
+    // Mark the surface as ready. Before this point, Win32 messages
+    // (triggered by ShowWindow, wglCreateContext, etc.) must be ignored.
+    self.core_surface_ready = true;
 }
 
 pub fn deinit(self: *Surface) void {
@@ -416,6 +425,8 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
     self.width = width;
     self.height = height;
 
+    if (!self.core_surface_ready) return;
+
     // Notify the core surface so it recalculates the terminal grid,
     // updates the renderer viewport, and sends SIGWINCH to the PTY.
     self.core_surface.sizeCallback(.{ .width = width, .height = height }) catch |err| {
@@ -446,6 +457,7 @@ pub fn handleDpiChange(self: *Surface) void {
 
 /// Handle WM_KEYDOWN / WM_SYSKEYDOWN / WM_KEYUP / WM_SYSKEYUP.
 pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: input.Action) void {
+    if (!self.core_surface_ready) return;
     const vk: u16 = @intCast(wparam & 0xFFFF);
 
     // Determine left/right for modifier keys using the extended key flag
@@ -483,6 +495,7 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
 /// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages
 /// containing a UTF-16 surrogate pair (high then low).
 pub fn handleCharEvent(self: *Surface, wparam: usize) void {
+    if (!self.core_surface_ready) return;
     const char_code: u16 = @intCast(wparam & 0xFFFF);
 
     // Skip control characters that are handled via WM_KEYDOWN
@@ -524,6 +537,7 @@ pub fn handleMouseButton(
     action: input.MouseButtonState,
     lparam: isize,
 ) void {
+    if (!self.core_surface_ready) return;
     const x: f32 = @floatFromInt(@as(i16, @truncate(@as(isize, lparam & 0xFFFF))));
     const y: f32 = @floatFromInt(@as(i16, @truncate(@as(isize, (lparam >> 16) & 0xFFFF))));
 
@@ -541,6 +555,7 @@ pub fn handleMouseButton(
 
 /// Handle WM_MOUSEMOVE.
 pub fn handleMouseMove(self: *Surface, lparam: isize) void {
+    if (!self.core_surface_ready) return;
     const x: f32 = @floatFromInt(@as(i16, @truncate(@as(isize, lparam & 0xFFFF))));
     const y: f32 = @floatFromInt(@as(i16, @truncate(@as(isize, (lparam >> 16) & 0xFFFF))));
 
@@ -553,6 +568,7 @@ pub fn handleMouseMove(self: *Surface, lparam: isize) void {
 
 /// Handle WM_MOUSEWHEEL.
 pub fn handleMouseWheel(self: *Surface, wparam: usize) void {
+    if (!self.core_surface_ready) return;
     // The high word of wparam contains the wheel delta (signed).
     const raw_delta: i16 = @bitCast(@as(u16, @intCast((wparam >> 16) & 0xFFFF)));
     const delta: f64 = @as(f64, @floatFromInt(raw_delta)) / @as(f64, @floatFromInt(w32.WHEEL_DELTA));
@@ -566,6 +582,7 @@ pub fn handleMouseWheel(self: *Surface, wparam: usize) void {
 
 /// Handle WM_SETFOCUS / WM_KILLFOCUS.
 pub fn handleFocus(self: *Surface, focused: bool) void {
+    if (!self.core_surface_ready) return;
     self.core_surface.focusCallback(focused) catch |err| {
         log.err("focus callback error: {}", .{err});
     };

@@ -545,8 +545,14 @@ pub fn init(
         break :size size;
     };
 
+    log.debug("size computed: screen={}x{} cell={}x{}", .{
+        size.screen.width, size.screen.height,
+        size.cell.width, size.cell.height,
+    });
+
     // Create our terminal grid with the initial size
     const app_mailbox: App.Mailbox = .{ .rt_app = rt_app, .mailbox = &app.mailbox };
+    log.debug("creating renderer...", .{});
     var renderer_impl = try Renderer.init(alloc, .{
         .config = try .init(alloc, config),
         .font_grid = font_grid,
@@ -556,6 +562,7 @@ pub fn init(
         .thread = &self.renderer_thread,
     });
     errdefer renderer_impl.deinit();
+    log.debug("renderer created", .{});
 
     // The mutex used to protect our renderer state.
     const mutex = try alloc.create(std.Thread.Mutex);
@@ -577,6 +584,7 @@ pub fn init(
     var io_thread = try termio.Thread.init(alloc);
     errdefer io_thread.deinit();
 
+    log.debug("threads created, storing state...", .{});
     self.* = .{
         .alloc = alloc,
         .app = app,
@@ -606,6 +614,8 @@ pub fn init(
         .config_conditional_state = app.config_conditional_state,
     };
 
+    log.debug("state stored, initializing IO...", .{});
+
     // The command we're going to execute
     const command: ?configpkg.Command = command: {
         if (app.first) {
@@ -632,6 +642,7 @@ pub fn init(
         env.remove("GHOSTTY_LOG");
 
         // Initialize our IO backend
+        log.debug("creating IO exec...", .{});
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,
             .env = env,
@@ -651,6 +662,7 @@ pub fn init(
         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
         errdefer io_mailbox.deinit(alloc);
 
+        log.debug("creating termio...", .{});
         try termio.Termio.init(&self.io, alloc, .{
             .size = size,
             .full_config = config,
@@ -666,6 +678,8 @@ pub fn init(
     // Outside the block, IO has now taken ownership of our temporary state
     // so we can just defer this and not the subcomponents.
     errdefer self.io.deinit();
+
+    log.debug("IO initialized, reporting cell size...", .{});
 
     // Report initial cell size on surface creation
     _ = try rt_app.performAction(
@@ -697,6 +711,8 @@ pub fn init(
     // setup on the main thread prior to spinning up the rendering thread.
     try renderer_impl.finalizeSurfaceInit(rt_surface);
 
+    log.debug("spawning renderer thread...", .{});
+
     // Start our renderer thread
     self.renderer_thr = try std.Thread.spawn(
         .{},
@@ -704,6 +720,8 @@ pub fn init(
         .{&self.renderer_thread},
     );
     self.renderer_thr.setName("renderer") catch {};
+
+    log.debug("spawning IO thread...", .{});
 
     // Start our IO thread
     self.io_thr = try std.Thread.spawn(
