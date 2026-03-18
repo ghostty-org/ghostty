@@ -2364,6 +2364,12 @@ keybind: Keybinds = .{},
 /// Completely blank lines always have their whitespace trimmed.
 @"clipboard-trim-trailing-spaces": bool = true,
 
+/// Trims leading whitespace on data that is copied to the clipboard. This does
+/// not affect data sent to the clipboard via `clipboard-write`. This only
+/// applies to leading whitespace on lines that have other characters.
+/// Completely blank lines are unaffected.
+@"clipboard-trim-leading-spaces": bool = false,
+
 /// Require confirmation before pasting text that appears unsafe. This helps
 /// prevent a "copy/paste attack" where a user may accidentally execute unsafe
 /// commands by pasting text with newlines.
