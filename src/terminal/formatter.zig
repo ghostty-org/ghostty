@@ -855,6 +855,7 @@ pub const PageFormatter = struct {
     pub const TrailingState = struct {
         rows: usize = 0,
         cells: usize = 0,
+        leading_done: bool = false,
 
         pub const empty: TrailingState = .{ .rows = 0, .cells = 0 };
     };
@@ -897,21 +898,22 @@ pub const PageFormatter = struct {
             if (self.start_y == 0 and self.start_x == 0) {
                 blank_rows = state.rows;
                 blank_cells = state.cells;
+                leading_done = state.leading_done;
             }
         }
 
         // Setup our starting column and perform some validation for overflows.
         // Note: start_x only applies to the first row, end_x only applies to the last row.
         const start_x: size.CellCountInt = self.start_x;
-        if (start_x >= self.page.size.cols) return .{ .rows = blank_rows, .cells = blank_cells };
+        if (start_x >= self.page.size.cols) return .{ .rows = blank_rows, .cells = blank_cells, .leading_done = leading_done };
         const end_x_unclamped: size.CellCountInt = self.end_x orelse self.page.size.cols - 1;
         var end_x = @min(end_x_unclamped, self.page.size.cols - 1);
 
         // Setup our starting row and perform some validation for overflows.
         const start_y: size.CellCountInt = self.start_y;
-        if (start_y >= self.page.size.rows) return .{ .rows = blank_rows, .cells = blank_cells };
+        if (start_y >= self.page.size.rows) return .{ .rows = blank_rows, .cells = blank_cells, .leading_done = leading_done };
         const end_y_unclamped: size.CellCountInt = self.end_y orelse self.page.size.rows - 1;
-        if (start_y > end_y_unclamped) return .{ .rows = blank_rows, .cells = blank_cells };
+        if (start_y > end_y_unclamped) return .{ .rows = blank_rows, .cells = blank_cells, .leading_done = leading_done };
         var end_y = @min(end_y_unclamped, self.page.size.rows - 1);
 
         // Edge case: if our end x/y falls on a spacer head AND we're unwrapping,
@@ -939,7 +941,7 @@ pub const PageFormatter = struct {
 
         // If we only have a single row, validate that start_x <= end_x
         if (start_y == end_y and start_x > end_x) {
-            return .{ .rows = blank_rows, .cells = blank_cells };
+            return .{ .rows = blank_rows, .cells = blank_cells, .leading_done = leading_done };
         }
 
         // Wrap HTML output in monospace font styling
@@ -1141,6 +1143,7 @@ pub const PageFormatter = struct {
                 if (!leading_done and self.opts.trim_leading) {
                     if (cell.codepoint() == ' ') continue;
                     leading_done = true;
+                    blank_cells = 0;
                 }
 
                 // If we have a zero value, then we accumulate a counter. We
@@ -1376,7 +1379,7 @@ pub const PageFormatter = struct {
             }
         }
 
-        return .{ .rows = blank_rows, .cells = blank_cells };
+        return .{ .rows = blank_rows, .cells = blank_cells, .leading_done = leading_done };
     }
 
     fn writeCell(
