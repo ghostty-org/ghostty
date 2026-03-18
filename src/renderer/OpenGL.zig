@@ -40,6 +40,8 @@ const wgl = if (apprt.runtime == apprt.win32) struct {
         hdc: ?*anyopaque,
         hglrc: ?*anyopaque,
     ) callconv(.c) i32;
+    extern "opengl32" fn wglGetCurrentDC() callconv(.c) ?*anyopaque;
+    extern "gdi32" fn SwapBuffers(hdc: ?*anyopaque) callconv(.c) i32;
 } else struct {};
 
 /// We require at least OpenGL 4.3
@@ -320,9 +322,14 @@ pub fn drawFrameStart(self: *OpenGL) void {
 
 /// Actions taken after `drawFrame` is done.
 ///
-/// Right now there's nothing we need to do for OpenGL.
+/// On Win32 with double-buffered WGL, swap the front/back buffers
+/// so the rendered frame appears on screen.
 pub fn drawFrameEnd(self: *OpenGL) void {
     _ = self;
+    if (comptime apprt.runtime == apprt.win32) {
+        const hdc = wgl.wglGetCurrentDC();
+        if (hdc != null) _ = wgl.SwapBuffers(hdc);
+    }
 }
 
 pub fn initShaders(
