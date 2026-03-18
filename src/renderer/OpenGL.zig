@@ -183,10 +183,11 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         },
 
         apprt.win32 => {
-            // For Win32/WGL, surfaceInit is called on the main thread.
-            // We temporarily make the WGL context current to load GL
-            // functions via GLAD, then release it so the renderer thread
-            // can claim it later in threadEnter.
+            // For Win32/WGL, make the context current on the main thread.
+            // It stays current through Renderer.init() and finalizeSurfaceInit()
+            // so OpenGL resources (shaders, textures, buffers) can be created.
+            // It will be released in finalizeSurfaceInit (displayRealized)
+            // right before the renderer thread is spawned.
             const hdc = surface.hdc orelse return error.InvalidSurface;
             const hglrc = surface.hglrc orelse return error.InvalidSurface;
 
@@ -198,9 +199,9 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
             // wglGetProcAddress.
             try prepareContext(null);
 
-            // Release the context from the main thread so the renderer
-            // thread can make it current later.
-            _ = wgl.wglMakeCurrent(null, null);
+            // NOTE: We intentionally do NOT release the context here.
+            // Renderer.init() needs a current GL context to create resources.
+            // The context is released in finalizeSurfaceInit/displayRealized.
         },
     }
 
@@ -291,9 +292,11 @@ pub fn displayRealized(self: *const OpenGL) void {
         },
 
         apprt.win32 => {
-            // No-op for Win32. The WGL context is fully set up
-            // during surfaceInit; there is no deferred realization
-            // like GTK's GLArea.
+            // Release the WGL context from the main thread so the
+            // renderer thread can make it current in threadEnter.
+            // The context was kept current since surfaceInit to allow
+            // Renderer.init() to create GL resources.
+            _ = wgl.wglMakeCurrent(null, null);
         },
 
         else => @compileError("only GTK should be calling displayRealized"),
