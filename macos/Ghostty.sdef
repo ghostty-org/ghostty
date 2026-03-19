@@ -69,6 +69,9 @@
       </property>
       <property name="index" code="pidx" type="integer" access="r" description="1-based index of this tab in its window."/>
       <property name="selected" code="GTsl" type="boolean" access="r" description="Whether this tab is selected in its window."/>
+      <property name="color" code="GTcl" type="tab color" access="rw" description="The color of the tab.">
+        <cocoa key="color"/>
+      </property>
       <property name="focused terminal" code="GTfT" type="terminal" access="r" description="The currently focused terminal surface in this tab.">
         <cocoa key="focusedTerminal"/>
       </property>
@@ -122,6 +125,19 @@
         <cocoa key="environmentVariables"/>
       </property>
     </record-type>
+
+    <enumeration name="tab color" code="GTbC" description="The color of a Ghostty tab.">
+      <enumerator name="none" code="GTcN" description="No color."/>
+      <enumerator name="blue" code="GTcB" description="Blue."/>
+      <enumerator name="purple" code="GTcP" description="Purple."/>
+      <enumerator name="pink" code="GTcK" description="Pink."/>
+      <enumerator name="red" code="GTcR" description="Red."/>
+      <enumerator name="orange" code="GTcO" description="Orange."/>
+      <enumerator name="yellow" code="GTcY" description="Yellow."/>
+      <enumerator name="green" code="GTcG" description="Green."/>
+      <enumerator name="teal" code="GTcT" description="Teal."/>
+      <enumerator name="graphite" code="GTcX" description="Graphite."/>
+    </enumeration>
 
     <enumeration name="split direction" code="GSpD" description="Direction for a new split.">
       <enumerator name="right" code="GSrt" description="Split to the right."/>
