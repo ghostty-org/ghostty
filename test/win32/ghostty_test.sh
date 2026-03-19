@@ -12,13 +12,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HARNESS_PS1="$(wslpath -w "$SCRIPT_DIR/test_harness.ps1")"
-GHOSTTY_EXE="$(wslpath -w "$REPO_DIR/zig-out/bin/ghostty.exe")"
 SCREENSHOT_DIR="$SCRIPT_DIR/screenshots"
 PASS=0
 FAIL=0
 SKIP=0
 
 mkdir -p "$SCREENSHOT_DIR"
+
+# Copy the exe to a local Windows temp path to avoid SmartScreen / UNC
+# security prompts that block unattended execution from \\wsl.localhost.
+WIN_TEMP="$(cmd.exe /c "echo %TEMP%" 2>/dev/null | tr -d '\r')"
+LOCAL_EXE="${WIN_TEMP}\\ghostty-test.exe"
+echo "Copying exe to local path to avoid security prompts..."
+cp "$REPO_DIR/zig-out/bin/ghostty.exe" "$(wslpath "$WIN_TEMP")/ghostty-test.exe"
+GHOSTTY_EXE="$LOCAL_EXE"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +54,8 @@ screenshot() {
 cleanup() {
     echo "Cleaning up ghostty processes..."
     ps -Action kill 2>/dev/null || true
+    # Remove the temp exe copy
+    rm -f "$(wslpath "$WIN_TEMP")/ghostty-test.exe" 2>/dev/null || true
 }
 
 report() {
