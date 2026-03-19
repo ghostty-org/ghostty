@@ -1,104 +1,77 @@
-# Ghostty Windows Port
+# Windows Port — Technical Details
 
-This is a fork of [Ghostty](https://github.com/ghostty-org/ghostty) that adds native Windows support via a Win32 application runtime.
+This document covers technical details specific to the Windows port. For an overview, see [README.md](README.md).
 
-The goal is to track the upstream main branch while maintaining a native Windows port that runs as a standalone `.exe` — no WSL, no Cygwin, no compatibility layers.
+## How It Works
 
-## Status
+The Windows port is implemented as a `win32` application runtime (`src/apprt/win32/`). Like the GTK runtime on Linux, it handles:
 
-**Early development** — the terminal is functional but many features are missing.
+- Window creation and lifecycle (Win32 API)
+- OpenGL context management (WGL)
+- Input translation (Win32 messages → Ghostty key/mouse events)
+- Clipboard (Win32 clipboard API)
+- Shell spawning (ConPTY, already existed upstream)
 
-### Working
-- Native Win32 window with OpenGL 4.6 rendering
-- Terminal emulation (VT sequences, colors, scrollback)
-- JetBrains Mono font rendering via FreeType + HarfBuzz
-- Keyboard input with full modifier support (Ctrl, Alt, Shift)
-- Mouse input (click, move, scroll wheel)
-- Shell spawning via Windows ConPTY (cmd.exe, PowerShell, WSL)
-- Window resize with terminal grid reflow
-- Per-monitor DPI awareness
-- Clipboard copy/paste (Ctrl+Shift+C/V)
-- Window title updates from shell
+Everything else — terminal emulation, rendering, font shaping, I/O — is shared with Linux and macOS.
 
-### Known Issues
-- Alignment panic on window close (shutdown ordering)
-- Resize flicker (async rendering lag)
-- No process exit detection (xev.Process type mismatch on Windows)
-- No IME support for CJK input
+## Win32 Input Mode (Mode 9001)
 
-### Not Yet Implemented
-- Tabs and splits
-- Font discovery (system fonts — currently uses bundled JetBrains Mono)
-- Configuration UI
-- Shell integration for PowerShell
-- Multiple windows
-- Custom key bindings
-- Scrollbar
-- Selection / URL detection
-- Notifications
+ConPTY has a known limitation where CJK/Unicode characters get truncated during console input event generation. Win32 Input Mode (escape sequence `\x1b[?9001h`) solves this by sending key events as VT sequences that include the full Unicode codepoint:
 
-## Building
-
-Requires [Zig](https://ziglang.org/download/) 0.15.2 or newer.
-
-### Cross-compile from Linux/WSL (debug build)
-```bash
-zig build -Dtarget=x86_64-windows-gnu -Dapp-runtime=win32
+```
+\x1b[Vk;Sc;Uc;Kd;Cs;Rc_
 ```
 
-### Cross-compile release build
-```bash
-zig build -Dtarget=x86_64-windows-gnu -Dapp-runtime=win32 -Doptimize=ReleaseFast
-```
+ConPTY requests this mode automatically. Ghostty checks keybindings first (e.g., Ctrl+Shift+C for copy) and only sends Win32 input sequences if no binding matched. Sequences are written directly to the PTY to avoid side effects like selection clearing.
 
-The executable is at `zig-out/bin/ghostty.exe`.
+## IME Support
 
-### Build Linux/GTK version (unchanged from upstream)
-```bash
-zig build "-fno-sys=gtk4-layer-shell"
-```
+CJK input method support via:
+- `WM_IME_STARTCOMPOSITION` / `WM_IME_COMPOSITION` / `WM_IME_ENDCOMPOSITION`
+- `VK_PROCESSKEY` detection to skip IME-intercepted keys
+- `WM_CHAR` deduplication (suppressed when `handleKeyEvent` already produced text via `ToUnicode`)
+- IME candidate window positioning via `ImmSetCompositionWindow`
 
-## Architecture
+## Shell Integration
 
-The Windows port adds a `win32` application runtime (`src/apprt/win32/`) alongside the existing GTK (Linux) and embedded (macOS) runtimes. It reuses Ghostty's cross-platform core:
+PowerShell integration is automatically injected when `shell-integration = detect` and `command = powershell.exe` (or `pwsh.exe`). The integration script provides:
 
-- **Terminal emulation**: Shared VT parser, screen, scrollback (`src/terminal/`)
-- **Rendering**: OpenGL 4.3+ with WGL context management (`src/renderer/`)
-- **Fonts**: FreeType rasterization + HarfBuzz shaping (`src/font/`)
-- **PTY**: Windows ConPTY via `CreatePseudoConsole` (`src/pty.zig`)
-- **I/O**: libxev with IOCP backend (`src/termio/`)
+- **OSC 133** semantic prompt marking (prompt start/end, command start/end with exit status)
+- **OSC 7** current working directory reporting
+- **OSC 2** window title updates
+- **Cursor shape** changes (bar at prompt, reset on command execution)
 
-### Key files
-```
-src/apprt/win32/
-  App.zig       — Win32 message loop, window class, action dispatch
-  Surface.zig   — HWND wrapper, WGL context, input translation, clipboard
-  win32.zig     — Win32 API type definitions and extern declarations
-```
+Injection mechanism: the command is modified to `powershell.exe -NoExit -Command ". '<script path>'"`.
 
-## Syncing with Upstream
+## Resize Flicker Mitigation
 
-This fork tracks `ghostty-org/ghostty` main branch. To sync:
+Several techniques reduce visible flicker during window resize:
 
-```bash
-git remote add upstream https://github.com/ghostty-org/ghostty.git
-git fetch upstream
-git merge upstream/main
-```
+1. **WM_ERASEBKGND** handler fills with the configured terminal background color
+2. **DWM dark mode** (`DWMWA_USE_IMMERSIVE_DARK_MODE`) for dark window chrome
+3. **Synchronous resize** during live drag: the main thread waits (via a Windows Event) for the renderer to present one frame before returning from `WM_SIZE`
+4. **WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE** tracking to only block during user-initiated resize
 
-Resolve any conflicts in `src/apprt/win32/` (our code) and files where we added `.win32` switch arms.
+Some DWM compositor flicker remains — this is a known limitation of OpenGL + DWM interaction.
 
-## Contributing
+## Font Discovery
 
-Contributions to the Windows port are welcome. Key areas that need work:
+System font discovery uses DirectWrite COM APIs:
+- `IDWriteFactory` → `GetSystemFontCollection`
+- `IDWriteFontCollection` → enumerate font families
+- `IDWriteFont` → get style, weight, stretch properties
+- `IDWriteFontFace` → `TryGetFontTable` for raw font data
 
-1. **Process exit detection** — fix xev.Process type mismatch or implement alternative
-2. **Font discovery** — enumerate Windows system fonts via registry or DirectWrite
-3. **Clean shutdown** — fix alignment panic during window close
-4. **IME support** — WM_IME_* message handling for CJK input
-5. **Tabs/splits** — Win32 tab control or custom implementation
-6. **Shell integration** — PowerShell integration scripts
+Falls back to bundled JetBrains Mono if no system font matches.
 
-## License
+## Build Targets
 
-Same as upstream Ghostty — see [LICENSE](LICENSE).
+| Target | Command |
+|--------|---------|
+| Windows debug (cross-compile from Linux) | `zig build -Dapp-runtime=win32 -Dtarget=x86_64-windows` |
+| Windows release | `zig build -Dapp-runtime=win32 -Dtarget=x86_64-windows -Doptimize=ReleaseFast` |
+| Linux/GTK (unchanged) | `zig build` |
+
+## Linked Libraries
+
+The Win32 runtime links: `opengl32`, `gdi32`, `user32`, `dwrite`, `dwmapi`, `imm32` (via `src/build/SharedDeps.zig`).
