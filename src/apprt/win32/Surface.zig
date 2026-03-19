@@ -44,6 +44,10 @@ core_surface: CoreSurface = undefined,
 /// core_surface is ready — handlers must check this flag.
 core_surface_ready: bool = false,
 
+/// Whether core_surface.init() completed successfully (ever).
+/// Different from core_surface_ready which is cleared during shutdown.
+core_surface_initialized: bool = false,
+
 /// Buffered high surrogate from WM_CHAR for supplementary plane characters.
 /// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages (surrogate pair).
 high_surrogate: u16 = 0,
@@ -122,15 +126,18 @@ pub fn init(self: *Surface, app: *App) !void {
     // Mark the surface as ready. Before this point, Win32 messages
     // (triggered by ShowWindow, wglCreateContext, etc.) must be ignored.
     self.core_surface_ready = true;
+    self.core_surface_initialized = true;
 }
 
 pub fn deinit(self: *Surface) void {
-    // Deinit the core surface first (stops renderer/IO threads, cleans up
-    // terminal state, PTY, fonts, etc.).
-    self.core_surface.deinit();
+    if (self.core_surface_initialized) {
+        // Deinit the core surface first (stops renderer/IO threads, cleans up
+        // terminal state, PTY, fonts, etc.).
+        self.core_surface.deinit();
 
-    // Unregister from the core app's surface list.
-    self.app.core_app.deleteSurface(self);
+        // Unregister from the core app's surface list.
+        self.app.core_app.deleteSurface(self);
+    }
 
     if (self.hglrc) |hglrc| {
         // Ensure the context is not current before deleting
@@ -444,6 +451,11 @@ pub fn handleDestroy(self: *Surface) void {
     // Clear the hwnd so deinit() doesn't try to destroy it again.
     const hwnd = self.hwnd;
     self.hwnd = null;
+
+    // Prevent any further message handlers from touching core_surface
+    // during teardown. Messages can arrive during DestroyWindow and
+    // deinit (e.g. WM_SETFOCUS, WM_SIZE from style changes).
+    self.core_surface_ready = false;
 
     // Clear GWLP_USERDATA BEFORE freeing, so any subsequent messages
     // (WM_NCDESTROY etc.) see userdata=0 and go to DefWindowProc.
