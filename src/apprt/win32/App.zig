@@ -331,6 +331,16 @@ pub fn performAction(
             return true;
         },
 
+        .scrollbar => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.setScrollbar(value);
+                },
+            }
+            return true;
+        },
+
         .mouse_shape => {
             switch (target) {
                 .app => {},
@@ -518,10 +528,32 @@ fn wndProc(
         },
 
         w32.WM_CLOSE => {
-            // Destroy the window directly. This is safe here because
-            // WM_CLOSE is dispatched from the message loop (not from
-            // inside a core_surface callback), so no code holds a
-            // reference to the surface that would be invalidated.
+            // If wparam=1 (set by Surface.close when process_active=true),
+            // or the user clicked the X button while a child process is
+            // running, show a confirmation dialog.
+            const needs_confirm = if (wparam == 1)
+                true
+            else if (surface.core_surface_ready)
+                surface.core_surface.needsConfirmQuit()
+            else
+                false;
+
+            if (needs_confirm) {
+                const result = w32.MessageBoxW(
+                    hwnd,
+                    std.unicode.utf8ToUtf16LeStringLiteral(
+                        "A process is still running in this terminal.\r\nClose anyway?",
+                    ),
+                    std.unicode.utf8ToUtf16LeStringLiteral("Ghostty"),
+                    w32.MB_YESNO | w32.MB_ICONWARNING | w32.MB_DEFBUTTON2,
+                );
+                if (result != w32.IDYES) return 0;
+            }
+
+            // Destroy the window. This is safe here because WM_CLOSE is
+            // dispatched from the message loop (not from inside a
+            // core_surface callback), so no code holds a reference to
+            // the surface that would be invalidated.
             if (surface.hwnd) |h| {
                 _ = w32.DestroyWindow(h);
             }
@@ -630,6 +662,11 @@ fn wndProc(
 
         w32.WM_MOUSEWHEEL => {
             surface.handleMouseWheel(wparam);
+            return 0;
+        },
+
+        w32.WM_VSCROLL => {
+            surface.handleVScroll(wparam);
             return 0;
         },
 

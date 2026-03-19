@@ -128,7 +128,14 @@ test_launch_and_close() {
     assert_true "Window exists" "$exists"
     assert_true "Window visible" "$visible"
 
-    # Close gracefully
+    # Exit the shell first so close confirmation doesn't block.
+    # Without shell integration, needsConfirmQuit() returns true while
+    # cmd.exe is running, causing a MessageBox on WM_CLOSE.
+    ps -Action sendtext -ProcessId "$pid" -Text "exit"
+    ps -Action sendkeys -ProcessId "$pid" -Keys "{ENTER}"
+    sleep 2
+
+    # Close gracefully (child should have exited, so no confirmation)
     ps -Action close -ProcessId "$pid"
     sleep 2
 
@@ -173,8 +180,6 @@ test_window_properties() {
         FAIL=$((FAIL + 1))
     fi
 
-    ps -Action close -ProcessId "$pid"
-    sleep 1
     ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"
@@ -205,8 +210,6 @@ test_keyboard_input() {
     screenshot "keyboard_input" "$pid"
     echo "  ✓ Input sent and screenshot captured (manual verification needed)"
 
-    ps -Action close -ProcessId "$pid"
-    sleep 1
     ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"
@@ -252,8 +255,8 @@ test_multiple_windows() {
     fi
     echo "  ✓ Second window appeared (PID=$pid2)"
 
-    # Close first, verify second still works
-    ps -Action close -ProcessId "$pid1"
+    # Kill first, verify second still works
+    ps -Action kill -ProcessId "$pid1" 2>/dev/null || true
     sleep 2
 
     local check2
@@ -298,8 +301,6 @@ test_clipboard() {
     screenshot "clipboard" "$pid"
     echo "  ✓ Clipboard test screenshot captured (manual verification needed)"
 
-    ps -Action close -ProcessId "$pid"
-    sleep 1
     ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"
@@ -350,11 +351,93 @@ CFGEOF
     echo "  ✓ Screenshot captured (verify red background manually)"
 
     # Clean up
-    ps -Action close -ProcessId "$pid"
-    sleep 2
     ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     rm -rf "$(wslpath "$WIN_TEMP")/ghostty-test-config"
 
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
+test_scrollbar() {
+    echo "▶ test_scrollbar"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+
+    # Generate enough output to create scrollback (100+ lines)
+    sleep 1
+    ps -Action sendtext -ProcessId "$pid" -Text "for /L %i in (1,1,100) do @echo Line %i scrollback test"
+    ps -Action sendkeys -ProcessId "$pid" -Keys "{ENTER}"
+    sleep 3
+
+    # Take screenshot — scrollbar should be visible on the right edge
+    screenshot "scrollbar" "$pid"
+    echo "  ✓ Scrollback generated, screenshot captured (verify scrollbar visible)"
+
+    # Test scroll up with Page Up key
+    ps -Action sendkeys -ProcessId "$pid" -Keys "{PGUP}"
+    sleep 1
+    screenshot "scrollbar_pgup" "$pid"
+    echo "  ✓ Page Up sent, screenshot captured (verify scrolled up)"
+
+    # Test scroll back to bottom with Page Down
+    ps -Action sendkeys -ProcessId "$pid" -Keys "{PGDN}"
+    sleep 1
+
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
+test_close_confirmation() {
+    echo "▶ test_close_confirmation"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+
+    # Send WM_CLOSE while shell is still running — this should trigger
+    # the confirmation dialog (since cmd.exe is still active and there's
+    # no shell integration to mark the prompt).
+    ps -Action close -ProcessId "$pid"
+    sleep 3
+
+    # The window should still exist because the dialog blocks the close.
+    # (MessageBoxW is modal — it won't destroy the window unless the user
+    # clicks "Yes".)
+    local check
+    check="$(ps -Action check -ProcessId "$pid")"
+    local exists
+    exists="$(get_val "$check" EXISTS)"
+
+    if [ "$exists" = "true" ]; then
+        echo "  ✓ Close was blocked by confirmation dialog"
+    else
+        echo "  ✗ Window closed without confirmation (expected dialog)"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+
+    # Clean up — force kill since the dialog is blocking normal close
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"
 }
@@ -370,6 +453,8 @@ list_tests() {
     echo "  multiple_windows    — Multiple window lifecycle"
     echo "  clipboard           — Copy/paste functionality"
     echo "  config_file         — Config file loading with custom settings"
+    echo "  scrollbar           — Scrollbar appears with scrollback content"
+    echo "  close_confirmation  — Close blocked by confirmation dialog"
 }
 
 run_test() {
@@ -381,6 +466,8 @@ run_test() {
         multiple_windows)    test_multiple_windows ;;
         clipboard)           test_clipboard ;;
         config_file)         test_config_file ;;
+        scrollbar)           test_scrollbar ;;
+        close_confirmation)  test_close_confirmation ;;
         *)                   echo "Unknown test: $1"; exit 1 ;;
     esac
 }
@@ -408,6 +495,10 @@ case "${1:-all}" in
         test_clipboard
         echo ""
         test_config_file
+        echo ""
+        test_scrollbar
+        echo ""
+        test_close_confirmation
         echo ""
         report
         ;;

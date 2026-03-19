@@ -608,6 +608,81 @@ pub extern "kernel32" fn GlobalFree(
 ) callconv(.c) ?*anyopaque;
 
 // -----------------------------------------------------------------------
+// MessageBox API
+// -----------------------------------------------------------------------
+
+pub const MB_OKCANCEL: u32 = 0x00000001;
+pub const MB_YESNO: u32 = 0x00000004;
+pub const MB_ICONWARNING: u32 = 0x00000030;
+pub const MB_DEFBUTTON2: u32 = 0x00000100;
+pub const IDOK: i32 = 1;
+pub const IDCANCEL: i32 = 2;
+pub const IDYES: i32 = 6;
+pub const IDNO: i32 = 7;
+
+pub extern "user32" fn MessageBoxW(
+    hWnd: ?HWND,
+    lpText: [*:0]const u16,
+    lpCaption: [*:0]const u16,
+    uType: u32,
+) callconv(.c) i32;
+
+// -----------------------------------------------------------------------
+// Scrollbar API
+// -----------------------------------------------------------------------
+
+pub const SB_VERT: i32 = 1;
+pub const SIF_ALL: u32 = 0x0017;
+pub const SIF_POS: u32 = 0x0004;
+pub const SIF_RANGE: u32 = 0x0001;
+pub const SIF_PAGE: u32 = 0x0002;
+pub const SIF_DISABLENOSCROLL: u32 = 0x0008;
+
+pub const WM_VSCROLL: u32 = 0x0115;
+
+// Scrollbar request codes (from wParam low word)
+pub const SB_LINEUP: u16 = 0;
+pub const SB_LINEDOWN: u16 = 1;
+pub const SB_PAGEUP: u16 = 2;
+pub const SB_PAGEDOWN: u16 = 3;
+pub const SB_THUMBTRACK: u16 = 5;
+pub const SB_THUMBPOSITION: u16 = 4;
+pub const SB_TOP: u16 = 6;
+pub const SB_BOTTOM: u16 = 7;
+
+pub const SCROLLINFO = extern struct {
+    cbSize: u32,
+    fMask: u32,
+    nMin: i32,
+    nMax: i32,
+    nPage: u32,
+    nPos: i32,
+    nTrackPos: i32,
+};
+
+pub extern "user32" fn SetScrollInfo(
+    hwnd: HWND,
+    nBar: i32,
+    lpsi: *const SCROLLINFO,
+    redraw: i32,
+) callconv(.c) i32;
+
+pub extern "user32" fn GetScrollInfo(
+    hwnd: HWND,
+    nBar: i32,
+    lpsi: *SCROLLINFO,
+) callconv(.c) i32;
+
+// Window style for vertical scrollbar
+pub const WS_VSCROLL: u32 = 0x00200000;
+
+pub extern "user32" fn ShowScrollBar(
+    hWnd: HWND,
+    wBar: i32,
+    bShow: i32,
+) callconv(.c) i32;
+
+// -----------------------------------------------------------------------
 // IMM32 (Input Method Manager) API
 // -----------------------------------------------------------------------
 

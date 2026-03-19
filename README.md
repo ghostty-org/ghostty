@@ -51,13 +51,14 @@ The goal is to track the upstream main branch while maintaining a native Windows
 - Configurable quit-after-last-window-closed with delay
 - Fullscreen toggle (Ctrl+Enter)
 - Background opacity / transparency (`background-opacity` config)
+- Scrollbar (native Win32 scrollbar synced with terminal scrollback)
+- Close confirmation dialog when a process is still running
 
 ### Not Yet Implemented
 
 - Tabs and splits
 - URL detection (clickable hyperlinks)
 - Desktop notifications (Windows toast)
-- Scrollbar
 - Release build + installer (MSI/MSIX)
 
 ## Building
@@ -130,7 +131,7 @@ A test harness runs from WSL2 using PowerShell automation:
 bash test/win32/ghostty_test.sh all
 ```
 
-Tests cover: launch/close, window properties, keyboard input, multiple windows, clipboard, and config file loading.
+Tests cover: launch/close, window properties, keyboard input, multiple windows, clipboard, config file loading, scrollbar, and close confirmation.
 
 ## Syncing with Upstream
 

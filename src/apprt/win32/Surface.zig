@@ -78,6 +78,12 @@ in_live_resize: bool = false,
 /// synchronize rendering with the DWM compositor.
 frame_event: ?w32.HANDLE = null,
 
+/// Cached scrollbar state for updating the Win32 scrollbar.
+/// Updated by the core via performAction(.scrollbar).
+scrollbar_total: usize = 0,
+scrollbar_offset: usize = 0,
+scrollbar_len: usize = 0,
+
 /// Whether the window is currently in fullscreen mode.
 is_fullscreen: bool = false,
 
@@ -133,7 +139,7 @@ pub fn init(self: *Surface, app: *App) !void {
     self.updateDpiScale();
     self.updateClientSize();
 
-    log.info("Win32 surface created: {}x{} scale={d:.2}", .{
+    log.debug("Win32 surface created: {}x{} scale={d:.2}", .{
         self.width,
         self.height,
         self.scale,
@@ -293,7 +299,6 @@ pub fn getTitle(self: *const Surface) ?[:0]const u8 {
 }
 
 pub fn close(self: *Surface, process_active: bool) void {
-    _ = process_active;
     // Post WM_CLOSE instead of calling DestroyWindow directly.
     // close() is often called from within core_surface callbacks
     // (e.g., keyCallback when child_exited is true). If we called
@@ -305,8 +310,12 @@ pub fn close(self: *Surface, process_active: bool) void {
     // PostMessage defers destruction to after the current message
     // dispatch completes, so all code holding references to self
     // has finished executing by the time WM_CLOSE is processed.
+    //
+    // If a child process is still running, wparam=1 tells the
+    // WM_CLOSE handler to show a confirmation dialog.
     if (self.hwnd) |hwnd| {
-        _ = w32.PostMessageW(hwnd, w32.WM_CLOSE, 0, 0);
+        const confirm: usize = if (process_active) 1 else 0;
+        _ = w32.PostMessageW(hwnd, w32.WM_CLOSE, confirm, 0);
     }
 }
 
@@ -519,6 +528,87 @@ pub fn toggleFullscreen(self: *Surface) void {
         );
 
         self.is_fullscreen = false;
+    }
+}
+
+/// Update the Win32 scrollbar to reflect the terminal's scroll state.
+/// Called from performAction(.scrollbar) when the viewport changes.
+pub fn setScrollbar(self: *Surface, scrollbar: terminal.Scrollbar) void {
+    const hwnd = self.hwnd orelse return;
+
+    // Cache the values for handleVScroll.
+    self.scrollbar_total = scrollbar.total;
+    self.scrollbar_offset = scrollbar.offset;
+    self.scrollbar_len = scrollbar.len;
+
+    // If total <= visible rows, there's nothing to scroll — hide the
+    // scrollbar entirely.
+    if (scrollbar.total <= scrollbar.len) {
+        _ = w32.ShowScrollBar(hwnd, w32.SB_VERT, 0);
+        return;
+    }
+
+    // Show the scrollbar (adds WS_VSCROLL dynamically) and set the range.
+    // ShowScrollBar is more reliable than adding WS_VSCROLL via
+    // SetWindowLongW because OpenGL drivers can strip style bits.
+    _ = w32.ShowScrollBar(hwnd, w32.SB_VERT, 1);
+
+    const si = w32.SCROLLINFO{
+        .cbSize = @sizeOf(w32.SCROLLINFO),
+        .fMask = w32.SIF_ALL,
+        .nMin = 0,
+        .nMax = @intCast(scrollbar.total -| 1),
+        .nPage = @intCast(scrollbar.len),
+        .nPos = @intCast(scrollbar.offset),
+        .nTrackPos = 0,
+    };
+    _ = w32.SetScrollInfo(hwnd, w32.SB_VERT, &si, 1);
+}
+
+/// Handle WM_VSCROLL — user is interacting with the scrollbar.
+pub fn handleVScroll(self: *Surface, wparam: usize) void {
+    if (!self.core_surface_ready) return;
+
+    const request: u16 = @intCast(wparam & 0xFFFF);
+
+    const row: ?usize = switch (request) {
+        w32.SB_LINEUP => if (self.scrollbar_offset > 0)
+            self.scrollbar_offset - 1
+        else
+            null,
+        w32.SB_LINEDOWN => if (self.scrollbar_offset + self.scrollbar_len < self.scrollbar_total)
+            self.scrollbar_offset + 1
+        else
+            null,
+        w32.SB_PAGEUP => self.scrollbar_offset -| self.scrollbar_len,
+        w32.SB_PAGEDOWN => blk: {
+            const max = self.scrollbar_total -| self.scrollbar_len;
+            break :blk @min(self.scrollbar_offset + self.scrollbar_len, max);
+        },
+        w32.SB_THUMBTRACK, w32.SB_THUMBPOSITION => blk: {
+            // Get the 32-bit track position from SCROLLINFO (wparam
+            // high word is only 16 bits and overflows for large scrollback).
+            var si = w32.SCROLLINFO{
+                .cbSize = @sizeOf(w32.SCROLLINFO),
+                .fMask = w32.SIF_ALL,
+                .nMin = 0,
+                .nMax = 0,
+                .nPage = 0,
+                .nPos = 0,
+                .nTrackPos = 0,
+            };
+            _ = w32.GetScrollInfo(self.hwnd.?, w32.SB_VERT, &si);
+            break :blk @intCast(si.nTrackPos);
+        },
+        w32.SB_TOP => @as(usize, 0),
+        w32.SB_BOTTOM => self.scrollbar_total -| self.scrollbar_len,
+        else => null,
+    };
+
+    if (row) |r| {
+        _ = self.core_surface.performBindingAction(.{ .scroll_to_row = r }) catch |err| {
+            log.err("scroll_to_row error: {}", .{err});
+        };
     }
 }
 
