@@ -7,6 +7,7 @@
 const DeferredFace = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const fontconfig = @import("fontconfig");
 const macos = @import("macos");
@@ -25,6 +26,10 @@ fc: if (options.backend == .fontconfig_freetype) ?Fontconfig else void =
 /// CoreText
 ct: if (font.Discover == font.discovery.CoreText) ?CoreText else void =
     if (font.Discover == font.discovery.CoreText) null else {},
+
+/// DirectWrite (Windows)
+dw: if (font.Discover == font.discovery.DirectWrite) ?DirectWriteFace else void =
+    if (font.Discover == font.discovery.DirectWrite) null else {},
 
 /// Canvas
 wc: if (options.backend == .web_canvas) ?WebCanvas else void =
@@ -67,6 +72,23 @@ pub const CoreText = struct {
     }
 };
 
+/// DirectWrite specific data. This is only present when building for Windows
+/// with the freetype backend.
+pub const DirectWriteFace = struct {
+    /// The file path to the font file (UTF-8, null-terminated).
+    path: [:0]const u8,
+
+    /// The face index within the font file.
+    face_index: u32,
+
+    /// Variations to apply to this font.
+    variations: []const font.face.Variation,
+
+    pub fn deinit(self: *DirectWriteFace) void {
+        self.* = undefined;
+    }
+};
+
 /// WebCanvas specific data. This is only present when building with canvas.
 pub const WebCanvas = struct {
     /// The allocator to use for fonts
@@ -87,7 +109,9 @@ pub const WebCanvas = struct {
 pub fn deinit(self: *DeferredFace) void {
     switch (options.backend) {
         .fontconfig_freetype => if (self.fc) |*fc| fc.deinit(),
-        .freetype => {},
+        .freetype => if (comptime builtin.os.tag == .windows) {
+            if (self.dw) |*d| d.deinit();
+        },
         .web_canvas => if (self.wc) |*wc| wc.deinit(),
         .coretext,
         .coretext_freetype,
@@ -168,9 +192,13 @@ pub fn load(
         .coretext_freetype => try self.loadCoreTextFreetype(lib, opts),
         .web_canvas => try self.loadWebCanvas(opts),
 
-        // Unreachable because we must be already loaded or have the
-        // proper configuration for one of the other deferred mechanisms.
-        .freetype => unreachable,
+        // On Windows with freetype backend, we use DirectWrite for discovery
+        // and FreeType for rendering. On other platforms, freetype has no
+        // discovery mechanism so reaching this is unreachable.
+        .freetype => if (comptime builtin.os.tag == .windows)
+            try self.loadDirectWrite(lib, opts)
+        else
+            unreachable,
     };
 }
 
@@ -254,6 +282,18 @@ fn loadWebCanvas(
 ) !Face {
     const wc = self.wc.?;
     return try .initNamed(wc.alloc, wc.font_str, opts, wc.presentation);
+}
+
+fn loadDirectWrite(
+    self: *DeferredFace,
+    lib: Library,
+    opts: font.face.Options,
+) !Face {
+    const dw_face = self.dw.?;
+    var face = try Face.initFile(lib, dw_face.path, @intCast(dw_face.face_index), opts);
+    errdefer face.deinit();
+    try face.setVariations(dw_face.variations, opts);
+    return face;
 }
 
 /// Returns true if this face can satisfy the given codepoint and
@@ -344,7 +384,11 @@ pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
             return face.glyphIndex(cp) != null;
         },
 
-        .freetype => {},
+        .freetype => if (comptime builtin.os.tag == .windows) {
+            // For DirectWrite discovered fonts, the discovery already
+            // filtered by codepoint if requested, so we return true.
+            if (self.dw != null) return true;
+        },
     }
 
     // This is unreachable because discovery mechanisms terminate, and

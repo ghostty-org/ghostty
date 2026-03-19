@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const fontconfig = @import("fontconfig");
@@ -13,7 +14,7 @@ const log = std.log.scoped(.discovery);
 
 /// Discover implementation for the compile options.
 pub const Discover = switch (options.backend) {
-    .freetype => void, // no discovery
+    .freetype => if (builtin.os.tag == .windows) DirectWrite else void,
     .fontconfig_freetype => Fontconfig,
     .web_canvas => void, // no discovery
     .coretext,
@@ -237,6 +238,281 @@ pub const Descriptor = struct {
 
         return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
     }
+};
+
+pub const DirectWrite = struct {
+    const dw = @import("directwrite.zig");
+
+    factory: *dw.IDWriteFactory,
+    collection: *dw.IDWriteFontCollection,
+
+    pub fn init() DirectWrite {
+        var factory_ptr: ?*anyopaque = null;
+        const hr = dw.DWriteCreateFactory(.shared, &dw.IID_IDWriteFactory, &factory_ptr);
+        if (hr != dw.S_OK or factory_ptr == null) @panic("Failed to create DirectWrite factory");
+        const factory: *dw.IDWriteFactory = @ptrCast(@alignCast(factory_ptr.?));
+        const collection = factory.getSystemFontCollection() catch
+            @panic("Failed to get system font collection");
+        return .{ .factory = factory, .collection = collection };
+    }
+
+    pub fn deinit(self: *DirectWrite) void {
+        self.collection.release();
+        self.factory.release();
+    }
+
+    /// Discover fonts from a descriptor.
+    pub fn discover(
+        self: *const DirectWrite,
+        alloc: Allocator,
+        desc: Descriptor,
+    ) !DiscoverIterator {
+        var results: std.ArrayList(FontResult) = .empty;
+        errdefer {
+            for (results.items) |r| {
+                if (r.path.len > 0) alloc.free(r.path);
+                if (r.family_name.len > 0) alloc.free(r.family_name);
+            }
+            results.deinit(alloc);
+        }
+
+        if (desc.family) |family| {
+            try self.findFamily(alloc, family, desc, &results);
+        } else if (desc.codepoint > 0) {
+            try self.findByCodepoint(alloc, desc, &results);
+        }
+
+        sortResults(desc, results.items);
+        return DiscoverIterator{
+            .alloc = alloc,
+            .results = try results.toOwnedSlice(alloc),
+            .variations = desc.variations,
+            .i = 0,
+        };
+    }
+
+    pub fn discoverFallback(
+        self: *const DirectWrite,
+        alloc: Allocator,
+        collection: *Collection,
+        desc: Descriptor,
+    ) !DiscoverIterator {
+        _ = collection;
+        return try self.discover(alloc, desc);
+    }
+
+    fn findFamily(
+        self: *const DirectWrite,
+        alloc: Allocator,
+        family: [:0]const u8,
+        desc: Descriptor,
+        results: *std.ArrayList(FontResult),
+    ) !void {
+        // Convert family name to UTF-16
+        const family_utf16 = try dw.utf8ToUtf16Alloc(alloc, family);
+        defer alloc.free(family_utf16);
+
+        const family_index = try self.collection.findFamilyName(family_utf16) orelse return;
+
+        const font_family = try self.collection.getFontFamily(family_index);
+        defer font_family.release();
+
+        const font_count = font_family.getFontCount();
+
+        for (0..font_count) |i| {
+            const font_obj = font_family.getFont(@intCast(i)) catch continue;
+            defer font_obj.release();
+
+            // If searching for a specific codepoint, check it
+            if (desc.codepoint > 0) {
+                const has_cp = font_obj.hasCharacter(desc.codepoint) catch continue;
+                if (!has_cp) continue;
+            }
+
+            const weight = font_obj.getWeight();
+            const style = font_obj.getStyle();
+
+            if (extractFontPath(alloc, font_obj)) |result| {
+                // Get family name for this result
+                const family_names = font_family.getFamilyNames() catch continue;
+                defer family_names.release();
+                const name = family_names.getLocalizedName(alloc) catch alloc.dupeZ(u8, family) catch continue;
+
+                try results.append(alloc, .{
+                    .path = result.path,
+                    .face_index = result.face_index,
+                    .weight = weight,
+                    .style = style,
+                    .family_name = name,
+                });
+            } else |_| {
+                continue;
+            }
+        }
+    }
+
+    fn findByCodepoint(
+        self: *const DirectWrite,
+        alloc: Allocator,
+        desc: Descriptor,
+        results: *std.ArrayList(FontResult),
+    ) !void {
+        const family_count = self.collection.getFontFamilyCount();
+
+        for (0..family_count) |fi| {
+            const font_family = self.collection.getFontFamily(@intCast(fi)) catch continue;
+            defer font_family.release();
+
+            const font_count = font_family.getFontCount();
+            for (0..font_count) |i| {
+                const font_obj = font_family.getFont(@intCast(i)) catch continue;
+                defer font_obj.release();
+
+                const has_cp = font_obj.hasCharacter(desc.codepoint) catch continue;
+                if (!has_cp) continue;
+
+                const weight = font_obj.getWeight();
+                const style = font_obj.getStyle();
+
+                if (extractFontPath(alloc, font_obj)) |result| {
+                    const family_names = font_family.getFamilyNames() catch continue;
+                    defer family_names.release();
+                    const name = family_names.getLocalizedName(alloc) catch continue;
+
+                    try results.append(alloc, .{
+                        .path = result.path,
+                        .face_index = result.face_index,
+                        .weight = weight,
+                        .style = style,
+                        .family_name = name,
+                    });
+                } else |_| {
+                    continue;
+                }
+
+                // Only add the first matching font from this family
+                break;
+            }
+        }
+    }
+
+    const ExtractResult = struct {
+        path: [:0]const u8,
+        face_index: u32,
+    };
+
+    fn extractFontPath(alloc: Allocator, font_obj: *dw.IDWriteFont) !ExtractResult {
+        const font_face = try font_obj.createFontFace();
+        defer font_face.release();
+
+        const face_index = font_face.getIndex();
+
+        const font_file = try font_face.getFile();
+        defer font_file.release();
+
+        const ref_key = try font_file.getReferenceKey();
+
+        const loader = try font_file.getLoader();
+        defer loader.release();
+
+        // Try to get IDWriteLocalFontFileLoader to extract the file path
+        const local_loader: *dw.IDWriteLocalFontFileLoader = dw.queryInterface(
+            dw.IDWriteLocalFontFileLoader,
+            loader,
+            &dw.IID_IDWriteLocalFontFileLoader,
+        ) orelse return error.NotLocalFont;
+        defer local_loader.release();
+
+        const path_len = try local_loader.getFilePathLengthFromKey(ref_key.key, ref_key.size);
+
+        // +1 for null terminator
+        const path_buf = try alloc.alloc(u16, path_len + 1);
+        defer alloc.free(path_buf);
+        try local_loader.getFilePathFromKey(ref_key.key, ref_key.size, path_buf.ptr, path_len + 1);
+
+        // Convert UTF-16 path to UTF-8
+        const utf8_path = try dw.utf16ToUtf8Alloc(alloc, path_buf[0..path_len]);
+        return .{
+            .path = utf8_path,
+            .face_index = face_index,
+        };
+    }
+
+    fn sortResults(desc: Descriptor, items: []FontResult) void {
+        const Context = struct {
+            desc: Descriptor,
+        };
+        const ctx = Context{ .desc = desc };
+        std.mem.sortUnstable(FontResult, items, ctx, struct {
+            fn lessThan(c: Context, a: FontResult, b: FontResult) bool {
+                const a_score = scoreResult(c.desc, a);
+                const b_score = scoreResult(c.desc, b);
+                // Higher score is better, should come first
+                return a_score > b_score;
+            }
+        }.lessThan);
+    }
+
+    fn scoreResult(desc: Descriptor, result: FontResult) i32 {
+        var score: i32 = 0;
+
+        // Weight matching
+        const desired_weight: u32 = if (desc.bold) 700 else 400;
+        const actual_weight = @intFromEnum(result.weight);
+        const weight_diff: i32 = @intCast(@as(u32, @intCast(@abs(@as(i64, @intCast(actual_weight)) - @as(i64, @intCast(desired_weight))))));
+        score -= weight_diff;
+
+        // Style matching
+        const desired_style: dw.DWRITE_FONT_STYLE = if (desc.italic) .italic else .normal;
+        if (result.style == desired_style) {
+            score += 1000;
+        }
+
+        return score;
+    }
+
+    const FontResult = struct {
+        path: [:0]const u8,
+        face_index: u32,
+        weight: dw.DWRITE_FONT_WEIGHT,
+        style: dw.DWRITE_FONT_STYLE,
+        family_name: [:0]const u8,
+    };
+
+    pub const DiscoverIterator = struct {
+        alloc: Allocator,
+        results: []FontResult,
+        variations: []const Variation,
+        i: usize,
+
+        pub fn deinit(self: *DiscoverIterator) void {
+            for (self.results) |r| {
+                if (r.path.len > 0) self.alloc.free(r.path);
+                if (r.family_name.len > 0) self.alloc.free(r.family_name);
+            }
+            self.alloc.free(self.results);
+            self.* = undefined;
+        }
+
+        pub fn next(self: *DiscoverIterator) !?DeferredFace {
+            if (self.i >= self.results.len) return null;
+            const result = &self.results[self.i];
+            self.i += 1;
+
+            // Transfer ownership of the path to the deferred face
+            const path = result.path;
+            const face_index = result.face_index;
+            result.path = @ptrCast("");
+
+            return DeferredFace{
+                .dw = .{
+                    .path = path,
+                    .face_index = face_index,
+                    .variations = self.variations,
+                },
+            };
+        }
+    };
 };
 
 pub const Fontconfig = struct {
