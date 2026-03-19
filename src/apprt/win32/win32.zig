@@ -245,6 +245,8 @@ pub const WHEEL_DELTA: i16 = 120;
 
 // Show window commands
 pub const SW_SHOW: i32 = 5;
+pub const SW_MAXIMIZE: i32 = 3;
+pub const SW_RESTORE: i32 = 9;
 
 // Window long pointer indices
 pub const GWLP_USERDATA: i32 = -21;
@@ -261,8 +263,19 @@ pub const PFD_TYPE_RGBA: u8 = 0;
 // CreateWindowEx defaults
 pub const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 
-// IDC_ARROW cursor
-pub const IDC_ARROW: ?[*:0]const u16 = @ptrFromInt(32512);
+// Standard cursor IDs (MAKEINTRESOURCE values)
+pub const IDC_ARROW: usize = 32512;
+pub const IDC_IBEAM: usize = 32513;
+pub const IDC_WAIT: usize = 32514;
+pub const IDC_CROSS: usize = 32515;
+pub const IDC_SIZEALL: usize = 32646;
+pub const IDC_SIZENWSE: usize = 32642;
+pub const IDC_SIZENESW: usize = 32643;
+pub const IDC_SIZEWE: usize = 32644;
+pub const IDC_SIZENS: usize = 32645;
+pub const IDC_NO: usize = 32648;
+pub const IDC_HAND: usize = 32649;
+pub const IDC_APPSTARTING: usize = 32650;
 
 // -----------------------------------------------------------------------
 // Win32 API extern declarations
@@ -389,7 +402,7 @@ pub extern "user32" fn ValidateRect(
 
 pub extern "user32" fn LoadCursorW(
     hInstance: ?HINSTANCE,
-    lpCursorName: ?[*:0]const u16,
+    lpCursorName: usize,
 ) callconv(.c) ?HCURSOR;
 
 pub extern "user32" fn GetKeyState(
@@ -454,6 +467,23 @@ pub extern "user32" fn GetMonitorInfoW(
     hMonitor: HMONITOR,
     lpmi: *MONITORINFO,
 ) callconv(.c) i32;
+
+pub extern "user32" fn IsZoomed(
+    hWnd: HWND,
+) callconv(.c) i32;
+
+pub extern "user32" fn SetCursor(
+    hCursor: HCURSOR,
+) callconv(.c) ?HCURSOR;
+
+pub extern "shell32" fn ShellExecuteW(
+    hwnd: ?HWND,
+    lpOperation: ?[*:0]const u16,
+    lpFile: [*:0]const u16,
+    lpParameters: ?[*:0]const u16,
+    lpDirectory: ?[*:0]const u16,
+    nShowCmd: i32,
+) callconv(.c) isize;
 
 pub extern "user32" fn SetLayeredWindowAttributes(
     hwnd: HWND,

@@ -278,6 +278,85 @@ pub fn performAction(
             return true;
         },
 
+        .toggle_maximize => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    if (core_surface.rt_surface.hwnd) |hwnd| {
+                        if (w32.IsZoomed(hwnd) != 0) {
+                            _ = w32.ShowWindow(hwnd, w32.SW_RESTORE);
+                        } else {
+                            _ = w32.ShowWindow(hwnd, w32.SW_MAXIMIZE);
+                        }
+                    }
+                },
+            }
+            return true;
+        },
+
+        .close_window => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.close(false);
+                },
+            }
+            return true;
+        },
+
+        .open_config => {
+            // Open the config file in the default editor.
+            const config_path = configpkg.preferredDefaultFilePath(
+                self.core_app.alloc,
+            ) catch |err| {
+                log.err("failed to get config path: {}", .{err});
+                return true;
+            };
+            defer self.core_app.alloc.free(config_path);
+
+            // Convert to wide string for ShellExecuteW.
+            var wbuf: [512]u16 = undefined;
+            const wlen = std.unicode.utf8ToUtf16Le(&wbuf, config_path) catch return true;
+            if (wlen < wbuf.len) {
+                wbuf[wlen] = 0;
+                _ = w32.ShellExecuteW(
+                    null,
+                    std.unicode.utf8ToUtf16LeStringLiteral("open"),
+                    @ptrCast(&wbuf),
+                    null,
+                    null,
+                    w32.SW_SHOW,
+                );
+            }
+            return true;
+        },
+
+        .mouse_shape => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    const cursor = switch (value) {
+                        .text => w32.LoadCursorW(null, w32.IDC_IBEAM),
+                        .pointer => w32.LoadCursorW(null, w32.IDC_HAND),
+                        .crosshair => w32.LoadCursorW(null, w32.IDC_CROSS),
+                        .e_resize, .w_resize, .ew_resize => w32.LoadCursorW(null, w32.IDC_SIZEWE),
+                        .n_resize, .s_resize, .ns_resize => w32.LoadCursorW(null, w32.IDC_SIZENS),
+                        .nwse_resize, .nw_resize, .se_resize => w32.LoadCursorW(null, w32.IDC_SIZENWSE),
+                        .nesw_resize, .ne_resize, .sw_resize => w32.LoadCursorW(null, w32.IDC_SIZENESW),
+                        .not_allowed => w32.LoadCursorW(null, w32.IDC_NO),
+                        .progress => w32.LoadCursorW(null, w32.IDC_APPSTARTING),
+                        .wait => w32.LoadCursorW(null, w32.IDC_WAIT),
+                        else => w32.LoadCursorW(null, w32.IDC_ARROW),
+                    };
+                    if (cursor) |c| {
+                        _ = w32.SetCursor(c);
+                    }
+                    _ = core_surface;
+                },
+            }
+            return true;
+        },
+
         // Return false for unhandled actions
         else => return false,
     }

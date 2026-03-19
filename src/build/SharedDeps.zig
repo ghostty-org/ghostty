@@ -553,6 +553,7 @@ pub fn add(
                     step.linkSystemLibrary2("dwrite", .{});
                     step.linkSystemLibrary2("dwmapi", .{});
                     step.linkSystemLibrary2("imm32", .{});
+                    step.linkSystemLibrary2("shell32", .{});
                 }
             },
         }

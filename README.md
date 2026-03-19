@@ -49,12 +49,12 @@ The goal is to track the upstream main branch while maintaining a native Windows
 - Shell integration for PowerShell (prompt marking, CWD tracking, title)
 - Dark mode window chrome (DWM)
 - Configurable quit-after-last-window-closed with delay
+- Fullscreen toggle (Ctrl+Enter)
+- Background opacity / transparency (`background-opacity` config)
 
 ### Not Yet Implemented
 
 - Tabs and splits
-- Fullscreen toggle
-- Background opacity / transparency
 - URL detection (clickable hyperlinks)
 - Desktop notifications (Windows toast)
 - Scrollbar
