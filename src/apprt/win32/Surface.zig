@@ -252,8 +252,19 @@ pub fn getTitle(self: *const Surface) ?[:0]const u8 {
 
 pub fn close(self: *Surface, process_active: bool) void {
     _ = process_active;
+    // Post WM_CLOSE instead of calling DestroyWindow directly.
+    // close() is often called from within core_surface callbacks
+    // (e.g., keyCallback when child_exited is true). If we called
+    // DestroyWindow here, it would synchronously send WM_DESTROY,
+    // which triggers handleDestroy → deinit → free(self). Then
+    // when DestroyWindow returns, the caller is still running on
+    // freed memory (use-after-free → alignment panic).
+    //
+    // PostMessage defers destruction to after the current message
+    // dispatch completes, so all code holding references to self
+    // has finished executing by the time WM_CLOSE is processed.
     if (self.hwnd) |hwnd| {
-        _ = w32.DestroyWindow(hwnd);
+        _ = w32.PostMessageW(hwnd, w32.WM_CLOSE, 0, 0);
     }
 }
 

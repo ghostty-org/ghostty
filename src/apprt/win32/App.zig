@@ -310,7 +310,13 @@ fn wndProc(
         },
 
         w32.WM_CLOSE => {
-            surface.close(false);
+            // Destroy the window directly. This is safe here because
+            // WM_CLOSE is dispatched from the message loop (not from
+            // inside a core_surface callback), so no code holds a
+            // reference to the surface that would be invalidated.
+            if (surface.hwnd) |h| {
+                _ = w32.DestroyWindow(h);
+            }
             return 0;
         },
 
