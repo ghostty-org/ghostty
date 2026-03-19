@@ -135,6 +135,7 @@ extern "C" {
 #define GHOSTTY_MODE_GRAPHEME_CLUSTER (ghostty_mode_new(2027, false)) /**< Grapheme cluster mode */
 #define GHOSTTY_MODE_COLOR_SCHEME_REPORT (ghostty_mode_new(2031, false)) /**< Report color scheme */
 #define GHOSTTY_MODE_IN_BAND_RESIZE   (ghostty_mode_new(2048, false)) /**< In-band size reports */
+#define GHOSTTY_MODE_WIN32_INPUT      (ghostty_mode_new(9001, false)) /**< Win32 input mode */
 /** @} */
 
 /**

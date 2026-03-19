@@ -292,6 +292,7 @@ const entries: []const ModeEntry = &.{
     .{ .name = "grapheme_cluster", .value = 2027 },
     .{ .name = "report_color_scheme", .value = 2031 },
     .{ .name = "in_band_size_reports", .value = 2048 },
+    .{ .name = "win32_input", .value = 9001 },
 };
 
 test {

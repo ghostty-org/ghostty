@@ -359,6 +359,13 @@ fn wndProc(
         },
 
         w32.WM_CHAR => {
+            // In Win32 Input Mode, the Unicode character is already
+            // included in the WM_KEYDOWN event (Uc parameter). WM_CHAR
+            // from TranslateMessage would duplicate it. IME text arrives
+            // via WM_IME_COMPOSITION (handled separately), so suppress
+            // all WM_CHAR in this mode.
+            if (surface.isWin32InputMode()) return 0;
+
             // If handleKeyEvent already produced text via ToUnicode for
             // the preceding WM_KEYDOWN, suppress this WM_CHAR to avoid
             // double input. Otherwise, process it — the character came

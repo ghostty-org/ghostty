@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const input = @import("../../input.zig");
+const terminal = @import("../../terminal/main.zig");
 const CoreSurface = @import("../../Surface.zig");
 const internal_os = @import("../../os/main.zig");
 
@@ -518,6 +519,15 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
     // key_event_produced_text flag so WM_CHAR is allowed through.
     if (vk == w32.VK_PACKET) return;
 
+    // Win32 Input Mode (mode 9001): encode key events as
+    // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ sequences that ConPTY reconstructs
+    // into INPUT_RECORD structs. This provides full Unicode support
+    // and bypasses ConPTY codepage issues.
+    if (self.isWin32InputMode()) {
+        self.sendWin32InputEvent(vk, lparam, action);
+        return;
+    }
+
     // Determine left/right for modifier keys using the extended key flag
     // (bit 24 of lparam) and specific left/right VK codes.
     const extended = (lparam & (1 << 24)) != 0;
@@ -765,6 +775,15 @@ pub fn handleImeComposition(self: *Surface, lparam: isize) bool {
 
 /// Convert a UTF-16 IME result to UTF-8 and send it to the terminal.
 fn sendImeText(self: *Surface, utf16: []const u16) void {
+    // In Win32 Input Mode, send each character as a Win32 input event
+    // so ConPTY can reconstruct the full Unicode codepoints.
+    if (self.isWin32InputMode()) {
+        for (utf16) |code_unit| {
+            self.sendWin32CharEvent(code_unit);
+        }
+        return;
+    }
+
     // Convert UTF-16LE to UTF-8 in a stack buffer (256 bytes covers
     // even long CJK phrases — each CJK char is 3 bytes in UTF-8).
     var utf8_buf: [256]u8 = undefined;
@@ -810,6 +829,114 @@ fn positionImeWindow(self: *Surface) void {
         .rcArea = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
     };
     _ = w32.ImmSetCompositionWindow(himc, &cf);
+}
+
+// -----------------------------------------------------------------------
+// Win32 Input Mode (mode 9001)
+// -----------------------------------------------------------------------
+
+/// Check if Win32 Input Mode is active. This mode is requested by ConPTY
+/// via \x1b[?9001h and causes key events to be sent as
+/// \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ sequences.
+pub fn isWin32InputMode(self: *Surface) bool {
+    self.core_surface.renderer_state.mutex.lock();
+    defer self.core_surface.renderer_state.mutex.unlock();
+    return self.core_surface.io.terminal.modes.get(.win32_input);
+}
+
+/// Encode and send a key event in Win32 Input Mode format.
+/// Format: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
+fn sendWin32InputEvent(self: *Surface, vk: u16, lparam: isize, action: input.Action) void {
+    const scancode: u16 = @intCast((lparam >> 16) & 0xFF);
+    const extended = (lparam & (1 << 24)) != 0;
+    const repeat_count: u16 = @intCast(lparam & 0xFFFF);
+    const key_down: u1 = if (action == .press or action == .repeat) 1 else 0;
+
+    // Get the Unicode character for this key via ToUnicode.
+    var unicode_char: u16 = 0;
+    if (key_down == 1) {
+        var keyboard_state: [256]u8 = undefined;
+        if (w32.GetKeyboardState(&keyboard_state) != 0) {
+            var utf16_buf: [4]u16 = undefined;
+            const result = w32.ToUnicode(
+                @intCast(vk),
+                @intCast(scancode),
+                &keyboard_state,
+                &utf16_buf,
+                utf16_buf.len,
+                0,
+            );
+            if (result > 0) {
+                unicode_char = utf16_buf[0];
+            }
+        }
+    }
+
+    // Build the Win32 dwControlKeyState bitmask.
+    var ctrl_state: u32 = 0;
+    if (w32.GetKeyState(@as(i32, w32.VK_RSHIFT)) < 0 or
+        w32.GetKeyState(@as(i32, w32.VK_LSHIFT)) < 0 or
+        w32.GetKeyState(@as(i32, w32.VK_SHIFT)) < 0)
+        ctrl_state |= 0x0010; // SHIFT_PRESSED
+    if (w32.GetKeyState(@as(i32, w32.VK_LCONTROL)) < 0)
+        ctrl_state |= 0x0008; // LEFT_CTRL_PRESSED
+    if (w32.GetKeyState(@as(i32, w32.VK_RCONTROL)) < 0)
+        ctrl_state |= 0x0004; // RIGHT_CTRL_PRESSED
+    if (w32.GetKeyState(@as(i32, w32.VK_LMENU)) < 0)
+        ctrl_state |= 0x0002; // LEFT_ALT_PRESSED
+    if (w32.GetKeyState(@as(i32, w32.VK_RMENU)) < 0)
+        ctrl_state |= 0x0001; // RIGHT_ALT_PRESSED
+    if (w32.GetKeyState(@as(i32, w32.VK_CAPITAL)) & 1 != 0)
+        ctrl_state |= 0x0080; // CAPSLOCK_ON
+    if (w32.GetKeyState(@as(i32, w32.VK_NUMLOCK)) & 1 != 0)
+        ctrl_state |= 0x0020; // NUMLOCK_ON
+    if (w32.GetKeyState(@as(i32, w32.VK_SCROLL)) & 1 != 0)
+        ctrl_state |= 0x0040; // SCROLLLOCK_ON
+    if (extended)
+        ctrl_state |= 0x0100; // ENHANCED_KEY
+
+    self.writeWin32InputSequence(vk, scancode, unicode_char, key_down, ctrl_state, repeat_count);
+}
+
+/// Send a Win32 Input Mode event for a WM_CHAR character (IME, PostMessage, etc.)
+/// These are characters without a corresponding WM_KEYDOWN, so we send a
+/// synthetic key event with vk=0, sc=0.
+pub fn sendWin32CharEvent(self: *Surface, char_code: u16) void {
+    // Key-down event with the Unicode character
+    self.writeWin32InputSequence(0, 0, char_code, 1, 0, 1);
+    // Key-up event
+    self.writeWin32InputSequence(0, 0, char_code, 0, 0, 1);
+}
+
+/// Format and write a Win32 input sequence to the terminal.
+/// Format: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
+fn writeWin32InputSequence(
+    self: *Surface,
+    vk: u16,
+    sc: u16,
+    uc: u16,
+    kd: u1,
+    cs: u32,
+    rc: u16,
+) void {
+    var buf: [64]u8 = undefined;
+    const seq = std.fmt.bufPrint(&buf, "\x1b[{};{};{};{};{};{}_", .{
+        vk, sc, uc, kd, cs, rc,
+    }) catch return;
+
+    // Write the sequence to the PTY through keyCallback with
+    // key=.unidentified. The core's encodeKey writes utf8 as-is
+    // for unidentified keys with no modifiers.
+    _ = self.core_surface.keyCallback(.{
+        .action = .press,
+        .key = .unidentified,
+        .mods = .{},
+        .consumed_mods = .{},
+        .composing = false,
+        .utf8 = seq,
+    }) catch |err| {
+        log.err("win32 input mode write error: {}", .{err});
+    };
 }
 
 /// Handle WM_SETFOCUS / WM_KILLFOCUS.
