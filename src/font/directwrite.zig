@@ -238,10 +238,10 @@ pub const IDWriteFont = extern struct {
         _pad3: PadFn,
         // Index 4: GetWeight
         GetWeight: *const fn (*const IDWriteFont) callconv(.c) DWRITE_FONT_WEIGHT,
-        // Index 5: GetStyle
-        GetStyle: *const fn (*const IDWriteFont) callconv(.c) DWRITE_FONT_STYLE,
-        // Index 6: GetStretch
+        // Index 5: GetStretch (note: GetStretch comes before GetStyle in dwrite.h)
         GetStretch: *const fn (*const IDWriteFont) callconv(.c) DWRITE_FONT_STRETCH,
+        // Index 6: GetStyle
+        GetStyle: *const fn (*const IDWriteFont) callconv(.c) DWRITE_FONT_STYLE,
         // Index 7: IsSymbolFont (padding)
         _pad7: PadFn,
         // Index 8: GetFaceNames (padding)
