@@ -128,20 +128,23 @@ test_launch_and_close() {
     assert_true "Window exists" "$exists"
     assert_true "Window visible" "$visible"
 
-    # Exit the shell first so close confirmation doesn't block.
+    # Exit the shell so the window auto-closes (childExited triggers close).
     # Without shell integration, needsConfirmQuit() returns true while
-    # cmd.exe is running, causing a MessageBox on WM_CLOSE.
+    # cmd.exe is running, so we must exit the shell before WM_CLOSE.
     ps -Action sendtext -ProcessId "$pid" -Text "exit"
     ps -Action sendkeys -ProcessId "$pid" -Keys "{ENTER}"
-    sleep 2
+    sleep 3
 
-    # Close gracefully (child should have exited, so no confirmation)
-    ps -Action close -ProcessId "$pid"
-    sleep 2
-
-    # Verify it closed
+    # The window should have auto-closed after child exit. If it hasn't,
+    # send WM_CLOSE as a fallback.
     check="$(ps -Action check -ProcessId "$pid")"
     exists="$(get_val "$check" EXISTS)"
+    if [ "$exists" = "true" ]; then
+        ps -Action close -ProcessId "$pid"
+        sleep 2
+        check="$(ps -Action check -ProcessId "$pid")"
+        exists="$(get_val "$check" EXISTS)"
+    fi
     assert_eq "Window closed" "false" "$exists"
 
     PASS=$((PASS + 1))
@@ -556,17 +559,28 @@ test_notifications() {
         return
     fi
 
-    # Send an OSC 9 notification escape sequence via PowerShell.
-    # PowerShell can emit escape sequences with $([char]27).
+    # Create a small PowerShell script that emits an OSC 9 notification.
+    # SendKeys mangles escape sequences, so we write a script file instead.
+    local script_wsl
+    script_wsl="$(wslpath "$WIN_TEMP")/ghostty-notify-test.ps1"
+    cat > "$script_wsl" << 'PSEOF'
+$esc = [char]27
+Write-Host -NoNewline "$esc]9;Ghostty notification test$esc\"
+PSEOF
+
+    local script_win
+    script_win="${WIN_TEMP}\\ghostty-notify-test.ps1"
+
     sleep 1
-    ps -Action sendtext -ProcessId "$pid" -Text 'powershell -Command "Write-Host $([char]27)]9;Ghostty notification test$([char]27)\"'
+    ps -Action sendtext -ProcessId "$pid" -Text "powershell -ExecutionPolicy Bypass -File $script_win"
     ps -Action sendkeys -ProcessId "$pid" -Keys "{ENTER}"
     sleep 3
 
-    # Take screenshot — notification balloon should appear in system tray
+    # Take screenshot
     screenshot "notification" "$pid"
     echo "  ✓ OSC 9 notification sent (check system tray for balloon)"
 
+    rm -f "$script_wsl" 2>/dev/null
     ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"

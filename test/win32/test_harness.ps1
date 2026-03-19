@@ -241,10 +241,14 @@ function Invoke-Close {
 
 function Invoke-Kill {
     if ($ProcessId) {
-        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+        # Use taskkill /T to kill the entire process tree (ghostty + child cmd.exe).
+        # Stop-Process only kills the main process, leaving orphaned children.
+        & taskkill /PID $ProcessId /T /F 2>$null | Out-Null
         Write-Output "KILLED=$ProcessId"
     } else {
-        Get-Process ghostty -ErrorAction SilentlyContinue | Stop-Process -Force
+        Get-Process ghostty*  -ErrorAction SilentlyContinue | ForEach-Object {
+            & taskkill /PID $_.Id /T /F 2>$null | Out-Null
+        }
         Write-Output "KILLED=all"
     }
 }
