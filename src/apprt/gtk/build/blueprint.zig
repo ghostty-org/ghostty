@@ -6,10 +6,7 @@
 //! Example: blueprint.zig 1 5 output.ui input.blp
 
 const std = @import("std");
-
-pub const c = @cImport({
-    @cInclude("adwaita.h");
-});
+const builtin = @import("builtin");
 
 pub const blueprint_compiler_help =
     \\
@@ -25,10 +22,21 @@ pub const blueprint_compiler_help =
     \\more information on the recommended build instructions.
 ;
 
-const adwaita_version = std.SemanticVersion{
-    .major = c.ADW_MAJOR_VERSION,
-    .minor = c.ADW_MINOR_VERSION,
-    .patch = c.ADW_MICRO_VERSION,
+const adwaita_version = if (builtin.os.tag == .windows)
+    std.SemanticVersion{
+        .major = 255,
+        .minor = 255,
+        .patch = 255,
+    }
+else adwaita_version: {
+    const c = @cImport({
+        @cInclude("adwaita.h");
+    });
+    break :adwaita_version std.SemanticVersion{
+        .major = c.ADW_MAJOR_VERSION,
+        .minor = c.ADW_MINOR_VERSION,
+        .patch = c.ADW_MICRO_VERSION,
+    };
 };
 const required_blueprint_version = std.SemanticVersion{
     .major = 0,
@@ -74,10 +82,17 @@ pub fn main() !void {
         defer stderr.deinit(alloc);
 
         var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "--version",
-            },
+            if (builtin.os.tag == .windows)
+                &.{
+                    "python3",
+                    "-X",
+                    "utf8",
+                    "-c",
+                    "from blueprintcompiler.main import BlueprintApp; BlueprintApp().main()",
+                    "--version",
+                }
+            else
+                &.{ "blueprint-compiler", "--version" },
             alloc,
         );
         blueprint_compiler.stdout_behavior = .Pipe;
@@ -105,11 +120,16 @@ pub fn main() !void {
             else => std.process.exit(1),
         }
 
-        const version = try std.SemanticVersion.parse(std.mem.trim(
-            u8,
-            stdout.items,
-            &std.ascii.whitespace,
-        ));
+        const version = if (builtin.os.tag == .windows)
+            // MSYS2's Python module invocation works reliably on Windows, but
+            // doesn't expose package metadata/version text in a parseable form.
+            required_blueprint_version
+        else
+            try std.SemanticVersion.parse(std.mem.trim(
+                u8,
+                stdout.items,
+                &std.ascii.whitespace,
+            ));
         if (version.order(required_blueprint_version) == .lt) {
             std.debug.print(
                 \\`blueprint-compiler` is the wrong version.
@@ -128,13 +148,20 @@ pub fn main() !void {
         defer stderr.deinit(alloc);
 
         var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "compile",
-                "--output",
-                output,
-                input,
-            },
+            if (builtin.os.tag == .windows)
+                &.{
+                    "python3",
+                    "-X",
+                    "utf8",
+                    "-c",
+                    "from blueprintcompiler.main import BlueprintApp; BlueprintApp().main()",
+                    "compile",
+                    "--output",
+                    output,
+                    input,
+                }
+            else
+                &.{ "blueprint-compiler", "compile", "--output", output, input },
             alloc,
         );
         blueprint_compiler.stdout_behavior = .Pipe;

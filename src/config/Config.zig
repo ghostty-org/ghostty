@@ -9798,24 +9798,86 @@ pub const Theme = struct {
     light: []const u8,
     dark: []const u8,
 
+    fn isLightDarkPairCandidate(input: []const u8) bool {
+        var saw_light = false;
+        var saw_dark = false;
+        var field_count: usize = 0;
+
+        var iter = std.mem.splitScalar(u8, input, ',');
+        while (iter.next()) |part_| {
+            const part = std.mem.trim(u8, part_, cli.args.whitespace);
+            if (part.len == 0) continue;
+
+            const idx = std.mem.indexOfScalar(u8, part, ':') orelse return false;
+            const key = std.mem.trim(u8, part[0..idx], cli.args.whitespace);
+            if (std.mem.eql(u8, key, "light")) {
+                saw_light = true;
+            } else if (std.mem.eql(u8, key, "dark")) {
+                saw_dark = true;
+            } else {
+                return false;
+            }
+            field_count += 1;
+        }
+
+        return field_count > 0 and (saw_light or saw_dark);
+    }
+
+    fn parseLightDarkPairRaw(
+        alloc: Allocator,
+        input: []const u8,
+    ) !Theme {
+        var light: ?[]const u8 = null;
+        var dark: ?[]const u8 = null;
+
+        var iter = std.mem.splitScalar(u8, input, ',');
+        while (iter.next()) |part_| {
+            const part = std.mem.trim(u8, part_, cli.args.whitespace);
+            if (part.len == 0) continue;
+
+            const idx = std.mem.indexOfScalar(u8, part, ':') orelse return error.InvalidValue;
+            const key = std.mem.trim(u8, part[0..idx], cli.args.whitespace);
+            const value = std.mem.trim(u8, part[idx + 1 ..], cli.args.whitespace);
+            if (value.len == 0) return error.InvalidValue;
+
+            if (std.mem.eql(u8, key, "light")) {
+                light = try alloc.dupeZ(u8, value);
+            } else if (std.mem.eql(u8, key, "dark")) {
+                dark = try alloc.dupeZ(u8, value);
+            } else {
+                return error.InvalidValue;
+            }
+        }
+
+        return .{
+            .light = light orelse return error.InvalidValue,
+            .dark = dark orelse return error.InvalidValue,
+        };
+    }
+
     pub fn parseCLI(self: *Theme, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
         if (input.len == 0) return error.ValueRequired;
 
-        // If there is a comma, equal sign, or colon, then we assume that
-        // we're parsing a light/dark mode theme pair. Note that "=" isn't
-        // actually valid for setting a light/dark mode pair but I anticipate
-        // it'll be a common typo.
-        if (std.mem.indexOf(u8, input, ",") != null or
-            std.mem.indexOf(u8, input, "=") != null or
-            std.mem.indexOf(u8, input, ":") != null)
-        {
-            self.* = try cli.args.parseAutoStruct(
+        // Detect explicit light/dark pair syntax while avoiding false
+        // positives for single Windows absolute paths (e.g. "C:\...").
+        if (isLightDarkPairCandidate(input)) {
+            self.* = cli.args.parseAutoStruct(
                 Theme,
                 alloc,
                 input,
                 null,
-            );
+            ) catch |err| switch (err) {
+                // CommaSplitter interprets backslashes as escapes and can reject
+                // unquoted Windows paths in light/dark pairs. Fall back to a
+                // minimal parser that treats backslashes literally.
+                error.InvalidValue,
+                error.IllegalEscape,
+                error.UnclosedQuote,
+                error.UnfinishedEscape,
+                => try parseLightDarkPairRaw(alloc, input),
+                else => return err,
+            };
             return;
         }
 
@@ -9883,6 +9945,14 @@ pub const Theme = struct {
             try v.parseCLI(alloc, " light:foo,  dark : bar  ");
             try testing.expectEqualStrings("foo", v.light);
             try testing.expectEqualStrings("bar", v.dark);
+        }
+
+        // Light/dark with Windows-style absolute paths.
+        {
+            var v: Theme = undefined;
+            try v.parseCLI(alloc, "light:C:\\Users\\alice\\themes\\light.conf,dark:D:\\theme\\dark.conf");
+            try testing.expectEqualStrings("C:\\Users\\alice\\themes\\light.conf", v.light);
+            try testing.expectEqualStrings("D:\\theme\\dark.conf", v.dark);
         }
 
         var v: Theme = undefined;

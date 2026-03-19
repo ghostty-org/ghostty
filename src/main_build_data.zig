@@ -47,5 +47,5 @@ pub fn main() !void {
         .@"vim-compiler" => try writer.writeAll(@import("extra/vim.zig").compiler),
         .terminfo => try @import("terminfo/ghostty.zig").ghostty.encode(writer),
     }
-    try stdout_writer.end();
+    try stdout_writer.interface.flush();
 }

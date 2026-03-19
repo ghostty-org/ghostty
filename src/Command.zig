@@ -258,7 +258,6 @@ fn startPosix(self: *Command, arena: Allocator) !void {
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
-    const application_w = try std.unicode.utf8ToUtf16LeAllocZ(arena, self.path);
     const cwd_w = if (self.cwd) |cwd| try std.unicode.utf8ToUtf16LeAllocZ(arena, cwd) else null;
     const command_line_w = if (self.args.len > 0) b: {
         const command_line = try windowsCreateCommandLine(arena, self.args);
@@ -345,7 +344,7 @@ fn startWindows(self: *Command, arena: Allocator) !void {
 
     var process_information: windows.PROCESS_INFORMATION = undefined;
     if (windows.exp.kernel32.CreateProcessW(
-        application_w.ptr,
+        null,
         if (command_line_w) |w| w.ptr else null,
         null,
         null,

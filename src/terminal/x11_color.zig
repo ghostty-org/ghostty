@@ -30,7 +30,7 @@ fn colorMap() ColorMap {
         const r = try std.fmt.parseInt(u8, std.mem.trim(u8, line[0..3], " "), 10);
         const g = try std.fmt.parseInt(u8, std.mem.trim(u8, line[4..7], " "), 10);
         const b = try std.fmt.parseInt(u8, std.mem.trim(u8, line[8..11], " "), 10);
-        const name = std.mem.trim(u8, line[12..], " \t\n");
+        const name = std.mem.trim(u8, line[12..], " \t\r\n");
         kvs[i] = .{ name, .{ .r = r, .g = g, .b = b } };
         i += 1;
     }

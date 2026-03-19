@@ -23,7 +23,10 @@ pub fn main() !void {
     try genConfig(alloc, writer);
     try genActions(alloc, writer);
     try genKeybindActions(alloc, writer);
-    try stdout.end();
+    // Use flush instead of end because stdout is a pipe when captured by
+    // the build system, and pipes cannot be truncated (Windows returns
+    // INVALID_PARAMETER, Linux returns EINVAL).
+    try stdout.interface.flush();
 }
 
 fn genConfig(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {

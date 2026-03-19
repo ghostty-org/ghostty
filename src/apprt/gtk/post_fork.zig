@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const gio = @import("gio");
 const glib = @import("glib");
@@ -36,6 +37,8 @@ pub const PostForkInfo = struct {
 /// If we are configured to hard fail, log an error message and return an error
 /// code if we don't detect the move in time.
 pub fn postFork(cmd: *Command) Command.PostForkError!void {
+    if (comptime builtin.os.tag != .linux) return;
+
     switch (cmd.rt_post_fork_info.linux_cgroup) {
         .always => {},
         .never => return,
@@ -49,10 +52,10 @@ pub fn postFork(cmd: *Command) Command.PostForkError!void {
         },
     }
 
-    const pid: u32 = @intCast(cmd.pid orelse {
+    const pid: u32 = @as(u32, @intCast(cmd.pid orelse {
         log.err("PID of child not known!", .{});
         return error.PostForkError;
-    });
+    }));
 
     var expected_cgroup_buf: [256]u8 = undefined;
     const expected_cgroup = cgroup.fmtScope(&expected_cgroup_buf, pid);

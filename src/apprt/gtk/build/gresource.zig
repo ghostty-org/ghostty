@@ -161,7 +161,7 @@ pub fn main() !void {
         \\
     );
 
-    try stdout.end();
+    try stdout.interface.flush();
 }
 
 /// Generate the icon resources. This works by looking up all the icons
@@ -250,6 +250,16 @@ fn genUi(
     , .{build_info.resource_path});
 
     for (files.items) |ui_file| {
+        const ui_file_normalized = ui_file_normalized: {
+            const v = try alloc.dupe(u8, ui_file);
+            errdefer alloc.free(v);
+            for (v) |*c| {
+                if (c.* == '\\') c.* = '/';
+            }
+            break :ui_file_normalized v;
+        };
+        defer alloc.free(ui_file_normalized);
+
         for (blueprints) |bp| {
             const expected = try std.fmt.allocPrint(
                 alloc,
@@ -257,7 +267,7 @@ fn genUi(
                 .{ bp.major, bp.minor, bp.name },
             );
             defer alloc.free(expected);
-            if (!std.mem.endsWith(u8, ui_file, expected)) continue;
+            if (!std.mem.endsWith(u8, ui_file_normalized, expected)) continue;
             try writer.print(
                 "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
                 .{ bp.major, bp.minor, bp.name, ui_file },

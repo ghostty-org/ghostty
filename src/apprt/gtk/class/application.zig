@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const adw = @import("adw");
@@ -1380,13 +1381,17 @@ pub const Application = extern struct {
 
     /// Setup signal handlers
     fn startupSignals(self: *Self) void {
-        const priv = self.private();
-        assert(priv.signal_source == null);
-        priv.signal_source = glib.unixSignalAdd(
-            std.posix.SIG.USR2,
-            handleSigusr2,
-            self,
-        );
+        if (comptime builtin.os.tag == .windows) {
+            return;
+        } else {
+            const priv = self.private();
+            assert(priv.signal_source == null);
+            priv.signal_source = glib.unixSignalAdd(
+                std.posix.SIG.USR2,
+                handleSigusr2,
+                self,
+            );
+        }
     }
 
     /// Setup our action map.

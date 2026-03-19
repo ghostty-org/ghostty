@@ -95,14 +95,15 @@ pub fn draw1CD00_1CDE5(
     // that this is static data that is embedded in the binary.
     const octants_len = octant_max - octant_min + 1;
     const octants: [octants_len]Octant = comptime octants: {
-        @setEvalBranchQuota(10_000);
+        @setEvalBranchQuota(20_000);
 
         var result: [octants_len]Octant = @splat(.{});
         var i: usize = 0;
 
         const data = @embedFile("octants.txt");
         var it = std.mem.splitScalar(u8, data, '\n');
-        while (it.next()) |line| {
+        while (it.next()) |line_raw| {
+            const line = std.mem.trimRight(u8, line_raw, "\r");
             // Skip comments
             if (line.len == 0 or line[0] == '#') continue;
 
@@ -110,10 +111,20 @@ pub fn draw1CD00_1CDE5(
             i += 1;
 
             // Octants are in the format "BLOCK OCTANT-1235". The numbers
-            // at the end are keys into our packed struct. Since we're
-            // at comptime we can metaprogram it all.
-            const idx = std.mem.indexOfScalar(u8, line, '-').?;
-            for (line[idx + 1 ..]) |c| @field(current, &.{c}) = true;
+            // at the end are keys into our packed struct.
+            const prefix = "BLOCK OCTANT-";
+            assert(std.mem.startsWith(u8, line, prefix));
+            for (line[prefix.len..]) |c| switch (c) {
+                '1' => current.@"1" = true,
+                '2' => current.@"2" = true,
+                '3' => current.@"3" = true,
+                '4' => current.@"4" = true,
+                '5' => current.@"5" = true,
+                '6' => current.@"6" = true,
+                '7' => current.@"7" = true,
+                '8' => current.@"8" = true,
+                else => unreachable,
+            };
         }
 
         assert(i == octants_len);

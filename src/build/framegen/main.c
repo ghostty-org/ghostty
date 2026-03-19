@@ -9,14 +9,85 @@
 #define SEPARATOR '\x01'
 #define CHUNK_SIZE 16384
 
-static int filter_frames(const struct dirent *entry) {
-    const char *name = entry->d_name;
+static int is_frame_file(const char *name) {
     size_t len = strlen(name);
     return len > 4 && strcmp(name + len - 4, ".txt") == 0;
 }
 
-static int compare_frames(const struct dirent **a, const struct dirent **b) {
-    return strcmp((*a)->d_name, (*b)->d_name);
+static int compare_frame_names(const void *a, const void *b) {
+    const char *const *name_a = (const char *const *)a;
+    const char *const *name_b = (const char *const *)b;
+    return strcmp(*name_a, *name_b);
+}
+
+static void free_frame_names(char **names, size_t count) {
+    if (!names) {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        free(names[i]);
+    }
+    free(names);
+}
+
+static int list_frame_files(const char *frames_dir, char ***out_names) {
+    DIR *dir = opendir(frames_dir);
+    if (!dir) {
+        return -1;
+    }
+
+    size_t count = 0;
+    size_t capacity = 16;
+    char **names = malloc(capacity * sizeof(*names));
+    if (!names) {
+        errno = ENOMEM;
+        closedir(dir);
+        return -1;
+    }
+
+    struct dirent *entry;
+    errno = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!is_frame_file(entry->d_name)) {
+            continue;
+        }
+
+        if (count == capacity) {
+            size_t new_capacity = capacity * 2;
+            char **new_names = realloc(names, new_capacity * sizeof(*new_names));
+            if (!new_names) {
+                errno = ENOMEM;
+                free_frame_names(names, count);
+                closedir(dir);
+                return -1;
+            }
+            names = new_names;
+            capacity = new_capacity;
+        }
+
+        names[count] = malloc(strlen(entry->d_name) + 1);
+        if (!names[count]) {
+            errno = ENOMEM;
+            free_frame_names(names, count);
+            closedir(dir);
+            return -1;
+        }
+        strcpy(names[count], entry->d_name);
+        count++;
+    }
+
+    if (errno != 0) {
+        free_frame_names(names, count);
+        closedir(dir);
+        return -1;
+    }
+
+    closedir(dir);
+
+    qsort(names, count, sizeof(*names), compare_frame_names);
+    *out_names = names;
+    return (int)count;
 }
 
 static char *read_file(const char *path, size_t *out_size) {
@@ -32,11 +103,14 @@ static char *read_file(const char *path, size_t *out_size) {
 
     char *buf = malloc(size);
     if (!buf) {
+        fclose(f);
         return NULL;
     }
 
     if (fread(buf, 1, size, f) != (size_t)size) {
         fprintf(stderr, "Failed to read %s\n", path);
+        free(buf);
+        fclose(f);
         return NULL;
     }
 
@@ -54,8 +128,8 @@ int main(int argc, char **argv) {
     const char *frames_dir = argv[1];
     const char *output_file = argv[2];
 
-    struct dirent **namelist;
-    int n = scandir(frames_dir, &namelist, filter_frames, compare_frames);
+    char **frame_names = NULL;
+    int n = list_frame_files(frames_dir, &frame_names);
     if (n < 0) {
         fprintf(stderr, "Failed to scan directory %s: %s\n", frames_dir, strerror(errno));
         return 1;
@@ -63,6 +137,7 @@ int main(int argc, char **argv) {
 
     if (n == 0) {
         fprintf(stderr, "No frame files found in %s\n", frames_dir);
+        free(frame_names);
         return 1;
     }
 
@@ -72,7 +147,7 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < n; i++) {
         char path[4096];
-        snprintf(path, sizeof(path), "%s/%s", frames_dir, namelist[i]->d_name);
+        snprintf(path, sizeof(path), "%s/%s", frames_dir, frame_names[i]);
         
         frame_contents[i] = read_file(path, &frame_sizes[i]);
         if (!frame_contents[i]) {
@@ -140,6 +215,8 @@ int main(int argc, char **argv) {
     }
 
     fclose(out);
+
+    free_frame_names(frame_names, n);
 
     return 0;
 }

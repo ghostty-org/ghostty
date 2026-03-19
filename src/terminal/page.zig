@@ -26,6 +26,34 @@ const alignBackward = std.mem.alignBackward;
 
 const log = std.log.scoped(.page);
 
+inline fn allocBacking(len: usize) ![]align(std.heap.page_size_min) u8 {
+    if (comptime builtin.os.tag == .windows) {
+        const backing = try std.heap.page_allocator.alignedAlloc(
+            u8,
+            .fromByteUnits(std.heap.page_size_min),
+            len,
+        );
+        @memset(backing, 0);
+        return backing;
+    }
+
+    return try posix.mmap(
+        null,
+        len,
+        posix.PROT.READ | posix.PROT.WRITE,
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+        -1,
+        0,
+    );
+}
+
+inline fn freeBacking(backing: []align(std.heap.page_size_min) u8) void {
+    if (comptime builtin.os.tag == .windows)
+        std.heap.page_allocator.free(backing)
+    else
+        posix.munmap(backing);
+}
+
 /// The allocator to use for multi-codepoint grapheme data. We use
 /// a chunk size of 4 codepoints. It'd be best to set this empirically
 /// but it is currently set based on vibes. My thinking around 4 codepoints
@@ -172,15 +200,8 @@ pub const Page = struct {
         // anonymous mmap is guaranteed on Linux and macOS to be zeroed,
         // which is a critical property for us.
         assert(l.total_size % std.heap.page_size_min == 0);
-        const backing = try posix.mmap(
-            null,
-            l.total_size,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try allocBacking(l.total_size);
+        errdefer freeBacking(backing);
 
         const buf = OffsetBuf.init(backing);
         return initBuf(buf, l);
@@ -245,7 +266,7 @@ pub const Page = struct {
     /// this if you allocated the backing memory yourself (i.e. you used
     /// initBuf).
     pub inline fn deinit(self: *Page) void {
-        posix.munmap(self.memory);
+        freeBacking(self.memory);
         self.* = undefined;
     }
 
@@ -578,15 +599,8 @@ pub const Page = struct {
     /// using the page allocator. If you want to manage memory manually,
     /// use cloneBuf.
     pub inline fn clone(self: *const Page) !Page {
-        const backing = try posix.mmap(
-            null,
-            self.memory.len,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try allocBacking(self.memory.len);
+        errdefer freeBacking(backing);
         return self.cloneBuf(backing);
     }
 

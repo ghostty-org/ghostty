@@ -153,9 +153,17 @@ test "expandHomeUnix" {
     const allocator = testing.allocator;
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const home_dir = try expandHomeUnix("~/", &buf);
+    const normalized_home = std.mem.replaceOwned(
+        u8,
+        allocator,
+        home_dir,
+        "\\",
+        "/",
+    ) catch home_dir;
+    defer if (normalized_home.ptr != home_dir.ptr) allocator.free(normalized_home);
     // Joining the home directory `~` with the path `/`
-    // the result should end with a separator here. (e.g. `/home/user/`)
-    try testing.expect(home_dir[home_dir.len - 1] == std.fs.path.sep);
+    // the result should end with `/` (e.g. `/home/user/`).
+    try testing.expect(normalized_home[normalized_home.len - 1] == '/');
 
     const downloads = try expandHomeUnix("~/Downloads/shader.glsl", &buf);
     const expected_downloads = try std.mem.concat(allocator, u8, &[_][]const u8{ home_dir, "Downloads/shader.glsl" });

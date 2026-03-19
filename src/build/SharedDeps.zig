@@ -583,7 +583,7 @@ fn addGtkNg(
         }
     }
 
-    step.linkSystemLibrary2("gtk4", dynamic_link_opts);
+    step.linkSystemLibrary2("gtk-4", dynamic_link_opts);
     step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
 
     if (self.config.x11) {
@@ -806,8 +806,10 @@ pub fn gtkNgDistResources(
             }),
         });
         blueprint_exe.linkLibC();
-        blueprint_exe.linkSystemLibrary2("gtk4", dynamic_link_opts);
-        blueprint_exe.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+        if (builtin.os.tag != .windows) {
+            blueprint_exe.linkSystemLibrary2("gtk-4", dynamic_link_opts);
+            blueprint_exe.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+        }
 
         for (gresource.blueprints) |bp| {
             const blueprint_run = b.addRunArtifact(blueprint_exe);

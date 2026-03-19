@@ -690,7 +690,11 @@ test "xdg: empty XDG_DATA_DIRS" {
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration:/usr/local/share:/usr/share", .{res.path}),
+        try std.fmt.bufPrint(
+            &path_buf,
+            "{s}/shell-integration{c}/usr/local/share:/usr/share",
+            .{ res.path, std.fs.path.delimiter },
+        ),
         env.get("XDG_DATA_DIRS").?,
     );
 }
@@ -718,7 +722,11 @@ test "xdg: existing XDG_DATA_DIRS" {
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration:/opt/share", .{res.path}),
+        try std.fmt.bufPrint(
+            &path_buf,
+            "{s}/shell-integration{c}/opt/share",
+            .{ res.path, std.fs.path.delimiter },
+        ),
         env.get("XDG_DATA_DIRS").?,
     );
 }
