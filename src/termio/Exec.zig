@@ -181,6 +181,33 @@ pub fn threadEnter(
         }
     }
 
+    // On Windows, spawn a dedicated thread to wait for process exit since
+    // xev.Process cannot be used (posix.pid_t is void on Windows).
+    if (comptime builtin.os.tag == .windows) {
+        if (self.subprocess.process) |proc| {
+            switch (proc) {
+                .fork_exec => |cmd| {
+                    if (cmd.pid) |handle| {
+                        const exec = &td.backend.exec;
+                        exec.process_watcher_thread = try std.Thread.spawn(
+                            .{},
+                            processExitWindows,
+                            .{
+                                handle,
+                                &exec.exited,
+                                &td.surface_mailbox,
+                                exec.start,
+                            },
+                        );
+                        if (exec.process_watcher_thread) |t|
+                            t.setName("proc-watcher") catch {};
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
     // Start our termios timer. We don't support this on Windows.
     // Fundamentally, we could support this on Windows so we're just
     // waiting for someone to implement it.
@@ -200,7 +227,11 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     assert(td.backend == .exec);
     const exec = &td.backend.exec;
 
-    if (exec.exited) self.subprocess.externalExit();
+    if (comptime builtin.os.tag == .windows) {
+        if (exec.exited.load(.acquire)) self.subprocess.externalExit();
+    } else {
+        if (exec.exited) self.subprocess.externalExit();
+    }
     self.subprocess.stop();
 
     // Quit our read thread after exiting the subprocess so that
@@ -229,6 +260,10 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     }
 
     exec.read_thread.join();
+
+    if (comptime builtin.os.tag == .windows) {
+        if (exec.process_watcher_thread) |t| t.join();
+    }
 }
 
 pub fn focusGained(
@@ -273,7 +308,11 @@ pub fn resize(
 fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
-    execdata.exited = true;
+    if (comptime builtin.os.tag == .windows) {
+        execdata.exited.store(true, .release);
+    } else {
+        execdata.exited = true;
+    }
 
     // Determine how long the process was running for.
     const runtime_ms: ?u64 = runtime: {
@@ -316,6 +355,44 @@ fn flatpakExit(
 ) void {
     const exit_code = r catch unreachable;
     processExitCommon(td_.?, exit_code);
+}
+
+/// Windows-specific: thread that waits for the child process handle to
+/// become signaled (i.e. the process exits), then pushes a child_exited
+/// message to the surface mailbox.
+fn processExitWindows(
+    process_handle: windows.HANDLE,
+    exited_flag: *std.atomic.Value(bool),
+    surface_mailbox: *apprt.surface.Mailbox,
+    start: std.time.Instant,
+) void {
+    const result = windows.kernel32.WaitForSingleObject(process_handle, windows.INFINITE);
+    if (result == windows.WAIT_FAILED) {
+        log.err("WaitForSingleObject failed for process watcher", .{});
+        return;
+    }
+
+    var exit_code: windows.DWORD = undefined;
+    if (windows.kernel32.GetExitCodeProcess(process_handle, &exit_code) == 0) {
+        log.err("GetExitCodeProcess failed", .{});
+        return;
+    }
+
+    exited_flag.store(true, .release);
+
+    const runtime_ms: u64 = runtime: {
+        const process_end = std.time.Instant.now() catch break :runtime 0;
+        break :runtime process_end.since(start) / std.time.ns_per_ms;
+    };
+
+    log.debug("child process exited status={} runtime={}ms", .{ exit_code, runtime_ms });
+
+    _ = surface_mailbox.push(.{
+        .child_exited = .{
+            .exit_code = exit_code,
+            .runtime_ms = runtime_ms,
+        },
+    }, .{ .forever = {} });
 }
 
 fn termiosTimer(
@@ -412,7 +489,11 @@ pub fn queueWrite(
     const exec = &td.backend.exec;
 
     // If our process is exited then we don't send any more writes.
-    if (exec.exited) return;
+    if (comptime builtin.os.tag == .windows) {
+        if (exec.exited.load(.acquire)) return;
+    } else {
+        if (exec.exited) return;
+    }
 
     // We go through and chunk the data if necessary to fit into
     // our cached buffers that we can queue to the stream.
@@ -498,7 +579,12 @@ pub const ThreadData = struct {
 
     /// Process start time and boolean of whether its already exited.
     start: std.time.Instant,
-    exited: bool = false,
+    exited: if (builtin.os.tag == .windows) std.atomic.Value(bool) else bool =
+        if (builtin.os.tag == .windows) std.atomic.Value(bool).init(false) else false,
+
+    /// Windows-only: a thread that waits for the child process to exit.
+    process_watcher_thread: if (builtin.os.tag == .windows) ?std.Thread else void =
+        if (builtin.os.tag == .windows) null else {},
 
     /// The data stream is the main IO for the pty.
     write_stream: xev.Stream,
