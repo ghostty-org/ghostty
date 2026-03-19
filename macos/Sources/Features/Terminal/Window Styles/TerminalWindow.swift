@@ -33,9 +33,15 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
-    
+
     /// Sets up our tab context menu
-    private var tabMenuObserver: NSObjectProtocol? = nil
+    private var tabMenuObserver: NSObjectProtocol?
+
+    /// Handles inline tab title editing for this host window.
+    private(set) lazy var tabTitleEditor = TabTitleEditor(
+        hostWindow: self,
+        delegate: self
+    )
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -112,13 +118,12 @@ class TerminalWindow: NSWindow {
         }
 
         // If window decorations are disabled, remove our title
-        if (!config.windowDecorations) { styleMask.remove(.titled) }
+        if !config.windowDecorations { styleMask.remove(.titled) }
 
-        // Set our window positioning to coordinates if config value exists, otherwise
-        // fallback to original centering behavior
-        setInitialWindowPosition(
-            x: config.windowPositionX,
-            y: config.windowPositionY)
+        // NOTE: setInitialWindowPosition is NOT called here because subclass
+        // awakeFromNib may add decorations (e.g. toolbar for tabs style) that
+        // change the frame. It is called from TerminalController.windowDidLoad
+        // after the window is fully set up.
 
         // If our traffic buttons should be hidden, then hide them
         if config.macosWindowButtons == .hidden {
@@ -166,7 +171,7 @@ class TerminalWindow: NSWindow {
         tab.accessoryView = stackView
 
         // Get our saved level
-        level = UserDefaults.standard.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
+        level = UserDefaults.ghostty.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
     }
 
     // Both of these must be true for windows without decorations to be able to
@@ -174,7 +179,16 @@ class TerminalWindow: NSWindow {
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
 
+    override func sendEvent(_ event: NSEvent) {
+        if tabTitleEditor.handleMouseDown(event) {
+            return
+        }
+
+        super.sendEvent(event)
+    }
+
     override func close() {
+        tabTitleEditor.finishEditing(commit: true)
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
     }
@@ -187,6 +201,7 @@ class TerminalWindow: NSWindow {
     override func resignKey() {
         super.resignKey()
         resetZoomTabButton.contentTintColor = .secondaryLabelColor
+        tabTitleEditor.finishEditing(commit: true)
     }
 
     override func becomeMain() {
@@ -205,6 +220,21 @@ class TerminalWindow: NSWindow {
     override func resignMain() {
         super.resignMain()
         viewModel.isMainWindow = false
+    }
+
+    @discardableResult
+    func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
+        tabTitleEditor.beginEditing(for: targetWindow)
+    }
+
+    @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
+        let targetWindow = sender.representedObject as? NSWindow ?? self
+        if beginInlineTabTitleEdit(for: targetWindow) {
+            return
+        }
+
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.promptTabTitle()
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -295,7 +325,7 @@ class TerminalWindow: NSWindow {
 
     // MARK: Tab Key Equivalents
 
-    var keyEquivalent: String? = nil {
+    var keyEquivalent: String? {
         didSet {
             // When our key equivalent is set, we must update the tab label.
             guard let keyEquivalent else {
@@ -347,7 +377,7 @@ class TerminalWindow: NSWindow {
         button.toolTip = "Reset Zoom"
         button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
-        button.image = NSImage(named:"ResetZoom")
+        button.image = NSImage(named: "ResetZoom")
         button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -449,8 +479,7 @@ class TerminalWindow: NSWindow {
         let forceOpaque = terminalController?.isBackgroundOpaque ?? false
         if !styleMask.contains(.fullScreen) &&
             !forceOpaque &&
-            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle)
-        {
+            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle) {
             isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -459,7 +488,7 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // We don't need to set blur when using glass
-            if !surfaceConfig.backgroundBlur.isGlassStyle,  let appDelegate = NSApp.delegate as? AppDelegate {
+            if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
@@ -507,30 +536,31 @@ class TerminalWindow: NSWindow {
         terminalController?.updateColorSchemeForSurfaceTree()
     }
 
-    private func setInitialWindowPosition(x: Int16?, y: Int16?) {
+    func setInitialWindowPosition(x: Int16?, y: Int16?) -> Bool {
         // If we don't have an X/Y then we try to use the previously saved window pos.
-        guard x != nil, y != nil else {
-            if (!LastWindowPosition.shared.restore(self)) {
-                center()
-            }
-
-            return
+        guard let x = x, let y = y else {
+            return false
         }
 
         // Prefer the screen our window is being placed on otherwise our primary screen.
         guard let screen = screen ?? NSScreen.screens.first else {
-            center()
-            return
+            return false
         }
 
-        // We have an X/Y, use our controller function to set it up.
-        guard let terminalController else {
-            center()
-            return
-        }
+        // Convert top-left coordinates to bottom-left origin using our utility extension
+        let origin = screen.origin(
+            fromTopLeftOffsetX: CGFloat(x),
+            offsetY: CGFloat(y),
+            windowSize: frame.size)
 
-        let frame = terminalController.adjustForWindowPosition(frame: frame, on: screen)
-        setFrameOrigin(frame.origin)
+        // Clamp the origin to ensure the window stays fully visible on screen
+        var safeOrigin = origin
+        let vf = screen.visibleFrame
+        safeOrigin.x = min(max(safeOrigin.x, vf.minX), vf.maxX - frame.width)
+        safeOrigin.y = min(max(safeOrigin.y, vf.minY), vf.maxY - frame.height)
+
+        setFrameOrigin(safeOrigin)
+        return true
     }
 
     private func hideWindowButtons() {
@@ -544,7 +574,7 @@ class TerminalWindow: NSWindow {
             NotificationCenter.default.removeObserver(observer)
         }
     }
-    
+
     // MARK: Config
 
     struct DerivedConfig {
@@ -553,7 +583,7 @@ class TerminalWindow: NSWindow {
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
-        let macosTitlebarStyle: String
+        let macosTitlebarStyle: Ghostty.Config.MacOSTitlebarStyle
         let windowCornerRadius: CGFloat
 
         init() {
@@ -562,7 +592,7 @@ class TerminalWindow: NSWindow {
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
             self.backgroundBlur = .disabled
-            self.macosTitlebarStyle = "transparent"
+            self.macosTitlebarStyle = .default
             self.windowCornerRadius = 16
         }
 
@@ -578,7 +608,7 @@ class TerminalWindow: NSWindow {
             // Native, transparent, and hidden styles use 16pt radius
             // Tabs style uses 20pt radius
             switch config.macosTitlebarStyle {
-            case "tabs":
+            case .tabs:
                 self.windowCornerRadius = 20
             default:
                 self.windowCornerRadius = 16
@@ -732,10 +762,11 @@ extension TerminalWindow {
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
 
-        // Change Title...
-        let changeTitleItem = NSMenuItem(title: "Change Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
+        // Rename Tab...
+        let changeTitleItem = NSMenuItem(title: "Rename Tab...", action: #selector(TerminalWindow.renameTabFromContextMenu(_:)), keyEquivalent: "")
         changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
-        changeTitleItem.target = target
+        changeTitleItem.target = self
+        changeTitleItem.representedObject = target?.window
         changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
         menu.addItem(changeTitleItem)
 
@@ -760,4 +791,52 @@ private func makeTabColorPaletteView(
     ))
     hostingView.frame.size = hostingView.intrinsicContentSize
     return hostingView
+}
+
+// MARK: - Inline Tab Title Editing
+
+extension TerminalWindow: TabTitleEditorDelegate {
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        canRenameTabFor targetWindow: NSWindow
+    ) -> Bool {
+        targetWindow.windowController is BaseTerminalController
+    }
+
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        titleFor targetWindow: NSWindow
+    ) -> String {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else {
+            return targetWindow.title
+        }
+
+        return targetController.titleOverride ?? targetWindow.title
+    }
+
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        didCommitTitle editedTitle: String,
+        for targetWindow: NSWindow
+    ) {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.titleOverride = editedTitle.isEmpty ? nil : editedTitle
+    }
+
+    func tabTitleEditor(
+        _ editor: TabTitleEditor,
+        performFallbackRenameFor targetWindow: NSWindow
+    ) {
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.promptTabTitle()
+    }
+
+    func tabTitleEditor(_ editor: TabTitleEditor, didFinishEditing targetWindow: NSWindow) {
+        // After inline editing, the first responder is the window itself.
+        // Restore focus to the terminal surface so keyboard input works.
+        guard let controller = windowController as? BaseTerminalController,
+              let focusedSurface = controller.focusedSurface
+        else { return }
+        makeFirstResponder(focusedSurface)
+    }
 }

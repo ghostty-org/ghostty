@@ -10,7 +10,6 @@
     # Gnome 49/Gtk 4.20.
     #
     nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz";
-    flake-utils.url = "github:numtide/flake-utils";
 
     # Used for shell.nix
     flake-compat = {
@@ -22,7 +21,6 @@
       url = "github:mitchellh/zig-overlay";
       inputs = {
         nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
         flake-compat.follows = "flake-compat";
       };
     };
@@ -80,6 +78,7 @@
           packageOverrides = pyfinal: pyprev: {
             blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
             ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
+            wcwidth = pyfinal.callPackage ./nix/pkgs/wcwidth.nix {};
           };
         };
       };

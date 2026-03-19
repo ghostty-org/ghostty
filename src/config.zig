@@ -31,6 +31,7 @@ pub const Keybinds = Config.Keybinds;
 pub const MouseShiftCapture = Config.MouseShiftCapture;
 pub const MouseScrollMultiplier = Config.MouseScrollMultiplier;
 pub const NonNativeFullscreen = Config.NonNativeFullscreen;
+pub const Fullscreen = Config.Fullscreen;
 pub const RepeatableCodepointMap = Config.RepeatableCodepointMap;
 pub const RepeatableFontVariation = Config.RepeatableFontVariation;
 pub const RepeatableString = Config.RepeatableString;
@@ -43,6 +44,7 @@ pub const WindowPaddingColor = Config.WindowPaddingColor;
 pub const BackgroundImagePosition = Config.BackgroundImagePosition;
 pub const BackgroundImageFit = Config.BackgroundImageFit;
 pub const LinkPreviews = Config.LinkPreviews;
+pub const WorkingDirectory = Config.WorkingDirectory;
 
 // Alternate APIs
 pub const CApi = @import("config/CApi.zig");

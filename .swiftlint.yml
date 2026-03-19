@@ -1,0 +1,2 @@
+included: macos
+child_config: macos/.swiftlint.yml

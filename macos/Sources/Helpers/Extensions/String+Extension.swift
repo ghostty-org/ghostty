@@ -27,11 +27,13 @@ extension String {
     }
 #endif
 
-    private static let shellUnsafe = /[^\w@%+=:,.\/-]/
-
-    /// Returns a shell-escaped version of the string, like Python's shlex.quote.
-    func shellQuoted() -> String {
-        guard self.isEmpty || self.contains(Self.shellUnsafe) else { return self };
-        return "'" + self.replacingOccurrences(of: "'", with: #"'"'"'"#) + "'"
+    /// Converts a four-character ASCII string to its `FourCharCode` (`UInt32`) value.
+    var fourCharCode: UInt32 {
+        assert(count <= 4, "FourCharCode string must be at most 4 characters")
+        var result: UInt32 = 0
+        for byte in utf8.prefix(4) {
+            result = (result << 8) | UInt32(byte)
+        }
+        return result
     }
 }

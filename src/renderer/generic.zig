@@ -125,6 +125,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         scrollbar: terminal.Scrollbar,
         scrollbar_dirty: bool,
 
+        /// Tracks the last bottom-right pin of the screen to detect new output.
+        /// When the final line changes (node or y differs), new content was added.
+        /// Used for scroll-to-bottom on output feature.
+        last_bottom_node: ?usize,
+        last_bottom_y: terminal.size.CellCountInt,
+
         /// The most recent viewport matches so that we can render search
         /// matches in the visible frame. This is provided asynchronously
         /// from the search thread so we have the dirty flag to also note
@@ -563,6 +569,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             colorspace: configpkg.Config.WindowColorspace,
             blending: configpkg.Config.AlphaBlending,
             background_blur: configpkg.Config.BackgroundBlur,
+            scroll_to_bottom_on_output: bool,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -636,6 +643,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .colorspace = config.@"window-colorspace",
                     .blending = config.@"alpha-blending",
                     .background_blur = config.@"background-blur",
+                    .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
                     .arena = arena,
                 };
             }
@@ -699,6 +707,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .focused = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
+                .last_bottom_node = null,
+                .last_bottom_y = 0,
                 .search_matches = null,
                 .search_selected_match = null,
                 .search_matches_dirty = false,
@@ -746,6 +756,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .previous_cursor = @splat(0),
                     .current_cursor_color = @splat(0),
                     .previous_cursor_color = @splat(0),
+                    .current_cursor_style = 0,
+                    .previous_cursor_style = 0,
+                    .cursor_visible = 0,
                     .cursor_change_time = 0,
                     .time_focus = 0,
                     .focus = 1, // assume focused initially
@@ -1166,6 +1179,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     return;
                 }
 
+                // If scroll-to-bottom on output is enabled, check if the final line
+                // changed by comparing the bottom-right pin. If the node pointer or
+                // y offset changed, new content was added to the screen.
+                // Update this BEFORE we update our render state so we can
+                // draw the new scrolled data immediately.
+                if (self.config.scroll_to_bottom_on_output) scroll: {
+                    const br = state.terminal.screens.active.pages.getBottomRight(.screen) orelse break :scroll;
+
+                    // If the pin hasn't changed, then don't scroll.
+                    if (self.last_bottom_node == @intFromPtr(br.node) and
+                        self.last_bottom_y == br.y) break :scroll;
+
+                    // Update tracked pin state for next frame
+                    self.last_bottom_node = @intFromPtr(br.node);
+                    self.last_bottom_y = br.y;
+
+                    // Scroll
+                    state.terminal.scrollViewport(.bottom);
+                }
+
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
 
@@ -1196,6 +1229,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // kitty state on every frame because any cell change can move
                 // an image.
                 if (self.images.kittyRequiresUpdate(state.terminal)) {
+                    // We need to grab the draw mutex since this updates
+                    // our image state that drawFrame uses.
+                    self.draw_mutex.lock();
+                    defer self.draw_mutex.unlock();
                     self.images.kittyUpdate(
                         self.alloc,
                         state.terminal,
@@ -1977,11 +2014,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Only update when terminal state is dirty.
             if (self.terminal_state.dirty == .false) return;
 
+            const uniforms: *shadertoy.Uniforms = &self.custom_shader_uniforms;
             const colors: *const terminal.RenderState.Colors = &self.terminal_state.colors;
 
             // 256-color palette
             for (colors.palette, 0..) |color, i| {
-                self.custom_shader_uniforms.palette[i] = .{
+                uniforms.palette[i] = .{
                     @as(f32, @floatFromInt(color.r)) / 255.0,
                     @as(f32, @floatFromInt(color.g)) / 255.0,
                     @as(f32, @floatFromInt(color.b)) / 255.0,
@@ -1990,7 +2028,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Background color
-            self.custom_shader_uniforms.background_color = .{
+            uniforms.background_color = .{
                 @as(f32, @floatFromInt(colors.background.r)) / 255.0,
                 @as(f32, @floatFromInt(colors.background.g)) / 255.0,
                 @as(f32, @floatFromInt(colors.background.b)) / 255.0,
@@ -1998,7 +2036,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             };
 
             // Foreground color
-            self.custom_shader_uniforms.foreground_color = .{
+            uniforms.foreground_color = .{
                 @as(f32, @floatFromInt(colors.foreground.r)) / 255.0,
                 @as(f32, @floatFromInt(colors.foreground.g)) / 255.0,
                 @as(f32, @floatFromInt(colors.foreground.b)) / 255.0,
@@ -2007,7 +2045,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Cursor color
             if (colors.cursor) |cursor_color| {
-                self.custom_shader_uniforms.cursor_color = .{
+                uniforms.cursor_color = .{
                     @as(f32, @floatFromInt(cursor_color.r)) / 255.0,
                     @as(f32, @floatFromInt(cursor_color.g)) / 255.0,
                     @as(f32, @floatFromInt(cursor_color.b)) / 255.0,
@@ -2021,7 +2059,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Cursor text color
             if (self.config.cursor_text) |cursor_text| {
-                self.custom_shader_uniforms.cursor_text = .{
+                uniforms.cursor_text = .{
                     @as(f32, @floatFromInt(cursor_text.color.r)) / 255.0,
                     @as(f32, @floatFromInt(cursor_text.color.g)) / 255.0,
                     @as(f32, @floatFromInt(cursor_text.color.b)) / 255.0,
@@ -2031,7 +2069,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Selection background color
             if (self.config.selection_background) |selection_bg| {
-                self.custom_shader_uniforms.selection_background_color = .{
+                uniforms.selection_background_color = .{
                     @as(f32, @floatFromInt(selection_bg.color.r)) / 255.0,
                     @as(f32, @floatFromInt(selection_bg.color.g)) / 255.0,
                     @as(f32, @floatFromInt(selection_bg.color.b)) / 255.0,
@@ -2041,13 +2079,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Selection foreground color
             if (self.config.selection_foreground) |selection_fg| {
-                self.custom_shader_uniforms.selection_foreground_color = .{
+                uniforms.selection_foreground_color = .{
                     @as(f32, @floatFromInt(selection_fg.color.r)) / 255.0,
                     @as(f32, @floatFromInt(selection_fg.color.g)) / 255.0,
                     @as(f32, @floatFromInt(selection_fg.color.b)) / 255.0,
                     1.0,
                 };
             }
+
+            // Cursor visibility
+            uniforms.cursor_visible = @intFromBool(self.terminal_state.cursor.visible);
+
+            // Cursor style
+            const cursor_style: renderer.CursorStyle = .fromTerminal(self.terminal_state.cursor.visual_style);
+            uniforms.previous_cursor_style = uniforms.current_cursor_style;
+            uniforms.current_cursor_style = @as(i32, @intFromEnum(cursor_style));
         }
 
         /// Update per-frame custom shader uniforms.
@@ -2057,7 +2103,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // We only need to do this if we have custom shaders.
             if (!self.has_custom_shaders) return;
 
-            const uniforms = &self.custom_shader_uniforms;
+            const uniforms: *shadertoy.Uniforms = &self.custom_shader_uniforms;
 
             const now = try std.time.Instant.now();
             defer self.last_frame_time = now;
@@ -2091,7 +2137,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 0,
             };
 
-            // Update custom cursor uniforms, if we have a cursor.
             if (self.cells.getCursorGlyph()) |cursor| {
                 const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);
                 const cursor_height: f32 = @floatFromInt(cursor.glyph_size[1]);
@@ -2275,26 +2320,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             //     std.log.warn("[rebuildCells time] {}\t{}", .{start_micro, end.since(start) / std.time.ns_per_us});
             // }
 
-            // Determine our x/y range for preedit. We don't want to render anything
-            // here because we will render the preedit separately.
-            const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
-                // We base the preedit on the position of the cursor in the
-                // viewport. If the cursor isn't visible in the viewport we
-                // don't show it.
-                const cursor_vp = state.cursor.viewport orelse
-                    break :preedit null;
-
-                const range = preedit_v.range(
-                    cursor_vp.x,
-                    state.cols - 1,
-                );
-                break :preedit .{
-                    .y = @intCast(cursor_vp.y),
-                    .x = .{ range.start, range.end },
-                    .cp_offset = range.cp_offset,
-                };
-            } else null;
-
             const grid_size_diff =
                 self.cells.size.rows != state.rows or
                 self.cells.size.columns != state.cols;
@@ -2352,6 +2377,32 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 state.rows,
                 self.cells.size.rows,
             );
+
+            // Determine our x/y range for preedit. We don't want to render anything
+            // here because we will render the preedit separately.
+            const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
+                // We base the preedit on the position of the cursor in the
+                // viewport. If the cursor isn't visible in the viewport we
+                // don't show it.
+                const cursor_vp = state.cursor.viewport orelse
+                    break :preedit null;
+
+                // If our preedit row isn't dirty then we don't need the
+                // preedit range. This also avoids an issue later where we
+                // unconditionally add preedit cells when this is set.
+                if (!rebuild and !row_dirty[cursor_vp.y]) break :preedit null;
+
+                const range = preedit_v.range(
+                    cursor_vp.x,
+                    state.cols - 1,
+                );
+                break :preedit .{
+                    .y = @intCast(cursor_vp.y),
+                    .x = .{ range.start, range.end },
+                    .cp_offset = range.cp_offset,
+                };
+            } else null;
+
             for (
                 0..,
                 row_raws[0..row_len],
@@ -2527,14 +2578,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Setup our preedit text.
-            if (preedit) |preedit_v| {
-                const range = preedit_range.?;
+            if (preedit) |preedit_v| preedit: {
+                const range = preedit_range orelse break :preedit;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
-                        state.colors.background,
                         state.colors.foreground,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
@@ -3264,7 +3314,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             cp: renderer.State.Preedit.Codepoint,
             coord: terminal.Coordinate,
-            screen_bg: terminal.color.RGB,
             screen_fg: terminal.color.RGB,
         ) !void {
             // Render the glyph for our preedit text
@@ -3282,16 +3331,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 log.warn("failed to find font for preedit codepoint={X}", .{cp.codepoint});
                 return;
             };
-
-            // Add our opaque background cell
-            self.cells.bgCell(coord.y, coord.x).* = .{
-                screen_bg.r, screen_bg.g, screen_bg.b, 255,
-            };
-            if (cp.wide and coord.x < self.cells.size.columns - 1) {
-                self.cells.bgCell(coord.y, coord.x + 1).* = .{
-                    screen_bg.r, screen_bg.g, screen_bg.b, 255,
-                };
-            }
 
             // Add our text
             try self.cells.add(self.alloc, .text, .{

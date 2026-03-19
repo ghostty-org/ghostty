@@ -1,0 +1,15 @@
+.{
+    .name = .fuzz_libghostty,
+    .version = "0.0.0",
+    .fingerprint = 0x2cb2c498237c5d43,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .ghostty = .{ .path = "../../" },
+        .afl = .{ .path = "../../pkg/afl++" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

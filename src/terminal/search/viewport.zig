@@ -223,7 +223,7 @@ test "simple search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ViewportSearch = try .init(alloc, "Fizz");
     defer search.deinit();
@@ -266,15 +266,15 @@ test "clear screen and search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ViewportSearch = try .init(alloc, "Fizz");
     defer search.deinit();
     try testing.expect(try search.update(&t.screens.active.pages));
 
-    try s.nextSlice("\x1b[2J"); // Clear screen
-    try s.nextSlice("\x1b[H"); // Move cursor home
-    try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
+    s.nextSlice("\x1b[2J"); // Clear screen
+    s.nextSlice("\x1b[H"); // Move cursor home
+    s.nextSlice("Buzz\r\nFizz\r\nBuzz");
     try testing.expect(try search.update(&t.screens.active.pages));
 
     {
@@ -299,7 +299,7 @@ test "clear screen and search dirty tracking" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ViewportSearch = try .init(alloc, "Fizz");
     defer search.deinit();
@@ -313,9 +313,9 @@ test "clear screen and search dirty tracking" {
     // Should not update since nothing changed
     try testing.expect(!try search.update(&t.screens.active.pages));
 
-    try s.nextSlice("\x1b[2J"); // Clear screen
-    try s.nextSlice("\x1b[H"); // Move cursor home
-    try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
+    s.nextSlice("\x1b[2J"); // Clear screen
+    s.nextSlice("\x1b[H"); // Move cursor home
+    s.nextSlice("Buzz\r\nFizz\r\nBuzz");
 
     // Should still not update since active area isn't dirty
     try testing.expect(!try search.update(&t.screens.active.pages));
@@ -349,16 +349,16 @@ test "history search, no active area" {
 
     // Fill up first page
     const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
-    try s.nextSlice("Fizz\r\n");
-    for (1..first_page_rows - 1) |_| try s.nextSlice("\r\n");
+    s.nextSlice("Fizz\r\n");
+    for (1..first_page_rows - 1) |_| s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Create second page
-    try s.nextSlice("\r\n");
+    s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
-    try s.nextSlice("Buzz\r\nFizz");
+    s.nextSlice("Buzz\r\nFizz");
 
-    try t.scrollViewport(.top);
+    t.scrollViewport(.top);
 
     var search: ViewportSearch = try .init(alloc, "Fizz");
     defer search.deinit();

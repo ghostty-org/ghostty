@@ -265,7 +265,7 @@ pub fn SplitTree(comptime V: type) type {
                     // Get our spatial representation.
                     var sp = try self.spatial(alloc);
                     defer sp.deinit(alloc);
-                    break :spatial self.nearest(sp, from, d);
+                    break :spatial self.nearestWrapped(sp, from, d);
                 },
             };
         }
@@ -385,14 +385,15 @@ pub fn SplitTree(comptime V: type) type {
         }
 
         /// Returns the nearest leaf node (view) in the given direction.
+        /// This does not handle wrapping and will return null if there
+        /// is no node in that direction.
         fn nearest(
             self: *const Self,
             sp: Spatial,
             from: Node.Handle,
             direction: Spatial.Direction,
+            target: Spatial.Slot,
         ) ?Node.Handle {
-            const target = sp.slots[from.idx()];
-
             var result: ?struct {
                 handle: Node.Handle,
                 distance: f16,
@@ -431,6 +432,45 @@ pub fn SplitTree(comptime V: type) type {
             }
 
             return if (result) |n| n.handle else null;
+        }
+
+        /// Same as nearest but supports wrapping.
+        fn nearestWrapped(
+            self: *const Self,
+            sp: Spatial,
+            from: Node.Handle,
+            direction: Spatial.Direction,
+        ) ?Node.Handle {
+            // If we can find a nearest value without wrapping, then
+            // use that.
+            var target = sp.slots[from.idx()];
+            if (self.nearest(
+                sp,
+                from,
+                direction,
+                target,
+            )) |v| return v;
+
+            // The spatial grid is normalized to 1x1, so wrapping is modeled
+            // by shifting the target slot by one full grid in the opposite
+            // direction and reusing the same nearest distance logic.
+            // We don't actually modify the grid or spatial representation,
+            // this just fakes it.
+            assert(target.x >= 0 and target.y >= 0);
+            assert(target.maxX() <= 1 and target.maxY() <= 1);
+            switch (direction) {
+                .left => target.x += 1,
+                .right => target.x -= 1,
+                .up => target.y += 1,
+                .down => target.y -= 1,
+            }
+
+            return self.nearest(
+                sp,
+                from,
+                direction,
+                target,
+            );
         }
 
         /// Resize the given node in place. The node MUST be a split (asserted).
@@ -1969,6 +2009,60 @@ test "SplitTree: spatial goto" {
                 } else return error.NotFound;
             },
             .{ .spatial = .left },
+        )).?;
+        const view = split.nodes[target.idx()].leaf;
+        try testing.expectEqualStrings("A", view.label);
+    }
+
+    // Spatial A => left (wrapped)
+    {
+        const target = (try split.goto(
+            alloc,
+            from: {
+                var it = split.iterator();
+                break :from while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "A")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .{ .spatial = .left },
+        )).?;
+        const view = split.nodes[target.idx()].leaf;
+        try testing.expectEqualStrings("B", view.label);
+    }
+
+    // Spatial B => right (wrapped)
+    {
+        const target = (try split.goto(
+            alloc,
+            from: {
+                var it = split.iterator();
+                break :from while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .{ .spatial = .right },
+        )).?;
+        const view = split.nodes[target.idx()].leaf;
+        try testing.expectEqualStrings("A", view.label);
+    }
+
+    // Spatial C => down (wrapped)
+    {
+        const target = (try split.goto(
+            alloc,
+            from: {
+                var it = split.iterator();
+                break :from while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "C")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .{ .spatial = .down },
         )).?;
         const view = split.nodes[target.idx()].leaf;
         try testing.expectEqualStrings("A", view.label);

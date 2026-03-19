@@ -5,6 +5,7 @@ const Terminal = @This();
 
 const std = @import("std");
 const build_options = @import("terminal_options");
+const lib = @import("../lib/main.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -22,7 +23,7 @@ const point = @import("point.zig");
 const sgr = @import("sgr.zig");
 const Tabstops = @import("Tabstops.zig");
 const color = @import("color.zig");
-const mouse_shape_pkg = @import("mouse_shape.zig");
+const mouse = @import("mouse.zig");
 const ReadonlyHandler = @import("stream_readonly.zig").Handler;
 const ReadonlyStream = @import("stream_readonly.zig").Stream;
 
@@ -34,6 +35,8 @@ const ScreenSet = @import("ScreenSet.zig");
 const Page = pagepkg.Page;
 const Cell = pagepkg.Cell;
 const Row = pagepkg.Row;
+
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 const log = std.log.scoped(.terminal);
 
@@ -76,7 +79,7 @@ previous_char: ?u21 = null,
 modes: modespkg.ModeState = .{},
 
 /// The most recently set mouse shape for the terminal.
-mouse_shape: mouse_shape_pkg.MouseShape = .text,
+mouse_shape: mouse.Shape = .text,
 
 /// These are just a packed set of flags we may set on the terminal.
 flags: packed struct {
@@ -93,8 +96,8 @@ flags: packed struct {
     /// set mode in modes. You can't get the right event/format to use
     /// based on modes alone because modes don't show you what order
     /// this was called so we have to track it separately.
-    mouse_event: MouseEvents = .none,
-    mouse_format: MouseFormat = .x10,
+    mouse_event: mouse.Event = .none,
+    mouse_format: mouse.Format = .x10,
 
     /// Set via the XTSHIFTESCAPE sequence. If true (XTSHIFTESCAPE = 1)
     /// then we want to capture the shift key for the mouse protocol
@@ -162,31 +165,6 @@ pub const Dirty = packed struct {
 
     /// Set when the pre-edit is modified.
     preedit: bool = false,
-};
-
-/// The event types that can be reported for mouse-related activities.
-/// These are all mutually exclusive (hence in a single enum).
-pub const MouseEvents = enum(u3) {
-    none = 0,
-    x10 = 1, // 9
-    normal = 2, // 1000
-    button = 3, // 1002
-    any = 4, // 1003
-
-    /// Returns true if this event sends motion events.
-    pub fn motion(self: MouseEvents) bool {
-        return self == .button or self == .any;
-    }
-};
-
-/// The format of mouse events when enabled.
-/// These are all mutually exclusive (hence in a single enum).
-pub const MouseFormat = enum(u3) {
-    x10 = 0,
-    utf8 = 1, // 1005
-    sgr = 2, // 1006
-    urxvt = 3, // 1015
-    sgr_pixels = 4, // 1016
 };
 
 /// Scrolling region is the area of the screen designated where scrolling
@@ -271,7 +249,7 @@ pub fn vtHandler(self: *Terminal) ReadonlyHandler {
 }
 
 /// The general allocator we should use for this terminal.
-fn gpa(self: *Terminal) Allocator {
+pub fn gpa(self: *Terminal) Allocator {
     return self.screens.active.alloc;
 }
 
@@ -329,12 +307,16 @@ pub fn print(self: *Terminal, c: u21) !void {
         @branchHint(.unlikely);
         // We need the previous cell to determine if we're at a grapheme
         // break or not. If we are NOT, then we are still combining the
-        // same grapheme. Otherwise, we can stay in this cell.
+        // same grapheme, and will be appending to prev.cell. Otherwise, we are
+        // in a new cell.
         const Prev = struct { cell: *Cell, left: size.CellCountInt };
-        const prev: Prev = prev: {
+        var prev: Prev = prev: {
             const left: size.CellCountInt = left: {
-                // If we have wraparound, then we always use the prev col
-                if (self.modes.get(.wraparound)) break :left 1;
+                // If we have wraparound, then we use the prev col unless
+                // there's a pending wrap, in which case we use the current.
+                if (self.modes.get(.wraparound)) {
+                    break :left @intFromBool(!self.screens.active.cursor.pending_wrap);
+                }
 
                 // If we do not have wraparound, the logic is trickier. If
                 // we're not on the last column, then we just use the previous
@@ -380,6 +362,8 @@ pub fn print(self: *Terminal, c: u21) !void {
         // If we can NOT break, this means that "c" is part of a grapheme
         // with the previous char.
         if (!grapheme_break) {
+            var desired_wide: enum { no_change, wide, narrow } = .no_change;
+
             // If this is an emoji variation selector then we need to modify
             // the cell width accordingly. VS16 makes the character wide and
             // VS15 makes it narrow.
@@ -390,71 +374,138 @@ pub fn print(self: *Terminal, c: u21) !void {
                 if (!prev_props.emoji_vs_base) return;
 
                 switch (c) {
-                    0xFE0F => wide: {
-                        if (prev.cell.wide == .wide) break :wide;
-
-                        // Move our cursor back to the previous. We'll move
-                        // the cursor within this block to the proper location.
-                        self.screens.active.cursorLeft(prev.left);
-
-                        // If we don't have space for the wide char, we need
-                        // to insert spacers and wrap. Then we just print the wide
-                        // char as normal.
-                        if (self.screens.active.cursor.x == right_limit - 1) {
-                            if (!self.modes.get(.wraparound)) return;
-                            self.printCell(
-                                0,
-                                if (right_limit == self.cols) .spacer_head else .narrow,
-                            );
-                            try self.printWrap();
-                        }
-
-                        self.printCell(prev.cell.content.codepoint, .wide);
-
-                        // Write our spacer
-                        self.screens.active.cursorRight(1);
-                        self.printCell(0, .spacer_tail);
-
-                        // Move the cursor again so we're beyond our spacer
-                        if (self.screens.active.cursor.x == right_limit - 1) {
-                            self.screens.active.cursor.pending_wrap = true;
-                        } else {
-                            self.screens.active.cursorRight(1);
-                        }
-                    },
-
-                    0xFE0E => narrow: {
-                        // Prev cell is no longer wide
-                        if (prev.cell.wide != .wide) break :narrow;
-                        prev.cell.wide = .narrow;
-
-                        // Remove the wide spacer tail
-                        const cell = self.screens.active.cursorCellLeft(prev.left - 1);
-                        cell.wide = .narrow;
-
-                        // Back track the cursor so that we don't end up with
-                        // an extra space after the character. Since xterm is
-                        // not VS aware, it cannot be used as a reference for
-                        // this behavior; but it does follow the principle of
-                        // least surprise, and also matches the behavior that
-                        // can be observed in Kitty, which is one of the only
-                        // other VS aware terminals.
-                        if (self.screens.active.cursor.x == right_limit - 1) {
-                            // If we're already at the right edge, we stay
-                            // here and set the pending wrap to false since
-                            // when we pend a wrap, we only move our cursor once
-                            // even for wide chars (tests verify).
-                            self.screens.active.cursor.pending_wrap = false;
-                        } else {
-                            // Otherwise, move back.
-                            self.screens.active.cursorLeft(1);
-                        }
-
-                        break :narrow;
-                    },
-
+                    0xFE0F => desired_wide = .wide,
+                    0xFE0E => desired_wide = .narrow,
                     else => unreachable,
                 }
+            } else if (!unicode.table.get(c).width_zero_in_grapheme) {
+                // If we have a code point that contributes to the width of a
+                // grapheme, it necessarily means that we're at least at width
+                // 2, since the first code point must be at least width 1 to
+                // start. (Note that Prepend code points could effectively mean
+                // the first code point should be width 0, but we don't handle
+                // that yet.)
+                desired_wide = .wide;
+            }
+
+            switch (desired_wide) {
+                .wide => wide: {
+                    if (prev.cell.wide == .wide) break :wide;
+
+                    // Move our cursor back to the previous. We'll move
+                    // the cursor within this block to the proper location.
+                    self.screens.active.cursorLeft(prev.left);
+
+                    // If we don't have space for the wide char, we need to
+                    // insert spacers and wrap. We need special handling if the
+                    // previous cell has grapheme data.
+                    if (self.screens.active.cursor.x == right_limit - 1) {
+                        if (!self.modes.get(.wraparound)) return;
+
+                        // This path can write a spacer_head before printWrap
+                        // which can trigger integrity violations so mark
+                        // the wrap first to keep the intermediary state valid
+                        // if we're wrapping.
+                        const row_wrap = right_limit == self.cols;
+                        if (row_wrap) self.screens.active.cursor.page_row.wrap = true;
+
+                        const prev_cp = prev.cell.content.codepoint;
+                        if (prev.cell.hasGrapheme()) {
+                            // This is like printCell but without clearing the
+                            // grapheme data from the cell, so we can move it
+                            // later.
+                            prev.cell.wide = if (row_wrap) .spacer_head else .narrow;
+                            prev.cell.content.codepoint = 0;
+
+                            try self.printWrap();
+                            self.printCell(prev_cp, .wide);
+
+                            const new_pin = self.screens.active.cursor.page_pin.*;
+                            const new_rac = new_pin.rowAndCell();
+
+                            transfer_graphemes: {
+                                var old_pin = self.screens.active.cursor.page_pin.up(1) orelse break :transfer_graphemes;
+                                old_pin.x = right_limit - 1;
+                                const old_rac = old_pin.rowAndCell();
+
+                                if (new_pin.node == old_pin.node) {
+                                    new_pin.node.data.moveGrapheme(prev.cell, new_rac.cell);
+                                    prev.cell.content_tag = .codepoint;
+                                    new_rac.cell.content_tag = .codepoint_grapheme;
+                                    new_rac.row.grapheme = true;
+                                } else {
+                                    const cps = old_pin.node.data.lookupGrapheme(old_rac.cell).?;
+                                    for (cps) |cp| {
+                                        try self.screens.active.appendGrapheme(new_rac.cell, cp);
+                                    }
+                                    old_pin.node.data.clearGrapheme(old_rac.cell);
+                                }
+
+                                old_pin.node.data.updateRowGraphemeFlag(old_rac.row);
+                            }
+
+                            // Point prev.cell to our new previous cell that
+                            // we'll be appending graphemes to
+                            prev.cell = new_rac.cell;
+                        } else {
+                            self.printCell(
+                                0,
+                                if (row_wrap) .spacer_head else .narrow,
+                            );
+                            try self.printWrap();
+                            self.printCell(prev_cp, .wide);
+
+                            // Point prev.cell to our new previous cell that
+                            // we'll be appending graphemes to
+                            prev.cell = self.screens.active.cursor.page_cell;
+                        }
+                    } else {
+                        prev.cell.wide = .wide;
+                    }
+
+                    // Write our spacer, since prev.cell is now wide
+                    self.screens.active.cursorRight(1);
+                    self.printCell(0, .spacer_tail);
+
+                    // Move the cursor again so we're beyond our spacer
+                    if (self.screens.active.cursor.x == right_limit - 1) {
+                        self.screens.active.cursor.pending_wrap = true;
+                    } else {
+                        self.screens.active.cursorRight(1);
+                    }
+                },
+
+                .narrow => narrow: {
+                    // Prev cell is no longer wide
+                    if (prev.cell.wide != .wide) break :narrow;
+                    prev.cell.wide = .narrow;
+
+                    // Remove the wide spacer tail
+                    const cell = self.screens.active.cursorCellLeft(prev.left - 1);
+                    cell.wide = .narrow;
+
+                    // Back track the cursor so that we don't end up with
+                    // an extra space after the character. Since xterm is
+                    // not VS aware, it cannot be used as a reference for
+                    // this behavior; but it does follow the principle of
+                    // least surprise, and also matches the behavior that
+                    // can be observed in Kitty, which is one of the only
+                    // other VS aware terminals.
+                    if (self.screens.active.cursor.x == right_limit - 1) {
+                        // If we're already at the right edge, we stay
+                        // here and set the pending wrap to false since
+                        // when we pend a wrap, we only move our cursor once
+                        // even for wide chars (tests verify).
+                        self.screens.active.cursor.pending_wrap = false;
+                    } else {
+                        // Otherwise, move back.
+                        self.screens.active.cursorLeft(1);
+                    }
+
+                    break :narrow;
+                },
+
+                else => {},
             }
 
             log.debug("c={X} grapheme attach to left={} primary_cp={X}", .{
@@ -562,7 +613,16 @@ pub fn print(self: *Terminal, c: u21) !void {
                 // We only create a spacer head if we're at the real edge
                 // of the screen. Otherwise, we clear the space with a narrow.
                 // This allows soft wrapping to work correctly.
-                self.printCell(0, if (right_limit == self.cols) .spacer_head else .narrow);
+                if (right_limit == self.cols) {
+                    // Special-case: we need to set wrap to true even
+                    // though we call printWrap below because if there is
+                    // a page resize during printCell then it'll fail
+                    // integrity checks.
+                    self.screens.active.cursor.page_row.wrap = true;
+                    self.printCell(0, .spacer_head);
+                } else {
+                    self.printCell(0, .narrow);
+                }
                 try self.printWrap();
             }
 
@@ -647,9 +707,14 @@ fn printCell(
                     self.screens.active.cursor.page_row,
                     spacer_cell[0..1],
                 );
+
+                // If we're near the left edge, a wide char may have
+                // wrapped from the previous row, leaving a spacer_head
+                // at the end of that row. Clear it so the previous row
+                // doesn't keep a stale spacer_head.
                 if (self.screens.active.cursor.y > 0 and self.screens.active.cursor.x <= 1) {
                     const head_cell = self.screens.active.cursorCellEndOfPrev();
-                    head_cell.wide = .narrow;
+                    if (head_cell.wide == .spacer_head) head_cell.wide = .narrow;
                 }
             },
 
@@ -668,9 +733,13 @@ fn printCell(
                     self.screens.active.cursor.page_row,
                     wide_cell[0..1],
                 );
+                // If we're near the left edge, a wide char may have
+                // wrapped from the previous row, leaving a spacer_head
+                // at the end of that row. Clear it so the previous row
+                // doesn't keep a stale spacer_head.
                 if (self.screens.active.cursor.y > 0 and self.screens.active.cursor.x <= 1) {
                     const head_cell = self.screens.active.cursorCellEndOfPrev();
-                    head_cell.wide = .narrow;
+                    if (head_cell.wide == .spacer_head) head_cell.wide = .narrow;
                 }
             },
 
@@ -1613,7 +1682,7 @@ pub fn scrollUp(self: *Terminal, count: usize) !void {
 }
 
 /// Options for scrolling the viewport of the terminal grid.
-pub const ScrollViewport = union(enum) {
+pub const ScrollViewport = union(Tag) {
     /// Scroll to the top of the scrollback
     top,
 
@@ -1622,10 +1691,27 @@ pub const ScrollViewport = union(enum) {
 
     /// Scroll by some delta amount, up is negative.
     delta: isize,
+
+    pub const Tag = lib.Enum(lib_target, &.{
+        "top",
+        "bottom",
+        "delta",
+    });
+
+    const c_union = lib.TaggedUnion(
+        lib_target,
+        @This(),
+        // Padding: largest variant is isize (8 bytes on 64-bit).
+        // Use [2]u64 (16 bytes) for future expansion.
+        [2]u64,
+    );
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
 };
 
 /// Scroll the viewport of the terminal grid.
-pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) !void {
+pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) void {
     self.screens.active.scroll(switch (behavior) {
         .top => .{ .top = {} },
         .bottom => .{ .active = {} },
@@ -1880,6 +1966,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             }
         } else {
             // Clear the cells for this row, it has been shifted.
+            self.rowWillBeShifted(&cur_p.node.data, cur_row);
             const page = &cur_p.node.data;
             const cells = page.getCells(cur_row);
             self.screens.active.clearCells(
@@ -2067,6 +2154,7 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
             }
         } else {
             // Clear the cells for this row, it's from out of bounds.
+            self.rowWillBeShifted(&cur_p.node.data, cur_row);
             const page = &cur_p.node.data;
             const cells = page.getCells(cur_row);
             self.screens.active.clearCells(
@@ -2099,6 +2187,12 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
     // xterm does.
     self.screens.active.cursor.pending_wrap = false;
 
+    // If we're given a zero then we do nothing. The rest of this function
+    // assumes count > 0 and will crash if zero so return early. Note that
+    // this shouldn't be possible with real CSI sequences because the value
+    // is clamped to 1 min.
+    if (count == 0) return;
+
     // If our cursor is outside the margins then do nothing. We DO reset
     // wrap state still so this must remain below the above logic.
     if (self.screens.active.cursor.x < self.scrolling_region.left or
@@ -2126,6 +2220,18 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 
     // Remaining cols from our cursor to the right margin.
     const rem = self.scrolling_region.right - self.screens.active.cursor.x + 1;
+
+    // If the cell at the right margin is wide, its spacer tail is
+    // outside the scroll region and would be orphaned by either the
+    // shift or the clear. Clean up both halves up front.
+    {
+        const right_cell: *Cell = @ptrCast(left + (rem - 1));
+        if (right_cell.wide == .wide) self.screens.active.clearCells(
+            page,
+            self.screens.active.cursor.page_row,
+            @as([*]Cell, @ptrCast(right_cell))[0..2],
+        );
+    }
 
     // We can only insert blanks up to our remaining cols
     const adjusted_count = @min(count, rem);
@@ -3247,6 +3353,44 @@ test "Terminal: print over wide char at 0,0" {
     try testing.expect(!t.isDirty(.{ .screen = .{ .x = 0, .y = 1 } }));
 }
 
+test "Terminal: print over wide char at col 0 corrupts previous row" {
+    // Crash found by AFL++ fuzzer (afl-out/stream/default/crashes/id:000002).
+    //
+    // printCell, when overwriting a wide cell with a narrow cell at x<=1
+    // and y>0, sets the last cell of the previous row to .narrow — even
+    // when that cell is a .spacer_tail rather than a .spacer_head. This
+    // orphans the .wide cell at cols-2.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Fill rows 0 and 1 with wide chars (5 per row on a 10-col terminal).
+    for (0..10) |_| try t.print(0x4E2D);
+
+    // Move cursor to row 1, col 0 (on top of a wide char) and print a
+    // narrow character. This triggers printCell's .wide branch which
+    // corrupts row 0's last cell: col 9 changes from .spacer_tail to
+    // .narrow, orphaning the .wide at col 8.
+    t.setCursorPos(2, 1);
+    try t.print('A');
+
+    // Row 1, col 0 should be narrow (we just overwrote the wide char).
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        try testing.expectEqual(Cell.Wide.narrow, list_cell.cell.wide);
+    }
+    // Row 0, col 8 should still be .wide (the last wide char on the row).
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 8, .y = 0 } }).?;
+        try testing.expectEqual(Cell.Wide.wide, list_cell.cell.wide);
+    }
+    // Row 0, col 9 must remain .spacer_tail to pair with the .wide at col 8.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 9, .y = 0 } }).?;
+        try testing.expectEqual(Cell.Wide.spacer_tail, list_cell.cell.wide);
+    }
+}
+
 test "Terminal: print over wide spacer tail" {
     var t = try init(testing.allocator, .{ .rows = 5, .cols = 5 });
     defer t.deinit(testing.allocator);
@@ -3834,19 +3978,23 @@ test "Terminal: print invalid VS15 in emoji ZWJ sequence" {
 }
 
 test "Terminal: VS15 to make narrow character with pending wrap" {
-    var t = try init(testing.allocator, .{ .rows = 5, .cols = 2 });
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 4 });
     defer t.deinit(testing.allocator);
 
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
+    try testing.expect(t.modes.get(.wraparound));
+
+    try t.print(0x1F34B); // Lemon, width=2
     try t.print(0x2614); // Umbrella with rain drops, width=2
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     t.clearDirty();
 
-    // We only move one because we're in a pending wrap state.
+    // We only move to the end of the line because we're in a pending wrap
+    // state.
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
-    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 3), t.screens.active.cursor.x);
     try testing.expect(t.screens.active.cursor.pending_wrap);
 
     try t.print(0xFE0E); // VS15 to make narrow
@@ -3855,23 +4003,171 @@ test "Terminal: VS15 to make narrow character with pending wrap" {
 
     // VS15 should clear the pending wrap state
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
-    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 3), t.screens.active.cursor.x);
     try testing.expect(!t.screens.active.cursor.pending_wrap);
 
     {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
-        try testing.expectEqualStrings("☔︎", str);
+        try testing.expectEqualStrings("🍋☔︎", str);
     }
 
     {
-        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 0x2614), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
         const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+
+    // VS15 should not affect the previous grapheme
+    {
+        const lemon_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?.cell;
+        try testing.expectEqual(@as(u21, 0x1F34B), lemon_cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, lemon_cell.wide);
+        const spacer_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?.cell;
+        try testing.expectEqual(@as(u21, 0), spacer_cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, spacer_cell.wide);
+    }
+}
+
+test "Terminal: VS16 to make wide character on next line" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 3 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    t.cursorRight(2);
+    try t.print('#');
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 2, .y = 0 } }));
+    t.clearDirty();
+
+    try t.print(0xFE0F); // VS16 to make wide
+
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 2, .y = 0 } }));
+    t.clearDirty();
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+    {
+        // Previous cell turns into spacer_head
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        // '#' cell is wide
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '#'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{0xFE0F}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        // spacer_tail
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: VS16 to make wide character on next line with hyperlink" {
+    // Regression test for the crash fixed in print's grapheme `.wide` path:
+    // writing a spacer_head at the screen edge before row.wrap was set.
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 3 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering and activate a hyperlink so printCell
+    // calls cursorSetHyperlink (which runs page integrity checks).
+    t.modes.set(.grapheme_cluster, true);
+    try t.screens.active.startHyperlink("http://example.com", null);
+
+    t.cursorRight(2);
+    try t.print('#');
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    // Without the fix, this panicked with UnwrappedSpacerHead.
+    try t.print(0xFE0F); // VS16 to make wide
+
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+    {
+        // Previous cell turns into spacer_head and remains hyperlinked.
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+        try testing.expect(cell.hyperlink);
+        try testing.expect(list_cell.row.wrap);
+    }
+    {
+        // '#' cell is now wide and still hyperlinked.
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '#'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{0xFE0F}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expect(cell.hyperlink);
+    }
+    {
+        // spacer_tail inherits hyperlink as part of the same grapheme cell.
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+        try testing.expect(cell.hyperlink);
+    }
+}
+
+test "Terminal: VS16 to make wide character with pending wrap" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 3 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    t.cursorRight(1);
+    try t.print('#');
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+    try t.print(0xFE0F); // VS16 to make wide
+
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    {
+        // '#' cell is wide
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '#'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{0xFE0F}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        // spacer_tail
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
     }
 }
 
@@ -4010,6 +4306,173 @@ test "Terminal: print invalid VS16 with second char" {
         try testing.expectEqual(@as(u21, 'y'), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: print grapheme ò (o with nonspacing mark) should be narrow" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print('o');
+    try t.print(0x0300); // combining grave accent
+
+    // We should have 1 cell taken up.
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'o'), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{0x0300}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: print Devanagari grapheme should be wide" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // क्‍ष
+    try t.print(0x0915);
+    try t.print(0x094D);
+    try t.print(0x200D);
+    try t.print(0x0937);
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x0915), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ 0x094D, 0x200D, 0x0937 }, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: print Devanagari grapheme should be wide on next line" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 3 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    t.cursorRight(2);
+
+    // क्‍ष
+    try t.print(0x0915);
+    try t.print(0x094D);
+    try t.print(0x200D);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    // This one increases the width to wide
+    try t.print(0x0937);
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+    {
+        // Previous cell turns into spacer_head
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        // Devanagari grapheme is wide
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x0915), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ 0x094D, 0x200D, 0x0937 }, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: print Devanagari grapheme should be wide on next page" {
+    const rows = pagepkg.std_capacity.rows;
+    const cols = pagepkg.std_capacity.cols;
+    var t = try init(testing.allocator, .{ .rows = rows, .cols = cols });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    t.cursorDown(rows - 1);
+
+    for (rows..t.screens.active.pages.pages.first.?.data.capacity.rows) |_| {
+        try t.index();
+    }
+
+    t.cursorRight(cols - 1);
+
+    try testing.expectEqual(cols - 1, t.screens.active.cursor.x);
+    try testing.expectEqual(rows - 1, t.screens.active.cursor.y);
+
+    // क्‍ष
+    try t.print(0x0915);
+    try t.print(0x094D);
+    try t.print(0x200D);
+    try testing.expectEqual(cols - 1, t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    // This one increases the width to wide
+    try t.print(0x0937);
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(rows - 1, t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+    {
+        // Previous cell turns into spacer_head
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{ .x = cols - 1, .y = rows - 2 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        // Devanagari grapheme is wide
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{ .x = 0, .y = rows - 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x0915), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ 0x094D, 0x200D, 0x0937 }, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{ .x = 1, .y = rows - 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
     }
 }
 
@@ -4770,6 +5233,50 @@ test "Terminal: overwrite hyperlink" {
     }
 
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+}
+
+// Printing a wide char at the right edge with an active hyperlink causes
+// printCell to write a spacer_head before printWrap sets the row wrap
+// flag. The integrity check inside setHyperlink (or increaseCapacity)
+// sees the unwrapped spacer head and panics. Found via fuzzing.
+test "Terminal: print wide char at right edge with hyperlink" {
+    var t = try init(testing.allocator, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    try t.screens.active.startHyperlink("http://example.com", null);
+
+    // Move cursor to the last column (1-indexed)
+    t.setCursorPos(1, 10);
+
+    // Print a wide character; this will call printCell(0, .spacer_head)
+    // at the right edge before calling printWrap, triggering the
+    // integrity violation.
+    try t.print(0x4E2D); // U+4E2D '中'
+
+    // Cursor wraps to row 2, after the wide char + spacer tail
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Row 0, col 9: spacer head with hyperlink
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 9, .y = 0 } }).?;
+        try testing.expectEqual(Cell.Wide.spacer_head, list_cell.cell.wide);
+        try testing.expect(list_cell.cell.hyperlink);
+        try testing.expect(list_cell.row.wrap);
+    }
+    // Row 1, col 0: the wide char with hyperlink
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        try testing.expectEqual(@as(u21, 0x4E2D), list_cell.cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, list_cell.cell.wide);
+        try testing.expect(list_cell.cell.hyperlink);
+    }
+    // Row 1, col 1: spacer tail with hyperlink
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        try testing.expectEqual(Cell.Wide.spacer_tail, list_cell.cell.wide);
+        try testing.expect(list_cell.cell.hyperlink);
+    }
 }
 
 test "Terminal: linefeed and carriage return" {
@@ -9075,6 +9582,25 @@ test "Terminal: DECALN resets graphemes with protected mode" {
     }
 }
 
+test "Terminal: insertBlanks zero" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 5, .rows = 2 });
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    try t.print('B');
+    try t.print('C');
+    t.setCursorPos(1, 1);
+
+    t.insertBlanks(0);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC", str);
+    }
+}
+
 test "Terminal: insertBlanks" {
     // NOTE: this is not verified with conformance tests, so these
     // tests might actually be verifying wrong behavior.
@@ -9463,6 +9989,77 @@ test "Terminal: insertBlanks pushes hyperlink off end completely" {
         try testing.expect(!cell.hyperlink);
         const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
+    }
+}
+
+test "Terminal: insertBlanks wide char straddling right margin" {
+    // Crash found by AFL++ fuzzer.
+    //
+    // When a wide character straddles the right scroll margin (head at the
+    // margin, spacer_tail just beyond it), insertBlanks shifts the wide head
+    // away via swapCells but leaves the orphaned spacer_tail in place,
+    // causing a page integrity violation.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Fill row: A B C D 橋 _ _ _ _ _
+    // Positions: 0 1 2 3 4W 5T 6 7 8 9
+    t.setCursorPos(1, 1);
+    for ("ABCD") |c| try t.print(c);
+    try t.print('橋'); // wide char: head at 4, spacer_tail at 5
+
+    // Set right margin so the wide head is AT the boundary and the
+    // spacer_tail is just outside it.
+    t.scrolling_region.right = 4;
+
+    // Position cursor at x=2 (1-indexed col 3) and insert one blank.
+    // This triggers the swap loop which displaces the wide head at
+    // position 4 without clearing the spacer_tail at position 5.
+    t.setCursorPos(1, 3);
+    t.insertBlanks(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AB CD", str);
+    }
+}
+
+test "Terminal: insertBlanks wide char spacer_tail orphaned beyond right margin" {
+    // Regression test for AFL++ crash.
+    //
+    // When insertBlanks clears the entire region from cursor to the right
+    // margin (scroll_amount == 0), a wide character whose head is AT the
+    // right margin gets cleared but its spacer_tail just beyond the margin
+    // is left behind, causing a page integrity violation:
+    //   "spacer tail not following wide"
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Fill cols 0–9 with wide chars: 中中中中中
+    // Positions: 0W 1T 2W 3T 4W 5T 6W 7T 8W 9T
+    for (0..5) |_| try t.print(0x4E2D);
+
+    // Set left/right margins so that the last wide char (cols 8–9)
+    // straddles the boundary: head at col 8 (inside), tail at col 9 (outside).
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 9); // 1-indexed: left=0, right=8
+
+    // Cursor is now at (0, 0) after DECSLRM.  Print a narrow char to
+    // advance cursor to col 1.
+    try t.print('a');
+
+    // ICH 8: insert 8 blanks at cursor x=1.
+    // rem = right(8) - x(1) + 1 = 8, adjusted_count = 8, scroll_amount = 0.
+    // The code clears cols 1–8 without noticing the spacer_tail at col 9.
+    t.insertBlanks(8);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("a", str);
     }
 }
 
@@ -12428,4 +13025,33 @@ test "Terminal: mode 1049 alt screen plain" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+// Reproduces a crash found by AFL++ fuzzer (afl-out/stream/default/crashes/
+// id:000007,sig:06,src:004522). The crash is a page integrity violation
+// "spacer tail not following wide" triggered during scrollUp -> deleteLines
+// -> clearCells. When deleteLines count >= scroll region height, all rows
+// are cleared (no shifting), so rowWillBeShifted is never called and wide
+// characters straddling the right margin boundary leave orphaned spacer_tails.
+test "Terminal: deleteLines wide char at right margin with full clear" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(alloc);
+
+    // Place a wide character at col 39 (1-indexed) on several rows.
+    // The wide cell lands at col 38 (0-indexed) with spacer_tail at col 39.
+    t.setCursorPos(10, 39);
+    try t.print(0x4E2D); // '中'
+
+    // Set left/right scroll margins so scrolling_region.right = 38.
+    // clearCells will clear cells[4..39], which includes the wide cell
+    // at col 38 but NOT the spacer_tail at col 39.
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(5, 39);
+
+    // scrollUp with count >= region height causes deleteLines to clear
+    // ALL rows without any shifting, so rowWillBeShifted is never called
+    // and the orphaned spacer_tail at col 39 triggers a page integrity
+    // violation in clearCells.
+    try t.scrollUp(t.rows);
 }

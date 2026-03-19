@@ -15,7 +15,7 @@ pub const Style = enum {
     lock,
 
     /// Create a cursor style from the terminal style request.
-    pub fn fromTerminal(term: terminal.CursorStyle) ?Style {
+    pub fn fromTerminal(term: terminal.CursorStyle) Style {
         return switch (term) {
             .bar => .bar,
             .block => .block,
@@ -143,7 +143,7 @@ test "cursor: always block with preedit" {
 
     // If we're scrolled though, then we don't show the cursor.
     for (0..100) |_| try term.index();
-    try term.scrollViewport(.{ .top = {} });
+    term.scrollViewport(.{ .top = {} });
     try state.update(alloc, &term);
 
     // In any bool state

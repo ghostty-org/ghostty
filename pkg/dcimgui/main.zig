@@ -16,6 +16,10 @@ pub extern fn ImGui_ImplOpenGL3_Shutdown() callconv(.c) void;
 pub extern fn ImGui_ImplOpenGL3_NewFrame() callconv(.c) void;
 pub extern fn ImGui_ImplOpenGL3_RenderDrawData(draw_data: *c.ImDrawData) callconv(.c) void;
 
+// Extension: shutdown the OpenGL3 backend and zero out the imgl3w function
+// pointer table so a subsequent Init can re-initialize the loader.
+pub extern fn ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup() callconv(.c) void;
+
 // Metal backend
 pub extern fn ImGui_ImplMetal_Init(device: *anyopaque) callconv(.c) bool;
 pub extern fn ImGui_ImplMetal_Shutdown() callconv(.c) void;

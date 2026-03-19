@@ -1,9 +1,16 @@
 pub const color = @import("color.zig");
+pub const focus = @import("focus.zig");
+pub const formatter = @import("formatter.zig");
+pub const modes = @import("modes.zig");
 pub const osc = @import("osc.zig");
 pub const key_event = @import("key_event.zig");
 pub const key_encode = @import("key_encode.zig");
+pub const mouse_event = @import("mouse_event.zig");
+pub const mouse_encode = @import("mouse_encode.zig");
 pub const paste = @import("paste.zig");
 pub const sgr = @import("sgr.zig");
+pub const size_report = @import("size_report.zig");
+pub const terminal = @import("terminal.zig");
 
 // The full C API, unexported.
 pub const osc_new = osc.new;
@@ -15,6 +22,15 @@ pub const osc_command_type = osc.commandType;
 pub const osc_command_data = osc.commandData;
 
 pub const color_rgb_get = color.rgb_get;
+
+pub const focus_encode = focus.encode;
+
+pub const mode_report_encode = modes.report_encode;
+
+pub const formatter_terminal_new = formatter.terminal_new;
+pub const formatter_format_buf = formatter.format_buf;
+pub const formatter_format_alloc = formatter.format_alloc;
+pub const formatter_free = formatter.free;
 
 pub const sgr_new = sgr.new;
 pub const sgr_free = sgr.free;
@@ -48,17 +64,55 @@ pub const key_event_get_unshifted_codepoint = key_event.get_unshifted_codepoint;
 pub const key_encoder_new = key_encode.new;
 pub const key_encoder_free = key_encode.free;
 pub const key_encoder_setopt = key_encode.setopt;
+pub const key_encoder_setopt_from_terminal = key_encode.setopt_from_terminal;
 pub const key_encoder_encode = key_encode.encode;
+
+pub const mouse_event_new = mouse_event.new;
+pub const mouse_event_free = mouse_event.free;
+pub const mouse_event_set_action = mouse_event.set_action;
+pub const mouse_event_get_action = mouse_event.get_action;
+pub const mouse_event_set_button = mouse_event.set_button;
+pub const mouse_event_clear_button = mouse_event.clear_button;
+pub const mouse_event_get_button = mouse_event.get_button;
+pub const mouse_event_set_mods = mouse_event.set_mods;
+pub const mouse_event_get_mods = mouse_event.get_mods;
+pub const mouse_event_set_position = mouse_event.set_position;
+pub const mouse_event_get_position = mouse_event.get_position;
+
+pub const mouse_encoder_new = mouse_encode.new;
+pub const mouse_encoder_free = mouse_encode.free;
+pub const mouse_encoder_setopt = mouse_encode.setopt;
+pub const mouse_encoder_setopt_from_terminal = mouse_encode.setopt_from_terminal;
+pub const mouse_encoder_reset = mouse_encode.reset;
+pub const mouse_encoder_encode = mouse_encode.encode;
 
 pub const paste_is_safe = paste.is_safe;
 
+pub const size_report_encode = size_report.encode;
+
+pub const terminal_new = terminal.new;
+pub const terminal_free = terminal.free;
+pub const terminal_reset = terminal.reset;
+pub const terminal_resize = terminal.resize;
+pub const terminal_vt_write = terminal.vt_write;
+pub const terminal_scroll_viewport = terminal.scroll_viewport;
+pub const terminal_mode_get = terminal.mode_get;
+pub const terminal_mode_set = terminal.mode_set;
+
 test {
     _ = color;
+    _ = focus;
+    _ = formatter;
+    _ = modes;
     _ = osc;
     _ = key_event;
     _ = key_encode;
+    _ = mouse_event;
+    _ = mouse_encode;
     _ = paste;
     _ = sgr;
+    _ = size_report;
+    _ = terminal;
 
     // We want to make sure we run the tests for the C allocator interface.
     _ = @import("../../lib/allocator.zig");

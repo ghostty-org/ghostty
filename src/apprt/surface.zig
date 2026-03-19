@@ -188,7 +188,7 @@ pub fn newConfig(
     if (prev) |p| {
         if (shouldInheritWorkingDirectory(context, config)) {
             if (try p.pwd(alloc)) |pwd| {
-                copy.@"working-directory" = pwd;
+                copy.@"working-directory" = .{ .path = pwd };
             }
         }
     }

@@ -1,0 +1,185 @@
+# The list of vouched (or actively denounced) users for this repository.
+#
+# The high-level idea is that only vouched users can participate in
+# contributing to this project. And a denounced user is explicitly
+# blocked from contributing (issues, PRs, etc. auto-closed). 
+#
+# We choose to maintain a denouncement list rather than or in addition to
+# using the platform's block features so other projects can slurp in our 
+# list of denounced users if they trust us and want to adopt our prior
+# knowledge about bad actors.
+#
+# Syntax:
+#  - One handle per line (without @). Sorted alphabetically.
+#  - Optionally specify platform: `platform:username` (e.g., `github:mitchellh`).
+#  - To denounce a user, prefix with minus: `-username` or `-platform:username`.
+#  - Optionally, add comments after a space following the handle.
+#
+# Maintainers can vouch for new contributors by commenting "!vouch" on a
+# discussion by the author. Maintainers can denounce users by commenting
+# "!denounce" or "!denounce [username]" on a discussion.
+00-kat
+04cb
+aalhendi
+abdurrahmanski
+abudvytis
+adrum
+aindriu80
+alaasdk
+alanmoyano
+alexfeijoo44
+alexjuca
+alosarjos
+amadeus
+andrejdaskalov
+anhthang
+anmitalidev
+anthonyzhoon
+atomk
+balazs-szucs
+bennettp123
+benodiwal
+bernsno
+beryesa
+bitigchi
+bkircher
+bo2themax
+brentschroeter
+cespare
+charliie-dev
+chernetskyi
+chronologos
+cmwetherell
+crayxt
+craziestowl
+curtismoncoq
+d-dudas
+daiimus
+damyanbogoev
+danulqua
+dariogriffo
+davidsanchez222
+dervedro
+devsunb
+diaaeddin
+dmehala
+doprz
+douglance
+douglas
+drepper
+dzhlobo
+ekaterinepapava
+elias8
+ephemera
+eriksremess
+faukah
+filip7
+flou
+francescarpi
+gagbo
+ghokun
+gmile
+gordonbondon
+gpanders
+guilhermetk
+hakonhagland
+halosatrio
+heaths
+heddxh heddxh
+-highimpact-dev Disrespectful AI user
+hqnna
+hulet
+icodesign
+j0hnm4r5
+jacobsandlund
+jake-stewart
+jcollie
+jesusvazquez
+jguthmiller
+jmcgover
+johnslavik
+josephmart
+jparise
+juniqlim
+kawarimidoll
+kenvandine
+khipp
+kirwiisp
+kjvdven
+kloneets
+koranir
+kristina8888
+kristofersoler
+laxystem
+liby
+linustalacko
+lonsagisawa
+mac0ne
+mahnokropotkinvich
+marijagjorgjieva
+markdorison
+markhuot
+marrocco-simone
+matkotiric
+micaeljarniac
+michielvk
+miguelelgallo
+mihi314
+mikailmm
+misairuzame
+mischief
+mitchellh
+miupa
+molechowski
+mrmage
+mtak
+natesmyth
+neo773
+nicosuave
+nmggithub
+noib3
+nwehg
+ocean6954
+oshdubh
+pan93412
+pangoraw
+pauley-unsaturated
+peilingjiang
+peterdavehello
+philocalyst
+phush0
+piedrahitac
+pluiedev
+pouwerkerk
+poweruser64
+prakhar54-byte
+priyans-hu
+puzza007
+qwerasd205
+reo101
+rgehan
+rhodes-b
+rmengelbrecht
+rmunn
+rockorager
+rpfaeffle
+secrus
+seruman
+silveirapf
+slsrepo
+sunshine-syz
+tdslot
+ticclick
+tnagatomi
+trag1c
+tristan957
+tweedbeetle
+uhojin
+uzaaft
+vaughanandrews
+vlsi
+wyounas
+yamshta
+ydah
+zenyr
+zeshi09

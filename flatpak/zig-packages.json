@@ -67,9 +67,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260202-151632-49169e9.tgz",
-    "dest": "vendor/p/N-V-__8AAKlTAwClvdUfsAoiLgM6sb2NPZNnS6wzCiIs252Z",
-    "sha256": "c4dfb789068ddee209fc1ce4805c4ba23807a9ebb3d61b4d7158dc8d647b4238"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz",
+    "dest": "vendor/p/N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF",
+    "sha256": "14200bb86a0c814ab69609d500b280b396b6d2eb835edf0676de4a789c0aa8fd"
   },
   {
     "type": "archive",
@@ -145,9 +145,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/uucode-31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz",
-    "dest": "vendor/p/uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E",
-    "sha256": "4b3a581a1806e01e8bb9ff1e4f7e6c28ba1b0b18e6c04ba8d53c24d237aef60e"
+    "url": "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9",
+    "sha256": "d0abee0f4f8bd6eae3c051777e16e7c42d8964aaaa015591c4e565703f465f95"
   },
   {
     "type": "archive",
@@ -175,7 +175,7 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.10.0.tar.gz",
+    "url": "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz",
     "dest": "vendor/p/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ",
     "sha256": "69f21da2efd5ee0937fe55c4d09e48afc4fb2f91a01ef167c8c275ae046797f7"
   },

@@ -56,6 +56,9 @@ pub fn build(b: *std.Build) !void {
     if (freetype) try flags.appendSlice(b.allocator, &.{
         "-DIMGUI_ENABLE_FREETYPE=1",
     });
+    if (backend_opengl3) try flags.appendSlice(b.allocator, &.{
+        "-DZIGPKG_IMGUI_ENABLE_OPENGL3=1",
+    });
     if (target.result.os.tag == .windows) {
         try flags.appendSlice(b.allocator, &.{
             "-DIMGUI_IMPL_API=extern\t\"C\"\t__declspec(dllexport)",

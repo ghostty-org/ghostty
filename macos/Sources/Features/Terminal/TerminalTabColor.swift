@@ -122,7 +122,7 @@ struct TabColorMenuView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Tab Color")
                 .padding(.bottom, 2)
-            
+
             ForEach(Self.paletteRows, id: \.self) { row in
                 HStack(spacing: 2) {
                     ForEach(row, id: \.self) { color in
@@ -142,7 +142,7 @@ struct TabColorMenuView: View {
         .padding(.top, 4)
         .padding(.bottom, 4)
     }
-    
+
     static let paletteRows: [[TerminalTabColor]] = [
         [.none, .blue, .purple, .pink, .red],
         [.orange, .yellow, .green, .teal, .graphite],

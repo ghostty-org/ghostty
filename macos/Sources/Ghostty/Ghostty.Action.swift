@@ -18,7 +18,7 @@ extension Ghostty.Action {
         }
 
         init(c: ghostty_action_color_change_s) {
-            switch (c.kind) {
+            switch c.kind {
             case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
                 self.kind = .foreground
             case GHOSTTY_ACTION_COLOR_KIND_BACKGROUND:
@@ -40,13 +40,13 @@ extension Ghostty.Action {
             self.amount = c.amount
         }
     }
-    
+
     struct OpenURL {
         enum Kind {
             case unknown
             case text
             case html
-            
+
             init(_ c: ghostty_action_open_url_kind_e) {
                 switch c {
                 case GHOSTTY_ACTION_OPEN_URL_KIND_TEXT:
@@ -58,13 +58,13 @@ extension Ghostty.Action {
                 }
             }
         }
-        
+
         let kind: Kind
         let url: String
-        
+
         init(c: ghostty_action_open_url_s) {
             self.kind = Kind(c.kind)
-            
+
             if let urlCString = c.url {
                 let data = Data(bytes: urlCString, count: Int(c.len))
                 self.url = String(data: data, encoding: .utf8) ?? ""
@@ -81,7 +81,7 @@ extension Ghostty.Action {
             case error
             case indeterminate
             case pause
-            
+
             init(_ c: ghostty_action_progress_report_state_e) {
                 switch c {
                 case GHOSTTY_PROGRESS_STATE_REMOVE:
@@ -99,26 +99,26 @@ extension Ghostty.Action {
                 }
             }
         }
-        
+
         let state: State
         let progress: UInt8?
     }
-    
+
     struct Scrollbar {
         let total: UInt64
         let offset: UInt64
         let len: UInt64
-        
+
         init(c: ghostty_action_scrollbar_s) {
             total = c.total
-            offset = c.offset            
+            offset = c.offset
             len = c.len
         }
     }
 
     struct StartSearch {
         let needle: String?
-        
+
         init(c: ghostty_action_start_search_s) {
             if let needleCString = c.needle {
                 self.needle = String(cString: needleCString)

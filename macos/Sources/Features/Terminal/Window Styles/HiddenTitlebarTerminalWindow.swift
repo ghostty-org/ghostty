@@ -3,7 +3,7 @@ import AppKit
 class HiddenTitlebarTerminalWindow: TerminalWindow {
     // No titlebar, we don't support accessories.
     override var supportsUpdateAccessory: Bool { false }
-    
+
     override func awakeFromNib() {
         super.awakeFromNib()
 
@@ -34,7 +34,7 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
         .closable,
         .miniaturizable,
     ]
-    
+
     /// Apply the hidden titlebar style.
     private func reapplyHiddenStyle() {
         // If our window is fullscreen then we don't reapply the hidden style because
@@ -43,7 +43,7 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
         if terminalController?.fullscreenStyle?.isFullscreen ?? false {
             return
         }
-        
+
         // Apply our style mask while preserving the .fullScreen option
         if styleMask.contains(.fullScreen) {
             styleMask = Self.hiddenStyleMask.union([.fullScreen])

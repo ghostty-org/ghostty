@@ -72,11 +72,14 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         set -g __ghostty_prompt_start_mark "\e]133;A;click_events=1\a"
     end
 
-    if contains cursor $features
+    if string match -q 'cursor*' -- $features
+        set -l cursor 5                                   # blinking bar
+        contains cursor:steady $features && set cursor 6  # steady bar
+
         # Change the cursor to a beam on prompt.
-        function __ghostty_set_cursor_beam --on-event fish_prompt -d "Set cursor shape"
+        function __ghostty_set_cursor_beam --on-event fish_prompt -V cursor -d "Set cursor shape"
             if not functions -q fish_vi_cursor_handle
-                echo -en "\e[5 q"
+                echo -en "\e[$cursor q"
             end
         end
         function __ghostty_reset_cursor --on-event fish_preexec -d "Reset cursor shape"
@@ -126,8 +129,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
             # Configure environment variables for remote session
             if contains ssh-env $features
-                set -a ssh_opts -o "SetEnv COLORTERM=truecolor"
-                set -a ssh_opts -o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"
+                set -a ssh_opts -o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION"
             end
 
             # Install terminfo on remote host if needed
@@ -195,7 +197,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
             end
 
             # Execute SSH with TERM environment variable
-            TERM="$ssh_term" command ssh $ssh_opts $argv
+            TERM="$ssh_term" COLORTERM=truecolor command ssh $ssh_opts $argv
         end
     end
 
@@ -233,7 +235,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     set --global fish_handle_reflow 1
 
     # Initial calls for first prompt
-    if contains cursor $features
+    if string match -q 'cursor*' -- $features
         __ghostty_set_cursor_beam
     end
     __ghostty_mark_prompt_start

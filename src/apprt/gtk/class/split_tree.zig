@@ -7,6 +7,7 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+const configpkg = @import("../../../config.zig");
 const apprt = @import("../../../apprt.zig");
 const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
@@ -157,11 +158,6 @@ pub const SplitTree = extern struct {
         /// used to debounce updates.
         rebuild_source: ?c_uint = null,
 
-        /// Tracks whether we want a rebuild to happen at the next tick
-        /// that our surface tree has no surfaces with parents. See the
-        /// propTree function for a lot more details.
-        rebuild_pending: bool,
-
         /// Used to store state about a pending surface close for the
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
@@ -208,11 +204,22 @@ pub const SplitTree = extern struct {
         self: *Self,
         direction: Surface.Tree.Split.Direction,
         parent_: ?*Surface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
     ) Allocator.Error!void {
         const alloc = Application.default().allocator();
 
         // Create our new surface.
-        const surface: *Surface = .new();
+        const surface: *Surface = .new(.{
+            .command = overrides.command,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        });
         defer surface.unref();
         _ = surface.refSink();
 
@@ -408,13 +415,6 @@ pub const SplitTree = extern struct {
                 self,
                 .{ .detail = "focused" },
             );
-            _ = gobject.Object.signals.notify.connect(
-                surface.as(gtk.Widget),
-                *Self,
-                propSurfaceParent,
-                self,
-                .{ .detail = "parent" },
-            );
         }
     }
 
@@ -476,20 +476,6 @@ pub const SplitTree = extern struct {
         // in a multi-threaded context so this is safe.
         surface.unref();
         return surface;
-    }
-
-    /// Returns whether any of the surfaces in the tree have a parent.
-    /// This is important because we can only rebuild the widget tree
-    /// when every surface has no parent.
-    fn getTreeHasParents(self: *Self) bool {
-        const tree: *const Surface.Tree = self.getTree() orelse &.empty;
-        var it = tree.iterator();
-        while (it.next()) |entry| {
-            const surface = entry.view;
-            if (surface.as(gtk.Widget).getParent() != null) return true;
-        }
-
-        return false;
     }
 
     pub fn getHasSurfaces(self: *Self) bool {
@@ -638,6 +624,7 @@ pub const SplitTree = extern struct {
         self.newSplit(
             direction,
             self.getActiveSurface(),
+            .none,
         ) catch |err| {
             log.warn("new split failed error={}", .{err});
         };
@@ -779,33 +766,18 @@ pub const SplitTree = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
     }
 
-    fn propSurfaceParent(
-        _: *gtk.Widget,
-        _: *gobject.ParamSpec,
-        self: *Self,
-    ) callconv(.c) void {
-        const priv = self.private();
-
-        // If we're not waiting to rebuild then ignore this.
-        if (!priv.rebuild_pending) return;
-
-        // If any parents still exist in our tree then don't do anything.
-        if (self.getTreeHasParents()) return;
-
-        // Schedule the rebuild. Note, I tried to do this immediately (not
-        // on an idle tick) and it didn't work and had obvious rendering
-        // glitches. Something to look into in the future.
-        assert(priv.rebuild_source == null);
-        priv.rebuild_pending = false;
-        priv.rebuild_source = glib.idleAdd(onRebuild, self);
-    }
-
     fn propTree(
         self: *Self,
         _: *gobject.ParamSpec,
         _: ?*anyopaque,
     ) callconv(.c) void {
         const priv = self.private();
+
+        // No matter what we notify
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"has-surfaces".impl.param_spec);
+        self.as(gobject.Object).notifyByPspec(properties.@"is-zoomed".impl.param_spec);
 
         // If we were planning a rebuild, always remove that so we can
         // start from a clean slate.
@@ -816,38 +788,22 @@ pub const SplitTree = extern struct {
             priv.rebuild_source = null;
         }
 
-        // We need to wait for all our previous surfaces to lose their
-        // parent before adding them to a new one. I'm not sure if its a GTK
-        // bug, but manually forcing an unparent of all prior surfaces AND
-        // adding them to a new parent in the same tick causes the GLArea
-        // to break (it seems). I didn't investigate too deeply.
-        //
-        // Note, we also can't just defer to an idle tick (via idleAdd) because
-        // sometimes it takes more than one tick for all our surfaces to
-        // lose their parent.
-        //
-        // To work around this issue, if we have any surfaces that have
-        // a parent, we set the build pending flag and wait for the tree
-        // to be fully parent-free before building.
-        priv.rebuild_pending = self.getTreeHasParents();
-
-        // Reset our prior bin. This will force all prior surfaces to
-        // unparent... eventually.
-        priv.tree_bin.setChild(null);
-
-        // If none of the surfaces we plan on drawing require an unparent
-        // then we can setup our tree immediately. Otherwise, it'll happen
-        // via the `propSurfaceParent` callback.
-        if (!priv.rebuild_pending and priv.rebuild_source == null) {
-            priv.rebuild_source = glib.idleAdd(
-                onRebuild,
-                self,
-            );
+        // If we transitioned to an empty tree, clear immediately instead of
+        // waiting for an idle callback. Delaying teardown can keep the last
+        // surface alive during shutdown if the main loop exits first.
+        if (priv.tree == null) {
+            priv.tree_bin.setChild(null);
+            return;
         }
 
-        // Dependent properties
-        self.as(gobject.Object).notifyByPspec(properties.@"has-surfaces".impl.param_spec);
-        self.as(gobject.Object).notifyByPspec(properties.@"is-zoomed".impl.param_spec);
+        // Build on an idle callback so rapid tree changes are debounced.
+        // We keep the existing tree attached until the rebuild runs,
+        // which avoids transient empty frames.
+        assert(priv.rebuild_source == null);
+        priv.rebuild_source = glib.idleAdd(
+            onRebuild,
+            self,
+        );
     }
 
     fn onRebuild(ud: ?*anyopaque) callconv(.c) c_int {
@@ -857,22 +813,21 @@ pub const SplitTree = extern struct {
         const priv = self.private();
         priv.rebuild_source = null;
 
-        // Prior to rebuilding the tree, our surface tree must be
-        // comprised of fully orphaned surfaces.
-        assert(!self.getTreeHasParents());
-
         // Rebuild our tree
         const tree: *const Surface.Tree = self.private().tree orelse &.empty;
-        if (!tree.isEmpty()) {
-            priv.tree_bin.setChild(self.buildTree(
+        if (tree.isEmpty()) {
+            priv.tree_bin.setChild(null);
+        } else {
+            const built = self.buildTree(
                 tree,
                 tree.zoomed orelse .root,
-            ));
+            );
+            defer built.deinit();
+            priv.tree_bin.setChild(built.widget);
         }
 
-        // If we have a last focused surface, we need to refocus it, because
-        // during the frame between setting the bin to null and rebuilding,
-        // GTK will reset our focus state (as it should!)
+        // Replacing our tree widget hierarchy can reset focus state.
+        // If we have a last-focused surface, restore focus to it.
         if (priv.last_focused.get()) |v| {
             defer v.unref();
             v.grabFocus();
@@ -889,24 +844,118 @@ pub const SplitTree = extern struct {
 
     /// Builds the widget tree associated with a surface split tree.
     ///
-    /// The final returned widget is expected to be a floating reference,
-    /// ready to be attached to a parent widget.
+    /// Returned widgets are expected to be attached to a parent by the caller.
+    ///
+    /// If `release_ref` is true then `widget` has an extra temporary
+    /// reference that must be released once it is parented in the rebuilt
+    /// tree.
+    const BuildTreeResult = struct {
+        widget: *gtk.Widget,
+        release_ref: bool,
+
+        pub fn initNew(widget: *gtk.Widget) BuildTreeResult {
+            return .{ .widget = widget, .release_ref = false };
+        }
+
+        pub fn initReused(widget: *gtk.Widget) BuildTreeResult {
+            // We add a temporary ref to the widget to ensure it doesn't
+            // get destroyed while we're rebuilding the tree and detaching
+            // it from its old parent. The caller is expected to release
+            // this ref once the widget is attached to its new parent.
+            _ = widget.as(gobject.Object).ref();
+
+            // Detach after we ref it so that this doesn't mark the
+            // widget for destruction.
+            detachWidget(widget);
+
+            return .{ .widget = widget, .release_ref = true };
+        }
+
+        pub fn deinit(self: BuildTreeResult) void {
+            // If we have to release a ref, do it.
+            if (self.release_ref) self.widget.as(gobject.Object).unref();
+        }
+    };
+
     fn buildTree(
         self: *Self,
         tree: *const Surface.Tree,
         current: Surface.Tree.Node.Handle,
-    ) *gtk.Widget {
+    ) BuildTreeResult {
         return switch (tree.nodes[current.idx()]) {
-            .leaf => |v| gobject.ext.newInstance(SurfaceScrolledWindow, .{
-                .surface = v,
-            }).as(gtk.Widget),
-            .split => |s| SplitTreeSplit.new(
-                current,
-                &s,
-                self.buildTree(tree, s.left),
-                self.buildTree(tree, s.right),
-            ).as(gtk.Widget),
+            .leaf => |v| leaf: {
+                const window = ext.getAncestor(
+                    SurfaceScrolledWindow,
+                    v.as(gtk.Widget),
+                ) orelse {
+                    // The surface isn't in a window already so we don't
+                    // have to worry about reuse.
+                    break :leaf .initNew(gobject.ext.newInstance(
+                        SurfaceScrolledWindow,
+                        .{ .surface = v },
+                    ).as(gtk.Widget));
+                };
+
+                // Keep this widget alive while we detach it from the
+                // old tree and adopt it into the new one.
+                break :leaf .initReused(window.as(gtk.Widget));
+            },
+            .split => |s| split: {
+                const left = self.buildTree(tree, s.left);
+                defer left.deinit();
+                const right = self.buildTree(tree, s.right);
+                defer right.deinit();
+
+                break :split .initNew(SplitTreeSplit.new(
+                    current,
+                    &s,
+                    left.widget,
+                    right.widget,
+                ).as(gtk.Widget));
+            },
         };
+    }
+
+    /// Detach a split widget from its current parent.
+    ///
+    /// We intentionally use parent-specific child APIs when possible
+    /// (`GtkPaned.setStartChild/setEndChild`, `AdwBin.setChild`) instead of
+    /// calling `gtk.Widget.unparent` directly. Container implementations track
+    /// child pointers/properties internally, and those setters are the path
+    /// that keeps container state and notifications in sync.
+    fn detachWidget(widget: *gtk.Widget) void {
+        const parent = widget.getParent() orelse return;
+
+        // Surface will be in a paned when it is split.
+        if (gobject.ext.cast(gtk.Paned, parent)) |paned| {
+            if (paned.getStartChild()) |child| {
+                if (child == widget) {
+                    paned.setStartChild(null);
+                    return;
+                }
+            }
+
+            if (paned.getEndChild()) |child| {
+                if (child == widget) {
+                    paned.setEndChild(null);
+                    return;
+                }
+            }
+        }
+
+        // Surface will be in a bin when it is not split.
+        if (gobject.ext.cast(adw.Bin, parent)) |bin| {
+            if (bin.getChild()) |child| {
+                if (child == widget) {
+                    bin.setChild(null);
+                    return;
+                }
+            }
+        }
+
+        // Fallback for unexpected parents where we don't have a typed
+        // container API available.
+        widget.unparent();
     }
 
     //---------------------------------------------------------------

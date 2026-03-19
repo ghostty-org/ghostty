@@ -15,6 +15,7 @@ const LibEnum = @import("../lib/enum.zig").Enum;
 const kitty_color = @import("kitty/color.zig");
 const parsers = @import("osc/parsers.zig");
 const encoding = @import("osc/encoding.zig");
+const lib = @import("../lib/main.zig");
 
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
@@ -153,7 +154,15 @@ pub const Command = union(Key) {
     /// Kitty text sizing protocol (OSC 66)
     kitty_text_sizing: parsers.kitty_text_sizing.OSC,
 
+    kitty_clipboard_protocol: KittyClipboardProtocol,
+
+    /// OSC 3008. Hierarchical context signalling (UAPI spec).
+    /// https://uapi-group.org/specifications/specs/osc_context/
+    context_signal: parsers.context_signal.Command,
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
+
+    pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
     pub const Key = LibEnum(
         if (build_options.c_abi) .c else .zig,
@@ -182,6 +191,8 @@ pub const Command = union(Key) {
             "conemu_xterm_emulation",
             "conemu_comment",
             "kitty_text_sizing",
+            "kitty_clipboard_protocol",
+            "context_signal",
         },
     );
 
@@ -192,6 +203,10 @@ pub const Command = union(Key) {
             @"error",
             indeterminate,
             pause,
+
+            test "ghostty.h Command.ProgressReport.State" {
+                try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
+            }
         };
 
         state: State,
@@ -221,7 +236,6 @@ pub const Command = union(Key) {
             8 => 64,
             else => unreachable,
         });
-        // @compileLog(@sizeOf(Command));
     }
 };
 
@@ -306,12 +320,16 @@ pub const Parser = struct {
         @"0",
         @"1",
         @"2",
+        @"3",
         @"4",
         @"5",
         @"6",
         @"7",
         @"8",
         @"9",
+        @"30",
+        @"300",
+        @"3008",
         @"10",
         @"11",
         @"12",
@@ -325,6 +343,7 @@ pub const Parser = struct {
         @"21",
         @"22",
         @"52",
+        @"55",
         @"66",
         @"77",
         @"104",
@@ -339,8 +358,10 @@ pub const Parser = struct {
         @"118",
         @"119",
         @"133",
+        @"552",
         @"777",
         @"1337",
+        @"5522",
     };
 
     pub fn init(alloc: ?Allocator) Parser {
@@ -402,6 +423,8 @@ pub const Parser = struct {
             .semantic_prompt,
             .show_desktop_notification,
             .kitty_text_sizing,
+            .kitty_clipboard_protocol,
+            .context_signal,
             => {},
         }
 
@@ -479,12 +502,33 @@ pub const Parser = struct {
                 '0' => self.state = .@"0",
                 '1' => self.state = .@"1",
                 '2' => self.state = .@"2",
+                '3' => self.state = .@"3",
                 '4' => self.state = .@"4",
                 '5' => self.state = .@"5",
                 '6' => self.state = .@"6",
                 '7' => self.state = .@"7",
                 '8' => self.state = .@"8",
                 '9' => self.state = .@"9",
+                else => self.state = .invalid,
+            },
+
+            .@"3" => switch (c) {
+                '0' => self.state = .@"30",
+                else => self.state = .invalid,
+            },
+
+            .@"30" => switch (c) {
+                '0' => self.state = .@"300",
+                else => self.state = .invalid,
+            },
+
+            .@"300" => switch (c) {
+                '8' => self.state = .@"3008",
+                else => self.state = .invalid,
+            },
+
+            .@"3008" => switch (c) {
+                ';' => self.writeToFixed(),
                 else => self.state = .invalid,
             },
 
@@ -569,6 +613,7 @@ pub const Parser = struct {
             .@"5" => switch (c) {
                 ';' => if (self.ensureAllocator()) self.writeToFixed(),
                 '2' => self.state = .@"52",
+                '5' => self.state = .@"55",
                 else => self.state = .invalid,
             },
 
@@ -581,6 +626,11 @@ pub const Parser = struct {
             .@"66",
             => switch (c) {
                 ';' => self.writeToAllocating(),
+                else => self.state = .invalid,
+            },
+
+            .@"55" => switch (c) {
+                '2' => self.state = .@"552",
                 else => self.state = .invalid,
             },
 
@@ -602,9 +652,20 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
+            .@"552" => switch (c) {
+                '2' => self.state = .@"5522",
+                else => self.state = .invalid,
+            },
+
             .@"1337",
             => switch (c) {
                 ';' => self.writeToFixed(),
+                else => self.state = .invalid,
+            },
+
+            .@"5522",
+            => switch (c) {
+                ';' => self.writeToAllocating(),
                 else => self.state = .invalid,
             },
 
@@ -676,6 +737,15 @@ pub const Parser = struct {
 
             .@"52" => parsers.clipboard_operation.parse(self, terminator_ch),
 
+            .@"55" => null,
+
+            .@"3",
+            .@"30",
+            .@"300",
+            => null,
+
+            .@"3008" => parsers.context_signal.parse(self, terminator_ch),
+
             .@"6" => null,
 
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
@@ -684,9 +754,13 @@ pub const Parser = struct {
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
+            .@"552" => null,
+
             .@"777" => parsers.rxvt_extension.parse(self, terminator_ch),
 
             .@"1337" => parsers.iterm2.parse(self, terminator_ch),
+
+            .@"5522" => parsers.kitty_clipboard_protocol.parse(self, terminator_ch),
         };
     }
 };

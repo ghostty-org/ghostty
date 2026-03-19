@@ -8,6 +8,8 @@ const osc_color = @import("osc/parsers/color.zig");
 const kitty_color = @import("kitty/color.zig");
 const Terminal = @import("Terminal.zig");
 
+const log = std.log.scoped(.stream_readonly);
+
 /// This is a Stream implementation that processes actions against
 /// a Terminal and updates the Terminal state. It is called "readonly" because
 /// it only processes actions that modify terminal state, while ignoring
@@ -42,6 +44,16 @@ pub const Handler = struct {
     }
 
     pub fn vt(
+        self: *Handler,
+        comptime action: Action.Tag,
+        value: Action.Value(action),
+    ) void {
+        self.vtFallible(action, value) catch |err| {
+            log.warn("error handling VT action action={} err={}", .{ action, err });
+        };
+    }
+
+    inline fn vtFallible(
         self: *Handler,
         comptime action: Action.Tag,
         value: Action.Value(action),
@@ -402,7 +414,7 @@ test "basic print" {
     var s: Stream = .initAlloc(testing.allocator, .init(&t));
     defer s.deinit();
 
-    try s.nextSlice("Hello");
+    s.nextSlice("Hello");
     try testing.expectEqual(@as(usize, 5), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
@@ -419,12 +431,12 @@ test "cursor movement" {
     defer s.deinit();
 
     // Move cursor using escape sequences
-    try s.nextSlice("Hello\x1B[1;1H");
+    s.nextSlice("Hello\x1B[1;1H");
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     // Move to position 2,3
-    try s.nextSlice("\x1B[2;3H");
+    s.nextSlice("\x1B[2;3H");
     try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
 }
@@ -437,13 +449,13 @@ test "erase operations" {
     defer s.deinit();
 
     // Print some text
-    try s.nextSlice("Hello World");
+    s.nextSlice("Hello World");
     try testing.expectEqual(@as(usize, 11), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     // Move cursor to position 1,6 and erase from cursor to end of line
-    try s.nextSlice("\x1B[1;6H");
-    try s.nextSlice("\x1B[K");
+    s.nextSlice("\x1B[1;6H");
+    s.nextSlice("\x1B[K");
 
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
@@ -457,7 +469,7 @@ test "tabs" {
     var s: Stream = .initAlloc(testing.allocator, .init(&t));
     defer s.deinit();
 
-    try s.nextSlice("A\tB");
+    s.nextSlice("A\tB");
     try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.x);
 
     const str = try t.plainString(testing.allocator);
@@ -474,9 +486,9 @@ test "modes" {
 
     // Test wraparound mode
     try testing.expect(t.modes.get(.wraparound));
-    try s.nextSlice("\x1B[?7l"); // Disable wraparound
+    s.nextSlice("\x1B[?7l"); // Disable wraparound
     try testing.expect(!t.modes.get(.wraparound));
-    try s.nextSlice("\x1B[?7h"); // Enable wraparound
+    s.nextSlice("\x1B[?7h"); // Enable wraparound
     try testing.expect(t.modes.get(.wraparound));
 }
 
@@ -488,7 +500,7 @@ test "scrolling regions" {
     defer s.deinit();
 
     // Set scrolling region from line 5 to 20
-    try s.nextSlice("\x1B[5;20r");
+    s.nextSlice("\x1B[5;20r");
     try testing.expectEqual(@as(usize, 4), t.scrolling_region.top);
     try testing.expectEqual(@as(usize, 19), t.scrolling_region.bottom);
     try testing.expectEqual(@as(usize, 0), t.scrolling_region.left);
@@ -503,8 +515,8 @@ test "charsets" {
     defer s.deinit();
 
     // Configure G0 as DEC special graphics
-    try s.nextSlice("\x1B(0");
-    try s.nextSlice("`"); // Should print diamond character
+    s.nextSlice("\x1B(0");
+    s.nextSlice("`"); // Should print diamond character
 
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
@@ -519,18 +531,18 @@ test "alt screen" {
     defer s.deinit();
 
     // Write to primary screen
-    try s.nextSlice("Primary");
+    s.nextSlice("Primary");
     try testing.expectEqual(.primary, t.screens.active_key);
 
     // Switch to alt screen
-    try s.nextSlice("\x1B[?1049h");
+    s.nextSlice("\x1B[?1049h");
     try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Write to alt screen
-    try s.nextSlice("Alt");
+    s.nextSlice("Alt");
 
     // Switch back to primary
-    try s.nextSlice("\x1B[?1049l");
+    s.nextSlice("\x1B[?1049l");
     try testing.expectEqual(.primary, t.screens.active_key);
 
     const str = try t.plainString(testing.allocator);
@@ -546,20 +558,20 @@ test "cursor save and restore" {
     defer s.deinit();
 
     // Move cursor to 10,15
-    try s.nextSlice("\x1B[10;15H");
+    s.nextSlice("\x1B[10;15H");
     try testing.expectEqual(@as(usize, 14), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.y);
 
     // Save cursor
-    try s.nextSlice("\x1B7");
+    s.nextSlice("\x1B7");
 
     // Move cursor elsewhere
-    try s.nextSlice("\x1B[1;1H");
+    s.nextSlice("\x1B[1;1H");
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 
     // Restore cursor
-    try s.nextSlice("\x1B8");
+    s.nextSlice("\x1B8");
     try testing.expectEqual(@as(usize, 14), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 9), t.screens.active.cursor.y);
 }
@@ -572,7 +584,7 @@ test "attributes" {
     defer s.deinit();
 
     // Set bold and write text
-    try s.nextSlice("\x1B[1mBold\x1B[0m");
+    s.nextSlice("\x1B[1mBold\x1B[0m");
 
     // Verify we can write attributes - just check the string was written
     const str = try t.plainString(testing.allocator);
@@ -588,7 +600,7 @@ test "DECALN screen alignment" {
     defer s.deinit();
 
     // Run DECALN
-    try s.nextSlice("\x1B#8");
+    s.nextSlice("\x1B#8");
 
     // Verify entire screen is filled with 'E'
     const str = try t.plainString(testing.allocator);
@@ -608,13 +620,13 @@ test "full reset" {
     defer s.deinit();
 
     // Make some changes
-    try s.nextSlice("Hello");
-    try s.nextSlice("\x1B[10;20H");
-    try s.nextSlice("\x1B[5;20r"); // Set scroll region
-    try s.nextSlice("\x1B[?7l"); // Disable wraparound
+    s.nextSlice("Hello");
+    s.nextSlice("\x1B[10;20H");
+    s.nextSlice("\x1B[5;20r"); // Set scroll region
+    s.nextSlice("\x1B[?7l"); // Disable wraparound
 
     // Full reset
-    try s.nextSlice("\x1Bc");
+    s.nextSlice("\x1Bc");
 
     // Verify reset state
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
@@ -632,12 +644,12 @@ test "ignores query actions" {
     defer s.deinit();
 
     // These should be ignored without error
-    try s.nextSlice("\x1B[c"); // Device attributes
-    try s.nextSlice("\x1B[5n"); // Device status report
-    try s.nextSlice("\x1B[6n"); // Cursor position report
+    s.nextSlice("\x1B[c"); // Device attributes
+    s.nextSlice("\x1B[5n"); // Device status report
+    s.nextSlice("\x1B[6n"); // Cursor position report
 
     // Terminal should still be functional
-    try s.nextSlice("Test");
+    s.nextSlice("Test");
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("Test", str);
@@ -654,14 +666,14 @@ test "OSC 4 set and reset palette" {
     const default_color_0 = t.colors.palette.original[0];
 
     // Set color 0 to red
-    try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
+    s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
     try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[0].r);
     try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].g);
     try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].b);
     try testing.expect(t.colors.palette.mask.isSet(0));
 
     // Reset color 0
-    try s.nextSlice("\x1b]104;0\x1b\\");
+    s.nextSlice("\x1b]104;0\x1b\\");
     try testing.expectEqual(default_color_0, t.colors.palette.current[0]);
     try testing.expect(!t.colors.palette.mask.isSet(0));
 }
@@ -674,15 +686,15 @@ test "OSC 104 reset all palette colors" {
     defer s.deinit();
 
     // Set multiple colors
-    try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
-    try s.nextSlice("\x1b]4;1;rgb:00/ff/00\x1b\\");
-    try s.nextSlice("\x1b]4;2;rgb:00/00/ff\x1b\\");
+    s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
+    s.nextSlice("\x1b]4;1;rgb:00/ff/00\x1b\\");
+    s.nextSlice("\x1b]4;2;rgb:00/00/ff\x1b\\");
     try testing.expect(t.colors.palette.mask.isSet(0));
     try testing.expect(t.colors.palette.mask.isSet(1));
     try testing.expect(t.colors.palette.mask.isSet(2));
 
     // Reset all palette colors
-    try s.nextSlice("\x1b]104\x1b\\");
+    s.nextSlice("\x1b]104\x1b\\");
     try testing.expectEqual(t.colors.palette.original[0], t.colors.palette.current[0]);
     try testing.expectEqual(t.colors.palette.original[1], t.colors.palette.current[1]);
     try testing.expectEqual(t.colors.palette.original[2], t.colors.palette.current[2]);
@@ -702,14 +714,14 @@ test "OSC 10 set and reset foreground color" {
     try testing.expect(t.colors.foreground.get() == null);
 
     // Set foreground to red
-    try s.nextSlice("\x1b]10;rgb:ff/00/00\x1b\\");
+    s.nextSlice("\x1b]10;rgb:ff/00/00\x1b\\");
     const fg = t.colors.foreground.get().?;
     try testing.expectEqual(@as(u8, 0xff), fg.r);
     try testing.expectEqual(@as(u8, 0x00), fg.g);
     try testing.expectEqual(@as(u8, 0x00), fg.b);
 
     // Reset foreground
-    try s.nextSlice("\x1b]110\x1b\\");
+    s.nextSlice("\x1b]110\x1b\\");
     try testing.expect(t.colors.foreground.get() == null);
 }
 
@@ -721,14 +733,14 @@ test "OSC 11 set and reset background color" {
     defer s.deinit();
 
     // Set background to green
-    try s.nextSlice("\x1b]11;rgb:00/ff/00\x1b\\");
+    s.nextSlice("\x1b]11;rgb:00/ff/00\x1b\\");
     const bg = t.colors.background.get().?;
     try testing.expectEqual(@as(u8, 0x00), bg.r);
     try testing.expectEqual(@as(u8, 0xff), bg.g);
     try testing.expectEqual(@as(u8, 0x00), bg.b);
 
     // Reset background
-    try s.nextSlice("\x1b]111\x1b\\");
+    s.nextSlice("\x1b]111\x1b\\");
     try testing.expect(t.colors.background.get() == null);
 }
 
@@ -740,14 +752,14 @@ test "OSC 12 set and reset cursor color" {
     defer s.deinit();
 
     // Set cursor to blue
-    try s.nextSlice("\x1b]12;rgb:00/00/ff\x1b\\");
+    s.nextSlice("\x1b]12;rgb:00/00/ff\x1b\\");
     const cursor = t.colors.cursor.get().?;
     try testing.expectEqual(@as(u8, 0x00), cursor.r);
     try testing.expectEqual(@as(u8, 0x00), cursor.g);
     try testing.expectEqual(@as(u8, 0xff), cursor.b);
 
     // Reset cursor
-    try s.nextSlice("\x1b]112\x1b\\");
+    s.nextSlice("\x1b]112\x1b\\");
     // After reset, cursor might be null (using default)
 }
 
@@ -759,7 +771,7 @@ test "kitty color protocol set palette" {
     defer s.deinit();
 
     // Set palette color 5 to magenta using kitty protocol
-    try s.nextSlice("\x1b]21;5=rgb:ff/00/ff\x1b\\");
+    s.nextSlice("\x1b]21;5=rgb:ff/00/ff\x1b\\");
     try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[5].r);
     try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[5].g);
     try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[5].b);
@@ -776,10 +788,10 @@ test "kitty color protocol reset palette" {
 
     // Set and then reset palette color
     const original = t.colors.palette.original[7];
-    try s.nextSlice("\x1b]21;7=rgb:aa/bb/cc\x1b\\");
+    s.nextSlice("\x1b]21;7=rgb:aa/bb/cc\x1b\\");
     try testing.expect(t.colors.palette.mask.isSet(7));
 
-    try s.nextSlice("\x1b]21;7=\x1b\\");
+    s.nextSlice("\x1b]21;7=\x1b\\");
     try testing.expectEqual(original, t.colors.palette.current[7]);
     try testing.expect(!t.colors.palette.mask.isSet(7));
 }
@@ -792,7 +804,7 @@ test "kitty color protocol set foreground" {
     defer s.deinit();
 
     // Set foreground using kitty protocol
-    try s.nextSlice("\x1b]21;foreground=rgb:12/34/56\x1b\\");
+    s.nextSlice("\x1b]21;foreground=rgb:12/34/56\x1b\\");
     const fg = t.colors.foreground.get().?;
     try testing.expectEqual(@as(u8, 0x12), fg.r);
     try testing.expectEqual(@as(u8, 0x34), fg.g);
@@ -807,7 +819,7 @@ test "kitty color protocol set background" {
     defer s.deinit();
 
     // Set background using kitty protocol
-    try s.nextSlice("\x1b]21;background=rgb:78/9a/bc\x1b\\");
+    s.nextSlice("\x1b]21;background=rgb:78/9a/bc\x1b\\");
     const bg = t.colors.background.get().?;
     try testing.expectEqual(@as(u8, 0x78), bg.r);
     try testing.expectEqual(@as(u8, 0x9a), bg.g);
@@ -822,7 +834,7 @@ test "kitty color protocol set cursor" {
     defer s.deinit();
 
     // Set cursor using kitty protocol
-    try s.nextSlice("\x1b]21;cursor=rgb:de/f0/12\x1b\\");
+    s.nextSlice("\x1b]21;cursor=rgb:de/f0/12\x1b\\");
     const cursor = t.colors.cursor.get().?;
     try testing.expectEqual(@as(u8, 0xde), cursor.r);
     try testing.expectEqual(@as(u8, 0xf0), cursor.g);
@@ -837,10 +849,10 @@ test "kitty color protocol reset foreground" {
     defer s.deinit();
 
     // Set and reset foreground
-    try s.nextSlice("\x1b]21;foreground=rgb:11/22/33\x1b\\");
+    s.nextSlice("\x1b]21;foreground=rgb:11/22/33\x1b\\");
     try testing.expect(t.colors.foreground.get() != null);
 
-    try s.nextSlice("\x1b]21;foreground=\x1b\\");
+    s.nextSlice("\x1b]21;foreground=\x1b\\");
     // After reset, should be unset
     try testing.expect(t.colors.foreground.get() == null);
 }
@@ -856,17 +868,17 @@ test "palette dirty flag set on color change" {
     t.flags.dirty.palette = false;
 
     // Setting palette color should set dirty flag
-    try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
+    s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
     try testing.expect(t.flags.dirty.palette);
 
     // Clear and test reset
     t.flags.dirty.palette = false;
-    try s.nextSlice("\x1b]104;0\x1b\\");
+    s.nextSlice("\x1b]104;0\x1b\\");
     try testing.expect(t.flags.dirty.palette);
 
     // Clear and test kitty protocol
     t.flags.dirty.palette = false;
-    try s.nextSlice("\x1b]21;1=rgb:00/ff/00\x1b\\");
+    s.nextSlice("\x1b]21;1=rgb:00/ff/00\x1b\\");
     try testing.expect(t.flags.dirty.palette);
 }
 
@@ -877,8 +889,8 @@ test "semantic prompt fresh line" {
     var s: Stream = .initAlloc(testing.allocator, .init(&t));
     defer s.deinit();
 
-    try s.nextSlice("Hello");
-    try s.nextSlice("\x1b]133;L\x07");
+    s.nextSlice("Hello");
+    s.nextSlice("\x1b]133;L\x07");
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
 }
@@ -891,8 +903,8 @@ test "semantic prompt fresh line new prompt" {
     defer s.deinit();
 
     // Write some text and then send OSC 133;A (fresh_line_new_prompt)
-    try s.nextSlice("Hello");
-    try s.nextSlice("\x1b]133;A\x07");
+    s.nextSlice("Hello");
+    s.nextSlice("\x1b]133;A\x07");
 
     // Should do a fresh line (carriage return + index)
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
@@ -902,8 +914,8 @@ test "semantic prompt fresh line new prompt" {
     try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
 
     // Test with redraw option
-    try s.nextSlice("prompt$ ");
-    try s.nextSlice("\x1b]133;A;redraw=1\x07");
+    s.nextSlice("prompt$ ");
+    s.nextSlice("\x1b]133;A;redraw=1\x07");
     try testing.expect(t.flags.shell_redraws_prompt == .true);
 }
 
@@ -915,12 +927,12 @@ test "semantic prompt end of input, then start output" {
     defer s.deinit();
 
     // Write some text and then send OSC 133;A (fresh_line_new_prompt)
-    try s.nextSlice("Hello");
-    try s.nextSlice("\x1b]133;A\x07");
-    try s.nextSlice("prompt$ ");
-    try s.nextSlice("\x1b]133;B\x07");
+    s.nextSlice("Hello");
+    s.nextSlice("\x1b]133;A\x07");
+    s.nextSlice("prompt$ ");
+    s.nextSlice("\x1b]133;B\x07");
     try testing.expectEqual(.input, t.screens.active.cursor.semantic_content);
-    try s.nextSlice("\x1b]133;C\x07");
+    s.nextSlice("\x1b]133;C\x07");
     try testing.expectEqual(.output, t.screens.active.cursor.semantic_content);
 }
 
@@ -932,10 +944,10 @@ test "semantic prompt prompt_start" {
     defer s.deinit();
 
     // Write some text
-    try s.nextSlice("Hello");
+    s.nextSlice("Hello");
 
     // OSC 133;P marks the start of a prompt (without fresh line behavior)
-    try s.nextSlice("\x1b]133;P\x07");
+    s.nextSlice("\x1b]133;P\x07");
     try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
     try testing.expectEqual(@as(usize, 5), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
@@ -949,8 +961,8 @@ test "semantic prompt new_command" {
     defer s.deinit();
 
     // Write some text
-    try s.nextSlice("Hello");
-    try s.nextSlice("\x1b]133;N\x07");
+    s.nextSlice("Hello");
+    s.nextSlice("\x1b]133;N\x07");
 
     // Should behave like fresh_line_new_prompt - cursor moves to column 0
     // on next line since we had content
@@ -967,7 +979,7 @@ test "semantic prompt new_command at column zero" {
     defer s.deinit();
 
     // OSC 133;N when already at column 0 should stay on same line
-    try s.nextSlice("\x1b]133;N\x07");
+    s.nextSlice("\x1b]133;N\x07");
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
     try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
@@ -981,10 +993,26 @@ test "semantic prompt end_prompt_start_input_terminate_eol clears on linefeed" {
     defer s.deinit();
 
     // Set input terminated by EOL
-    try s.nextSlice("\x1b]133;I\x07");
+    s.nextSlice("\x1b]133;I\x07");
     try testing.expectEqual(.input, t.screens.active.cursor.semantic_content);
 
     // Linefeed should reset semantic content to output
-    try s.nextSlice("\n");
+    s.nextSlice("\n");
     try testing.expectEqual(.output, t.screens.active.cursor.semantic_content);
+}
+
+test "stream: CSI W with intermediate but no params" {
+    // Regression test from AFL++ crash. CSI ? W without
+    // parameters caused an out-of-bounds access on input.params[0].
+    var t: Terminal = try .init(testing.allocator, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback = 100,
+    });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    s.nextSlice("\x1b[?W");
 }

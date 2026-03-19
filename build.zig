@@ -291,6 +291,14 @@ pub fn build(b: *std.Build) !void {
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
 
+        // Verify our internal libghostty header.
+        const ghostty_h = b.addTranslateC(.{
+            .root_source_file = b.path("include/ghostty.h"),
+            .target = config.baselineTarget(),
+            .optimize = .Debug,
+        });
+        test_exe.root_module.addImport("ghostty.h", ghostty_h.createModule());
+
         // Normal test running
         const test_run = b.addRunArtifact(test_exe);
         test_step.dependOn(&test_run.step);

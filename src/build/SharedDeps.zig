@@ -477,7 +477,9 @@ pub fn add(
         .freetype = true,
         .@"backend-metal" = target.result.os.tag.isDarwin(),
         .@"backend-osx" = target.result.os.tag == .macos,
-        .@"backend-opengl3" = target.result.os.tag != .macos,
+        // OpenGL3 backend should only be built on non-Apple targets.
+        // Apple platforms use Metal (and macOS may also use the OSX backend).
+        .@"backend-opengl3" = !target.result.os.tag.isDarwin(),
     })) |dep| {
         step.root_module.addImport("dcimgui", dep.module("dcimgui"));
         step.linkLibrary(dep.artifact("dcimgui"));
@@ -634,12 +636,16 @@ fn addGtkNg(
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
         );
+        scanner.addCustomProtocol(
+            plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
+        );
         scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
 
         scanner.generate("wl_compositor", 1);
         scanner.generate("org_kde_kwin_blur_manager", 1);
         scanner.generate("org_kde_kwin_server_decoration_manager", 1);
         scanner.generate("org_kde_kwin_slide_manager", 1);
+        scanner.generate("kde_output_order_v1", 1);
         scanner.generate("xdg_activation_v1", 1);
 
         step.root_module.addImport("wayland", b.createModule(.{
@@ -655,10 +661,10 @@ fn addGtkNg(
             .optimize = optimize,
         })) |gtk4_layer_shell| {
             const layer_shell_module = gtk4_layer_shell.module("gtk4-layer-shell");
-            if (gobject_) |gobject| layer_shell_module.addImport(
-                "gtk",
-                gobject.module("gtk4"),
-            );
+            if (gobject_) |gobject| {
+                layer_shell_module.addImport("gtk", gobject.module("gtk4"));
+                layer_shell_module.addImport("gdk", gobject.module("gdk4"));
+            }
             step.root_module.addImport(
                 "gtk4-layer-shell",
                 layer_shell_module,

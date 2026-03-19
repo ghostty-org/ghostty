@@ -252,6 +252,10 @@ pub const Window = extern struct {
         /// A weak reference to a command palette.
         command_palette: WeakRef(CommandPalette) = .empty,
 
+        /// Tab page that the context menu was opened for.
+        /// setup by `setup-menu`.
+        context_menu_page: ?*adw.TabPage = null,
+
         // Template bindings
         tab_overview: *adw.TabOverview,
         tab_bar: *adw.TabBar,
@@ -262,10 +266,27 @@ pub const Window = extern struct {
         pub var offset: c_int = 0;
     };
 
-    pub fn new(app: *Application) *Self {
-        return gobject.ext.newInstance(Self, .{
+    pub fn new(
+        app: *Application,
+        overrides: struct {
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
+    ) *Self {
+        const win = gobject.ext.newInstance(Self, .{
             .application = app,
         });
+
+        if (overrides.title) |title| {
+            // If the overrides have a title set, we set that immediately
+            // so that any applications inspecting the window states see an
+            // immediate title set when the window appears, rather than waiting
+            // possibly a few event loop ticks for it to sync from the surface.
+            win.as(gtk.Window).setTitle(title);
+        }
+
+        return win;
     }
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
@@ -274,10 +295,14 @@ pub const Window = extern struct {
         // If our configuration is null then we get the configuration
         // from the application.
         const priv = self.private();
-        if (priv.config == null) {
+
+        const config = config: {
+            if (priv.config) |config| break :config config.get();
             const app = Application.default();
-            priv.config = app.getConfig();
-        }
+            const config = app.getConfig();
+            priv.config = config;
+            break :config config.get();
+        };
 
         // We initialize our windowing protocol to none because we can't
         // actually initialize this until we get realized.
@@ -301,17 +326,16 @@ pub const Window = extern struct {
         self.initActionMap();
 
         // Start states based on config.
-        if (priv.config) |config_obj| {
-            const config = config_obj.get();
-            if (config.maximize) self.as(gtk.Window).maximize();
-            if (config.fullscreen) self.as(gtk.Window).fullscreen();
+        if (config.maximize) self.as(gtk.Window).maximize();
+        if (config.fullscreen != .false) self.as(gtk.Window).fullscreen();
 
-            // If we have an explicit title set, we set that immediately
-            // so that any applications inspecting the window states see
-            // an immediate title set when the window appears, rather than
-            // waiting possibly a few event loop ticks for it to sync from
-            // the surface.
-            if (config.title) |v| self.as(gtk.Window).setTitle(v);
+        // If we have an explicit title set, we set that immediately
+        // so that any applications inspecting the window states see
+        // an immediate title set when the window appears, rather than
+        // waiting possibly a few event loop ticks for it to sync from
+        // the surface.
+        if (config.title) |title| {
+            self.as(gtk.Window).setTitle(title);
         }
 
         // We always sync our appearance at the end because loading our
@@ -335,6 +359,9 @@ pub const Window = extern struct {
             .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
             .init("new-window", actionNewWindow, null),
+            .init("prompt-surface-title", actionPromptSurfaceTitle, null),
+            .init("prompt-tab-title", actionPromptTabTitle, null),
+            .init("prompt-context-tab-title", actionPromptContextTabTitle, null),
             .init("ring-bell", actionRingBell, null),
             .init("split-right", actionSplitRight, null),
             .init("split-left", actionSplitLeft, null),
@@ -361,22 +388,61 @@ pub const Window = extern struct {
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_, .tab);
+        _ = self.newTabPage(parent_, .tab, .none);
     }
 
-    pub fn newTabForWindow(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_, .window);
+    pub fn newTabForWindow(
+        self: *Self,
+        parent_: ?*CoreSurface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
+    ) void {
+        _ = self.newTabPage(
+            parent_,
+            .window,
+            .{
+                .command = overrides.command,
+                .working_directory = overrides.working_directory,
+                .title = overrides.title,
+            },
+        );
     }
 
-    fn newTabPage(self: *Self, parent_: ?*CoreSurface, context: apprt.surface.NewSurfaceContext) *adw.TabPage {
-        const priv = self.private();
+    fn newTabPage(
+        self: *Self,
+        parent_: ?*CoreSurface,
+        context: apprt.surface.NewSurfaceContext,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
+    ) *adw.TabPage {
+        const priv: *Private = self.private();
         const tab_view = priv.tab_view;
 
         // Create our new tab object
-        const tab = gobject.ext.newInstance(Tab, .{
-            .config = priv.config,
-        });
+        const tab = Tab.new(
+            priv.config,
+            .{
+                .command = overrides.command,
+                .working_directory = overrides.working_directory,
+                .title = overrides.title,
+            },
+        );
+
         if (parent_) |p| {
+            // For a new window's first tab, inherit the parent's initial size hints.
+            if (context == .window) {
+                surfaceInit(p.rt_surface.gobj(), self);
+            }
             tab.setParentWithContext(p, context);
         }
 
@@ -1242,7 +1308,7 @@ pub const Window = extern struct {
         _: *adw.TabOverview,
         self: *Self,
     ) callconv(.c) *adw.TabPage {
-        return self.newTabPage(if (self.getActiveSurface()) |v| v.core() else null, .tab);
+        return self.newTabPage(if (self.getActiveSurface()) |v| v.core() else null, .tab, .none);
     }
 
     fn tabOverviewOpen(
@@ -1531,6 +1597,13 @@ pub const Window = extern struct {
             self.as(gtk.Window).close();
         }
     }
+    fn setupTabMenu(
+        _: *adw.TabView,
+        page: ?*adw.TabPage,
+        self: *Self,
+    ) callconv(.c) void {
+        self.private().context_menu_page = page;
+    }
 
     fn surfaceClipboardWrite(
         _: *Surface,
@@ -1774,6 +1847,34 @@ pub const Window = extern struct {
         self.performBindingAction(.new_tab);
     }
 
+    fn actionPromptContextTabTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        const page = priv.context_menu_page orelse return;
+        const child = page.getChild();
+        const tab = gobject.ext.cast(Tab, child) orelse return;
+        tab.promptTabTitle();
+    }
+
+    fn actionPromptSurfaceTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.prompt_surface_title);
+    }
+
+    fn actionPromptTabTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.performBindingAction(.prompt_tab_title);
+    }
+
     fn actionSplitRight(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -1999,6 +2100,7 @@ pub const Window = extern struct {
             class.bindTemplateCallback("close_page", &tabViewClosePage);
             class.bindTemplateCallback("page_attached", &tabViewPageAttached);
             class.bindTemplateCallback("page_detached", &tabViewPageDetached);
+            class.bindTemplateCallback("setup_tab_menu", &setupTabMenu);
             class.bindTemplateCallback("tab_create_window", &tabViewCreateWindow);
             class.bindTemplateCallback("notify_n_pages", &tabViewNPages);
             class.bindTemplateCallback("notify_selected_page", &tabViewSelectedPage);

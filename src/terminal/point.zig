@@ -66,7 +66,7 @@ pub const Point = union(Tag) {
     }
 };
 
-pub const Coordinate = struct {
+pub const Coordinate = extern struct {
     /// x can use size.CellCountInt because the number of columns
     /// can't ever be more than a valid number of columns in a Page.
     x: size.CellCountInt = 0,

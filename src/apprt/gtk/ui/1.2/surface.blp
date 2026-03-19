@@ -203,7 +203,7 @@ Overlay terminal_page {
   // Apply unfocused-split-fill and unfocused-split-opacity to current surface
   // this is only applied when a tab has more than one surface
   Revealer {
-    reveal-child: bind $should_unfocused_split_be_shown(template.focused, template.is-split) as <bool>;
+    reveal-child: bind $should_unfocused_split_be_shown(search_overlay.active, template.focused, template.is-split) as <bool>;
     transition-duration: 0;
     // This is all necessary so that the Revealer itself doesn't override
     // any input events from the other overlays. Namely, if you don't have
@@ -221,7 +221,7 @@ Overlay terminal_page {
 
   DropTarget drop_target {
     drop => $drop();
-    actions: copy;
+    actions: copy | move;
   }
 }
 
@@ -320,6 +320,11 @@ menu context_menu_model {
 
     submenu {
       label: _("Tab");
+
+      item {
+        label: _("Change Tab Title…");
+        action: "tab.prompt-tab-title";
+      }
 
       item {
         label: _("New Tab");

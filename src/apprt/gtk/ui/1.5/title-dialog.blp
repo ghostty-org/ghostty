@@ -1,0 +1,18 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyTitleDialog: Adw.AlertDialog {
+  body: _("Leave blank to restore the default title.");
+
+  responses [
+    cancel: _("Cancel"),
+    ok: _("OK") suggested,
+  ]
+
+  default-response: "ok";
+  focus-widget: entry;
+
+  extra-child: Entry entry {
+    activates-default: true;
+  };
+}

@@ -40,6 +40,12 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\_ghostty() {
         \\
+        \\  # compat: mapfile -t COMPREPLY < <( "$@" )
+        \\  _compreply() {
+        \\    COMPREPLY=()
+        \\    while IFS='' read -r line; do COMPREPLY+=("$line"); done < <( "$@" )
+        \\  }
+        \\
         \\  # -o nospace requires we add back a space when a completion is finished
         \\  # and not part of a --key= completion
         \\  _add_spaces() {
@@ -50,16 +56,18 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
         \\  _fonts() {
         \\    local IFS=$'\n'
-        \\    mapfile -t COMPREPLY < <( compgen -P '"' -S '"' -W "$($ghostty +list-fonts | grep '^[A-Z]' )" -- "$cur")
+        \\    COMPREPLY=()
+        \\    while read -r line; do COMPREPLY+=("$line"); done < <( compgen -P '"' -S '"' -W "$($ghostty +list-fonts | grep '^[A-Z]' )" -- "$cur")
         \\  }
         \\
         \\  _themes() {
         \\    local IFS=$'\n'
-        \\    mapfile -t COMPREPLY < <( compgen -P '"' -S '"' -W "$($ghostty +list-themes | sed -E 's/^(.*) \(.*$/\1/')" -- "$cur")
+        \\    COMPREPLY=()
+        \\    while read -r line; do COMPREPLY+=("$line"); done < <( compgen -P '"' -S '"' -W "$($ghostty +list-themes | sed -E 's/^(.*) \(.*$/\1/')" -- "$cur")
         \\  }
         \\
         \\  _files() {
-        \\    mapfile -t COMPREPLY < <( compgen -o filenames -f -- "$cur" )
+        \\    _compreply compgen -o filenames -f -- "$cur"
         \\    for i in "${!COMPREPLY[@]}"; do
         \\      if [[ -d "${COMPREPLY[i]}" ]]; then
         \\        COMPREPLY[i]="${COMPREPLY[i]}/";
@@ -71,7 +79,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\  }
         \\
         \\  _dirs() {
-        \\    mapfile -t COMPREPLY < <( compgen -o dirnames -d -- "$cur" )
+        \\    _compreply compgen -o dirnames -d -- "$cur"
         \\    for i in "${!COMPREPLY[@]}"; do
         \\      if [[ -d "${COMPREPLY[i]}" ]]; then
         \\        COMPREPLY[i]="${COMPREPLY[i]}/";
@@ -115,8 +123,8 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         else if (field.type == Config.RepeatablePath)
             try writer.writeAll("_files ;;")
         else {
-            const compgenPrefix = "mapfile -t COMPREPLY < <( compgen -W \"";
-            const compgenSuffix = "\" -- \"$cur\" ); _add_spaces ;;";
+            const compgenPrefix = "_compreply compgen -W \"";
+            const compgenSuffix = "\" -- \"$cur\"; _add_spaces ;;";
             switch (@typeInfo(field.type)) {
                 .bool => try writer.writeAll("return ;;"),
                 .@"enum" => |info| {
@@ -147,7 +155,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
     }
 
     try writer.writeAll(
-        \\      *) mapfile -t COMPREPLY < <( compgen -W "$config" -- "$cur" ) ;;
+        \\      *) _compreply compgen -W "$config" -- "$cur" ;;
         \\    esac
         \\
         \\    return 0
@@ -206,8 +214,8 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
 
             try writer.writeAll(pad5 ++ "--" ++ opt.name ++ ") ");
 
-            const compgenPrefix = "mapfile -t COMPREPLY < <( compgen -W \"";
-            const compgenSuffix = "\" -- \"$cur\" ); _add_spaces ;;";
+            const compgenPrefix = "_compreply compgen -W \"";
+            const compgenSuffix = "\" -- \"$cur\"; _add_spaces ;;";
             switch (@typeInfo(opt.type)) {
                 .bool => try writer.writeAll("return ;;"),
                 .@"enum" => |info| {
@@ -243,7 +251,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
             }
             try writer.writeAll("\n");
         }
-        try writer.writeAll(pad5 ++ "*) mapfile -t COMPREPLY < <( compgen -W \"$" ++ bashName ++ "\" -- \"$cur\" ) ;;\n");
+        try writer.writeAll(pad5 ++ "*) _compreply compgen -W \"$" ++ bashName ++ "\" -- \"$cur\" ;;\n");
         try writer.writeAll(
             \\        esac
             \\      ;;
@@ -252,7 +260,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
     }
 
     try writer.writeAll(
-        \\      *) mapfile -t COMPREPLY < <( compgen -W "--help" -- "$cur" ) ;;
+        \\      *) _compreply compgen -W "--help" -- "$cur" ;;
         \\    esac
         \\
         \\    return 0
@@ -298,7 +306,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\      case "${COMP_WORDS[1]}" in
         \\        -e | --help | --version) return 0 ;;
         \\        --*) _handle_config ;;
-        \\        *) mapfile -t COMPREPLY < <( compgen -W "${topLevel}" -- "$cur" ); _add_spaces ;;
+        \\        *) _compreply compgen -W "${topLevel}" -- "$cur"; _add_spaces ;;
         \\      esac
         \\      ;;
         \\    *)

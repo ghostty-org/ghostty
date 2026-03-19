@@ -257,8 +257,18 @@ pub const ImguiWidget = extern struct {
             priv.tick_callback_id = 0;
         }
 
+        // Unrealize is not guaranteed to be called with a current GL context,
+        // so we make it current for ImGui cleanup.
+        priv.gl_area.makeCurrent();
+        if (priv.gl_area.getError()) |err| {
+            log.warn("GLArea for Dear ImGui widget failed to realize: {s}", .{err.f_message orelse "(unknown)"});
+            return;
+        }
+
         self.setCurrentContext() catch return;
-        cimgui.ImGui_ImplOpenGL3_Shutdown();
+        cimgui.ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup();
+        cimgui.c.ImGui_DestroyContext(priv.ig_context);
+        priv.ig_context = null;
     }
 
     /// Handle a request to resize the GLArea

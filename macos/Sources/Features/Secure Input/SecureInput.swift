@@ -12,7 +12,7 @@ import OSLog
 // it. You have to yield secure input on application deactivation (because
 // it'll affect other apps) and reacquire on reactivation, and every enable
 // needs to be balanced with a disable.
-class SecureInput : ObservableObject {
+class SecureInput: ObservableObject {
     static let shared = SecureInput()
 
     private static let logger = Logger(
@@ -90,12 +90,12 @@ class SecureInput : ObservableObject {
         guard enabled != desired else { return }
 
         let err: OSStatus
-        if (enabled) {
+        if enabled {
             err = DisableSecureEventInput()
         } else {
             err = EnableSecureEventInput()
         }
-        if (err == noErr) {
+        if err == noErr {
             enabled = desired
             Self.logger.debug("secure input state=\(self.enabled)")
             return
@@ -111,7 +111,7 @@ class SecureInput : ObservableObject {
         // desire to be enabled.
         guard !enabled && desired else { return }
         let err = EnableSecureEventInput()
-        if (err == noErr) {
+        if err == noErr {
             enabled = true
             Self.logger.debug("secure input enabled on activation")
             return
@@ -124,7 +124,7 @@ class SecureInput : ObservableObject {
         // We only want to disable if we're enabled.
         guard enabled else { return }
         let err = DisableSecureEventInput()
-        if (err == noErr) {
+        if err == noErr {
             enabled = false
             Self.logger.debug("secure input disabled on deactivation")
             return

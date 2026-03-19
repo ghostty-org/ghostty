@@ -16,20 +16,20 @@ class QuickTerminalController: BaseTerminalController {
     /// The previously running application when the terminal is shown. This is NEVER Ghostty.
     /// If this is set then when the quick terminal is animated out then we will restore this
     /// application to the front.
-    private var previousApp: NSRunningApplication? = nil
+    private var previousApp: NSRunningApplication?
 
     // The active space when the quick terminal was last shown.
-    private var previousActiveSpace: CGSSpace? = nil
+    private var previousActiveSpace: CGSSpace?
 
     /// Cache for per-screen window state.
     let screenStateCache: QuickTerminalScreenStateCache
 
     /// Non-nil if we have hidden dock state.
-    private var hiddenDock: HiddenDock? = nil
+    private var hiddenDock: HiddenDock?
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
-    
+
     /// Tracks if we're currently handling a manual resize to prevent recursion
     private var isHandlingResize: Bool = false
 
@@ -135,14 +135,12 @@ class QuickTerminalController: BaseTerminalController {
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = window.frame
         }
-        
+
         // Setup our content
-        window.contentView = TerminalViewContainer(
-            ghostty: self.ghostty,
-            viewModel: self,
-            delegate: self
-        )
-        
+        window.contentView = TerminalViewContainer {
+            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+        }
+
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = nil
@@ -161,6 +159,8 @@ class QuickTerminalController: BaseTerminalController {
         // applies if we can be seen.
         guard visible else { return }
 
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
+
         // Re-hide the dock if we were hiding it before.
         hiddenDock?.hide()
     }
@@ -173,6 +173,8 @@ class QuickTerminalController: BaseTerminalController {
         // windowDidResignKey will also get called after animateOut so this
         // ensures we don't run logic twice.
         guard visible else { return }
+
+        terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: false)
 
         // We don't animate out if there is a modal sheet being shown currently.
         // This lets us show alerts without causing the window to disappear.
@@ -234,7 +236,7 @@ class QuickTerminalController: BaseTerminalController {
         // Prevent recursive loops
         isHandlingResize = true
         defer { isHandlingResize = false }
-        
+
         switch position {
         case .top, .bottom, .center:
             // For centered positions (top, bottom, center), we need to recenter the window
@@ -316,7 +318,7 @@ class QuickTerminalController: BaseTerminalController {
     // MARK: Methods
 
     func toggle() {
-        if (visible) {
+        if visible {
             animateOut()
         } else {
             animateIn()
@@ -340,8 +342,7 @@ class QuickTerminalController: BaseTerminalController {
         // we want to store it so we can restore state later.
         if !NSApp.isActive {
             if let previousApp = NSWorkspace.shared.frontmostApplication,
-               previousApp.bundleIdentifier != Bundle.main.bundleIdentifier
-            {
+               previousApp.bundleIdentifier != Bundle.main.bundleIdentifier {
                 self.previousApp = previousApp
             }
         }
@@ -370,7 +371,7 @@ class QuickTerminalController: BaseTerminalController {
             } else {
                 var config = Ghostty.SurfaceConfiguration()
                 config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
-                
+
                 let view = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
                 surfaceTree = SplitTree(view: view)
                 focusedSurface = view
@@ -417,7 +418,7 @@ class QuickTerminalController: BaseTerminalController {
 
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
-        
+
         // Grab our last closed frame to use from the cache.
         let closedFrame = screenStateCache.frame(for: screen)
 
@@ -441,7 +442,7 @@ class QuickTerminalController: BaseTerminalController {
         // If our dock position would conflict with our target location then
         // we autohide the dock.
         if position.conflictsWithDock(on: screen) {
-            if (hiddenDock == nil) {
+            if hiddenDock == nil {
                 hiddenDock = .init()
             }
 
@@ -624,6 +625,8 @@ class QuickTerminalController: BaseTerminalController {
             window.isOpaque = true
             window.backgroundColor = .windowBackgroundColor
         }
+
+        terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: nil)
     }
 
     private func showNoNewTabAlert() {
@@ -675,10 +678,10 @@ class QuickTerminalController: BaseTerminalController {
         // We ignore the configured fullscreen style and always use non-native
         // because the way the quick terminal works doesn't support native.
         let mode: FullscreenMode
-        if (NSApp.isFrontmost) {
+        if NSApp.isFrontmost {
             // If we're frontmost and we have a notch then we keep padding
             // so all lines of the terminal are visible.
-            if (window?.screen?.hasNotch ?? false) {
+            if window?.screen?.hasNotch ?? false {
                 mode = .nonNativePaddedNotch
             } else {
                 mode = .nonNative
@@ -707,6 +710,8 @@ class QuickTerminalController: BaseTerminalController {
         self.derivedConfig = DerivedConfig(config)
 
         syncAppearance()
+
+        terminalViewContainer?.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
     }
 
     @objc private func onNewTab(notification: SwiftUI.Notification) {

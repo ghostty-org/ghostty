@@ -57,6 +57,16 @@ pub fn clear(self: DiskCache) !void {
 
 pub const AddResult = enum { added, updated };
 
+pub const AddError = std.fs.Dir.MakeError ||
+    std.fs.Dir.StatFileError ||
+    std.fs.File.OpenError ||
+    std.fs.File.ChmodError ||
+    std.io.Reader.LimitedAllocError ||
+    FixupPermissionsError ||
+    ReadEntriesError ||
+    WriteCacheFileError ||
+    Error;
+
 /// Add or update a hostname entry in the cache.
 /// Returns AddResult.added for new entries or AddResult.updated for existing ones.
 /// The cache file is created if it doesn't exist with secure permissions (0600).
@@ -64,7 +74,7 @@ pub fn add(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) !AddResult {
+) AddError!AddResult {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Create cache directory if needed
@@ -128,13 +138,19 @@ pub fn add(
     return result;
 }
 
+pub const RemoveError = std.fs.File.OpenError ||
+    FixupPermissionsError ||
+    ReadEntriesError ||
+    WriteCacheFileError ||
+    Error;
+
 /// Remove a hostname entry from the cache.
 /// No error is returned if the hostname doesn't exist or the cache file is missing.
 pub fn remove(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) !void {
+) RemoveError!void {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
@@ -168,13 +184,17 @@ pub fn remove(
     try self.writeCacheFile(entries, null);
 }
 
+pub const ContainsError = std.fs.File.OpenError ||
+    ReadEntriesError ||
+    error{HostnameIsInvalid};
+
 /// Check if a hostname exists in the cache.
 /// Returns false if the cache file doesn't exist.
 pub fn contains(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) !bool {
+) ContainsError!bool {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
@@ -194,7 +214,9 @@ pub fn contains(
     return entries.contains(hostname);
 }
 
-fn fixupPermissions(file: std.fs.File) (std.fs.File.StatError || std.fs.File.ChmodError)!void {
+pub const FixupPermissionsError = (std.fs.File.StatError || std.fs.File.ChmodError);
+
+fn fixupPermissions(file: std.fs.File) FixupPermissionsError!void {
     // Windows does not support chmod
     if (comptime builtin.os.tag == .windows) return;
 
@@ -206,11 +228,18 @@ fn fixupPermissions(file: std.fs.File) (std.fs.File.StatError || std.fs.File.Chm
     }
 }
 
+pub const WriteCacheFileError = std.fs.Dir.OpenError ||
+    std.fs.AtomicFile.InitError ||
+    std.fs.AtomicFile.FlushError ||
+    std.fs.AtomicFile.FinishError ||
+    Entry.FormatError ||
+    error{InvalidCachePath};
+
 fn writeCacheFile(
     self: DiskCache,
     entries: std.StringHashMap(Entry),
     expire_days: ?u32,
-) !void {
+) WriteCacheFileError!void {
     const cache_dir = std.fs.path.dirname(self.path) orelse return error.InvalidCachePath;
     const cache_basename = std.fs.path.basename(self.path);
 
@@ -270,10 +299,12 @@ pub fn deinitEntries(
     entries.deinit();
 }
 
+pub const ReadEntriesError = std.mem.Allocator.Error || std.io.Reader.LimitedAllocError;
+
 fn readEntries(
     alloc: Allocator,
     file: std.fs.File,
-) !std.StringHashMap(Entry) {
+) ReadEntriesError!std.StringHashMap(Entry) {
     var reader = file.reader(&.{});
     const content = try reader.interface.allocRemaining(
         alloc,

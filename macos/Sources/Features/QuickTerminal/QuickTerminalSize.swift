@@ -48,7 +48,6 @@ struct QuickTerminalSize {
         }
     }
 
-
     /// This is an almost direct port of th Zig function QuickTerminalSize.calculate
     func calculate(position: QuickTerminalPosition, screenDimensions: CGSize) -> CGSize {
         let dims = CGSize(width: screenDimensions.width, height: screenDimensions.height)

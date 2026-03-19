@@ -31,49 +31,14 @@
  *
  * ## Example
  *
- * @code{.c}
- * #include <assert.h>
- * #include <stdio.h>
- * #include <ghostty/vt.h>
- *
- * int main() {
- *   // Create parser
- *   GhosttySgrParser parser;
- *   GhosttyResult result = ghostty_sgr_new(NULL, &parser);
- *   assert(result == GHOSTTY_SUCCESS);
- *
- *   // Parse "bold, red foreground" sequence: ESC[1;31m
- *   uint16_t params[] = {1, 31};
- *   result = ghostty_sgr_set_params(parser, params, NULL, 2);
- *   assert(result == GHOSTTY_SUCCESS);
- *
- *   // Iterate through attributes
- *   GhosttySgrAttribute attr;
- *   while (ghostty_sgr_next(parser, &attr)) {
- *     switch (attr.tag) {
- *       case GHOSTTY_SGR_ATTR_BOLD:
- *         printf("Bold enabled\n");
- *         break;
- *       case GHOSTTY_SGR_ATTR_FG_8:
- *         printf("Foreground color: %d\n", attr.value.fg_8);
- *         break;
- *       default:
- *         break;
- *     }
- *   }
- *
- *   // Cleanup
- *   ghostty_sgr_free(parser);
- *   return 0;
- * }
- * @endcode
+ * @snippet c-vt-sgr/src/main.c sgr-basic
  *
  * @{
  */
 
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/color.h>
-#include <ghostty/vt/result.h>
+#include <ghostty/vt/types.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -109,30 +74,29 @@ typedef enum {
   GHOSTTY_SGR_ATTR_RESET_ITALIC = 5,
   GHOSTTY_SGR_ATTR_FAINT = 6,
   GHOSTTY_SGR_ATTR_UNDERLINE = 7,
-  GHOSTTY_SGR_ATTR_RESET_UNDERLINE = 8,
-  GHOSTTY_SGR_ATTR_UNDERLINE_COLOR = 9,
-  GHOSTTY_SGR_ATTR_UNDERLINE_COLOR_256 = 10,
-  GHOSTTY_SGR_ATTR_RESET_UNDERLINE_COLOR = 11,
-  GHOSTTY_SGR_ATTR_OVERLINE = 12,
-  GHOSTTY_SGR_ATTR_RESET_OVERLINE = 13,
-  GHOSTTY_SGR_ATTR_BLINK = 14,
-  GHOSTTY_SGR_ATTR_RESET_BLINK = 15,
-  GHOSTTY_SGR_ATTR_INVERSE = 16,
-  GHOSTTY_SGR_ATTR_RESET_INVERSE = 17,
-  GHOSTTY_SGR_ATTR_INVISIBLE = 18,
-  GHOSTTY_SGR_ATTR_RESET_INVISIBLE = 19,
-  GHOSTTY_SGR_ATTR_STRIKETHROUGH = 20,
-  GHOSTTY_SGR_ATTR_RESET_STRIKETHROUGH = 21,
-  GHOSTTY_SGR_ATTR_DIRECT_COLOR_FG = 22,
-  GHOSTTY_SGR_ATTR_DIRECT_COLOR_BG = 23,
-  GHOSTTY_SGR_ATTR_BG_8 = 24,
-  GHOSTTY_SGR_ATTR_FG_8 = 25,
-  GHOSTTY_SGR_ATTR_RESET_FG = 26,
-  GHOSTTY_SGR_ATTR_RESET_BG = 27,
-  GHOSTTY_SGR_ATTR_BRIGHT_BG_8 = 28,
-  GHOSTTY_SGR_ATTR_BRIGHT_FG_8 = 29,
-  GHOSTTY_SGR_ATTR_BG_256 = 30,
-  GHOSTTY_SGR_ATTR_FG_256 = 31,
+  GHOSTTY_SGR_ATTR_UNDERLINE_COLOR = 8,
+  GHOSTTY_SGR_ATTR_UNDERLINE_COLOR_256 = 9,
+  GHOSTTY_SGR_ATTR_RESET_UNDERLINE_COLOR = 10,
+  GHOSTTY_SGR_ATTR_OVERLINE = 11,
+  GHOSTTY_SGR_ATTR_RESET_OVERLINE = 12,
+  GHOSTTY_SGR_ATTR_BLINK = 13,
+  GHOSTTY_SGR_ATTR_RESET_BLINK = 14,
+  GHOSTTY_SGR_ATTR_INVERSE = 15,
+  GHOSTTY_SGR_ATTR_RESET_INVERSE = 16,
+  GHOSTTY_SGR_ATTR_INVISIBLE = 17,
+  GHOSTTY_SGR_ATTR_RESET_INVISIBLE = 18,
+  GHOSTTY_SGR_ATTR_STRIKETHROUGH = 19,
+  GHOSTTY_SGR_ATTR_RESET_STRIKETHROUGH = 20,
+  GHOSTTY_SGR_ATTR_DIRECT_COLOR_FG = 21,
+  GHOSTTY_SGR_ATTR_DIRECT_COLOR_BG = 22,
+  GHOSTTY_SGR_ATTR_BG_8 = 23,
+  GHOSTTY_SGR_ATTR_FG_8 = 24,
+  GHOSTTY_SGR_ATTR_RESET_FG = 25,
+  GHOSTTY_SGR_ATTR_RESET_BG = 26,
+  GHOSTTY_SGR_ATTR_BRIGHT_BG_8 = 27,
+  GHOSTTY_SGR_ATTR_BRIGHT_FG_8 = 28,
+  GHOSTTY_SGR_ATTR_BG_256 = 29,
+  GHOSTTY_SGR_ATTR_FG_256 = 30,
 } GhosttySgrAttributeTag;
 
 /**

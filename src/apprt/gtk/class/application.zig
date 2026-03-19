@@ -9,10 +9,10 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
+const build_info = @import("../build/info.zig");
 const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
-const cgroup = @import("../cgroup.zig");
 const CoreApp = @import("../../../App.zig");
 const configpkg = @import("../../../config.zig");
 const input = @import("../../../input.zig");
@@ -23,6 +23,7 @@ const xev = @import("../../../global.zig").xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
+const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
@@ -36,6 +37,7 @@ const Config = @import("config.zig").Config;
 const Surface = @import("surface.zig").Surface;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Window = @import("window.zig").Window;
+const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
@@ -175,11 +177,6 @@ pub const Application = extern struct {
         /// The global shortcut logic.
         global_shortcuts: *GlobalShortcuts,
 
-        /// The base path of the transient cgroup used to put all surfaces
-        /// into their own cgroup. This is only set if cgroups are enabled
-        /// and initialization was successful.
-        transient_cgroup_base: ?[]const u8 = null,
-
         /// This is set to true so long as we request a window exactly
         /// once. This prevents quitting the app before we've shown one
         /// window.
@@ -212,6 +209,11 @@ pub const Application = extern struct {
 
         /// Providers for loading custom stylesheets defined by user
         custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
+
+        /// A copy of the LANG environment variable that was provided to Ghostty
+        /// by the system. If this is null, the LANG environment variable did
+        /// not exist in Ghostty's environment variable.
+        saved_language: ?[:0]const u8 = null,
 
         pub var offset: c_int = 0;
     };
@@ -249,15 +251,6 @@ pub const Application = extern struct {
         gtk_version.logVersion();
         adw_version.logVersion();
 
-        // Set gettext global domain to be our app so that our unqualified
-        // translations map to our translations.
-        internal_os.i18n.initGlobalDomain() catch |err| {
-            // Failures shuldn't stop application startup. Our app may
-            // not translate correctly but it should still work. In the
-            // future we may want to add this to the GUI to show.
-            log.warn("i18n initialization failed error={}", .{err});
-        };
-
         // Load our configuration.
         var config = CoreConfig.load(alloc) catch |err| err: {
             // If we fail to load the configuration, then we should log
@@ -274,6 +267,27 @@ pub const Application = extern struct {
             break :err def;
         };
         defer config.deinit();
+
+        const saved_language: ?[:0]const u8 = saved_language: {
+            const old_language = old_language: {
+                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
+                defer result.deinit(alloc);
+                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+            };
+
+            if (config.language) |language| _ = internal_os.setenv("LANG", language);
+
+            break :saved_language old_language;
+        };
+
+        // Set gettext global domain to be our app so that our unqualified
+        // translations map to our translations.
+        internal_os.i18n.initGlobalDomain() catch |err| {
+            // Failures shuldn't stop application startup. Our app may
+            // not translate correctly but it should still work. In the
+            // future we may want to add this to the GUI to show.
+            log.warn("i18n initialization failed error={}", .{err});
+        };
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
@@ -314,7 +328,7 @@ pub const Application = extern struct {
                 }
             }
 
-            break :app_id ApprtApp.application_id;
+            break :app_id build_info.application_id;
         };
 
         const display: *gdk.Display = gdk.Display.getDefault() orelse {
@@ -337,7 +351,7 @@ pub const Application = extern struct {
             log.warn("error initializing windowing protocol err={}", .{err});
             break :wp .{ .none = .{} };
         };
-        errdefer wp.deinit(alloc);
+        errdefer wp.deinit();
         log.debug("windowing protocol={s}", .{@tagName(wp)});
 
         // Create our GTK Application which encapsulates our process.
@@ -368,13 +382,13 @@ pub const Application = extern struct {
             // Force the resource path to a known value so it doesn't depend
             // on the app id (which changes between debug/release and can be
             // user-configured) and force it to load in compiled resources.
-            .resource_base_path = "/com/mitchellh/ghostty",
+            .resource_base_path = build_info.resource_path,
         });
 
         // Setup our private state. More setup is done in the init
         // callback that GObject calls, but we can't pass this data through
         // to there (and we don't need it there directly) so this is here.
-        const priv = self.private();
+        const priv: *Private = self.private();
         priv.* = .{
             .rt_app = rt_app,
             .core_app = core_app,
@@ -383,6 +397,7 @@ pub const Application = extern struct {
             .css_provider = css_provider,
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
+            .saved_language = saved_language,
         };
 
         // Signals
@@ -415,11 +430,11 @@ pub const Application = extern struct {
     /// ensures that our memory is cleaned up properly.
     pub fn deinit(self: *Self) void {
         const alloc = self.allocator();
-        const priv = self.private();
+        const priv: *Private = self.private();
         priv.config.unref();
-        priv.winproto.deinit(alloc);
+        priv.winproto.deinit();
         priv.global_shortcuts.unref();
-        if (priv.transient_cgroup_base) |base| alloc.free(base);
+        if (priv.saved_language) |language| alloc.free(language);
         if (gdk.Display.getDefault()) |display| {
             gtk.StyleContext.removeProviderForDisplay(
                 display,
@@ -443,6 +458,12 @@ pub const Application = extern struct {
     /// this wherever possible so we get leak detection in debug/tests.
     pub fn allocator(self: *Self) std.mem.Allocator {
         return self.private().core_app.alloc;
+    }
+
+    /// Get the original language that Ghostty was launched with. This returns a
+    /// pointer to internal memory so it must be copied by callers.
+    pub fn savedLanguage(self: *Self) ?[:0]const u8 {
+        return self.private().saved_language;
     }
 
     /// Run the application. This is a replacement for `gio.Application.run`
@@ -649,6 +670,8 @@ pub const Application = extern struct {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
+            .copy_title_to_clipboard => return Action.copyTitleToClipboard(target),
+
             .config_change => try Action.configChange(
                 self,
                 target,
@@ -688,6 +711,7 @@ pub const Application = extern struct {
                     .app => null,
                     .surface => |v| v,
                 },
+                .none,
             ),
 
             .open_config => return Action.openConfig(self),
@@ -717,6 +741,7 @@ pub const Application = extern struct {
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),
+            .set_tab_title => return Action.setTabTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -779,11 +804,6 @@ pub const Application = extern struct {
     /// Returns the app winproto implementation.
     pub fn winproto(self: *Self) *winprotopkg.App {
         return &self.private().winproto;
-    }
-
-    /// Returns the cgroup base (if any).
-    pub fn cgroupBase(self: *Self) ?[]const u8 {
-        return self.private().transient_cgroup_base;
     }
 
     /// This will get called when there are no more open surfaces.
@@ -1284,22 +1304,6 @@ pub const Application = extern struct {
         // Setup our global shortcuts
         self.startupGlobalShortcuts();
 
-        // Setup our cgroup for the application.
-        self.startupCgroup() catch |err| {
-            log.warn("cgroup initialization failed err={}", .{err});
-
-            // Add it to our config diagnostics so it shows up in a GUI dialog.
-            // Admittedly this has two issues: (1) we shuldn't be using the
-            // config errors dialog for this long term and (2) using a mut
-            // ref to the config wouldn't propagate changes to UI properly,
-            // but we're in startup mode so its okay.
-            const config = self.private().config.getMut();
-            config.addDiagnosticFmt(
-                "cgroup initialization failed: {}",
-                .{err},
-            ) catch {};
-        };
-
         // If we have any config diagnostics from loading, then we
         // show the diagnostics dialog. We show this one as a general
         // modal (not to any specific window) because we don't even
@@ -1431,72 +1435,6 @@ pub const Application = extern struct {
             self,
             .{},
         );
-    }
-
-    const CgroupError = error{
-        DbusConnectionFailed,
-        CgroupInitFailed,
-    };
-
-    /// Setup our cgroup for the application, if enabled.
-    ///
-    /// The setup for cgroups involves creating the cgroup for our
-    /// application, moving ourselves into it, and storing the base path
-    /// so that created surfaces can also have their own cgroups.
-    fn startupCgroup(self: *Self) CgroupError!void {
-        const priv = self.private();
-        const config = priv.config.get();
-
-        // If cgroup isolation isn't enabled then we don't do this.
-        if (!switch (config.@"linux-cgroup") {
-            .never => false,
-            .always => true,
-            .@"single-instance" => single: {
-                const flags = self.as(gio.Application).getFlags();
-                break :single !flags.non_unique;
-            },
-        }) {
-            log.info(
-                "cgroup isolation disabled via config={}",
-                .{config.@"linux-cgroup"},
-            );
-            return;
-        }
-
-        // We need a dbus connection to do anything else
-        const dbus = self.as(gio.Application).getDbusConnection() orelse {
-            if (config.@"linux-cgroup-hard-fail") {
-                log.err("dbus connection required for cgroup isolation, exiting", .{});
-                return error.DbusConnectionFailed;
-            }
-
-            return;
-        };
-
-        const alloc = priv.core_app.alloc;
-        const path = cgroup.init(alloc, dbus, .{
-            .memory_high = config.@"linux-cgroup-memory-limit",
-            .pids_max = config.@"linux-cgroup-processes-limit",
-        }) catch |err| {
-            // If we can't initialize cgroups then that's okay. We
-            // want to continue to run so we just won't isolate surfaces.
-            // NOTE(mitchellh): do we want a config to force it?
-            log.warn(
-                "failed to initialize cgroups, terminals will not be isolated err={}",
-                .{err},
-            );
-
-            // If we have hard fail enabled then we exit now.
-            if (config.@"linux-cgroup-hard-fail") {
-                log.err("linux-cgroup-hard-fail enabled, exiting", .{});
-                return error.CgroupInitFailed;
-            }
-
-            return;
-        };
-
-        log.info("cgroup isolation enabled base={s}", .{path});
-        priv.transient_cgroup_base = path;
     }
 
     fn activate(self: *Self) callconv(.c) void {
@@ -1735,17 +1673,30 @@ pub const Application = extern struct {
     ) callconv(.c) void {
         log.debug("received new window action", .{});
 
-        parameter: {
+        var arena: std.heap.ArenaAllocator = .init(Application.default().allocator());
+        defer arena.deinit();
+
+        const alloc = arena.allocator();
+
+        var working_directory: ?[:0]const u8 = null;
+        var title: ?[:0]const u8 = null;
+        var command: ?configpkg.Command = null;
+        var args: std.ArrayList([:0]const u8) = .empty;
+
+        overrides: {
             // were we given a parameter?
-            const parameter = parameter_ orelse break :parameter;
+            const parameter = parameter_ orelse break :overrides;
 
             const as_variant_type = glib.VariantType.new("as");
             defer as_variant_type.free();
 
             // ensure that the supplied parameter is an array of strings
             if (glib.Variant.isOfType(parameter, as_variant_type) == 0) {
-                log.warn("parameter is of type {s}", .{parameter.getTypeString()});
-                break :parameter;
+                log.warn("parameter is of type '{s}', not '{s}'", .{
+                    parameter.getTypeString(),
+                    as_variant_type.peekString()[0..as_variant_type.getStringLength()],
+                });
+                break :overrides;
             }
 
             const s_variant_type = glib.VariantType.new("s");
@@ -1754,7 +1705,10 @@ pub const Application = extern struct {
             var it: glib.VariantIter = undefined;
             _ = it.init(parameter);
 
-            while (it.nextValue()) |value| {
+            var e_seen: bool = false;
+            var i: usize = 0;
+
+            while (it.nextValue()) |value| : (i += 1) {
                 defer value.unref();
 
                 // just to be sure
@@ -1764,13 +1718,64 @@ pub const Application = extern struct {
                 const buf = value.getString(&len);
                 const str = buf[0..len];
 
-                log.debug("new-window command argument: {s}", .{str});
+                log.debug("new-window argument: {d} {s}", .{ i, str });
+
+                if (e_seen) {
+                    const cpy = alloc.dupeZ(u8, str) catch |err| {
+                        log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
+                        break :overrides;
+                    };
+                    args.append(alloc, cpy) catch |err| {
+                        log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
+                        break :overrides;
+                    };
+                    continue;
+                }
+
+                if (std.mem.eql(u8, str, "-e")) {
+                    e_seen = true;
+                    continue;
+                }
+
+                if (lib.cutPrefix(u8, str, "--command=")) |v| {
+                    var cmd: configpkg.Command = undefined;
+                    cmd.parseCLI(alloc, v) catch |err| {
+                        log.warn("unable to parse command: {t}", .{err});
+                        continue;
+                    };
+                    command = cmd;
+                    continue;
+                }
+                if (lib.cutPrefix(u8, str, "--working-directory=")) |v| {
+                    working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
+                        log.warn("unable to duplicate working directory: {t}", .{err});
+                        break :wd null;
+                    };
+                    continue;
+                }
+                if (lib.cutPrefix(u8, str, "--title=")) |v| {
+                    title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
+                        log.warn("unable to duplicate title: {t}", .{err});
+                        break :t null;
+                    };
+                    continue;
+                }
             }
         }
 
-        _ = self.core().mailbox.push(.{
-            .new_window = .{},
-        }, .{ .forever = {} });
+        if (args.items.len > 0) {
+            command = .{
+                .direct = args.items,
+            };
+        }
+
+        Action.newWindow(self, null, .{
+            .command = command,
+            .working_directory = working_directory,
+            .title = title,
+        }) catch |err| {
+            log.warn("unable to create new window: {t}", .{err});
+        };
     }
 
     pub fn actionOpenConfig(
@@ -1894,6 +1899,13 @@ const Action = struct {
                 return surface.as(gtk.Widget).activateAction("win.close", null) != 0;
             },
         }
+    }
+
+    pub fn copyTitleToClipboard(target: apprt.Target) bool {
+        return switch (target) {
+            .app => false,
+            .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
+        };
     }
 
     pub fn configChange(
@@ -2210,6 +2222,13 @@ const Action = struct {
     pub fn newWindow(
         self: *Application,
         parent: ?*CoreSurface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
     ) !void {
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
@@ -2218,14 +2237,32 @@ const Action = struct {
         // was a delay in the event loop before we created a Window.
         self.private().requested_window = true;
 
-        const win = Window.new(self);
-        initAndShowWindow(self, win, parent);
+        const win = Window.new(self, .{
+            .title = overrides.title,
+        });
+        initAndShowWindow(
+            self,
+            win,
+            parent,
+            .{
+                .command = overrides.command,
+                .working_directory = overrides.working_directory,
+                .title = overrides.title,
+            },
+        );
     }
 
     fn initAndShowWindow(
         self: *Application,
         win: *Window,
         parent: ?*CoreSurface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        },
     ) void {
         // Setup a binding so that whenever our config changes so does the
         // window. There's never a time when the window config should be out
@@ -2239,7 +2276,23 @@ const Action = struct {
         );
 
         // Create a new tab with window context (first tab in new window)
-        win.newTabForWindow(parent);
+        win.newTabForWindow(parent, .{
+            .command = overrides.command,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        });
+
+        // Estimate the initial window size before presenting so the window
+        // manager can position it correctly.
+        if (win.getActiveSurface()) |surface| {
+            surface.estimateInitialSize();
+            if (surface.getDefaultSize()) |size| {
+                win.as(gtk.Window).setDefaultSize(
+                    @intCast(size.width),
+                    @intCast(size.height),
+                );
+            }
+        }
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2331,8 +2384,21 @@ const Action = struct {
                 },
             },
             .tab => {
-                // GTK does not yet support tab title prompting
-                return false;
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const tab = ext.getAncestor(
+                            Tab,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a tab, ignoring prompt_tab_title", .{});
+                            return false;
+                        };
+                        tab.promptTabTitle();
+                        return true;
+                    },
+                }
             },
         }
     }
@@ -2481,6 +2547,30 @@ const Action = struct {
         }
     }
 
+    pub fn setTabTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tab = ext.getAncestor(
+                    Tab,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a tab, ignoring set_tab_title", .{});
+                    return false;
+                };
+                tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
+        }
+    }
+
     pub fn showChildExited(
         target: apprt.Target,
         value: apprt.surface.Message.ChildExited,
@@ -2540,7 +2630,7 @@ const Action = struct {
             .@"quick-terminal" = true,
         });
         assert(win.isQuickTerminal());
-        initAndShowWindow(self, win, null);
+        initAndShowWindow(self, win, null, .none);
         return true;
     }
 

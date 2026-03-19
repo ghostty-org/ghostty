@@ -8,6 +8,7 @@ const KittyFlags = @import("../../terminal/kitty/key.zig").Flags;
 const OptionAsAlt = @import("../../input/config.zig").OptionAsAlt;
 const Result = @import("result.zig").Result;
 const KeyEvent = @import("key_event.zig").Event;
+const Terminal = @import("terminal.zig").Terminal;
 
 const log = std.log.scoped(.key_encode);
 
@@ -115,6 +116,15 @@ fn setoptTyped(
     }
 }
 
+pub fn setopt_from_terminal(
+    encoder_: Encoder,
+    terminal_: Terminal,
+) callconv(.c) void {
+    const wrapper = encoder_ orelse return;
+    const t = terminal_ orelse return;
+    wrapper.opts = .fromTerminal(t);
+}
+
 pub fn encode(
     encoder_: Encoder,
     event_: KeyEvent,
@@ -142,7 +152,7 @@ pub fn encode(
             // Discarding always uses a u64. If we're on 32-bit systems
             // we cast down. We should make this safer in the future.
             out_written.* = @intCast(discarding.count);
-            return .out_of_memory;
+            return .out_of_space;
         },
     };
 
@@ -222,6 +232,64 @@ test "setopt macos option as alt" {
     try testing.expectEqual(OptionAsAlt.true, e.?.opts.macos_option_as_alt);
 }
 
+test "setopt_from_terminal" {
+    const testing = std.testing;
+    const terminal_c = @import("terminal.zig");
+
+    // Create encoder
+    var e: Encoder = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &e,
+    ));
+    defer free(e);
+
+    // Create terminal
+    var t: Terminal = undefined;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer terminal_c.free(t);
+
+    // Apply terminal state to encoder
+    setopt_from_terminal(e, t);
+
+    // Options should reflect defaults from a fresh terminal
+    try testing.expect(!e.?.opts.cursor_key_application);
+    try testing.expect(!e.?.opts.alt_esc_prefix);
+    try testing.expectEqual(KittyFlags.disabled, e.?.opts.kitty_flags);
+    try testing.expectEqual(OptionAsAlt.false, e.?.opts.macos_option_as_alt);
+}
+
+test "setopt_from_terminal null" {
+    // Both null should be no-ops
+    setopt_from_terminal(null, null);
+
+    const testing = std.testing;
+
+    // Encoder null with valid terminal
+    const terminal_c = @import("terminal.zig");
+    var t: Terminal = undefined;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer terminal_c.free(t);
+    setopt_from_terminal(null, t);
+
+    // Valid encoder with null terminal
+    var e: Encoder = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &e,
+    ));
+    defer free(e);
+    setopt_from_terminal(e, null);
+}
+
 test "encode: kitty ctrl release with ctrl mod set" {
     const testing = std.testing;
 
@@ -261,7 +329,7 @@ test "encode: kitty ctrl release with ctrl mod set" {
 
     // Encode null should give us the length required
     var required: usize = 0;
-    try testing.expectEqual(Result.out_of_memory, encode(
+    try testing.expectEqual(Result.out_of_space, encode(
         encoder,
         event,
         null,

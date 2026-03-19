@@ -740,7 +740,7 @@ pub const RenderState = struct {
     /// we can adjust this later.
     ///
     /// NOTE: There is a limitation in that wrapped lines before/after
-    /// the the top/bottom line of the viewport are not included, since
+    /// the top/bottom line of the viewport are not included, since
     /// the render state cuts them off.
     pub fn string(
         self: *const RenderState,
@@ -908,7 +908,7 @@ test "basic text" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("ABCD");
+    s.nextSlice("ABCD");
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -944,9 +944,9 @@ test "styled text" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("\x1b[1mA"); // Bold
-    try s.nextSlice("\x1b[0;3mB"); // Italic
-    try s.nextSlice("\x1b[0;4mC"); // Underline
+    s.nextSlice("\x1b[1mA"); // Bold
+    s.nextSlice("\x1b[0;3mB"); // Italic
+    s.nextSlice("\x1b[0;4mC"); // Underline
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -990,8 +990,8 @@ test "grapheme" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A");
-    try s.nextSlice("👨‍"); // this has a ZWJ
+    s.nextSlice("A");
+    s.nextSlice("👨‍"); // this has a ZWJ
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -1037,7 +1037,7 @@ test "cursor state in viewport" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A\x1b[H");
+    s.nextSlice("A\x1b[H");
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -1052,14 +1052,14 @@ test "cursor state in viewport" {
     try testing.expect(state.cursor.style.default());
 
     // Set a style on the cursor
-    try s.nextSlice("\x1b[1m"); // Bold
+    s.nextSlice("\x1b[1m"); // Bold
     try state.update(alloc, &t);
     try testing.expect(!state.cursor.style.default());
     try testing.expect(state.cursor.style.flags.bold);
-    try s.nextSlice("\x1b[0m"); // Reset style
+    s.nextSlice("\x1b[0m"); // Reset style
 
     // Move cursor to 2,1
-    try s.nextSlice("\x1b[2;3H");
+    s.nextSlice("\x1b[2;3H");
     try state.update(alloc, &t);
     try testing.expectEqual(2, state.cursor.active.x);
     try testing.expectEqual(1, state.cursor.active.y);
@@ -1079,7 +1079,7 @@ test "cursor state out of viewport" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A\r\nB\r\nC\r\nD\r\n");
+    s.nextSlice("A\r\nB\r\nC\r\nD\r\n");
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -1092,7 +1092,7 @@ test "cursor state out of viewport" {
     try testing.expectEqual(1, state.cursor.viewport.?.y);
 
     // Scroll the viewport
-    try t.scrollViewport(.top);
+    t.scrollViewport(.top);
     try state.update(alloc, &t);
 
     // Set a style on the cursor
@@ -1139,7 +1139,7 @@ test "dirty state" {
     }
 
     // Write to first line
-    try s.nextSlice("A");
+    s.nextSlice("A");
     try state.update(alloc, &t);
     try testing.expectEqual(.partial, state.dirty);
     {
@@ -1170,7 +1170,7 @@ test "colors" {
     try state.update(alloc, &t);
 
     // Change cursor color
-    try s.nextSlice("\x1b]12;#FF0000\x07");
+    s.nextSlice("\x1b]12;#FF0000\x07");
     try state.update(alloc, &t);
 
     const c = state.colors.cursor.?;
@@ -1179,7 +1179,7 @@ test "colors" {
     try testing.expectEqual(0, c.b);
 
     // Change palette color 0 to White
-    try s.nextSlice("\x1b]4;0;#FFFFFF\x07");
+    s.nextSlice("\x1b]4;0;#FFFFFF\x07");
     try state.update(alloc, &t);
     const p0 = state.colors.palette[0];
     try testing.expectEqual(0xFF, p0.r);
@@ -1275,7 +1275,7 @@ test "linkCells" {
     defer state.deinit(alloc);
 
     // Create a hyperlink
-    try s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
+    s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
     try state.update(alloc, &t);
 
     // Query link at 0,0
@@ -1306,7 +1306,7 @@ test "string" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("AB");
+    s.nextSlice("AB");
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -1345,12 +1345,12 @@ test "linkCells with scrollback spanning pages" {
     const first_page_cap = pages.pages.first.?.data.capacity.rows;
 
     // Fill first page
-    for (0..first_page_cap - 1) |_| try s.nextSlice("\r\n");
+    for (0..first_page_cap - 1) |_| s.nextSlice("\r\n");
 
     // Create second page with hyperlink
-    try s.nextSlice("\r\n");
-    try s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
-    for (0..(tail_rows - 1)) |_| try s.nextSlice("\r\n");
+    s.nextSlice("\r\n");
+    s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
+    for (0..(tail_rows - 1)) |_| s.nextSlice("\r\n");
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -1416,7 +1416,7 @@ test "dirty row resets highlights" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("ABC");
+    s.nextSlice("ABC");
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
@@ -1451,8 +1451,8 @@ test "dirty row resets highlights" {
     }
 
     // Write to row 0 to make it dirty
-    try s.nextSlice("\x1b[H"); // Move to home
-    try s.nextSlice("X");
+    s.nextSlice("\x1b[H"); // Move to home
+    s.nextSlice("X");
     try state.update(alloc, &t);
 
     // Verify the highlight was reset on the dirty row

@@ -1,11 +1,13 @@
 const std = @import("std");
 
 pub const change_window_icon = @import("parsers/change_window_icon.zig");
+pub const context_signal = @import("parsers/context_signal.zig");
 pub const change_window_title = @import("parsers/change_window_title.zig");
 pub const clipboard_operation = @import("parsers/clipboard_operation.zig");
 pub const color = @import("parsers/color.zig");
 pub const hyperlink = @import("parsers/hyperlink.zig");
 pub const iterm2 = @import("parsers/iterm2.zig");
+pub const kitty_clipboard_protocol = @import("parsers/kitty_clipboard_protocol.zig");
 pub const kitty_color = @import("parsers/kitty_color.zig");
 pub const kitty_text_sizing = @import("parsers/kitty_text_sizing.zig");
 pub const mouse_shape = @import("parsers/mouse_shape.zig");
