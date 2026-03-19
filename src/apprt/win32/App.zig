@@ -350,6 +350,17 @@ pub fn createWindow(self: *App) !w32.HWND {
         @sizeOf(u32),
     );
 
+    // If background opacity is less than 1.0, make the window
+    // transparent using the layered window API. This applies uniform
+    // alpha to the entire window (including text), but is the only
+    // reliable approach with legacy OpenGL/WGL contexts.
+    if (self.config.@"background-opacity" < 1.0) {
+        const current_ex = w32.GetWindowLongW(hwnd, w32.GWL_EXSTYLE);
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_EXSTYLE, current_ex | w32.WS_EX_LAYERED);
+        const alpha: u8 = @intFromFloat(@round(self.config.@"background-opacity" * 255.0));
+        _ = w32.SetLayeredWindowAttributes(hwnd, 0, alpha, w32.LWA_ALPHA);
+    }
+
     _ = w32.ShowWindow(hwnd, w32.SW_SHOW);
     _ = w32.UpdateWindow(hwnd);
 

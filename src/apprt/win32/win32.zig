@@ -87,8 +87,15 @@ pub const CS_OWNDC: u32 = 0x0020;
 pub const WS_OVERLAPPEDWINDOW: u32 = 0x00CF0000;
 pub const WS_POPUP: u32 = 0x80000000;
 
+// Extended window styles
+pub const WS_EX_LAYERED: u32 = 0x00080000;
+
+// Layered window flags
+pub const LWA_ALPHA: u32 = 0x00000002;
+
 // Window long indices
 pub const GWL_STYLE: i32 = -16;
+pub const GWL_EXSTYLE: i32 = -20;
 
 // SetWindowPos flags
 pub const SWP_NOZORDER: u32 = 0x0004;
@@ -448,6 +455,13 @@ pub extern "user32" fn GetMonitorInfoW(
     lpmi: *MONITORINFO,
 ) callconv(.c) i32;
 
+pub extern "user32" fn SetLayeredWindowAttributes(
+    hwnd: HWND,
+    crKey: u32,
+    bAlpha: u8,
+    dwFlags: u32,
+) callconv(.c) i32;
+
 pub extern "user32" fn SetTimer(
     hWnd: ?HWND,
     nIDEvent: usize,
@@ -603,6 +617,18 @@ pub extern "imm32" fn ImmSetCompositionWindow(
 /// DWMWA_USE_IMMERSIVE_DARK_MODE — tells DWM to use dark-mode window chrome.
 /// Supported on Windows 10 build 18985+ (formally documented from Windows 11).
 pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+
+pub const MARGINS = extern struct {
+    left: i32,
+    right: i32,
+    top: i32,
+    bottom: i32,
+};
+
+pub extern "dwmapi" fn DwmExtendFrameIntoClientArea(
+    hWnd: HWND,
+    pMarInset: *const MARGINS,
+) callconv(.c) i32;
 
 pub extern "dwmapi" fn DwmSetWindowAttribute(
     hwnd: HWND,
