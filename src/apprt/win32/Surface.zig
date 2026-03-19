@@ -8,6 +8,7 @@ const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const input = @import("../../input.zig");
 const terminal = @import("../../terminal/main.zig");
+const termio = @import("../../termio.zig");
 const CoreSurface = @import("../../Surface.zig");
 const internal_os = @import("../../os/main.zig");
 
@@ -519,15 +520,6 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
     // key_event_produced_text flag so WM_CHAR is allowed through.
     if (vk == w32.VK_PACKET) return;
 
-    // Win32 Input Mode (mode 9001): encode key events as
-    // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ sequences that ConPTY reconstructs
-    // into INPUT_RECORD structs. This provides full Unicode support
-    // and bypasses ConPTY codepage issues.
-    if (self.isWin32InputMode()) {
-        self.sendWin32InputEvent(vk, lparam, action);
-        return;
-    }
-
     // Determine left/right for modifier keys using the extended key flag
     // (bit 24 of lparam) and specific left/right VK codes.
     const extended = (lparam & (1 << 24)) != 0;
@@ -536,6 +528,44 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
 
     // Build modifier state
     const mods = getModifiers();
+
+    // Win32 Input Mode (mode 9001): encode key events as
+    // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ sequences that ConPTY reconstructs
+    // into INPUT_RECORD structs. This provides full Unicode support
+    // and bypasses ConPTY codepage issues.
+    //
+    // We still need to check keybindings first (e.g., Ctrl+Shift+C
+    // for copy) so they work in this mode. Only fall through to
+    // Win32 input encoding if no binding matched.
+    if (self.isWin32InputMode()) {
+        // Check keybindings for non-modifier keys (Ctrl+Shift+C, etc.).
+        // Modifier-only keys never have bindings, and sending them
+        // through keyCallback would clear the selection.
+        if (!key.modifier()) {
+            const actual_action_w32 = if (action == .press and (lparam & (1 << 30)) != 0)
+                input.Action.repeat
+            else
+                action;
+            const unshifted_cp: u21 = if (key.codepoint()) |cp| cp else 0;
+            const effect = self.core_surface.keyCallback(.{
+                .action = actual_action_w32,
+                .key = key,
+                .mods = mods,
+                .consumed_mods = .{},
+                .utf8 = "", // no text — let Win32 input handle it
+                .unshifted_codepoint = unshifted_cp,
+            }) catch |err| {
+                log.err("key callback error: {}", .{err});
+                return;
+            };
+            // If a keybinding consumed the event, don't send Win32 input.
+            if (effect == .consumed or effect == .closed) return;
+        }
+
+        // No binding matched — send as Win32 input sequence.
+        self.sendWin32InputEvent(vk, lparam, action);
+        return;
+    }
 
     // Check if the key is a repeat (bit 30 of lparam is set for KEYDOWN
     // if the key was already down).
@@ -908,7 +938,9 @@ pub fn sendWin32CharEvent(self: *Surface, char_code: u16) void {
     self.writeWin32InputSequence(0, 0, char_code, 0, 0, 1);
 }
 
-/// Format and write a Win32 input sequence to the terminal.
+/// Format and write a Win32 input sequence directly to the PTY,
+/// bypassing keyCallback to avoid side effects (selection clearing,
+/// modifier tracking, cursor hiding, etc.).
 /// Format: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
 fn writeWin32InputSequence(
     self: *Surface,
@@ -924,19 +956,12 @@ fn writeWin32InputSequence(
         vk, sc, uc, kd, cs, rc,
     }) catch return;
 
-    // Write the sequence to the PTY through keyCallback with
-    // key=.unidentified. The core's encodeKey writes utf8 as-is
-    // for unidentified keys with no modifiers.
-    _ = self.core_surface.keyCallback(.{
-        .action = .press,
-        .key = .unidentified,
-        .mods = .{},
-        .consumed_mods = .{},
-        .composing = false,
-        .utf8 = seq,
-    }) catch |err| {
-        log.err("win32 input mode write error: {}", .{err});
-    };
+    // Write directly to the PTY via the IO queue.
+    const msg = termio.Message.writeReq(
+        self.app.core_app.alloc,
+        seq,
+    ) catch return;
+    self.core_surface.io.queueMessage(msg, .unlocked);
 }
 
 /// Handle WM_SETFOCUS / WM_KILLFOCUS.
