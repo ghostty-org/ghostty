@@ -3365,6 +3365,17 @@ keybind: Keybinds = .{},
 /// The default is true.
 @"macos-applescript": bool = true,
 
+/// If true, Ghostty will suppress the "Last login" message when launching
+/// the shell. This is equivalent to creating a `~/.hushlogin` file, but
+/// only affects Ghostty and doesn't modify the user's home directory.
+///
+/// On macOS, terminal sessions launched through `login(1)` display the
+/// last login time by default. This can be distracting, especially for
+/// embedded terminal applications.
+///
+/// The default is false to match the default macOS terminal behavior.
+@"macos-hush-login": bool = false,
+
 /// Customize the macOS app icon.
 ///
 /// This only affects the icon that appears in the dock, application
