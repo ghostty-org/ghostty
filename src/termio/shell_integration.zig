@@ -15,6 +15,7 @@ pub const Shell = enum {
     elvish,
     fish,
     nushell,
+    powershell,
     zsh,
 };
 
@@ -66,6 +67,13 @@ pub fn setup(
         ),
 
         .zsh => try setupZsh(
+            alloc_arena,
+            command,
+            resource_dir,
+            env,
+        ),
+
+        .powershell => try setupPowershell(
             alloc_arena,
             command,
             resource_dir,
@@ -160,6 +168,10 @@ fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
     if (std.mem.eql(u8, "elvish", exe)) return .elvish;
     if (std.mem.eql(u8, "fish", exe)) return .fish;
     if (std.mem.eql(u8, "nu", exe)) return .nushell;
+    if (std.mem.eql(u8, "powershell.exe", exe) or
+        std.mem.eql(u8, "powershell", exe) or
+        std.mem.eql(u8, "pwsh.exe", exe) or
+        std.mem.eql(u8, "pwsh", exe)) return .powershell;
     if (std.mem.eql(u8, "zsh", exe)) return .zsh;
 
     return null;
@@ -885,6 +897,58 @@ test "nushell: missing resources" {
     try testing.expectEqual(0, env.count());
 }
 
+/// Setup PowerShell shell integration. This works by modifying the
+/// command to dot-source our integration script on startup via
+/// -NoExit -Command ". '<script path>'".
+fn setupPowershell(
+    alloc: Allocator,
+    command: config.Command,
+    resource_dir: []const u8,
+    env: *EnvMap,
+) !?config.Command {
+    _ = env;
+
+    const script_path = try std.fs.path.join(alloc, &.{
+        resource_dir,
+        "shell-integration",
+        "powershell",
+        "ghostty-shell-integration.ps1",
+    });
+
+    // Verify the script exists.
+    std.fs.cwd().access(script_path, .{}) catch {
+        log.warn("powershell integration script not found: {s}", .{script_path});
+        return null;
+    };
+
+    var stack_fallback = std.heap.stackFallback(4096, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    defer cmd.deinit();
+
+    var iter = try command.argIterator(alloc);
+    defer iter.deinit();
+
+    // Add the executable (powershell.exe or pwsh.exe).
+    if (iter.next()) |exe| {
+        try cmd.appendArg(exe);
+    } else return null;
+
+    // Add -NoExit so PowerShell stays interactive after sourcing.
+    try cmd.appendArg("-NoExit");
+
+    // Dot-source our integration script.
+    const source_cmd = try std.fmt.allocPrint(alloc, ". '{s}'", .{script_path});
+    try cmd.appendArg("-Command");
+    try cmd.appendArg(source_cmd);
+
+    // Pass through remaining arguments.
+    while (iter.next()) |arg| {
+        try cmd.appendArg(arg);
+    }
+
+    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+}
+
 /// Setup the zsh automatic shell integration. This works by setting
 /// ZDOTDIR to our resources dir so that zsh will load our config. This
 /// config then loads the true user config.
@@ -1007,6 +1071,10 @@ const TmpResourcesDir = struct {
         switch (shell) {
             .bash => try tmp_dir.dir.writeFile(.{
                 .sub_path = "shell-integration/bash/ghostty.bash",
+                .data = "",
+            }),
+            .powershell => try tmp_dir.dir.writeFile(.{
+                .sub_path = "shell-integration/powershell/ghostty-shell-integration.ps1",
                 .data = "",
             }),
             else => {},
