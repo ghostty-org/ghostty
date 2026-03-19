@@ -67,6 +67,23 @@ final class ScriptTab: NSObject {
         return window?.tabIsSelected(controller) ?? false
     }
 
+    /// Exposed as the AppleScript `color` property.
+    ///
+    /// The value is a `tab color` enumeration constant defined in `Ghostty.sdef`.
+    /// Cocoa scripting passes enumerator FourCharCodes as `UInt32` via KVC.
+    @objc(color)
+    var color: UInt32 {
+        get {
+            guard NSApp.isAppleScriptEnabled else { return TerminalTabColor.none.appleScriptCode }
+            return ((controller?.window as? TerminalWindow)?.tabColor ?? .none).appleScriptCode
+        }
+        set {
+            guard NSApp.isAppleScriptEnabled else { return }
+            guard let terminalWindow = controller?.window as? TerminalWindow else { return }
+            terminalWindow.tabColor = TerminalTabColor(appleScriptCode: newValue)
+        }
+    }
+
     /// Exposed as the AppleScript `focused terminal` property.
     ///
     /// Uses the currently focused surface for this tab.
@@ -182,5 +199,29 @@ extension ScriptTab {
     /// lookups in `ScriptWindow` call this helper.
     static func stableID(controller: BaseTerminalController) -> String {
         "tab-\(ObjectIdentifier(controller).hexString)"
+    }
+}
+
+/// Maps `TerminalTabColor` to and from the `tab color` enumeration in `Ghostty.sdef`.
+///
+/// Cocoa scripting passes enumerator FourCharCodes as integers via KVC.
+private extension TerminalTabColor {
+    var appleScriptCode: UInt32 {
+        switch self {
+        case .none:     "GTcN".fourCharCode
+        case .blue:     "GTcB".fourCharCode
+        case .purple:   "GTcP".fourCharCode
+        case .pink:     "GTcK".fourCharCode
+        case .red:      "GTcR".fourCharCode
+        case .orange:   "GTcO".fourCharCode
+        case .yellow:   "GTcY".fourCharCode
+        case .green:    "GTcG".fourCharCode
+        case .teal:     "GTcT".fourCharCode
+        case .graphite: "GTcX".fourCharCode
+        }
+    }
+
+    init(appleScriptCode: UInt32) {
+        self = Self.allCases.first(where: { $0.appleScriptCode == appleScriptCode }) ?? .none
     }
 }
