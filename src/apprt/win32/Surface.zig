@@ -52,6 +52,19 @@ core_surface_initialized: bool = false,
 /// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages (surrogate pair).
 high_surrogate: u16 = 0,
 
+/// Whether an IME composition session is active. When true, handleKeyEvent
+/// skips VK_PROCESSKEY events (the IME is intercepting keys), and composed
+/// text is extracted from WM_IME_COMPOSITION instead.
+ime_composing: bool = false,
+
+/// Set to true when handleKeyEvent produced text via ToUnicode. The
+/// subsequent WM_CHAR from TranslateMessage is then suppressed to avoid
+/// double input. Reset to false when WM_CHAR arrives (whether suppressed
+/// or processed). This allows WM_CHAR through for cases where
+/// handleKeyEvent did NOT produce text: IME (VK_PROCESSKEY), SendInput
+/// Unicode (VK_PACKET), or direct PostMessage.
+key_event_produced_text: bool = false,
+
 /// Initialize a new Surface by creating a Win32 window and WGL context,
 /// then initialize the core terminal surface (fonts, renderer, PTY, IO).
 pub fn init(self: *Surface, app: *App) !void {
@@ -494,6 +507,17 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
     if (!self.core_surface_ready) return;
     const vk: u16 = @intCast(wparam & 0xFFFF);
 
+    // When the IME is active, physical key presses arrive as VK_PROCESSKEY.
+    // The IME will produce the composed text via WM_IME_COMPOSITION — skip
+    // the key event so we don't feed garbage to the terminal.
+    if (vk == w32.VK_PROCESSKEY) return;
+
+    // VK_PACKET is sent by SendInput with KEYEVENTF_UNICODE (used by
+    // accessibility tools, on-screen keyboards, and Unicode injection).
+    // The actual character follows as WM_CHAR — don't set the
+    // key_event_produced_text flag so WM_CHAR is allowed through.
+    if (vk == w32.VK_PACKET) return;
+
     // Determine left/right for modifier keys using the extended key flag
     // (bit 24 of lparam) and specific left/right VK codes.
     const extended = (lparam & (1 << 24)) != 0;
@@ -518,6 +542,10 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
     var utf8_buf: [16]u8 = undefined;
     var utf8_text: []const u8 = "";
     var consumed_mods: input.Mods = .{};
+
+    // Reset the flag — WM_CHAR should be allowed through unless
+    // ToUnicode produces text below.
+    self.key_event_produced_text = false;
 
     if (actual_action == .press or actual_action == .repeat) {
         var keyboard_state: [256]u8 = undefined;
@@ -546,6 +574,9 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
                         utf8_text = utf8_buf[0..len];
                         // Shift was consumed to produce the text (e.g., Shift+a = 'A')
                         if (mods.shift) consumed_mods.shift = true;
+                        // Flag that we produced text — the subsequent
+                        // WM_CHAR from TranslateMessage should be suppressed.
+                        self.key_event_produced_text = true;
                     }
                 }
             }
@@ -569,6 +600,10 @@ pub fn handleKeyEvent(self: *Surface, wparam: usize, lparam: isize, action: inpu
 /// Handle WM_CHAR — character input after translation.
 /// Win32 delivers codepoints > U+FFFF as two WM_CHAR messages
 /// containing a UTF-16 surrogate pair (high then low).
+///
+/// Text is routed through keyCallback (not textCallback!) with
+/// key=.unidentified, mirroring how GTK handles IME commits.
+/// textCallback is for clipboard paste; keyCallback is for keyboard/IME text.
 pub fn handleCharEvent(self: *Surface, wparam: usize) void {
     if (!self.core_surface_ready) return;
     const char_code: u16 = @intCast(wparam & 0xFFFF);
@@ -599,8 +634,18 @@ pub fn handleCharEvent(self: *Surface, wparam: usize) void {
     var utf8_buf: [4]u8 = undefined;
     const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch return;
 
-    self.core_surface.textCallback(utf8_buf[0..len]) catch |err| {
-        log.err("text callback error: {}", .{err});
+    // Send through keyCallback with .unidentified key — this is the
+    // standard path for IME/text input (same as GTK's imCommit).
+    // keyCallback will encode the utf8 text and write it to the PTY.
+    _ = self.core_surface.keyCallback(.{
+        .action = .press,
+        .key = .unidentified,
+        .mods = .{},
+        .consumed_mods = .{},
+        .composing = false,
+        .utf8 = utf8_buf[0..len],
+    }) catch |err| {
+        log.err("text input callback error: {}", .{err});
     };
 }
 
@@ -660,6 +705,111 @@ pub fn handleMouseWheel(self: *Surface, wparam: usize) void {
     self.core_surface.scrollCallback(0, delta, scroll_mods) catch |err| {
         log.err("scroll callback error: {}", .{err});
     };
+}
+
+/// Handle WM_IME_STARTCOMPOSITION — an IME composition session has begun.
+/// Position the candidate window near the terminal cursor and let Windows
+/// show its default composition UI.
+pub fn handleImeStartComposition(self: *Surface) void {
+    self.ime_composing = true;
+    self.positionImeWindow();
+}
+
+/// Handle WM_IME_ENDCOMPOSITION — the IME composition session has ended.
+pub fn handleImeEndComposition(self: *Surface) void {
+    self.ime_composing = false;
+}
+
+/// Handle WM_IME_COMPOSITION — intermediate or final text from the IME.
+/// When the result string is available (GCS_RESULTSTR), extract it and
+/// send it to the terminal. Returns true if we handled the result string.
+pub fn handleImeComposition(self: *Surface, lparam: isize) bool {
+    if (!self.core_surface_ready) return false;
+
+    const flags: u32 = @intCast(lparam & 0xFFFFFFFF);
+    if (flags & w32.GCS_RESULTSTR == 0) return false;
+
+    const hwnd = self.hwnd orelse return false;
+    const himc = w32.ImmGetContext(hwnd) orelse return false;
+    defer _ = w32.ImmReleaseContext(hwnd, himc);
+
+    // Query the length of the result string (in bytes).
+    const byte_len = w32.ImmGetCompositionStringW(himc, w32.GCS_RESULTSTR, null, 0);
+    if (byte_len <= 0) return false;
+
+    const u16_len: usize = @intCast(@divExact(byte_len, 2));
+
+    // Stack buffer for typical IME results (up to 64 UTF-16 code units).
+    var stack_buf: [64]u16 = undefined;
+
+    if (u16_len <= stack_buf.len) {
+        const got = w32.ImmGetCompositionStringW(himc, w32.GCS_RESULTSTR, &stack_buf, @intCast(byte_len));
+        if (got <= 0) return false;
+        const actual_len: usize = @intCast(@divExact(got, 2));
+        self.sendImeText(stack_buf[0..actual_len]);
+    } else {
+        // Unusual: very long composition. Allocate on the heap.
+        const alloc = self.app.core_app.alloc;
+        const buf = alloc.alloc(u16, u16_len) catch return false;
+        defer alloc.free(buf);
+        const got = w32.ImmGetCompositionStringW(himc, w32.GCS_RESULTSTR, buf.ptr, @intCast(byte_len));
+        if (got <= 0) return false;
+        const actual_len: usize = @intCast(@divExact(got, 2));
+        self.sendImeText(buf[0..actual_len]);
+    }
+
+    // Reposition the IME window for the next composition
+    self.positionImeWindow();
+    return true;
+}
+
+/// Convert a UTF-16 IME result to UTF-8 and send it to the terminal.
+fn sendImeText(self: *Surface, utf16: []const u16) void {
+    // Convert UTF-16LE to UTF-8 in a stack buffer (256 bytes covers
+    // even long CJK phrases — each CJK char is 3 bytes in UTF-8).
+    var utf8_buf: [256]u8 = undefined;
+    const len = std.unicode.utf16LeToUtf8(&utf8_buf, utf16) catch |err| {
+        log.warn("IME utf16→utf8 error: {}", .{err});
+        return;
+    };
+    if (len == 0) return;
+
+    // Send through keyCallback with .unidentified key — this is the
+    // standard path for IME/text input (same as GTK's imCommit).
+    _ = self.core_surface.keyCallback(.{
+        .action = .press,
+        .key = .unidentified,
+        .mods = .{},
+        .consumed_mods = .{},
+        .composing = false,
+        .utf8 = utf8_buf[0..len],
+    }) catch |err| {
+        log.err("IME text callback error: {}", .{err});
+    };
+}
+
+/// Position the IME candidate/composition window near the terminal cursor.
+fn positionImeWindow(self: *Surface) void {
+    const hwnd = self.hwnd orelse return;
+    const himc = w32.ImmGetContext(hwnd) orelse return;
+    defer _ = w32.ImmReleaseContext(hwnd, himc);
+
+    // Use the core surface's imePoint() which calculates the cursor
+    // position in pixels from the terminal grid, accounting for padding
+    // and content scale.
+    var pos = w32.POINT{ .x = 0, .y = 0 };
+    if (self.core_surface_ready) {
+        const ime_pos = self.core_surface.imePoint();
+        pos.x = @intFromFloat(ime_pos.x);
+        pos.y = @intFromFloat(ime_pos.y);
+    }
+
+    const cf = w32.COMPOSITIONFORM{
+        .dwStyle = w32.CFS_POINT,
+        .ptCurrentPos = pos,
+        .rcArea = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+    };
+    _ = w32.ImmSetCompositionWindow(himc, &cf);
 }
 
 /// Handle WM_SETFOCUS / WM_KILLFOCUS.

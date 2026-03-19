@@ -357,6 +357,12 @@ const WindowsPty = struct {
         try windows.SetHandleInformation(pty.out_pipe, windows.HANDLE_FLAG_INHERIT, 0);
         try windows.SetHandleInformation(pty.out_pipe_pty, windows.HANDLE_FLAG_INHERIT, 0);
 
+        // Set the console codepage to UTF-8 before creating the pseudo
+        // console. ConPTY uses the active codepage at creation time for
+        // translating between VT (UTF-8) I/O and the Win32 console.
+        _ = windows.exp.kernel32.SetConsoleCP(65001);
+        _ = windows.exp.kernel32.SetConsoleOutputCP(65001);
+
         const result = windows.exp.kernel32.CreatePseudoConsole(
             .{ .X = @intCast(size.ws_col), .Y = @intCast(size.ws_row) },
             pty.in_pipe_pty,

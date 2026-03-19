@@ -109,7 +109,21 @@ pub const WM_MBUTTONUP: u32 = 0x0208;
 pub const WM_MOUSEWHEEL: u32 = 0x020A;
 pub const WM_DPICHANGED: u32 = 0x02E0;
 
+// IME messages
+pub const WM_IME_STARTCOMPOSITION: u32 = 0x010D;
+pub const WM_IME_ENDCOMPOSITION: u32 = 0x010E;
+pub const WM_IME_COMPOSITION: u32 = 0x010F;
+
+// IME composition string flags
+pub const GCS_COMPSTR: u32 = 0x0008;
+pub const GCS_RESULTSTR: u32 = 0x0800;
+
+// IME composition form styles
+pub const CFS_POINT: u32 = 0x0002;
+
 // Virtual key codes
+pub const VK_PROCESSKEY: u16 = 0xE5;
+pub const VK_PACKET: u16 = 0xE7;
 pub const VK_BACK: u16 = 0x08;
 pub const VK_TAB: u16 = 0x09;
 pub const VK_RETURN: u16 = 0x0D;
@@ -417,6 +431,39 @@ pub extern "kernel32" fn GlobalUnlock(
 pub extern "kernel32" fn GlobalFree(
     hMem: *anyopaque,
 ) callconv(.c) ?*anyopaque;
+
+// -----------------------------------------------------------------------
+// IMM32 (Input Method Manager) API
+// -----------------------------------------------------------------------
+
+pub const HIMC = *opaque {};
+
+pub const COMPOSITIONFORM = extern struct {
+    dwStyle: u32,
+    ptCurrentPos: POINT,
+    rcArea: RECT,
+};
+
+pub extern "imm32" fn ImmGetContext(
+    hWnd: HWND,
+) callconv(.c) ?HIMC;
+
+pub extern "imm32" fn ImmReleaseContext(
+    hWnd: HWND,
+    hIMC: HIMC,
+) callconv(.c) i32;
+
+pub extern "imm32" fn ImmGetCompositionStringW(
+    hIMC: HIMC,
+    dwIndex: u32,
+    lpBuf: ?[*]u16,
+    dwBufLen: u32,
+) callconv(.c) i32;
+
+pub extern "imm32" fn ImmSetCompositionWindow(
+    hIMC: HIMC,
+    lpCompForm: *const COMPOSITIONFORM,
+) callconv(.c) i32;
 
 pub extern "gdi32" fn ChoosePixelFormat(
     hdc: HDC,

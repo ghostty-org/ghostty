@@ -54,6 +54,12 @@ pub const exp = struct {
             lpPipeAttributes: ?*const windows.SECURITY_ATTRIBUTES,
             nSize: windows.DWORD,
         ) callconv(.winapi) windows.BOOL;
+        pub extern "kernel32" fn SetConsoleCP(
+            wCodePageID: windows.UINT,
+        ) callconv(.winapi) windows.BOOL;
+        pub extern "kernel32" fn SetConsoleOutputCP(
+            wCodePageID: windows.UINT,
+        ) callconv(.winapi) windows.BOOL;
         pub extern "kernel32" fn CreatePseudoConsole(
             size: windows.COORD,
             hInput: windows.HANDLE,

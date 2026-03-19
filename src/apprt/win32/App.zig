@@ -359,10 +359,39 @@ fn wndProc(
         },
 
         w32.WM_CHAR => {
-            // Text input is handled through keyCallback's key encoding
-            // in handleKeyEvent. WM_CHAR would duplicate the input.
-            // TODO: Re-enable for IME (input method editor) support.
+            // If handleKeyEvent already produced text via ToUnicode for
+            // the preceding WM_KEYDOWN, suppress this WM_CHAR to avoid
+            // double input. Otherwise, process it — the character came
+            // from IME, SendInput Unicode (VK_PACKET), PostMessage, or
+            // another source that didn't go through handleKeyEvent.
+            if (surface.key_event_produced_text) {
+                surface.key_event_produced_text = false;
+                return 0;
+            }
+            surface.handleCharEvent(wparam);
             return 0;
+        },
+
+        w32.WM_IME_STARTCOMPOSITION => {
+            surface.handleImeStartComposition();
+            // Let DefWindowProc show the default composition window.
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+
+        w32.WM_IME_COMPOSITION => {
+            if (surface.handleImeComposition(lparam)) {
+                // We extracted the result string — suppress further
+                // processing so WM_IME_CHAR/WM_CHAR are not generated.
+                return 0;
+            }
+            // No result string yet (intermediate composition) — let
+            // DefWindowProc update the default composition window.
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+
+        w32.WM_IME_ENDCOMPOSITION => {
+            surface.handleImeEndComposition();
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
 
         w32.WM_LBUTTONDOWN => { surface.handleMouseButton(.left, .press, lparam); return 0; },
