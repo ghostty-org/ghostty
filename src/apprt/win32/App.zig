@@ -23,6 +23,9 @@ pub const must_draw_from_app_thread = false;
 /// core_app.tick() is called.
 const WM_APP_WAKEUP: u32 = w32.WM_APP + 1;
 
+/// Timer ID for the quit-after-last-window-closed delay.
+const QUIT_TIMER_ID: usize = 1;
+
 /// The Win32 window class name (wide string).
 const CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow");
 
@@ -42,6 +45,17 @@ hinstance: w32.HINSTANCE,
 
 /// Window class atom from RegisterClassExW.
 class_atom: u16 = 0,
+
+/// Background brush created from the configured background color.
+/// Used by WM_ERASEBKGND to fill exposed areas during resize,
+/// matching the terminal background so the flash is invisible.
+bg_brush: ?w32.HBRUSH = null,
+
+/// Quit timer state, mirroring GTK's three-state approach:
+/// - off: no quit pending
+/// - active: timer is running (waiting for delay to expire)
+/// - expired: delay has elapsed, quit on next tick
+quit_timer_state: enum { off, active, expired } = .off,
 
 /// Whether quit has been requested.
 quit_requested: bool = false,
@@ -70,10 +84,17 @@ pub fn init(
     };
     errdefer config.deinit();
 
+    // Create a brush matching the configured background color so that
+    // any exposed window area during resize matches the terminal
+    // background, making the flash invisible.
+    const bg = config.background;
+    const bg_brush = w32.CreateSolidBrush(w32.RGB(bg.r, bg.g, bg.b));
+
     self.* = .{
         .core_app = core_app,
         .config = config,
         .hinstance = hinstance,
+        .bg_brush = bg_brush,
     };
 
     // Register the window class
@@ -86,7 +107,7 @@ pub fn init(
         .hInstance = hinstance,
         .hIcon = null,
         .hCursor = w32.LoadCursorW(null, w32.IDC_ARROW),
-        .hbrBackground = null,
+        .hbrBackground = bg_brush,
         .lpszMenuName = null,
         .lpszClassName = CLASS_NAME,
         .hIconSm = null,
@@ -138,6 +159,8 @@ pub fn run(self: *App) !void {
 }
 
 pub fn terminate(self: *App) void {
+    self.stopQuitTimer();
+
     if (self.msg_hwnd) |hwnd| {
         // Clear GWLP_USERDATA before destroying. The msg_hwnd stores
         // *App in userdata, but wndProc tries to cast non-zero userdata
@@ -148,6 +171,11 @@ pub fn terminate(self: *App) void {
         _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
         _ = w32.DestroyWindow(hwnd);
         self.msg_hwnd = null;
+    }
+
+    if (self.bg_brush) |brush| {
+        _ = w32.DeleteObject(@ptrCast(brush));
+        self.bg_brush = null;
     }
 
     self.config.deinit();
@@ -215,13 +243,9 @@ pub fn performAction(
         },
 
         .quit_timer => {
-            // For now, just quit immediately when the last surface closes.
             switch (value) {
-                .start => {
-                    self.quit_requested = true;
-                    w32.PostQuitMessage(0);
-                },
-                .stop => {},
+                .start => self.startQuitTimer(),
+                .stop => self.stopQuitTimer(),
             }
             return true;
         },
@@ -231,6 +255,13 @@ pub fn performAction(
             if (value.config.clone(self.core_app.alloc)) |new_config| {
                 self.config.deinit();
                 self.config = new_config;
+
+                // Recreate the background brush from the new config.
+                if (self.bg_brush) |old_brush| {
+                    _ = w32.DeleteObject(@ptrCast(old_brush));
+                }
+                const bg = new_config.background;
+                self.bg_brush = w32.CreateSolidBrush(w32.RGB(bg.r, bg.g, bg.b));
             } else |err| {
                 log.err("error updating app config err={}", .{err});
             }
@@ -239,6 +270,43 @@ pub fn performAction(
 
         // Return false for unhandled actions
         else => return false,
+    }
+}
+
+/// Start the quit timer. Called when the last surface closes.
+fn startQuitTimer(self: *App) void {
+    // Cancel any existing timer first.
+    self.stopQuitTimer();
+
+    // Check if we should quit at all.
+    if (!self.config.@"quit-after-last-window-closed") return;
+
+    // If a delay is configured, start a Win32 timer.
+    if (self.config.@"quit-after-last-window-closed-delay") |v| {
+        const ms = v.asMilliseconds();
+        if (self.msg_hwnd) |hwnd| {
+            _ = w32.SetTimer(hwnd, QUIT_TIMER_ID, ms, null);
+            self.quit_timer_state = .active;
+        }
+    } else {
+        // No delay — quit immediately.
+        self.quit_timer_state = .expired;
+        self.quit_requested = true;
+        w32.PostQuitMessage(0);
+    }
+}
+
+/// Cancel the quit timer. Called when a new surface opens.
+fn stopQuitTimer(self: *App) void {
+    switch (self.quit_timer_state) {
+        .off => {},
+        .expired => self.quit_timer_state = .off,
+        .active => {
+            if (self.msg_hwnd) |hwnd| {
+                _ = w32.KillTimer(hwnd, QUIT_TIMER_ID);
+            }
+            self.quit_timer_state = .off;
+        },
     }
 }
 
@@ -259,6 +327,18 @@ pub fn createWindow(self: *App) !w32.HWND {
         self.hinstance,
         null,
     ) orelse return error.Win32Error;
+
+    // Enable dark mode window chrome so the title bar and frame match
+    // the terminal's dark background. This also prevents the bright
+    // white resize border that would otherwise flash during resize.
+    // Supported on Windows 10 build 18985+ and Windows 11.
+    const dark_mode: u32 = 1; // TRUE
+    _ = w32.DwmSetWindowAttribute(
+        hwnd,
+        w32.DWMWA_USE_IMMERSIVE_DARK_MODE,
+        @ptrCast(&dark_mode),
+        @sizeOf(u32),
+    );
 
     _ = w32.ShowWindow(hwnd, w32.SW_SHOW);
     _ = w32.UpdateWindow(hwnd);
@@ -286,11 +366,22 @@ fn wndProc(
     // WM_APP_WAKEUP only goes to the message-only window.
     const userdata = w32.GetWindowLongPtrW(hwnd, w32.GWLP_USERDATA);
 
-    // Handle app-level wakeup message (message-only window, userdata is *App).
+    // Handle app-level messages (message-only window, userdata is *App).
     if (msg == WM_APP_WAKEUP) {
         if (userdata != 0) {
             const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
             app.tick();
+        }
+        return 0;
+    }
+
+    if (msg == w32.WM_TIMER and wparam == QUIT_TIMER_ID) {
+        if (userdata != 0) {
+            const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
+            _ = w32.KillTimer(hwnd, QUIT_TIMER_ID);
+            app.quit_timer_state = .expired;
+            app.quit_requested = true;
+            w32.PostQuitMessage(0);
         }
         return 0;
     }
@@ -309,6 +400,16 @@ fn wndProc(
         return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
 
     switch (msg) {
+        w32.WM_ENTERSIZEMOVE => {
+            surface.in_live_resize = true;
+            return 0;
+        },
+
+        w32.WM_EXITSIZEMOVE => {
+            surface.in_live_resize = false;
+            return 0;
+        },
+
         w32.WM_SIZE => {
             const width: u32 = @intCast(lparam & 0xFFFF);
             const height: u32 = @intCast((lparam >> 16) & 0xFFFF);
@@ -330,6 +431,20 @@ fn wndProc(
         w32.WM_DESTROY => {
             surface.handleDestroy();
             return 0;
+        },
+
+        w32.WM_ERASEBKGND => {
+            // Fill with the configured background color to prevent
+            // a visible flash during resize. The OpenGL renderer will
+            // overwrite the entire client area on the next frame.
+            if (surface.app.bg_brush) |brush| {
+                const hdc_erase: w32.HDC = @ptrFromInt(wparam);
+                var rect: w32.RECT = undefined;
+                if (w32.GetClientRect(hwnd, &rect) != 0) {
+                    _ = w32.FillRect(hdc_erase, &rect, brush);
+                }
+            }
+            return 1;
         },
 
         w32.WM_PAINT => {

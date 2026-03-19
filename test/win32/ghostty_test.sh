@@ -305,6 +305,60 @@ test_clipboard() {
     echo "  ● PASSED"
 }
 
+test_config_file() {
+    echo "▶ test_config_file"
+
+    # Create a temporary config directory with a custom config
+    local config_dir_wsl
+    config_dir_wsl="$(wslpath "$WIN_TEMP")/ghostty-test-config/ghostty"
+    mkdir -p "$config_dir_wsl"
+
+    # Write a config with a bright red background (very distinctive)
+    cat > "$config_dir_wsl/config" << 'CFGEOF'
+background = #cc0000
+foreground = #ffffff
+font-size = 16
+CFGEOF
+
+    # Launch ghostty with XDG_CONFIG_HOME set via WSLENV so Windows
+    # inherits the env var from WSL.
+    local config_dir_win
+    config_dir_win="$(wslpath -w "$(wslpath "$WIN_TEMP")/ghostty-test-config")"
+    export XDG_CONFIG_HOME="$config_dir_win"
+    export WSLENV="XDG_CONFIG_HOME/w"
+
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    unset XDG_CONFIG_HOME
+    unset WSLENV
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear with custom config"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        rm -rf "$(wslpath "$WIN_TEMP")/ghostty-test-config"
+        return
+    fi
+    echo "  ✓ Window appeared with custom config (PID=$pid)"
+
+    # Take screenshot — red background should be very obvious
+    screenshot "config_red_bg" "$pid"
+    echo "  ✓ Screenshot captured (verify red background manually)"
+
+    # Clean up
+    ps -Action close -ProcessId "$pid"
+    sleep 2
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+    rm -rf "$(wslpath "$WIN_TEMP")/ghostty-test-config"
+
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 list_tests() {
@@ -315,6 +369,7 @@ list_tests() {
     echo "  resize              — Window resize behavior (not yet implemented)"
     echo "  multiple_windows    — Multiple window lifecycle"
     echo "  clipboard           — Copy/paste functionality"
+    echo "  config_file         — Config file loading with custom settings"
 }
 
 run_test() {
@@ -325,6 +380,7 @@ run_test() {
         resize)              test_resize ;;
         multiple_windows)    test_multiple_windows ;;
         clipboard)           test_clipboard ;;
+        config_file)         test_config_file ;;
         *)                   echo "Unknown test: $1"; exit 1 ;;
     esac
 }
@@ -350,6 +406,8 @@ case "${1:-all}" in
         test_multiple_windows
         echo ""
         test_clipboard
+        echo ""
+        test_config_file
         echo ""
         report
         ;;

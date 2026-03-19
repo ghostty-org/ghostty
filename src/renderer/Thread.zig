@@ -508,6 +508,13 @@ fn drawFrame(self: *Thread, now: bool) void {
         self.renderer.drawFrame(false) catch |err|
             log.warn("error drawing err={}", .{err});
     }
+
+    // Signal the apprt that a frame has been presented. On Win32
+    // this wakes the main thread if it's blocking in handleResize
+    // during live window resize.
+    if (comptime @hasDecl(apprt.Surface, "signalFrameDrawn")) {
+        self.surface.signalFrameDrawn();
+    }
 }
 
 fn wakeupCallback(

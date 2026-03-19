@@ -93,7 +93,11 @@ pub const WM_DESTROY: u32 = 0x0002;
 pub const WM_SIZE: u32 = 0x0005;
 pub const WM_SETFOCUS: u32 = 0x0007;
 pub const WM_KILLFOCUS: u32 = 0x0008;
+pub const WM_ERASEBKGND: u32 = 0x0014;
 pub const WM_PAINT: u32 = 0x000F;
+pub const WM_TIMER: u32 = 0x0113;
+pub const WM_ENTERSIZEMOVE: u32 = 0x0231;
+pub const WM_EXITSIZEMOVE: u32 = 0x0232;
 pub const WM_KEYDOWN: u32 = 0x0100;
 pub const WM_KEYUP: u32 = 0x0101;
 pub const WM_CHAR: u32 = 0x0102;
@@ -388,6 +392,77 @@ pub extern "user32" fn SetCapture(
 
 pub extern "user32" fn ReleaseCapture() callconv(.c) i32;
 
+pub extern "user32" fn SetTimer(
+    hWnd: ?HWND,
+    nIDEvent: usize,
+    uElapse: u32,
+    lpTimerFunc: ?*const anyopaque,
+) callconv(.c) usize;
+
+pub extern "user32" fn KillTimer(
+    hWnd: ?HWND,
+    uIDEvent: usize,
+) callconv(.c) i32;
+
+// -----------------------------------------------------------------------
+// Synchronization API
+// -----------------------------------------------------------------------
+
+pub const HANDLE = std.os.windows.HANDLE;
+pub const INFINITE: u32 = 0xFFFFFFFF;
+pub const WAIT_OBJECT_0: u32 = 0x00000000;
+pub const WAIT_TIMEOUT: u32 = 0x00000102;
+
+pub extern "kernel32" fn CreateEventW(
+    lpEventAttributes: ?*anyopaque,
+    bManualReset: i32,
+    bInitialState: i32,
+    lpName: ?[*:0]const u16,
+) callconv(.c) ?HANDLE;
+
+pub extern "kernel32" fn SetEvent(
+    hEvent: HANDLE,
+) callconv(.c) i32;
+
+pub extern "kernel32" fn ResetEvent(
+    hEvent: HANDLE,
+) callconv(.c) i32;
+
+pub extern "kernel32" fn WaitForSingleObject(
+    hHandle: HANDLE,
+    dwMilliseconds: u32,
+) callconv(.c) u32;
+
+pub extern "kernel32" fn CloseHandle(
+    hObject: HANDLE,
+) callconv(.c) i32;
+
+// Stock object indices for GetStockObject
+pub const BLACK_BRUSH: i32 = 4;
+
+pub extern "gdi32" fn GetStockObject(
+    i: i32,
+) callconv(.c) ?*anyopaque;
+
+/// COLORREF is 0x00BBGGRR (blue in high byte, red in low byte).
+pub fn RGB(r: u8, g: u8, b: u8) u32 {
+    return @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, b) << 16);
+}
+
+pub extern "gdi32" fn CreateSolidBrush(
+    color: u32,
+) callconv(.c) ?HBRUSH;
+
+pub extern "gdi32" fn DeleteObject(
+    ho: *anyopaque,
+) callconv(.c) i32;
+
+pub extern "user32" fn FillRect(
+    hDC: HDC,
+    lprc: *const RECT,
+    hbr: HBRUSH,
+) callconv(.c) i32;
+
 // -----------------------------------------------------------------------
 // Clipboard API
 // -----------------------------------------------------------------------
@@ -463,6 +538,21 @@ pub extern "imm32" fn ImmGetCompositionStringW(
 pub extern "imm32" fn ImmSetCompositionWindow(
     hIMC: HIMC,
     lpCompForm: *const COMPOSITIONFORM,
+) callconv(.c) i32;
+
+// -----------------------------------------------------------------------
+// DWM (Desktop Window Manager) API
+// -----------------------------------------------------------------------
+
+/// DWMWA_USE_IMMERSIVE_DARK_MODE — tells DWM to use dark-mode window chrome.
+/// Supported on Windows 10 build 18985+ (formally documented from Windows 11).
+pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+
+pub extern "dwmapi" fn DwmSetWindowAttribute(
+    hwnd: HWND,
+    dwAttribute: u32,
+    pvAttribute: *const anyopaque,
+    cbAttribute: u32,
 ) callconv(.c) i32;
 
 pub extern "gdi32" fn ChoosePixelFormat(

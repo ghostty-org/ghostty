@@ -67,12 +67,27 @@ ime_composing: bool = false,
 /// Unicode (VK_PACKET), or direct PostMessage.
 key_event_produced_text: bool = false,
 
+/// Whether the user is actively dragging a window border/titlebar.
+/// During live resize, handleResize blocks until the renderer draws
+/// one frame at the new size (or a timeout expires), eliminating the
+/// visual flicker from the DWM stretching stale content.
+in_live_resize: bool = false,
+
+/// Manual-reset event signaled by the renderer thread after presenting
+/// a frame. The main thread waits on this during live resize to
+/// synchronize rendering with the DWM compositor.
+frame_event: ?w32.HANDLE = null,
+
 /// Initialize a new Surface by creating a Win32 window and WGL context,
 /// then initialize the core terminal surface (fonts, renderer, PTY, IO).
 pub fn init(self: *Surface, app: *App) !void {
     self.* = .{
         .app = app,
     };
+
+    // Create a manual-reset event for synchronizing resize with the
+    // renderer thread. Manual-reset so we control exactly when it's reset.
+    self.frame_event = w32.CreateEventW(null, 1, 0, null);
 
     // Create the window through the App
     const hwnd = try app.createWindow();
@@ -152,6 +167,11 @@ pub fn deinit(self: *Surface) void {
 
         // Unregister from the core app's surface list.
         self.app.core_app.deleteSurface(self);
+    }
+
+    if (self.frame_event) |event| {
+        _ = w32.CloseHandle(event);
+        self.frame_event = null;
     }
 
     if (self.hglrc) |hglrc| {
@@ -467,8 +487,30 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
         return;
     };
 
-    // Wake the renderer to redraw at the new size immediately.
-    self.core_surface.renderer_thread.wakeup.notify() catch {};
+    // During live resize (user dragging the border), block until the
+    // renderer has presented one frame at the new size. This prevents
+    // the DWM from stretching stale framebuffer content to fill the
+    // new window area, which causes visible flicker.
+    if (self.in_live_resize) {
+        if (self.frame_event) |event| {
+            // Reset the event before waking the renderer, so we
+            // wait for a NEW frame, not a previously drawn one.
+            _ = w32.ResetEvent(event);
+        }
+
+        // Wake the renderer to redraw at the new size.
+        self.core_surface.renderer_thread.wakeup.notify() catch {};
+
+        if (self.frame_event) |event| {
+            // Wait for the renderer to present. Use a short timeout
+            // so we never stall the UI if the renderer is slow.
+            _ = w32.WaitForSingleObject(event, 16);
+        }
+    } else {
+        // Outside live resize (programmatic resize, initial layout),
+        // just wake the renderer asynchronously.
+        self.core_surface.renderer_thread.wakeup.notify() catch {};
+    }
 }
 
 /// Handle WM_DESTROY.
@@ -962,6 +1004,15 @@ fn writeWin32InputSequence(
         seq,
     ) catch return;
     self.core_surface.io.queueMessage(msg, .unlocked);
+}
+
+/// Called by the renderer thread after SwapBuffers to signal that a
+/// frame has been presented. Wakes the main thread if it's blocking
+/// in handleResize during live resize.
+pub fn signalFrameDrawn(self: *Surface) void {
+    if (self.frame_event) |event| {
+        _ = w32.SetEvent(event);
+    }
 }
 
 /// Handle WM_SETFOCUS / WM_KILLFOCUS.

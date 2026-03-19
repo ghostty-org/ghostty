@@ -551,6 +551,8 @@ pub fn add(
                     step.linkSystemLibrary2("gdi32", .{});
                     step.linkSystemLibrary2("user32", .{});
                     step.linkSystemLibrary2("dwrite", .{});
+                    step.linkSystemLibrary2("dwmapi", .{});
+                    step.linkSystemLibrary2("imm32", .{});
                 }
             },
         }
