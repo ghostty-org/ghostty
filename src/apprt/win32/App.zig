@@ -268,6 +268,16 @@ pub fn performAction(
             return true;
         },
 
+        .toggle_fullscreen => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.toggleFullscreen();
+                },
+            }
+            return true;
+        },
+
         // Return false for unhandled actions
         else => return false,
     }

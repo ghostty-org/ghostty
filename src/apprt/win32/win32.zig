@@ -85,6 +85,26 @@ pub const CS_OWNDC: u32 = 0x0020;
 
 // Window styles
 pub const WS_OVERLAPPEDWINDOW: u32 = 0x00CF0000;
+pub const WS_POPUP: u32 = 0x80000000;
+
+// Window long indices
+pub const GWL_STYLE: i32 = -16;
+
+// SetWindowPos flags
+pub const SWP_NOZORDER: u32 = 0x0004;
+pub const SWP_FRAMECHANGED: u32 = 0x0020;
+
+// MonitorFromWindow flags
+pub const MONITOR_DEFAULTTONEAREST: u32 = 0x00000002;
+
+pub const HMONITOR = *opaque {};
+
+pub const MONITORINFO = extern struct {
+    cbSize: u32,
+    rcMonitor: RECT,
+    rcWork: RECT,
+    dwFlags: u32,
+};
 
 // Window messages
 pub const WM_APP: u32 = 0x8000;
@@ -391,6 +411,42 @@ pub extern "user32" fn SetCapture(
 ) callconv(.c) ?HWND;
 
 pub extern "user32" fn ReleaseCapture() callconv(.c) i32;
+
+pub extern "user32" fn GetWindowLongW(
+    hWnd: HWND,
+    nIndex: i32,
+) callconv(.c) u32;
+
+pub extern "user32" fn SetWindowLongW(
+    hWnd: HWND,
+    nIndex: i32,
+    dwNewLong: u32,
+) callconv(.c) u32;
+
+pub extern "user32" fn SetWindowPos(
+    hWnd: HWND,
+    hWndInsertAfter: ?HWND,
+    X: i32,
+    Y: i32,
+    cx: i32,
+    cy: i32,
+    uFlags: u32,
+) callconv(.c) i32;
+
+pub extern "user32" fn GetWindowRect(
+    hWnd: HWND,
+    lpRect: *RECT,
+) callconv(.c) i32;
+
+pub extern "user32" fn MonitorFromWindow(
+    hwnd: HWND,
+    dwFlags: u32,
+) callconv(.c) HMONITOR;
+
+pub extern "user32" fn GetMonitorInfoW(
+    hMonitor: HMONITOR,
+    lpmi: *MONITORINFO,
+) callconv(.c) i32;
 
 pub extern "user32" fn SetTimer(
     hWnd: ?HWND,

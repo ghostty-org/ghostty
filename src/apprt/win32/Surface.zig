@@ -78,6 +78,13 @@ in_live_resize: bool = false,
 /// synchronize rendering with the DWM compositor.
 frame_event: ?w32.HANDLE = null,
 
+/// Whether the window is currently in fullscreen mode.
+is_fullscreen: bool = false,
+
+/// Saved window style and placement for restoring from fullscreen.
+saved_style: u32 = 0,
+saved_rect: w32.RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+
 /// Initialize a new Surface by creating a Win32 window and WGL context,
 /// then initialize the core terminal surface (fonts, renderer, PTY, IO).
 pub fn init(self: *Surface, app: *App) !void {
@@ -463,6 +470,55 @@ pub fn setTitle(self: *Surface, title: [:0]const u8) void {
             buf[len] = 0;
             _ = w32.SetWindowTextW(hwnd, @ptrCast(&buf));
         }
+    }
+}
+
+/// Toggle fullscreen mode. Saves/restores window style and placement.
+pub fn toggleFullscreen(self: *Surface) void {
+    const hwnd = self.hwnd orelse return;
+
+    if (!self.is_fullscreen) {
+        // Save current style and window rect for restore.
+        self.saved_style = w32.GetWindowLongW(hwnd, w32.GWL_STYLE);
+        _ = w32.GetWindowRect(hwnd, &self.saved_rect);
+
+        // Remove decorations: keep only WS_POPUP | WS_VISIBLE.
+        const new_style = self.saved_style & ~@as(u32, w32.WS_OVERLAPPEDWINDOW) | w32.WS_POPUP;
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, new_style);
+
+        // Get the monitor that contains this window and go fullscreen on it.
+        const monitor = w32.MonitorFromWindow(hwnd, w32.MONITOR_DEFAULTTONEAREST);
+        var mi: w32.MONITORINFO = undefined;
+        mi.cbSize = @sizeOf(w32.MONITORINFO);
+        if (w32.GetMonitorInfoW(monitor, &mi) != 0) {
+            _ = w32.SetWindowPos(
+                hwnd,
+                null, // HWND_TOP
+                mi.rcMonitor.left,
+                mi.rcMonitor.top,
+                mi.rcMonitor.right - mi.rcMonitor.left,
+                mi.rcMonitor.bottom - mi.rcMonitor.top,
+                w32.SWP_NOZORDER | w32.SWP_FRAMECHANGED,
+            );
+        }
+
+        self.is_fullscreen = true;
+    } else {
+        // Restore decorations.
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, self.saved_style);
+
+        // Restore position and size.
+        _ = w32.SetWindowPos(
+            hwnd,
+            null,
+            self.saved_rect.left,
+            self.saved_rect.top,
+            self.saved_rect.right - self.saved_rect.left,
+            self.saved_rect.bottom - self.saved_rect.top,
+            w32.SWP_NOZORDER | w32.SWP_FRAMECHANGED,
+        );
+
+        self.is_fullscreen = false;
     }
 }
 
