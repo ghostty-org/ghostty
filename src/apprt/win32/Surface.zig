@@ -595,6 +595,13 @@ pub fn handleMouseButton(
 
     const mods = getModifiers();
 
+    // Capture mouse on press so drag selection continues outside the window.
+    if (action == .press) {
+        if (self.hwnd) |hwnd| _ = w32.SetCapture(hwnd);
+    } else {
+        _ = w32.ReleaseCapture();
+    }
+
     // Update cursor position first
     self.core_surface.cursorPosCallback(.{ .x = x, .y = y }, mods) catch |err| {
         log.err("cursor pos callback error: {}", .{err});

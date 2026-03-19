@@ -368,6 +368,12 @@ pub extern "user32" fn GetKeyboardState(
     lpKeyState: *[256]u8,
 ) callconv(.c) i32;
 
+pub extern "user32" fn SetCapture(
+    hWnd: HWND,
+) callconv(.c) ?HWND;
+
+pub extern "user32" fn ReleaseCapture() callconv(.c) i32;
+
 // -----------------------------------------------------------------------
 // Clipboard API
 // -----------------------------------------------------------------------
