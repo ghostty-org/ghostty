@@ -506,6 +506,7 @@ pub const DirectWrite = struct {
 
             return DeferredFace{
                 .dw = .{
+                    .alloc = self.alloc,
                     .path = path,
                     .face_index = face_index,
                     .variations = self.variations,

@@ -75,6 +75,9 @@ pub const CoreText = struct {
 /// DirectWrite specific data. This is only present when building for Windows
 /// with the freetype backend.
 pub const DirectWriteFace = struct {
+    /// Allocator used to allocate the path (needed for cleanup).
+    alloc: Allocator,
+
     /// The file path to the font file (UTF-8, null-terminated).
     path: [:0]const u8,
 
@@ -85,6 +88,7 @@ pub const DirectWriteFace = struct {
     variations: []const font.face.Variation,
 
     pub fn deinit(self: *DirectWriteFace) void {
+        self.alloc.free(self.path);
         self.* = undefined;
     }
 };
