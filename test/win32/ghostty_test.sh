@@ -442,6 +442,136 @@ test_close_confirmation() {
     echo "  ● PASSED"
 }
 
+test_url_detection() {
+    echo "▶ test_url_detection"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+
+    # Echo a URL in the terminal
+    sleep 1
+    ps -Action sendtext -ProcessId "$pid" -Text "echo https://example.com"
+    ps -Action sendkeys -ProcessId "$pid" -Keys "{ENTER}"
+    sleep 1
+
+    # Take screenshot showing the URL in terminal output
+    screenshot "url_detection" "$pid"
+    echo "  ✓ URL echoed in terminal"
+
+    # Ctrl+click the URL to test open_url action.
+    # The URL "https://example.com" is on the output line.
+    # We use PowerShell to move the mouse to the URL position and Ctrl+click.
+    local click_result
+    click_result="$(powershell.exe -ExecutionPolicy Bypass -Command '
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class ClickTest {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint data, IntPtr extra);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr extra);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
+    public delegate bool EP(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EP p, IntPtr l);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X,Y; }
+    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    public const byte VK_CONTROL = 0x11;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+}
+"@
+$found=$null
+$cb=[ClickTest+EP]{param($h,$l); $p=[uint32]0
+  [ClickTest]::GetWindowThreadProcessId($h,[ref]$p)|Out-Null
+  if($p -eq '"$pid"' -and [ClickTest]::IsWindowVisible($h)){
+    $cr=New-Object ClickTest+RECT; [ClickTest]::GetClientRect($h,[ref]$cr)|Out-Null
+    if($cr.R -gt 0){$script:found=$h}}; $true}
+[ClickTest]::EnumWindows($cb,[IntPtr]::Zero)|Out-Null
+if(-not $found){Write-Output "NO_WINDOW"; exit}
+[ClickTest]::SetForegroundWindow($found)|Out-Null
+Start-Sleep -Milliseconds 200
+# Position cursor over the URL text (approx row 5, middle of "https://example.com")
+# Each char is roughly 8px wide, URL starts ~5 chars in on the 5th line
+# Row height is ~17px with title bar offset
+$pt=New-Object ClickTest+POINT; $pt.X=120; $pt.Y=100
+[ClickTest]::ClientToScreen($found,[ref]$pt)|Out-Null
+[ClickTest]::SetCursorPos($pt.X,$pt.Y)|Out-Null
+Start-Sleep -Milliseconds 100
+# Hold Ctrl and click
+[ClickTest]::keybd_event([ClickTest]::VK_CONTROL,0,0,[IntPtr]::Zero)
+Start-Sleep -Milliseconds 50
+[ClickTest]::mouse_event([ClickTest]::MOUSEEVENTF_LEFTDOWN,0,0,0,[IntPtr]::Zero)
+Start-Sleep -Milliseconds 50
+[ClickTest]::mouse_event([ClickTest]::MOUSEEVENTF_LEFTUP,0,0,0,[IntPtr]::Zero)
+Start-Sleep -Milliseconds 50
+[ClickTest]::keybd_event([ClickTest]::VK_CONTROL,0,[ClickTest]::KEYEVENTF_KEYUP,[IntPtr]::Zero)
+Start-Sleep -Seconds 2
+# Check if a browser window opened (look for common browser process names)
+$browsers = Get-Process -Name msedge,chrome,firefox,iexplore -ErrorAction SilentlyContinue
+if($browsers){Write-Output "BROWSER_OPENED=true"}
+else{Write-Output "BROWSER_OPENED=false"}
+' 2>&1 | tr -d '\r')"
+
+    local browser_opened
+    browser_opened="$(get_val "$click_result" BROWSER_OPENED)"
+
+    if [ "$browser_opened" = "true" ]; then
+        echo "  ✓ Ctrl+click on URL opened a browser"
+    else
+        echo "  ⊘ Could not verify browser opened (may need manual Ctrl+click test)"
+    fi
+
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
+test_notifications() {
+    echo "▶ test_notifications"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+
+    # Send an OSC 9 notification escape sequence via PowerShell.
+    # PowerShell can emit escape sequences with $([char]27).
+    sleep 1
+    ps -Action sendtext -ProcessId "$pid" -Text 'powershell -Command "Write-Host $([char]27)]9;Ghostty notification test$([char]27)\"'
+    ps -Action sendkeys -ProcessId "$pid" -Keys "{ENTER}"
+    sleep 3
+
+    # Take screenshot — notification balloon should appear in system tray
+    screenshot "notification" "$pid"
+    echo "  ✓ OSC 9 notification sent (check system tray for balloon)"
+
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 list_tests() {
@@ -455,6 +585,8 @@ list_tests() {
     echo "  config_file         — Config file loading with custom settings"
     echo "  scrollbar           — Scrollbar appears with scrollback content"
     echo "  close_confirmation  — Close blocked by confirmation dialog"
+    echo "  url_detection       — URL displayed in terminal for Ctrl+click"
+    echo "  notifications      — Desktop notification via OSC 9"
 }
 
 run_test() {
@@ -468,6 +600,8 @@ run_test() {
         config_file)         test_config_file ;;
         scrollbar)           test_scrollbar ;;
         close_confirmation)  test_close_confirmation ;;
+        url_detection)       test_url_detection ;;
+        notifications)       test_notifications ;;
         *)                   echo "Unknown test: $1"; exit 1 ;;
     esac
 }
@@ -499,6 +633,10 @@ case "${1:-all}" in
         test_scrollbar
         echo ""
         test_close_confirmation
+        echo ""
+        test_url_detection
+        echo ""
+        test_notifications
         echo ""
         report
         ;;

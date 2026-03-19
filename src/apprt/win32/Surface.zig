@@ -84,6 +84,11 @@ scrollbar_total: usize = 0,
 scrollbar_offset: usize = 0,
 scrollbar_len: usize = 0,
 
+/// The current mouse cursor. Cached so WM_SETCURSOR can restore it
+/// (DefWindowProc resets the cursor to the class cursor on every
+/// WM_SETCURSOR, so we must override it ourselves).
+current_cursor: ?w32.HCURSOR = null,
+
 /// Whether the window is currently in fullscreen mode.
 is_fullscreen: bool = false,
 
@@ -529,6 +534,37 @@ pub fn toggleFullscreen(self: *Surface) void {
 
         self.is_fullscreen = false;
     }
+}
+
+/// Set the mouse cursor shape. Caches the handle so WM_SETCURSOR can
+/// restore it (Windows resets the cursor on every mouse move otherwise).
+pub fn setMouseShape(self: *Surface, shape: terminal.MouseShape) void {
+    const cursor = switch (shape) {
+        .text => w32.LoadCursorW(null, w32.IDC_IBEAM),
+        .pointer => w32.LoadCursorW(null, w32.IDC_HAND),
+        .crosshair => w32.LoadCursorW(null, w32.IDC_CROSS),
+        .e_resize, .w_resize, .ew_resize => w32.LoadCursorW(null, w32.IDC_SIZEWE),
+        .n_resize, .s_resize, .ns_resize => w32.LoadCursorW(null, w32.IDC_SIZENS),
+        .nwse_resize, .nw_resize, .se_resize => w32.LoadCursorW(null, w32.IDC_SIZENWSE),
+        .nesw_resize, .ne_resize, .sw_resize => w32.LoadCursorW(null, w32.IDC_SIZENESW),
+        .not_allowed => w32.LoadCursorW(null, w32.IDC_NO),
+        .progress => w32.LoadCursorW(null, w32.IDC_APPSTARTING),
+        .wait => w32.LoadCursorW(null, w32.IDC_WAIT),
+        else => w32.LoadCursorW(null, w32.IDC_ARROW),
+    };
+    self.current_cursor = cursor;
+    if (cursor) |c| _ = w32.SetCursor(c);
+}
+
+/// Handle WM_SETCURSOR — restore our cached cursor so Windows doesn't
+/// reset it to the class cursor (IDC_ARROW) on every mouse move.
+/// Returns true if we handled it (caller should return TRUE).
+pub fn handleSetCursor(self: *Surface) bool {
+    if (self.current_cursor) |c| {
+        _ = w32.SetCursor(c);
+        return true;
+    }
+    return false;
 }
 
 /// Update the Win32 scrollbar to reflect the terminal's scroll state.

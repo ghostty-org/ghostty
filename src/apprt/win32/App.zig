@@ -345,25 +345,29 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    const cursor = switch (value) {
-                        .text => w32.LoadCursorW(null, w32.IDC_IBEAM),
-                        .pointer => w32.LoadCursorW(null, w32.IDC_HAND),
-                        .crosshair => w32.LoadCursorW(null, w32.IDC_CROSS),
-                        .e_resize, .w_resize, .ew_resize => w32.LoadCursorW(null, w32.IDC_SIZEWE),
-                        .n_resize, .s_resize, .ns_resize => w32.LoadCursorW(null, w32.IDC_SIZENS),
-                        .nwse_resize, .nw_resize, .se_resize => w32.LoadCursorW(null, w32.IDC_SIZENWSE),
-                        .nesw_resize, .ne_resize, .sw_resize => w32.LoadCursorW(null, w32.IDC_SIZENESW),
-                        .not_allowed => w32.LoadCursorW(null, w32.IDC_NO),
-                        .progress => w32.LoadCursorW(null, w32.IDC_APPSTARTING),
-                        .wait => w32.LoadCursorW(null, w32.IDC_WAIT),
-                        else => w32.LoadCursorW(null, w32.IDC_ARROW),
-                    };
-                    if (cursor) |c| {
-                        _ = w32.SetCursor(c);
-                    }
-                    _ = core_surface;
+                    core_surface.rt_surface.setMouseShape(value);
                 },
             }
+            return true;
+        },
+
+        .open_url => {
+            // Open a URL using the system default handler.
+            internal_os.open(self.core_app.alloc, value.kind, value.url) catch |err| {
+                log.err("failed to open URL: {}", .{err});
+            };
+            return true;
+        },
+
+        .mouse_over_link => {
+            // Acknowledge the action. The cursor shape change is handled
+            // separately by mouse_shape → IDC_HAND. We could show the
+            // URL in a status bar or tooltip here in the future.
+            return true;
+        },
+
+        .desktop_notification => {
+            self.showDesktopNotification(target, value);
             return true;
         },
 
@@ -407,6 +411,51 @@ fn stopQuitTimer(self: *App) void {
             self.quit_timer_state = .off;
         },
     }
+}
+
+/// Show a Windows balloon notification via Shell_NotifyIconW.
+/// Creates a temporary tray icon, shows the balloon, then removes
+/// the icon after a short delay.
+fn showDesktopNotification(
+    self: *App,
+    target: apprt.Target,
+    value: apprt.Action.Value(.desktop_notification),
+) void {
+    _ = target;
+    const hwnd = self.msg_hwnd orelse return;
+
+    var nid: w32.NOTIFYICONDATAW = std.mem.zeroes(w32.NOTIFYICONDATAW);
+    nid.cbSize = @sizeOf(w32.NOTIFYICONDATAW);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = w32.NIF_INFO | w32.NIF_ICON | w32.NIF_TIP;
+    nid.dwInfoFlags = w32.NIIF_INFO;
+    nid.uVersion_or_uTimeout = 5000; // 5 second timeout
+
+    // Copy title (UTF-8 → UTF-16LE)
+    const title_z = value.title;
+    var title_len = std.unicode.utf8ToUtf16Le(&nid.szInfoTitle, title_z) catch 0;
+    if (title_len >= nid.szInfoTitle.len) title_len = nid.szInfoTitle.len - 1;
+    nid.szInfoTitle[title_len] = 0;
+
+    // Copy body (UTF-8 → UTF-16LE)
+    const body_z = value.body;
+    var body_len = std.unicode.utf8ToUtf16Le(&nid.szInfo, body_z) catch 0;
+    if (body_len >= nid.szInfo.len) body_len = nid.szInfo.len - 1;
+    nid.szInfo[body_len] = 0;
+
+    // Tooltip
+    const tip = std.unicode.utf8ToUtf16LeStringLiteral("Ghostty");
+    @memcpy(nid.szTip[0..tip.len], tip);
+    nid.szTip[tip.len] = 0;
+
+    // Add the icon, show notification, then remove the icon.
+    _ = w32.Shell_NotifyIconW(w32.NIM_ADD, &nid);
+    _ = w32.Shell_NotifyIconW(w32.NIM_MODIFY, &nid);
+
+    // Schedule icon removal after 6 seconds via a timer.
+    // Timer ID 2 (separate from quit timer).
+    _ = w32.SetTimer(hwnd, 2, 6000, null);
 }
 
 /// Create a new visible window. This is called by Surface.init and
@@ -493,6 +542,17 @@ fn wndProc(
             app.quit_requested = true;
             w32.PostQuitMessage(0);
         }
+        return 0;
+    }
+
+    // Timer ID 2: remove the notification tray icon after balloon timeout.
+    if (msg == w32.WM_TIMER and wparam == 2) {
+        _ = w32.KillTimer(hwnd, 2);
+        var nid: w32.NOTIFYICONDATAW = std.mem.zeroes(w32.NOTIFYICONDATAW);
+        nid.cbSize = @sizeOf(w32.NOTIFYICONDATAW);
+        nid.hWnd = hwnd;
+        nid.uID = 1;
+        _ = w32.Shell_NotifyIconW(w32.NIM_DELETE, &nid);
         return 0;
     }
 
@@ -668,6 +728,16 @@ fn wndProc(
         w32.WM_VSCROLL => {
             surface.handleVScroll(wparam);
             return 0;
+        },
+
+        w32.WM_SETCURSOR => {
+            // Only override the cursor in the client area. For non-client
+            // areas (resize borders, title bar), let DefWindowProc handle it.
+            const hit_test: u16 = @intCast(lparam & 0xFFFF);
+            if (hit_test == w32.HTCLIENT and surface.handleSetCursor()) {
+                return 1; // TRUE = we set the cursor
+            }
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
 
         w32.WM_SETFOCUS => { surface.handleFocus(true); return 0; },

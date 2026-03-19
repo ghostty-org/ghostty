@@ -138,7 +138,11 @@ pub const WM_RBUTTONUP: u32 = 0x0205;
 pub const WM_MBUTTONDOWN: u32 = 0x0207;
 pub const WM_MBUTTONUP: u32 = 0x0208;
 pub const WM_MOUSEWHEEL: u32 = 0x020A;
+pub const WM_SETCURSOR: u32 = 0x0020;
 pub const WM_DPICHANGED: u32 = 0x02E0;
+
+// WM_SETCURSOR hit-test values
+pub const HTCLIENT: u16 = 1;
 
 // IME messages
 pub const WM_IME_STARTCOMPOSITION: u32 = 0x010D;
@@ -680,6 +684,42 @@ pub extern "user32" fn ShowScrollBar(
     hWnd: HWND,
     wBar: i32,
     bShow: i32,
+) callconv(.c) i32;
+
+// -----------------------------------------------------------------------
+// Shell notification (tray icon + balloon) API
+// -----------------------------------------------------------------------
+
+pub const NIM_ADD: u32 = 0x00000000;
+pub const NIM_MODIFY: u32 = 0x00000001;
+pub const NIM_DELETE: u32 = 0x00000002;
+
+pub const NIF_MESSAGE: u32 = 0x00000001;
+pub const NIF_ICON: u32 = 0x00000002;
+pub const NIF_TIP: u32 = 0x00000004;
+pub const NIF_INFO: u32 = 0x00000010;
+
+pub const NIIF_INFO: u32 = 0x00000001;
+
+pub const NOTIFYICONDATAW = extern struct {
+    cbSize: u32,
+    hWnd: ?HWND,
+    uID: u32,
+    uFlags: u32,
+    uCallbackMessage: u32,
+    hIcon: ?HICON,
+    szTip: [128]u16,
+    dwState: u32,
+    dwStateMask: u32,
+    szInfo: [256]u16,
+    uVersion_or_uTimeout: u32,
+    szInfoTitle: [64]u16,
+    dwInfoFlags: u32,
+};
+
+pub extern "shell32" fn Shell_NotifyIconW(
+    dwMessage: u32,
+    lpData: *NOTIFYICONDATAW,
 ) callconv(.c) i32;
 
 // -----------------------------------------------------------------------
