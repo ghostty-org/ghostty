@@ -352,10 +352,22 @@ pub fn performAction(
         },
 
         .open_url => {
-            // Open a URL using the system default handler.
-            internal_os.open(self.core_app.alloc, value.kind, value.url) catch |err| {
-                log.err("failed to open URL: {}", .{err});
-            };
+            // Open a URL using ShellExecuteW — the native Windows way.
+            // internal_os.open() uses std.process.Child which can hit
+            // unreachable on Windows, so we use ShellExecuteW directly.
+            var wbuf: [2048]u16 = undefined;
+            const wlen = std.unicode.utf8ToUtf16Le(&wbuf, value.url) catch return true;
+            if (wlen < wbuf.len) {
+                wbuf[wlen] = 0;
+                _ = w32.ShellExecuteW(
+                    null,
+                    std.unicode.utf8ToUtf16LeStringLiteral("open"),
+                    @ptrCast(&wbuf),
+                    null,
+                    null,
+                    w32.SW_SHOW,
+                );
+            }
             return true;
         },
 
@@ -429,6 +441,7 @@ fn showDesktopNotification(
     nid.hWnd = hwnd;
     nid.uID = 1;
     nid.uFlags = w32.NIF_INFO | w32.NIF_ICON | w32.NIF_TIP;
+    nid.hIcon = w32.LoadIconW(null, w32.IDI_APPLICATION);
     nid.dwInfoFlags = w32.NIIF_INFO;
     nid.uVersion_or_uTimeout = 5000; // 5 second timeout
 

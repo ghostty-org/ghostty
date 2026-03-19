@@ -267,6 +267,14 @@ pub const PFD_TYPE_RGBA: u8 = 0;
 // CreateWindowEx defaults
 pub const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 
+// Standard icon IDs (MAKEINTRESOURCE values)
+pub const IDI_APPLICATION: usize = 32512;
+
+pub extern "user32" fn LoadIconW(
+    hInstance: ?HINSTANCE,
+    lpIconName: usize,
+) callconv(.c) ?HICON;
+
 // Standard cursor IDs (MAKEINTRESOURCE values)
 pub const IDC_ARROW: usize = 32512;
 pub const IDC_IBEAM: usize = 32513;

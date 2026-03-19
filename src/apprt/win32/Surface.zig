@@ -950,6 +950,7 @@ pub fn handleMouseMove(self: *Surface, lparam: isize) void {
     const x: f32 = @floatFromInt(@as(i16, @truncate(@as(isize, lparam & 0xFFFF))));
     const y: f32 = @floatFromInt(@as(i16, @truncate(@as(isize, (lparam >> 16) & 0xFFFF))));
 
+    // Pass modifiers so the core can detect Ctrl+hover for link highlighting.
     const mods = getModifiers();
 
     self.core_surface.cursorPosCallback(.{ .x = x, .y = y }, mods) catch |err| {
