@@ -139,6 +139,13 @@ pub fn run(self: *App) !void {
 
 pub fn terminate(self: *App) void {
     if (self.msg_hwnd) |hwnd| {
+        // Clear GWLP_USERDATA before destroying. The msg_hwnd stores
+        // *App in userdata, but wndProc tries to cast non-zero userdata
+        // to *Surface for non-WM_APP_WAKEUP messages (like WM_DESTROY).
+        // The alignment of *App differs from *Surface, causing a panic
+        // in @ptrFromInt. Clearing to 0 makes wndProc fall through to
+        // DefWindowProc for any messages during destruction.
+        _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
         _ = w32.DestroyWindow(hwnd);
         self.msg_hwnd = null;
     }
