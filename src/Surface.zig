@@ -2063,6 +2063,11 @@ fn resolvePathForOpening(
     self: *Surface,
     path: []const u8,
 ) Allocator.Error!?[]const u8 {
+    // URLs with schemes (https://, file://, etc.) are not file paths —
+    // don't try to resolve them. On Windows, std.fs.path.resolve can
+    // hit unreachable when given URL-like strings containing "://".
+    if (std.mem.indexOf(u8, path, "://") != null) return null;
+
     if (!std.fs.path.isAbsolute(path)) {
         const terminal_pwd = self.io.terminal.getPwd() orelse {
             return null;
