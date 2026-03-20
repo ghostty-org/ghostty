@@ -29,3 +29,18 @@ For pure startup-crash triage (no manual typing), run:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\test\windows-interactive-input.ps1 -SkipInputCheck
 ```
+
+`windows-unfocused-redraw.ps1` validates that Ghostty continues to repaint
+while unfocused. It captures hashes of the window image over time; a static
+hash sequence while output is still flowing is treated as a failure.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test\windows-unfocused-redraw.ps1
+```
+
+`windows-terminal-bench.ps1` runs repeatable text/ASCII throughput workloads
+and prints timing + renderer health summaries, with logs saved under `.tmp`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test\windows-terminal-bench.ps1
+```
