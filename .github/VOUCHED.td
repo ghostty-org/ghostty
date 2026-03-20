@@ -87,6 +87,7 @@ halosatrio
 heaths
 heddxh heddxh
 -highimpact-dev Disrespectful AI user
+hlcfan
 hqnna
 hulet
 icodesign
