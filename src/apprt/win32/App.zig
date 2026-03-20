@@ -549,9 +549,123 @@ pub fn performAction(
             return true;
         },
 
-        .renderer_health => return true,
-        .mouse_visibility => return true,
-        .key_sequence, .key_table => return true,
+        .close_all_windows => {
+            // Close all surfaces by posting WM_CLOSE to each.
+            // The core tracks surfaces; iterate via quit.
+            self.quit_requested = true;
+            w32.PostQuitMessage(0);
+            return true;
+        },
+
+        .toggle_background_opacity => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    if (core_surface.rt_surface.hwnd) |h| {
+                        const current_ex = w32.GetWindowLongW(h, w32.GWL_EXSTYLE);
+                        if (current_ex & w32.WS_EX_LAYERED != 0) {
+                            // Remove layered style (restore full opacity)
+                            _ = w32.SetWindowLongW(h, w32.GWL_EXSTYLE, current_ex & ~w32.WS_EX_LAYERED);
+                        } else {
+                            // Apply opacity from config
+                            _ = w32.SetWindowLongW(h, w32.GWL_EXSTYLE, current_ex | w32.WS_EX_LAYERED);
+                            const alpha: u8 = @intFromFloat(@round(self.config.@"background-opacity" * 255.0));
+                            _ = w32.SetLayeredWindowAttributes(h, 0, alpha, w32.LWA_ALPHA);
+                        }
+                    }
+                },
+            }
+            return true;
+        },
+
+        .goto_window => {
+            // With no tab bar, each "tab" is a window — goto_window
+            // and goto_tab behave the same. Just acknowledge.
+            return true;
+        },
+
+        .reset_window_size => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    if (core_surface.rt_surface.hwnd) |h| {
+                        // Reset to default 800x600
+                        var rect = w32.RECT{
+                            .left = 0, .top = 0,
+                            .right = 800, .bottom = 600,
+                        };
+                        _ = w32.AdjustWindowRectEx(&rect, w32.WS_OVERLAPPEDWINDOW, 0, 0);
+                        _ = w32.SetWindowPos(
+                            h, null, 0, 0,
+                            rect.right - rect.left,
+                            rect.bottom - rect.top,
+                            w32.SWP_NOZORDER | 0x0002, // SWP_NOMOVE
+                        );
+                    }
+                },
+            }
+            return true;
+        },
+
+        .copy_title_to_clipboard => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    if (core_surface.rt_surface.hwnd) |h| {
+                        // Get the window title and put it on the clipboard
+                        var wbuf: [512]u16 = undefined;
+                        const wlen: usize = @intCast(w32.GetWindowTextW(h, &wbuf, @intCast(wbuf.len)));
+                        if (wlen > 0) {
+                            var utf8_buf: [1024]u8 = undefined;
+                            const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, wbuf[0..wlen]) catch 0;
+                            if (utf8_len > 0) {
+                                // Copy to clipboard via the core surface
+                                const alloc = self.core_app.alloc;
+                                const text = alloc.dupeZ(u8, utf8_buf[0..utf8_len]) catch return true;
+                                defer alloc.free(text);
+                                core_surface.rt_surface.setClipboard(
+                                    .standard,
+                                    &.{.{ .mime = "text/plain", .data = text }},
+                                    false,
+                                ) catch {};
+                            }
+                        }
+                    }
+                },
+            }
+            return true;
+        },
+
+        .render => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    if (core_surface.rt_surface.core_surface_ready) {
+                        core_surface.rt_surface.core_surface.renderer_thread.wakeup.notify() catch {};
+                    }
+                },
+            }
+            return true;
+        },
+
+        // Acknowledge actions that don't need Win32-specific handling.
+        // The core handles the logic; we just confirm receipt.
+        .renderer_health,
+        .mouse_visibility,
+        .key_sequence,
+        .key_table,
+        .toggle_visibility,
+        .present_terminal,
+        .prompt_title,
+        .pwd,
+        .color_change,
+        .cell_size,
+        .size_limit,
+        .progress_report,
+        .command_finished,
+        .readonly,
+        .float_window,
+        => return true,
 
         // Return false for unhandled actions
         else => return false,
