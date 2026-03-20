@@ -911,6 +911,38 @@ pub extern "dwmapi" fn DwmSetWindowAttribute(
     cbAttribute: u32,
 ) callconv(.c) i32;
 
+// -----------------------------------------------------------------------
+// GDI double-buffered painting API
+// -----------------------------------------------------------------------
+
+pub extern "gdi32" fn CreateCompatibleDC(hdc: ?HDC) callconv(.c) ?HDC;
+pub extern "gdi32" fn CreateCompatibleBitmap(hdc: HDC, cx: i32, cy: i32) callconv(.c) ?*anyopaque;
+pub extern "gdi32" fn SelectObject(hdc: HDC, h: ?*anyopaque) callconv(.c) ?*anyopaque;
+pub extern "gdi32" fn DeleteDC(hdc: HDC) callconv(.c) i32;
+pub extern "gdi32" fn BitBlt(hdcDest: HDC, x: i32, y: i32, cx: i32, cy: i32, hdcSrc: HDC, x1: i32, y1: i32, rop: u32) callconv(.c) i32;
+pub extern "gdi32" fn DrawTextW(hdc: HDC, lpchText: [*]const u16, cchText: i32, lprc: *RECT, format: u32) callconv(.c) i32;
+pub extern "gdi32" fn SetBkMode(hdc: HDC, mode: i32) callconv(.c) i32;
+
+pub extern "user32" fn BeginPaint(hwnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?HDC;
+pub extern "user32" fn EndPaint(hwnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) i32;
+
+pub const PAINTSTRUCT = extern struct {
+    hdc: HDC,
+    fErase: i32,
+    rcPaint: RECT,
+    fRestore: i32,
+    fIncUpdate: i32,
+    rgbReserved: [32]u8,
+};
+
+pub const SRCCOPY: u32 = 0x00CC0020;
+pub const TRANSPARENT: i32 = 1;
+pub const DT_LEFT: u32 = 0;
+pub const DT_VCENTER: u32 = 4;
+pub const DT_SINGLELINE: u32 = 32;
+pub const DT_END_ELLIPSIS: u32 = 0x8000;
+pub const DT_NOPREFIX: u32 = 0x800;
+
 pub extern "gdi32" fn ChoosePixelFormat(
     hdc: HDC,
     ppfd: *const PIXELFORMATDESCRIPTOR,

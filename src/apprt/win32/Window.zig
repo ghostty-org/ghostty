@@ -379,6 +379,236 @@ pub fn invalidateTabBar(self: *Window) void {
     _ = w32.InvalidateRect(hwnd, &rect, 0);
 }
 
+/// Paint the tab bar using double-buffered GDI painting.
+/// Draws tab backgrounds, text labels, close buttons (x), and the new-tab (+) button.
+fn paintTabBar(self: *Window) void {
+    const hwnd = self.hwnd orelse return;
+
+    var ps: w32.PAINTSTRUCT = undefined;
+    const hdc_screen = w32.BeginPaint(hwnd, &ps) orelse return;
+    defer _ = w32.EndPaint(hwnd, &ps);
+
+    // If the tab bar is not visible, just validate the region and return.
+    if (!self.tab_bar_visible) return;
+
+    const bar_h = self.tabBarHeight();
+    if (bar_h <= 0) return;
+
+    // Get client rect width.
+    var client_rect: w32.RECT = undefined;
+    if (w32.GetClientRect(hwnd, &client_rect) == 0) return;
+    const client_w = client_rect.right - client_rect.left;
+    if (client_w <= 0) return;
+
+    // Double-buffer: create offscreen DC and bitmap.
+    const mem_dc = w32.CreateCompatibleDC(hdc_screen) orelse return;
+    defer _ = w32.DeleteDC(mem_dc);
+
+    const mem_bmp = w32.CreateCompatibleBitmap(hdc_screen, client_w, bar_h) orelse return;
+    const old_bmp = w32.SelectObject(mem_dc, mem_bmp);
+    defer {
+        _ = w32.SelectObject(mem_dc, old_bmp);
+        _ = w32.DeleteObject(mem_bmp);
+    }
+
+    // --- Colors ---
+    const bg = self.app.config.background;
+    // Bar background: terminal bg + 20 brightness per channel (slightly lighter).
+    const bar_r: u8 = @min(@as(u16, bg.r) + 20, 255);
+    const bar_g: u8 = @min(@as(u16, bg.g) + 20, 255);
+    const bar_b: u8 = @min(@as(u16, bg.b) + 20, 255);
+    const bar_color = w32.RGB(bar_r, bar_g, bar_b);
+
+    // Hover background: bar bg + 15 more (total +35 from terminal bg).
+    const hover_r: u8 = @min(@as(u16, bar_r) + 15, 255);
+    const hover_g: u8 = @min(@as(u16, bar_g) + 15, 255);
+    const hover_b: u8 = @min(@as(u16, bar_b) + 15, 255);
+    const hover_color = w32.RGB(hover_r, hover_g, hover_b);
+
+    // Active tab background: terminal bg (darker than bar).
+    const active_bg_color = w32.RGB(bg.r, bg.g, bg.b);
+
+    // Accent line color (blue).
+    const accent_color = w32.RGB(0x3D, 0x8E, 0xF8);
+
+    // Text colors.
+    const active_text_color = w32.RGB(230, 230, 230);
+    const inactive_text_color = w32.RGB(150, 150, 150);
+
+    // Close button colors.
+    const close_normal_color = w32.RGB(150, 150, 150);
+    const close_hover_color = w32.RGB(232, 65, 65);
+
+    // --- Fill bar background ---
+    var bar_rect = w32.RECT{ .left = 0, .top = 0, .right = client_w, .bottom = bar_h };
+    const bar_brush = w32.CreateSolidBrush(bar_color) orelse return;
+    _ = w32.FillRect(mem_dc, &bar_rect, bar_brush);
+    _ = w32.DeleteObject(@ptrCast(bar_brush));
+
+    // --- Select font and set text mode ---
+    var old_font: ?*anyopaque = null;
+    if (self.tab_font) |font| {
+        old_font = w32.SelectObject(mem_dc, font);
+    }
+    defer {
+        if (old_font) |f| _ = w32.SelectObject(mem_dc, f);
+    }
+    _ = w32.SetBkMode(mem_dc, w32.TRANSPARENT);
+
+    // --- Calculate tab geometry ---
+    const new_tab_btn_w: i32 = @intFromFloat(@round(36.0 * self.scale));
+    const close_btn_w: i32 = @intFromFloat(@round(20.0 * self.scale));
+    const text_pad: i32 = @intFromFloat(@round(10.0 * self.scale));
+    const accent_h: i32 = @intFromFloat(@round(2.0 * self.scale));
+
+    const tab_count_i32: i32 = @intCast(self.tab_count);
+    const available_w = client_w - new_tab_btn_w;
+
+    // Calculate each tab's width: proportional, min 60px.
+    const min_tab_w: i32 = @intFromFloat(@round(60.0 * self.scale));
+    const max_tab_w: i32 = @intFromFloat(@round(200.0 * self.scale));
+
+    var tab_w: i32 = if (tab_count_i32 > 0)
+        @divTrunc(available_w, tab_count_i32)
+    else
+        0;
+    tab_w = @max(tab_w, min_tab_w);
+    tab_w = @min(tab_w, max_tab_w);
+
+    // --- Draw each tab ---
+    var x: i32 = 0;
+    for (0..self.tab_count) |i| {
+        const is_active = (i == self.active_tab);
+        const is_hovered = (@as(isize, @intCast(i)) == self.hover_tab);
+
+        // Last tab gets remainder width to fill the available area.
+        const this_tab_w: i32 = if (i == self.tab_count - 1 and tab_count_i32 > 0)
+            @max(available_w - x, min_tab_w)
+        else
+            tab_w;
+
+        // Store hit-test rect.
+        self.tab_rects[i] = w32.RECT{
+            .left = x,
+            .top = 0,
+            .right = x + this_tab_w,
+            .bottom = bar_h,
+        };
+
+        // Draw tab background.
+        if (is_active) {
+            var tab_rect = w32.RECT{ .left = x, .top = 0, .right = x + this_tab_w, .bottom = bar_h };
+            const active_brush = w32.CreateSolidBrush(active_bg_color) orelse continue;
+            _ = w32.FillRect(mem_dc, &tab_rect, active_brush);
+            _ = w32.DeleteObject(@ptrCast(active_brush));
+
+            // Draw accent line at bottom.
+            var accent_rect = w32.RECT{
+                .left = x,
+                .top = bar_h - accent_h,
+                .right = x + this_tab_w,
+                .bottom = bar_h,
+            };
+            const accent_brush = w32.CreateSolidBrush(accent_color) orelse continue;
+            _ = w32.FillRect(mem_dc, &accent_rect, accent_brush);
+            _ = w32.DeleteObject(@ptrCast(accent_brush));
+        } else if (is_hovered) {
+            var hover_rect = w32.RECT{ .left = x, .top = 0, .right = x + this_tab_w, .bottom = bar_h };
+            const hover_brush = w32.CreateSolidBrush(hover_color) orelse continue;
+            _ = w32.FillRect(mem_dc, &hover_rect, hover_brush);
+            _ = w32.DeleteObject(@ptrCast(hover_brush));
+        }
+
+        // Draw tab title text.
+        const title_len = self.tab_title_lens[i];
+        if (title_len > 0) {
+            _ = w32.SetTextColor(mem_dc, if (is_active) active_text_color else inactive_text_color);
+            var text_rect = w32.RECT{
+                .left = x + text_pad,
+                .top = 0,
+                .right = x + this_tab_w - close_btn_w - text_pad,
+                .bottom = bar_h,
+            };
+            _ = w32.DrawTextW(
+                mem_dc,
+                @ptrCast(&self.tab_titles[i]),
+                @intCast(title_len),
+                &text_rect,
+                w32.DT_LEFT | w32.DT_VCENTER | w32.DT_SINGLELINE | w32.DT_END_ELLIPSIS | w32.DT_NOPREFIX,
+            );
+        }
+
+        // Draw close button (x) — visible on active or hovered tabs.
+        if (is_active or is_hovered) {
+            const close_x = x + this_tab_w - close_btn_w - @divTrunc(text_pad, 2);
+            const close_y_center = @divTrunc(bar_h, 2);
+            const close_text_color = if (is_hovered and self.hover_close and @as(isize, @intCast(i)) == self.hover_tab)
+                close_hover_color
+            else
+                close_normal_color;
+
+            _ = w32.SetTextColor(mem_dc, close_text_color);
+            const x_char = std.unicode.utf8ToUtf16LeStringLiteral("\u{00D7}"); // multiplication sign as close
+            var close_rect = w32.RECT{
+                .left = close_x,
+                .top = close_y_center - @divTrunc(close_btn_w, 2),
+                .right = close_x + close_btn_w,
+                .bottom = close_y_center + @divTrunc(close_btn_w, 2),
+            };
+            _ = w32.DrawTextW(
+                mem_dc,
+                x_char,
+                1,
+                &close_rect,
+                w32.DT_LEFT | w32.DT_VCENTER | w32.DT_SINGLELINE | w32.DT_NOPREFIX,
+            );
+        }
+
+        x += this_tab_w;
+    }
+
+    // --- Draw new-tab (+) button ---
+    {
+        const btn_left = x;
+        const btn_right = x + new_tab_btn_w;
+        self.new_tab_rect = w32.RECT{
+            .left = btn_left,
+            .top = 0,
+            .right = btn_right,
+            .bottom = bar_h,
+        };
+
+        // Hover highlight for new-tab button.
+        if (self.hover_new_tab) {
+            var btn_rect = w32.RECT{ .left = btn_left, .top = 0, .right = btn_right, .bottom = bar_h };
+            const nt_brush = w32.CreateSolidBrush(hover_color);
+            if (nt_brush) |brush| {
+                _ = w32.FillRect(mem_dc, &btn_rect, brush);
+                _ = w32.DeleteObject(@ptrCast(brush));
+            }
+        }
+
+        _ = w32.SetTextColor(mem_dc, inactive_text_color);
+        const plus_char = std.unicode.utf8ToUtf16LeStringLiteral("+");
+        var plus_rect = w32.RECT{
+            .left = btn_left,
+            .top = 0,
+            .right = btn_right,
+            .bottom = bar_h,
+        };
+        _ = w32.DrawTextW(
+            mem_dc,
+            plus_char,
+            1,
+            &plus_rect,
+            w32.DT_LEFT | w32.DT_VCENTER | w32.DT_SINGLELINE | w32.DT_NOPREFIX,
+        );
+    }
+
+    // --- BitBlt to screen ---
+    _ = w32.BitBlt(hdc_screen, 0, 0, client_w, bar_h, mem_dc, 0, 0, w32.SRCCOPY);
+}
+
 /// Toggle fullscreen mode on the top-level window.
 /// Saves/restores window style and placement.
 pub fn toggleFullscreen(self: *Window) void {
@@ -444,6 +674,8 @@ fn handleResize(self: *Window) void {
             );
         }
     }
+    // Repaint the tab bar since its width changed.
+    self.invalidateTabBar();
 }
 
 /// Handle WM_CLOSE: destroy the window.
@@ -508,6 +740,10 @@ pub fn windowWndProc(
         w32.WM_DESTROY => {
             _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
             window.onDestroy();
+            return 0;
+        },
+        w32.WM_PAINT => {
+            window.paintTabBar();
             return 0;
         },
         w32.WM_ERASEBKGND => return 1,
