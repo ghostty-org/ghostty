@@ -113,7 +113,7 @@ pub fn init(
     const wc = w32.WNDCLASSEXW{
         .cbSize = @sizeOf(w32.WNDCLASSEXW),
         .style = 0,
-        .lpfnWndProc = &wndProc,
+        .lpfnWndProc = &Window.windowWndProc,
         .cbClsExtra = 0,
         .cbWndExtra = 0,
         .hInstance = hinstance,
@@ -135,7 +135,7 @@ pub fn init(
     const tc = w32.WNDCLASSEXW{
         .cbSize = @sizeOf(w32.WNDCLASSEXW),
         .style = w32.CS_OWNDC,
-        .lpfnWndProc = &wndProc,
+        .lpfnWndProc = &surfaceWndProc,
         .cbClsExtra = 0,
         .cbWndExtra = 0,
         .hInstance = hinstance,
@@ -157,7 +157,7 @@ pub fn init(
     const mc = w32.WNDCLASSEXW{
         .cbSize = @sizeOf(w32.WNDCLASSEXW),
         .style = 0,
-        .lpfnWndProc = &wndProc,
+        .lpfnWndProc = &msgWndProc,
         .cbClsExtra = 0,
         .cbWndExtra = 0,
         .hInstance = hinstance,
@@ -193,7 +193,7 @@ pub fn init(
     );
     if (self.msg_hwnd == null) return error.Win32Error;
 
-    // Store self pointer in msg_hwnd's GWLP_USERDATA for wndProc access
+    // Store self pointer in msg_hwnd's GWLP_USERDATA for msgWndProc access
     _ = w32.SetWindowLongPtrW(self.msg_hwnd.?, w32.GWLP_USERDATA, @bitCast(@intFromPtr(self)));
 }
 
@@ -238,12 +238,9 @@ pub fn terminate(self: *App) void {
     self.stopQuitTimer();
 
     if (self.msg_hwnd) |hwnd| {
-        // Clear GWLP_USERDATA before destroying. The msg_hwnd stores
-        // *App in userdata, but wndProc tries to cast non-zero userdata
-        // to *Surface for non-WM_APP_WAKEUP messages (like WM_DESTROY).
-        // The alignment of *App differs from *Surface, causing a panic
-        // in @ptrFromInt. Clearing to 0 makes wndProc fall through to
-        // DefWindowProc for any messages during destruction.
+        // Clear GWLP_USERDATA before destroying so msgWndProc sees
+        // userdata=0 and falls through to DefWindowProc for any
+        // messages during destruction (e.g. WM_DESTROY).
         _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
         _ = w32.DestroyWindow(hwnd);
         self.msg_hwnd = null;
@@ -753,7 +750,7 @@ pub fn performAction(
 }
 
 /// Start the quit timer. Called when the last surface closes.
-fn startQuitTimer(self: *App) void {
+pub fn startQuitTimer(self: *App) void {
     // Cancel any existing timer first.
     self.stopQuitTimer();
 
@@ -776,7 +773,7 @@ fn startQuitTimer(self: *App) void {
 }
 
 /// Cancel the quit timer. Called when a new surface opens.
-fn stopQuitTimer(self: *App) void {
+pub fn stopQuitTimer(self: *App) void {
     switch (self.quit_timer_state) {
         .off => {},
         .expired => self.quit_timer_state = .off,
@@ -897,60 +894,21 @@ fn tick(self: *App) void {
     };
 }
 
-/// The Win32 window procedure. Routes messages to the appropriate Surface
-/// or handles app-level messages.
-fn wndProc(
+/// Window procedure for terminal surface child HWNDs (GhosttyTerminal class).
+/// GWLP_USERDATA stores a *Surface pointer.
+fn surfaceWndProc(
     hwnd: w32.HWND,
     msg: u32,
     wparam: usize,
     lparam: isize,
 ) callconv(.c) isize {
-    // GWLP_USERDATA stores either an *App (message-only window) or
-    // *Surface (visible windows). We disambiguate by checking the message:
-    // WM_APP_WAKEUP only goes to the message-only window.
     const userdata = w32.GetWindowLongPtrW(hwnd, w32.GWLP_USERDATA);
-
-    // Handle app-level messages (message-only window, userdata is *App).
-    if (msg == WM_APP_WAKEUP) {
-        if (userdata != 0) {
-            const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
-            app.tick();
-        }
-        return 0;
-    }
-
-    if (msg == w32.WM_TIMER and wparam == QUIT_TIMER_ID) {
-        if (userdata != 0) {
-            const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
-            _ = w32.KillTimer(hwnd, QUIT_TIMER_ID);
-            app.quit_timer_state = .expired;
-            app.quit_requested = true;
-            w32.PostQuitMessage(0);
-        }
-        return 0;
-    }
-
-    // Timer ID 2: remove the notification tray icon after balloon timeout.
-    if (msg == w32.WM_TIMER and wparam == 2) {
-        _ = w32.KillTimer(hwnd, 2);
-        var nid: w32.NOTIFYICONDATAW = std.mem.zeroes(w32.NOTIFYICONDATAW);
-        nid.cbSize = @sizeOf(w32.NOTIFYICONDATAW);
-        nid.hWnd = hwnd;
-        nid.uID = 1;
-        _ = w32.Shell_NotifyIconW(w32.NIM_DELETE, &nid);
-        return 0;
-    }
-
-    // All other messages are for visible (surface) windows.
-    // If userdata is 0 (during creation) or this is a non-surface window,
-    // fall through to DefWindowProc.
     const surface: *Surface = if (userdata != 0)
         @ptrFromInt(@as(usize, @bitCast(userdata)))
     else
         return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
 
     // Guard: verify this is a surface window or its search popup.
-    // The msg-only window can receive WM_DESTROY during shutdown.
     const is_surface_window = surface.hwnd != null and surface.hwnd.? == hwnd;
     const is_search_popup = surface.search_hwnd != null and surface.search_hwnd.? == hwnd;
     if (!is_surface_window and !is_search_popup)
@@ -1150,4 +1108,43 @@ fn wndProc(
 
         else => return w32.DefWindowProcW(hwnd, msg, wparam, lparam),
     }
+}
+
+/// Window procedure for the message-only HWND (GhosttyMsg class).
+/// GWLP_USERDATA stores an *App pointer.
+fn msgWndProc(
+    hwnd: w32.HWND,
+    msg: u32,
+    wparam: usize,
+    lparam: isize,
+) callconv(.c) isize {
+    const userdata = w32.GetWindowLongPtrW(hwnd, w32.GWLP_USERDATA);
+    if (userdata == 0) return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+    const app: *App = @ptrFromInt(@as(usize, @bitCast(userdata)));
+
+    if (msg == WM_APP_WAKEUP) {
+        app.tick();
+        return 0;
+    }
+
+    if (msg == w32.WM_TIMER and wparam == QUIT_TIMER_ID) {
+        _ = w32.KillTimer(hwnd, QUIT_TIMER_ID);
+        app.quit_timer_state = .expired;
+        app.quit_requested = true;
+        w32.PostQuitMessage(0);
+        return 0;
+    }
+
+    // Timer ID 2: remove the notification tray icon after balloon timeout.
+    if (msg == w32.WM_TIMER and wparam == 2) {
+        _ = w32.KillTimer(hwnd, 2);
+        var nid: w32.NOTIFYICONDATAW = std.mem.zeroes(w32.NOTIFYICONDATAW);
+        nid.cbSize = @sizeOf(w32.NOTIFYICONDATAW);
+        nid.hWnd = hwnd;
+        nid.uID = 1;
+        _ = w32.Shell_NotifyIconW(w32.NIM_DELETE, &nid);
+        return 0;
+    }
+
+    return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
 }

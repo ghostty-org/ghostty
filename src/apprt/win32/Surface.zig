@@ -687,7 +687,7 @@ fn ensureSearchBar(self: *Surface) void {
     // can route WM_COMMAND from the edit to our surface. We use the
     // parent window's userdata (already set to *Surface).
 
-    // Set GWLP_USERDATA on the popup so the wndProc can route
+    // Set GWLP_USERDATA on the popup so surfaceWndProc can route
     // WM_COMMAND (EN_CHANGE) and WM_CTLCOLOREDIT to this Surface.
     _ = w32.SetWindowLongPtrW(popup, w32.GWLP_USERDATA, @bitCast(@intFromPtr(self)));
 
@@ -868,7 +868,7 @@ pub fn handleVScroll(self: *Surface, wparam: usize) void {
 }
 
 // -----------------------------------------------------------------------
-// Message handlers called from App.wndProc
+// Message handlers called from App.surfaceWndProc
 // -----------------------------------------------------------------------
 
 /// Handle WM_SIZE.

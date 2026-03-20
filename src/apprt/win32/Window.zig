@@ -195,3 +195,96 @@ pub fn surfaceRect(self: *const Window) w32.RECT {
     rect.top += self.tabBarHeight();
     return rect;
 }
+
+/// Returns the currently active Surface, or null if there are no tabs.
+pub fn getActiveSurface(self: *Window) ?*Surface {
+    if (self.tab_count == 0) return null;
+    return self.tab_surfaces[self.active_tab];
+}
+
+/// Handle WM_SIZE: resize the active surface's child HWND to fill
+/// the available client area (below the tab bar).
+fn handleResize(self: *Window) void {
+    const rect = self.surfaceRect();
+    if (self.getActiveSurface()) |surface| {
+        if (surface.hwnd) |h| {
+            _ = w32.MoveWindow(
+                h,
+                rect.left,
+                rect.top,
+                @intCast(rect.right - rect.left),
+                @intCast(rect.bottom - rect.top),
+                1,
+            );
+        }
+    }
+}
+
+/// Handle WM_CLOSE: destroy the window.
+fn close(self: *Window) void {
+    if (self.hwnd) |hwnd| {
+        _ = w32.DestroyWindow(hwnd);
+    }
+}
+
+/// Handle WM_DESTROY: remove this window from the App's list,
+/// clean up, and start the quit timer if no windows remain.
+fn onDestroy(self: *Window) void {
+    // Remove from App's window list.
+    const items = self.app.windows.items;
+    for (items, 0..) |w, i| {
+        if (w == self) {
+            _ = self.app.windows.orderedRemove(i);
+            break;
+        }
+    }
+    self.hwnd = null;
+    self.deinit();
+    self.app.core_app.alloc.destroy(self);
+
+    // If no windows remain, start the quit timer.
+    if (self.app.windows.items.len == 0) {
+        self.app.startQuitTimer();
+    }
+}
+
+/// Window procedure for top-level container HWNDs (GhosttyWindow class).
+/// GWLP_USERDATA stores a *Window pointer.
+pub fn windowWndProc(
+    hwnd: w32.HWND,
+    msg: u32,
+    wparam: usize,
+    lparam: isize,
+) callconv(.c) isize {
+    const userdata = w32.GetWindowLongPtrW(hwnd, w32.GWLP_USERDATA);
+    const window: *Window = if (userdata != 0)
+        @ptrFromInt(@as(usize, @bitCast(userdata)))
+    else
+        return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+
+    switch (msg) {
+        w32.WM_SIZE => {
+            window.handleResize();
+            return 0;
+        },
+        w32.WM_ENTERSIZEMOVE => {
+            if (window.getActiveSurface()) |s| s.in_live_resize = true;
+            return 0;
+        },
+        w32.WM_EXITSIZEMOVE => {
+            if (window.getActiveSurface()) |s| s.in_live_resize = false;
+            return 0;
+        },
+        w32.WM_CLOSE => {
+            window.close();
+            return 0;
+        },
+        w32.WM_DESTROY => {
+            _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
+            window.onDestroy();
+            return 0;
+        },
+        w32.WM_ERASEBKGND => return 1,
+        else => return w32.DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
