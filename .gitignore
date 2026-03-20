@@ -10,9 +10,13 @@
 zig-cache/
 .zig-cache/
 zig-out/
+# CMake
 build-cmake/
 CMakeCache.txt
 CMakeFiles/
+
+# Meson
+build-meson/
 /build.zig.zon.bak
 /result*
 /.nixos-test-history

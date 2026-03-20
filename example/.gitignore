@@ -2,4 +2,8 @@
 dist/
 node_modules/
 example.wasm*
+# CMake / Meson
 build/
+
+# Meson
+subprojects/

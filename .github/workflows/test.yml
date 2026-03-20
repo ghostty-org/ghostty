@@ -87,6 +87,7 @@ jobs:
       - build-dist
       - build-examples-zig
       - build-examples-cmake
+      - build-examples-meson
       - build-flatpak
       - build-libghostty-vt
       - build-libghostty-vt-android
@@ -175,6 +176,7 @@ jobs:
     outputs:
       zig: ${{ steps.list.outputs.zig }}
       cmake: ${{ steps.list.outputs.cmake }}
+      meson: ${{ steps.list.outputs.meson }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -187,6 +189,9 @@ jobs:
           cmake=$(ls example/*/CMakeLists.txt 2>/dev/null | xargs -n1 dirname | xargs -n1 basename | jq -R -s -c 'split("\n") | map(select(. != ""))')
           echo "$cmake" | jq .
           echo "cmake=$cmake" >> "$GITHUB_OUTPUT"
+          meson=$(ls example/*/meson.build 2>/dev/null | xargs -n1 dirname | xargs -n1 basename | jq -R -s -c 'split("\n") | map(select(. != ""))')
+          echo "$meson" | jq .
+          echo "meson=$meson" >> "$GITHUB_OUTPUT"
 
   build-examples-zig:
     strategy:
@@ -260,6 +265,45 @@ jobs:
           cd example/${{ matrix.dir }}
           nix develop -c cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=${{ github.workspace }}
           nix develop -c cmake --build build
+
+  build-examples-meson:
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.list-examples.outputs.meson) }}
+    name: Example ${{ matrix.dir }}
+    runs-on: namespace-profile-ghostty-xsm
+    needs: [test, list-examples]
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          path: |
+            /nix
+            /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@1ca7d21a94afc7c957383a2d217460d980de4934 # v31.10.1
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build Example
+        run: |
+          cd example/${{ matrix.dir }}
+          mkdir -p subprojects
+          ln -s "${{ github.workspace }}" subprojects/ghostty
+          nix develop -c meson setup build
+          nix develop -c meson compile -C build
 
   build-flatpak:
     strategy:

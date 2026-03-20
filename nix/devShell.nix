@@ -9,6 +9,8 @@
   flatpak-builder,
   gdb,
   cmake,
+  meson,
+  ninja,
   #, glxinfo # unused
   ncurses,
   nodejs,
@@ -93,6 +95,8 @@ in
       [
         # For builds
         cmake
+        meson
+        ninja
         doxygen
         jq
         llvmPackages_latest.llvm
