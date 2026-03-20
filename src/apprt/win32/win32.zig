@@ -251,9 +251,16 @@ pub const VK_OEM_7: u16 = 0xDE; // ''"' on US
 pub const WHEEL_DELTA: i16 = 120;
 
 // Show window commands
+pub const SW_HIDE: i32 = 0;
 pub const SW_SHOW: i32 = 5;
 pub const SW_MAXIMIZE: i32 = 3;
 pub const SW_RESTORE: i32 = 9;
+
+// Font weight constants
+pub const FW_NORMAL: i32 = 400;
+
+// Character set constants
+pub const DEFAULT_CHARSET: u32 = 1;
 
 // Window long pointer indices
 pub const GWLP_USERDATA: i32 = -21;

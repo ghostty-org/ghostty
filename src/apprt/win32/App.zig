@@ -12,6 +12,7 @@ const CoreSurface = @import("../../Surface.zig");
 const internal_os = @import("../../os/main.zig");
 
 const Surface = @import("Surface.zig");
+const Window = @import("Window.zig");
 const w32 = @import("win32.zig");
 
 const log = std.log.scoped(.win32);
@@ -53,6 +54,9 @@ hinstance: w32.HINSTANCE,
 class_atom: u16 = 0,
 terminal_class_atom: u16 = 0,
 msg_class_atom: u16 = 0,
+
+/// List of active Window containers (tabbed windows).
+windows: std.ArrayList(*Window) = .empty,
 
 /// Background brush created from the configured background color.
 /// Used by WM_ERASEBKGND to fill exposed areas during resize,
@@ -244,6 +248,14 @@ pub fn terminate(self: *App) void {
         _ = w32.DestroyWindow(hwnd);
         self.msg_hwnd = null;
     }
+
+    // Deinit and free all Window containers.
+    const alloc = self.core_app.alloc;
+    for (self.windows.items) |window| {
+        window.deinit();
+        alloc.destroy(window);
+    }
+    self.windows.deinit(alloc);
 
     if (self.bg_brush) |brush| {
         _ = w32.DeleteObject(@ptrCast(brush));
