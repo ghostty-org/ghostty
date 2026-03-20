@@ -733,6 +733,66 @@ CFGEOF
     echo "  ● PASSED"
 }
 
+test_new_tab() {
+    echo "▶ test_new_tab"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+    echo "  ✓ First window appeared (PID=$pid)"
+
+    # Press Ctrl+Shift+T to open a new tab (currently opens new window)
+    sleep 1
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+t"
+    sleep 3
+
+    # Count ghostty windows — should now be 2
+    local count
+    count="$(powershell.exe -ExecutionPolicy Bypass -Command '
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class WC {
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    public delegate bool EP(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EP p, IntPtr l);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
+}
+"@
+$count=0
+$cb=[WC+EP]{param($h,$l); $p=[uint32]0; [WC]::GetWindowThreadProcessId($h,[ref]$p)|Out-Null
+  if($p -eq '"$pid"' -and [WC]::IsWindowVisible($h)){
+    $cr=New-Object WC+RECT; [WC]::GetClientRect($h,[ref]$cr)|Out-Null
+    if($cr.R -gt 0){$script:count++}}; $true}
+[WC]::EnumWindows($cb,[IntPtr]::Zero)|Out-Null
+Write-Output "COUNT=$count"
+' 2>&1 | tr -d '\r')"
+
+    local win_count
+    win_count="$(get_val "$count" COUNT)"
+
+    if [ "$win_count" -ge 2 ] 2>/dev/null; then
+        echo "  ✓ Ctrl+Shift+T opened a second window (count=$win_count)"
+    else
+        echo "  ✗ Expected 2+ windows, got $win_count"
+        FAIL=$((FAIL + 1))
+    fi
+
+    ps -Action kill 2>/dev/null || true
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 list_tests() {
@@ -751,6 +811,7 @@ list_tests() {
     echo "  window_size_config — Custom window size from config"
     echo "  search             — Search bar open/close/input"
     echo "  config_reload      — Live config reload changes background"
+    echo "  new_tab            — Ctrl+Shift+T opens second window"
 }
 
 run_test() {
@@ -769,6 +830,7 @@ run_test() {
         window_size_config)  test_window_size_config ;;
         search)              test_search ;;
         config_reload)       test_config_reload ;;
+        new_tab)             test_new_tab ;;
         *)                   echo "Unknown test: $1"; exit 1 ;;
     esac
 }
@@ -810,6 +872,8 @@ case "${1:-all}" in
         test_search
         echo ""
         test_config_reload
+        echo ""
+        test_new_tab
         echo ""
         report
         ;;
