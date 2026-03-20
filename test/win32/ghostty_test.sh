@@ -747,14 +747,14 @@ test_new_tab() {
         ps -Action kill -ProcessId "$pid" 2>/dev/null || true
         return
     fi
-    echo "  ✓ First window appeared (PID=$pid)"
+    echo "  ✓ Window appeared (PID=$pid)"
 
-    # Press Ctrl+Shift+T to open a new tab (currently opens new window)
+    # Press Ctrl+Shift+T to open a new tab (tabs live inside the same window)
     sleep 1
     ps -Action sendkeys -ProcessId "$pid" -Keys "^+t"
     sleep 3
 
-    # Count ghostty windows — should now be 2
+    # Count top-level Ghostty windows — should still be 1 (tab is inside the window)
     local count
     count="$(powershell.exe -ExecutionPolicy Bypass -Command '
 Add-Type @"
@@ -781,14 +781,109 @@ Write-Output "COUNT=$count"
     local win_count
     win_count="$(get_val "$count" COUNT)"
 
-    if [ "$win_count" -ge 2 ] 2>/dev/null; then
-        echo "  ✓ Ctrl+Shift+T opened a second window (count=$win_count)"
-    else
-        echo "  ✗ Expected 2+ windows, got $win_count"
-        FAIL=$((FAIL + 1))
-    fi
+    assert_eq "Single window after new tab (tabs are in-window)" "1" "$win_count"
+
+    # Verify process is still running
+    local check
+    check="$(ps -Action check -ProcessId "$pid")"
+    local exists
+    exists="$(get_val "$check" EXISTS)"
+    assert_true "Process still running after new tab" "$exists"
+
+    screenshot "new_tab" "$pid"
+    echo "  ✓ Screenshot captured (verify tab bar visible)"
 
     ps -Action kill 2>/dev/null || true
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
+test_tab_switch() {
+    echo "▶ test_tab_switch"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+    echo "  ✓ Window appeared (PID=$pid)"
+
+    # Open a new tab
+    sleep 1
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+t"
+    sleep 2
+
+    # Switch back to the first tab (Ctrl+Shift+Left or goto_tab keybinding)
+    # Ghostty uses Ctrl+Shift+PgUp/PgDn for previous_tab/next_tab by default
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+{PGUP}"
+    sleep 1
+
+    # Verify process didn't crash
+    local check
+    check="$(ps -Action check -ProcessId "$pid")"
+    local exists
+    exists="$(get_val "$check" EXISTS)"
+    assert_true "Process still running after tab switch" "$exists"
+
+    # Switch forward again
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+{PGDN}"
+    sleep 1
+
+    # Verify still alive
+    check="$(ps -Action check -ProcessId "$pid")"
+    exists="$(get_val "$check" EXISTS)"
+    assert_true "Process still running after switching back" "$exists"
+
+    screenshot "tab_switch" "$pid"
+    echo "  ✓ Tab switching completed without crash"
+
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
+test_tab_close() {
+    echo "▶ test_tab_close"
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        return
+    fi
+    echo "  ✓ Window appeared (PID=$pid)"
+
+    # Open a new tab so we have 2 tabs
+    sleep 1
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+t"
+    sleep 2
+
+    # Close the current tab with Ctrl+Shift+W
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+w"
+    sleep 2
+
+    # Process should still be running (one tab remains)
+    local check
+    check="$(ps -Action check -ProcessId "$pid")"
+    local exists
+    exists="$(get_val "$check" EXISTS)"
+    assert_true "Process still running after closing one tab" "$exists"
+
+    screenshot "tab_close" "$pid"
+    echo "  ✓ Tab closed, window still alive with remaining tab"
+
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"
 }
@@ -856,7 +951,9 @@ list_tests() {
     echo "  window_size_config — Custom window size from config"
     echo "  search             — Search bar open/close/input"
     echo "  config_reload      — Live config reload changes background"
-    echo "  new_tab            — Ctrl+Shift+T opens second window"
+    echo "  new_tab            — Ctrl+Shift+T opens tab in same window"
+    echo "  tab_switch         — Switch between tabs without crash"
+    echo "  tab_close          — Close tab, verify window survives"
     echo "  toggle_opacity     — Window launches with background opacity"
 }
 
@@ -877,6 +974,8 @@ run_test() {
         search)              test_search ;;
         config_reload)       test_config_reload ;;
         new_tab)             test_new_tab ;;
+        tab_switch)          test_tab_switch ;;
+        tab_close)           test_tab_close ;;
         toggle_opacity)      test_toggle_opacity ;;
         *)                   echo "Unknown test: $1"; exit 1 ;;
     esac
@@ -921,6 +1020,10 @@ case "${1:-all}" in
         test_config_reload
         echo ""
         test_new_tab
+        echo ""
+        test_tab_switch
+        echo ""
+        test_tab_close
         echo ""
         test_toggle_opacity
         echo ""
