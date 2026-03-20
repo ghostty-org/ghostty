@@ -29,13 +29,35 @@ GHOSTTY_EXE="$LOCAL_EXE"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+# Global HWND — set after launch, passed to all subsequent actions.
+# Required because WSL2 desktop isolation prevents FindWindow/EnumWindows
+# from finding windows in a different PowerShell session.
+GHOSTTY_HWND=0
+
 ps() {
-    powershell.exe -ExecutionPolicy Bypass -File "$HARNESS_PS1" "$@" 2>&1 | tr -d '\r'
+    # Automatically inject -Hwnd if we have one and the caller didn't pass it.
+    if [ "$GHOSTTY_HWND" != "0" ] && ! echo "$*" | grep -q '\-Hwnd'; then
+        powershell.exe -ExecutionPolicy Bypass -File "$HARNESS_PS1" -Hwnd "$GHOSTTY_HWND" "$@" 2>&1 | tr -d '\r'
+    else
+        powershell.exe -ExecutionPolicy Bypass -File "$HARNESS_PS1" "$@" 2>&1 | tr -d '\r'
+    fi
 }
 
 get_val() {
     # Extract VALUE from KEY=VALUE output lines
     echo "$1" | grep "^${2}=" | head -1 | cut -d= -f2-
+}
+
+# Launch ghostty and set GHOSTTY_HWND from the output.
+# Usage: launch_and_set_hwnd [wait_ms]
+# Sets: GHOSTTY_HWND, LAUNCH_OUTPUT (use get_val on LAUNCH_OUTPUT)
+launch_and_set_hwnd() {
+    LAUNCH_OUTPUT="$(powershell.exe -ExecutionPolicy Bypass -File "$HARNESS_PS1" -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs "${1:-5000}" 2>&1 | tr -d '\r')"
+    local hwnd
+    hwnd="$(get_val "$LAUNCH_OUTPUT" HWND)"
+    if [ -n "$hwnd" ] && [ "$hwnd" != "0" ]; then
+        GHOSTTY_HWND="$hwnd"
+    fi
 }
 
 screenshot() {
@@ -102,7 +124,9 @@ assert_true() {
 test_launch_and_close() {
     echo "▶ test_launch_and_close"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -154,7 +178,9 @@ test_launch_and_close() {
 test_window_properties() {
     echo "▶ test_window_properties"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -191,7 +217,9 @@ test_window_properties() {
 test_keyboard_input() {
     echo "▶ test_keyboard_input"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -282,7 +310,9 @@ test_multiple_windows() {
 test_clipboard() {
     echo "▶ test_clipboard"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -332,7 +362,9 @@ CFGEOF
     export WSLENV="XDG_CONFIG_HOME/w"
 
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -364,7 +396,9 @@ CFGEOF
 test_scrollbar() {
     echo "▶ test_scrollbar"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -404,7 +438,9 @@ test_scrollbar() {
 test_close_confirmation() {
     echo "▶ test_close_confirmation"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -438,7 +474,9 @@ test_close_confirmation() {
 test_url_detection() {
     echo "▶ test_url_detection"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -537,7 +575,9 @@ else{Write-Output "BROWSER_OPENED=false"}
 test_notifications() {
     echo "▶ test_notifications"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -595,7 +635,9 @@ CFGEOF
     export WSLENV="XDG_CONFIG_HOME/w"
 
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -635,7 +677,9 @@ CFGEOF
 test_search() {
     echo "▶ test_search"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -695,7 +739,9 @@ CFGEOF
     export WSLENV="XDG_CONFIG_HOME/w"
 
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -736,7 +782,9 @@ CFGEOF
 test_new_tab() {
     echo "▶ test_new_tab"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -801,7 +849,9 @@ Write-Output "COUNT=$count"
 test_tab_switch() {
     echo "▶ test_tab_switch"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -851,7 +901,9 @@ test_tab_switch() {
 test_tab_close() {
     echo "▶ test_tab_close"
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"
@@ -905,7 +957,9 @@ CFGEOF
     export WSLENV="XDG_CONFIG_HOME/w"
 
     local output
-    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    GHOSTTY_HWND=0
+    launch_and_set_hwnd 5000
+    output="$LAUNCH_OUTPUT"
     local pid window_found
     pid="$(get_val "$output" PID)"
     window_found="$(get_val "$output" WINDOW_FOUND)"

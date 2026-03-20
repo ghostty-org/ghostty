@@ -2,13 +2,16 @@
 # Usage from WSL: powershell.exe -ExecutionPolicy Bypass -File test_harness.ps1 -Action <action> [args]
 #
 # Actions:
-#   launch      — Start ghostty.exe, output PID
+#   launch      — Start ghostty.exe, output PID and HWND
 #   screenshot  — Capture ghostty window to PNG file
 #   sendkeys    — Send keystrokes to ghostty window
 #   sendtext    — Type text into ghostty window
 #   check       — Check if ghostty window exists, output title + size
 #   close       — Close ghostty window gracefully
 #   kill        — Force-kill ghostty process
+#
+# Window finding: In WSL2, FindWindow/EnumWindows fail across sessions.
+# The launch action outputs HWND= which subsequent actions use via -Hwnd.
 
 param(
     [Parameter(Mandatory=$true)]
@@ -20,6 +23,7 @@ param(
     [string]$Keys,
     [string]$Text,
     [int]$ProcessId,
+    [long]$Hwnd = 0,
     [int]$WaitMs = 3000
 )
 
@@ -80,23 +84,45 @@ public class Win32Test {
 "@
 
 function Find-GhosttyWindow {
-    param([int]$ProcessId = 0)
+    param([int]$ProcessId = 0, [long]$DirectHwnd = 0)
 
-    # Use FindWindow by class name — faster and more reliable than
-    # EnumWindows with a managed delegate callback.
-    $hWnd = [Win32Test]::FindWindow("GhosttyWindow", $null)
-    if ($hWnd -eq [IntPtr]::Zero) { return $null }
-
-    # If a PID was specified, verify it matches.
-    if ($ProcessId -ne 0) {
-        $wpid = [uint32]0
-        [Win32Test]::GetWindowThreadProcessId($hWnd, [ref]$wpid) | Out-Null
-        if ($wpid -ne $ProcessId) { return $null }
+    # Strategy 0: Direct HWND passed from a previous launch action.
+    # Required in WSL2 where cross-session FindWindow/EnumWindows and
+    # even IsWindowVisible fail due to desktop isolation.
+    if ($DirectHwnd -ne 0) {
+        $hWnd = [IntPtr]$DirectHwnd
+        $tb = New-Object System.Text.StringBuilder 256
+        [Win32Test]::GetWindowText($hWnd, $tb, 256) | Out-Null
+        return @{ Handle = $hWnd; Title = $tb.ToString(); Pid = $ProcessId }
     }
 
-    $sb = New-Object System.Text.StringBuilder 256
-    [Win32Test]::GetWindowText($hWnd, $sb, 256) | Out-Null
-    return @{ Handle = $hWnd; Title = $sb.ToString(); Pid = $ProcessId }
+    # Strategy 1: Get-Process.MainWindowHandle — works from the same
+    # session that launched the process.
+    $procs = @()
+    if ($ProcessId -ne 0) {
+        $p = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if ($p) { $procs = @($p) }
+    } else {
+        $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -like "*ghostty*"
+        })
+    }
+
+    foreach ($p in $procs) {
+        $p.Refresh()
+        $hWnd = $p.MainWindowHandle
+        if ($hWnd -ne [IntPtr]::Zero -and [Win32Test]::IsWindowVisible($hWnd)) {
+            $sb = New-Object System.Text.StringBuilder 256
+            [Win32Test]::GetClassName($hWnd, $sb, 256) | Out-Null
+            if ($sb.ToString() -eq "GhosttyWindow") {
+                $tb = New-Object System.Text.StringBuilder 256
+                [Win32Test]::GetWindowText($hWnd, $tb, 256) | Out-Null
+                return @{ Handle = $hWnd; Title = $tb.ToString(); Pid = $p.Id }
+            }
+        }
+    }
+
+    return $null
 }
 
 function Invoke-Launch {
@@ -112,8 +138,12 @@ function Invoke-Launch {
     $psi.FileName = $exe
     if ($Args) { $psi.Arguments = $Args }
     $psi.UseShellExecute = $false
+    # Redirect stderr so ghostty debug output doesn't corrupt harness output.
+    $psi.RedirectStandardError = $true
 
     $proc = [System.Diagnostics.Process]::Start($psi)
+    # Begin async read so the stderr buffer doesn't fill and block the process.
+    $proc.BeginErrorReadLine()
     Write-Output "PID=$($proc.Id)"
 
     # Wait for window to appear
@@ -123,6 +153,7 @@ function Invoke-Launch {
         $win = Find-GhosttyWindow -ProcessId $proc.Id
         if ($win) {
             Write-Output "WINDOW_FOUND=true"
+            Write-Output "HWND=$([long]$win.Handle)"
             Write-Output "TITLE=$($win.Title)"
             return
         }
@@ -131,7 +162,7 @@ function Invoke-Launch {
 }
 
 function Invoke-Screenshot {
-    $win = if ($ProcessId) { Find-GhosttyWindow -ProcessId $ProcessId } else { Find-GhosttyWindow }
+    $win = Find-GhosttyWindow -ProcessId $ProcessId -DirectHwnd $Hwnd
     if (-not $win) {
         Write-Error "No ghostty window found"
         exit 1
@@ -170,7 +201,7 @@ function Invoke-Screenshot {
 }
 
 function Invoke-SendKeys {
-    $win = if ($ProcessId) { Find-GhosttyWindow -ProcessId $ProcessId } else { Find-GhosttyWindow }
+    $win = Find-GhosttyWindow -ProcessId $ProcessId -DirectHwnd $Hwnd
     if (-not $win) {
         Write-Error "No ghostty window found"
         exit 1
@@ -187,7 +218,7 @@ function Invoke-SendKeys {
 }
 
 function Invoke-SendText {
-    $win = if ($ProcessId) { Find-GhosttyWindow -ProcessId $ProcessId } else { Find-GhosttyWindow }
+    $win = Find-GhosttyWindow -ProcessId $ProcessId -DirectHwnd $Hwnd
     if (-not $win) {
         Write-Error "No ghostty window found"
         exit 1
@@ -205,7 +236,7 @@ function Invoke-SendText {
 }
 
 function Invoke-Check {
-    $win = if ($ProcessId) { Find-GhosttyWindow -ProcessId $ProcessId } else { Find-GhosttyWindow }
+    $win = Find-GhosttyWindow -ProcessId $ProcessId -DirectHwnd $Hwnd
     if (-not $win) {
         Write-Output "EXISTS=false"
         return
@@ -226,7 +257,7 @@ function Invoke-Check {
 }
 
 function Invoke-Close {
-    $win = if ($ProcessId) { Find-GhosttyWindow -ProcessId $ProcessId } else { Find-GhosttyWindow }
+    $win = Find-GhosttyWindow -ProcessId $ProcessId -DirectHwnd $Hwnd
     if (-not $win) {
         Write-Output "NO_WINDOW"
         return
