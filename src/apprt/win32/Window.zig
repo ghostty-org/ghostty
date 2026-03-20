@@ -447,7 +447,7 @@ fn handleResize(self: *Window) void {
 }
 
 /// Handle WM_CLOSE: destroy the window.
-fn close(self: *Window) void {
+pub fn close(self: *Window) void {
     if (self.hwnd) |hwnd| {
         _ = w32.DestroyWindow(hwnd);
     }

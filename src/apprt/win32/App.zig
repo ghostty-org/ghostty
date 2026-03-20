@@ -403,7 +403,8 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    core_surface.rt_surface.close(false);
+                    // Close the entire window (all tabs), not just one tab.
+                    core_surface.rt_surface.parent_window.close();
                 },
             }
             return true;
@@ -549,7 +550,20 @@ pub fn performAction(
             return true;
         },
 
-        .move_tab, .set_tab_title, .toggle_tab_overview => {
+        .set_tab_title => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.parent_window.onTabTitleChanged(
+                        core_surface.rt_surface,
+                        value.title,
+                    );
+                },
+            }
+            return true;
+        },
+
+        .move_tab, .toggle_tab_overview => {
             // Acknowledge but no-op until further UI is implemented.
             return true;
         },
