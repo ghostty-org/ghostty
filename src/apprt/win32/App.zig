@@ -910,9 +910,10 @@ fn surfaceWndProc(
         },
 
         w32.WM_CLOSE => {
-            // Child windows don't normally receive WM_CLOSE, but
-            // handle it gracefully by delegating to the parent Window.
-            surface.close(false);
+            // Posted by Surface.close() to defer destruction to the
+            // message loop. This is the safe place to call closeTab
+            // (outside of core_surface callbacks).
+            surface.parent_window.closeTab(surface);
             return 0;
         },
 

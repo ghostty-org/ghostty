@@ -270,7 +270,11 @@ pub fn closeTab(self: *Window, surface: *Surface) void {
     self.tab_count -= 1;
 
     if (self.tab_count == 0) {
-        if (self.hwnd) |hwnd| _ = w32.DestroyWindow(hwnd);
+        // Last tab closed — post WM_CLOSE to defer destruction.
+        // We can't call DestroyWindow synchronously here because
+        // closeTab is called from inside core_surface callbacks
+        // (during tick), and synchronous destruction causes reentrancy.
+        if (self.hwnd) |hwnd| _ = w32.PostMessageW(hwnd, w32.WM_CLOSE, 0, 0);
         return;
     }
 
@@ -772,36 +776,54 @@ fn handleTabBarMouseLeave(self: *Window) void {
     }
 }
 
-/// Handle WM_CLOSE: destroy the window.
+/// Handle WM_CLOSE: clean up all tabs, then destroy the window.
+/// OpenGL contexts and DCs must be released BEFORE DestroyWindow,
+/// because Win32 destroys child HWNDs during DestroyWindow and the
+/// OpenGL driver crashes if contexts are still active on destroyed windows.
 pub fn close(self: *Window) void {
+    // First, cleanly shut down all surfaces (renderer/IO threads, WGL, DC).
+    self.cleanupAllSurfaces();
+
+    // Now safe to destroy the parent HWND (children already cleaned up).
     if (self.hwnd) |hwnd| {
         _ = w32.DestroyWindow(hwnd);
     }
 }
 
+/// Deinit and free all tab surfaces, cleaning up OpenGL contexts and DCs
+/// while HWNDs are still valid.
+fn cleanupAllSurfaces(self: *Window) void {
+    const alloc = self.app.core_app.alloc;
+    while (self.tab_count > 0) {
+        self.tab_count -= 1;
+        const surface = self.tab_surfaces[self.tab_count];
+        surface.deinit();
+        alloc.destroy(surface);
+    }
+}
+
 /// Handle WM_DESTROY: remove this window from the App's list,
-/// clean up, and start the quit timer if no windows remain.
+/// free resources, and start the quit timer if no windows remain.
+/// Surfaces are already cleaned up by close() before DestroyWindow.
 fn onDestroy(self: *Window) void {
-    // Remove from App's window list.
     const app = self.app;
-    const items = app.windows.items;
-    for (items, 0..) |w, i| {
+
+    // Remove from App's window list.
+    for (app.windows.items, 0..) |w, i| {
         if (w == self) {
             _ = app.windows.orderedRemove(i);
             break;
         }
     }
 
-    // The parent HWND is already being destroyed by Win32 (we're inside
-    // WM_DESTROY). Child HWNDs are destroyed automatically by Win32
-    // before the parent's WM_DESTROY fires, so we must NOT call
-    // DestroyWindow on them again. Clear the child hwnd fields first,
-    // then deinit surfaces (which skips DestroyWindow when hwnd is null).
-    for (self.tab_surfaces[0..self.tab_count]) |surface| {
-        surface.hwnd = null;
+    // Clean up Window-level resources.
+    if (self.tab_font) |font| {
+        _ = w32.DeleteObject(font);
+        self.tab_font = null;
     }
     self.hwnd = null;
-    self.deinit();
+
+    // Free the Window allocation.
     app.core_app.alloc.destroy(self);
 
     // If no windows remain, start the quit timer.

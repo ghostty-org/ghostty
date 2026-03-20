@@ -203,38 +203,51 @@ pub fn init(self: *Surface, app: *App, parent: *Window) !void {
 }
 
 pub fn deinit(self: *Surface) void {
-    if (self.core_surface_initialized) {
-        // Deinit the core surface first (stops renderer/IO threads, cleans up
-        // terminal state, PTY, fonts, etc.).
-        self.core_surface.deinit();
+    log.debug("surface deinit: start addr={x}", .{@intFromPtr(self)});
 
-        // Unregister from the core app's surface list.
+    if (self.core_surface_initialized) {
+        log.debug("surface deinit: core_surface.deinit start", .{});
+        self.core_surface.deinit();
+        log.debug("surface deinit: core_surface.deinit done", .{});
+
         self.app.core_app.deleteSurface(self);
+        log.debug("surface deinit: deleteSurface done", .{});
     }
 
     if (self.frame_event) |event| {
         _ = w32.CloseHandle(event);
         self.frame_event = null;
     }
+    log.debug("surface deinit: frame_event closed", .{});
 
     if (self.hglrc) |hglrc| {
-        // Ensure the context is not current before deleting
+        log.debug("surface deinit: wglMakeCurrent(null)", .{});
         _ = w32.wglMakeCurrent(null, null);
+        log.debug("surface deinit: wglDeleteContext", .{});
         _ = w32.wglDeleteContext(hglrc);
         self.hglrc = null;
     }
+    log.debug("surface deinit: GL context cleaned up", .{});
 
     if (self.hdc) |hdc| {
         if (self.hwnd) |hwnd| {
+            log.debug("surface deinit: ReleaseDC", .{});
             _ = w32.ReleaseDC(hwnd, hdc);
         }
         self.hdc = null;
     }
+    log.debug("surface deinit: DC released", .{});
 
+    // Don't call DestroyWindow on the child HWND here. The OPENGL32.dll
+    // driver hooks into window destruction and segfaults after we've already
+    // cleaned up the WGL context. The child HWND will be automatically
+    // destroyed when the parent Window HWND is destroyed by Win32.
+    // Just null the hwnd field so nothing else tries to use it.
     if (self.hwnd) |hwnd| {
-        _ = w32.DestroyWindow(hwnd);
-        self.hwnd = null;
+        _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
     }
+    self.hwnd = null;
+    log.debug("surface deinit: complete", .{});
 }
 
 /// Set up a pixel format suitable for OpenGL rendering.
@@ -330,7 +343,13 @@ pub fn getTitle(self: *const Surface) ?[:0]const u8 {
 
 pub fn close(self: *Surface, process_active: bool) void {
     _ = process_active;
-    self.parent_window.closeTab(self);
+    // Defer destruction to the message loop via PostMessage.
+    // This avoids calling surface.deinit() from inside core_surface
+    // callbacks (during tick), which causes reentrancy and crashes.
+    // The WM_CLOSE handler in surfaceWndProc will call closeTab.
+    if (self.hwnd) |hwnd| {
+        _ = w32.PostMessageW(hwnd, w32.WM_CLOSE, 0, 0);
+    }
 }
 
 pub fn supportsClipboard(
