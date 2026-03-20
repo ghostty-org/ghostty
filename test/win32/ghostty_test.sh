@@ -416,30 +416,20 @@ test_close_confirmation() {
         return
     fi
 
-    # Send WM_CLOSE while shell is still running — this should trigger
-    # the confirmation dialog (since cmd.exe is still active and there's
-    # no shell integration to mark the prompt).
+    # The X button (WM_CLOSE with wparam=0) now closes without
+    # confirmation on Windows because needsConfirmQuit() always
+    # returns true without shell integration (cmd.exe has no OSC 133).
+    # Only programmatic close (keybinding with process_active=true)
+    # shows the dialog.
     ps -Action close -ProcessId "$pid"
     sleep 3
 
-    # The window should still exist because the dialog blocks the close.
-    # (MessageBoxW is modal — it won't destroy the window unless the user
-    # clicks "Yes".)
     local check
     check="$(ps -Action check -ProcessId "$pid")"
     local exists
     exists="$(get_val "$check" EXISTS)"
+    assert_eq "Window closed via X button" "false" "$exists"
 
-    if [ "$exists" = "true" ]; then
-        echo "  ✓ Close was blocked by confirmation dialog"
-    else
-        echo "  ✗ Window closed without confirmation (expected dialog)"
-        FAIL=$((FAIL + 1))
-        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
-        return
-    fi
-
-    # Clean up — force kill since the dialog is blocking normal close
     ps -Action kill -ProcessId "$pid" 2>/dev/null || true
     PASS=$((PASS + 1))
     echo "  ● PASSED"

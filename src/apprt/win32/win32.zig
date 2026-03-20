@@ -89,6 +89,7 @@ pub const WS_POPUP: u32 = 0x80000000;
 
 // Extended window styles
 pub const WS_EX_LAYERED: u32 = 0x00080000;
+pub const WS_EX_TOOLWINDOW: u32 = 0x00000080;
 
 // Layered window flags
 pub const LWA_ALPHA: u32 = 0x00000002;
@@ -394,6 +395,10 @@ pub extern "user32" fn ScreenToClient(
     lpPoint: *POINT,
 ) callconv(.c) i32;
 
+pub extern "user32" fn GetParent(
+    hWnd: HWND,
+) callconv(.c) ?HWND;
+
 pub extern "user32" fn GetDpiForWindow(
     hWnd: HWND,
 ) callconv(.c) u32;
@@ -618,6 +623,87 @@ pub extern "kernel32" fn GlobalUnlock(
 pub extern "kernel32" fn GlobalFree(
     hMem: *anyopaque,
 ) callconv(.c) ?*anyopaque;
+
+// -----------------------------------------------------------------------
+// Edit control / child window API
+// -----------------------------------------------------------------------
+
+pub const WM_COMMAND: u32 = 0x0111;
+pub const WM_CTLCOLOREDIT: u32 = 0x0133;
+
+// Edit control notification codes (high word of wParam in WM_COMMAND)
+pub const EN_CHANGE: u16 = 0x0300;
+
+// Edit control styles
+pub const ES_AUTOHSCROLL: u32 = 0x0080;
+
+// Window styles for child windows
+pub const WS_CHILD: u32 = 0x40000000;
+pub const WS_VISIBLE_STYLE: u32 = 0x10000000;
+pub const WS_BORDER: u32 = 0x00800000;
+
+pub extern "user32" fn SetFocus(
+    hWnd: ?HWND,
+) callconv(.c) ?HWND;
+
+pub extern "user32" fn GetWindowTextW(
+    hWnd: HWND,
+    lpString: [*]u16,
+    nMaxCount: i32,
+) callconv(.c) i32;
+
+pub extern "user32" fn GetWindowTextLengthW(
+    hWnd: HWND,
+) callconv(.c) i32;
+
+pub extern "user32" fn MoveWindow(
+    hWnd: HWND,
+    X: i32,
+    Y: i32,
+    nWidth: i32,
+    nHeight: i32,
+    bRepaint: i32,
+) callconv(.c) i32;
+
+pub extern "user32" fn IsWindowVisible_(
+    hWnd: HWND,
+) callconv(.c) i32;
+
+pub extern "gdi32" fn SetBkColor(
+    hdc: HDC,
+    color: u32,
+) callconv(.c) u32;
+
+pub extern "gdi32" fn SetTextColor(
+    hdc: HDC,
+    color: u32,
+) callconv(.c) u32;
+
+pub extern "gdi32" fn CreateFontW(
+    cHeight: i32,
+    cWidth: i32,
+    cEscapement: i32,
+    cOrientation: i32,
+    cWeight: i32,
+    bItalic: u32,
+    bUnderline: u32,
+    bStrikeOut: u32,
+    iCharSet: u32,
+    iOutPrecision: u32,
+    iClipPrecision: u32,
+    iQuality: u32,
+    iPitchAndFamily: u32,
+    pszFaceName: ?[*:0]const u16,
+) callconv(.c) ?*anyopaque;
+
+pub const WM_SETFONT: u32 = 0x0030;
+
+pub extern "user32" fn SendMessageW(
+    hWnd: HWND,
+    Msg: u32,
+    wParam: usize,
+    lParam: isize,
+) callconv(.c) isize;
 
 // -----------------------------------------------------------------------
 // MessageBox API

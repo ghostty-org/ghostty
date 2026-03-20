@@ -153,6 +153,23 @@ pub fn run(self: *App) !void {
         if (result == 0) break; // WM_QUIT
         if (result < 0) return error.Win32Error;
 
+        // Intercept keystrokes destined for the search edit control so
+        // Enter/Escape can navigate matches or close the search bar.
+        if (msg.message == w32.WM_KEYDOWN and msg.hwnd != null) {
+            // Find the parent surface of this edit control
+            const parent = w32.GetParent(msg.hwnd.?);
+            if (parent) |p| {
+                const userdata = w32.GetWindowLongPtrW(p, w32.GWLP_USERDATA);
+                if (userdata != 0) {
+                    const surface: *Surface = @ptrFromInt(@as(usize, @bitCast(userdata)));
+                    if (surface.search_active and surface.search_edit == msg.hwnd) {
+                        const vk: u16 = @intCast(msg.wParam & 0xFFFF);
+                        if (surface.handleSearchKey(vk)) continue;
+                    }
+                }
+            }
+        }
+
         _ = w32.TranslateMessage(&msg);
         _ = w32.DispatchMessageW(&msg);
     }
@@ -378,6 +395,32 @@ pub fn performAction(
             return true;
         },
 
+        .start_search => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.setSearchActive(true, value.needle);
+                },
+            }
+            return true;
+        },
+
+        .end_search => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.setSearchActive(false, "");
+                },
+            }
+            return true;
+        },
+
+        .search_total, .search_selected => {
+            // Acknowledge — we could display match count in the search
+            // bar in the future.
+            return true;
+        },
+
         .desktop_notification => {
             self.showDesktopNotification(target, value);
             return true;
@@ -585,9 +628,11 @@ fn wndProc(
     else
         return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
 
-    // Guard: verify this is actually a surface window, not the msg-only window.
+    // Guard: verify this is a surface window or its search popup.
     // The msg-only window can receive WM_DESTROY during shutdown.
-    if (surface.hwnd == null or surface.hwnd.? != hwnd)
+    const is_surface_window = surface.hwnd != null and surface.hwnd.? == hwnd;
+    const is_search_popup = surface.search_hwnd != null and surface.search_hwnd.? == hwnd;
+    if (!is_surface_window and !is_search_popup)
         return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
 
     switch (msg) {
@@ -610,14 +655,11 @@ fn wndProc(
 
         w32.WM_CLOSE => {
             // If wparam=1 (set by Surface.close when process_active=true),
-            // or the user clicked the X button while a child process is
-            // running, show a confirmation dialog.
-            const needs_confirm = if (wparam == 1)
-                true
-            else if (surface.core_surface_ready)
-                surface.core_surface.needsConfirmQuit()
-            else
-                false;
+            // show a confirmation dialog. For the X button (wparam=0), we
+            // don't call needsConfirmQuit() because without shell integration
+            // (common on Windows with cmd.exe), it always returns true since
+            // cursorIsAtPrompt() can't detect prompt state without OSC 133.
+            const needs_confirm = wparam == 1;
 
             if (needs_confirm) {
                 const result = w32.MessageBoxW(
@@ -757,6 +799,27 @@ fn wndProc(
             const hit_test: u16 = @intCast(lparam & 0xFFFF);
             if (hit_test == w32.HTCLIENT and surface.handleSetCursor()) {
                 return 1; // TRUE = we set the cursor
+            }
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+
+        w32.WM_COMMAND => {
+            const notification: u16 = @intCast((wparam >> 16) & 0xFFFF);
+            const control_id: u16 = @intCast(wparam & 0xFFFF);
+            if (control_id == Surface.SEARCH_EDIT_ID and notification == w32.EN_CHANGE) {
+                surface.handleSearchChange();
+                return 0;
+            }
+            return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+
+        w32.WM_CTLCOLOREDIT => {
+            // Dark mode colors for the search edit control
+            const hdc_edit: w32.HDC = @ptrFromInt(wparam);
+            _ = w32.SetTextColor(hdc_edit, w32.RGB(220, 220, 220));
+            _ = w32.SetBkColor(hdc_edit, w32.RGB(45, 45, 45));
+            if (surface.app.bg_brush) |brush| {
+                return @bitCast(@intFromPtr(@as(*const anyopaque, @ptrCast(brush))));
             }
             return w32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },

@@ -89,6 +89,18 @@ scrollbar_len: usize = 0,
 /// WM_SETCURSOR, so we must override it ourselves).
 current_cursor: ?w32.HCURSOR = null,
 
+/// Search popup HWND (a small top-level window containing an Edit
+/// control). Uses a popup instead of a child window because the
+/// OpenGL viewport covers the entire client area and would paint
+/// over a child control.
+search_hwnd: ?w32.HWND = null,
+
+/// The Edit control inside the search popup.
+search_edit: ?w32.HWND = null,
+
+/// Whether the search bar is currently visible.
+search_active: bool = false,
+
 /// Whether the window is currently in fullscreen mode.
 is_fullscreen: bool = false,
 
@@ -567,6 +579,193 @@ pub fn handleSetCursor(self: *Surface) bool {
     return false;
 }
 
+/// Child window ID for the search edit control.
+pub const SEARCH_EDIT_ID: u16 = 100;
+
+/// Show or hide the search bar.
+pub fn setSearchActive(self: *Surface, active: bool, needle: [:0]const u8) void {
+    if (active) {
+        self.search_active = true;
+        self.ensureSearchBar();
+        if (self.search_hwnd) |popup| {
+            self.positionSearchBar();
+            _ = w32.ShowWindow(popup, w32.SW_SHOW);
+
+            // Set the search text if provided
+            if (needle.len > 0) {
+                if (self.search_edit) |edit| {
+                    var wbuf: [512]u16 = undefined;
+                    const wlen = std.unicode.utf8ToUtf16Le(&wbuf, needle) catch 0;
+                    if (wlen < wbuf.len) {
+                        wbuf[wlen] = 0;
+                        _ = w32.SetWindowTextW(edit, @ptrCast(&wbuf));
+                    }
+                }
+            }
+
+            // Focus the edit control
+            if (self.search_edit) |edit| {
+                _ = w32.SetFocus(edit);
+            }
+        }
+    } else {
+        self.search_active = false;
+        if (self.search_hwnd) |popup| {
+            _ = w32.ShowWindow(popup, 0); // SW_HIDE
+        }
+        // Return focus to the main window
+        if (self.hwnd) |hwnd| {
+            _ = w32.SetFocus(hwnd);
+        }
+    }
+}
+
+/// Create the search popup window if it doesn't exist. The popup is a
+/// small top-level window (WS_POPUP) that floats over the main window.
+/// A child Edit control inside it handles the actual text input.
+/// We can't use a child window of the main HWND because OpenGL covers
+/// the entire client area and paints over child controls.
+fn ensureSearchBar(self: *Surface) void {
+    if (self.search_hwnd != null) return;
+
+    // Create the popup container (no title bar, tool window so it
+    // doesn't appear in the taskbar).
+    const popup = w32.CreateWindowExW(
+        w32.WS_EX_TOOLWINDOW,
+        std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow"),
+        std.unicode.utf8ToUtf16LeStringLiteral(""),
+        w32.WS_POPUP | w32.WS_BORDER,
+        0, 0, 310, 32,
+        self.hwnd,
+        null,
+        self.app.hinstance,
+        null,
+    ) orelse return;
+
+    // Apply dark theme
+    const dark_mode: u32 = 1;
+    _ = w32.DwmSetWindowAttribute(
+        popup,
+        w32.DWMWA_USE_IMMERSIVE_DARK_MODE,
+        @ptrCast(&dark_mode),
+        @sizeOf(u32),
+    );
+    _ = w32.SetWindowTheme(
+        popup,
+        std.unicode.utf8ToUtf16LeStringLiteral("DarkMode_Explorer"),
+        null,
+    );
+
+    // Create the Edit control inside the popup
+    const edit = w32.CreateWindowExW(
+        0,
+        std.unicode.utf8ToUtf16LeStringLiteral("EDIT"),
+        std.unicode.utf8ToUtf16LeStringLiteral(""),
+        w32.WS_CHILD | w32.WS_VISIBLE_STYLE | w32.ES_AUTOHSCROLL,
+        4, 4, 300, 22,
+        popup,
+        @ptrFromInt(@as(usize, SEARCH_EDIT_ID)),
+        self.app.hinstance,
+        null,
+    ) orelse {
+        _ = w32.DestroyWindow(popup);
+        return;
+    };
+
+    // Set a readable font
+    const font_handle = w32.CreateFontW(
+        -16, 0, 0, 0, 400,
+        0, 0, 0,
+        0, 0, 0, 0, 0,
+        std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI"),
+    );
+    if (font_handle) |f| {
+        _ = w32.SendMessageW(edit, w32.WM_SETFONT, @intFromPtr(f), 1);
+    }
+
+    // Store the popup HWND in GWLP_USERDATA so the message loop
+    // can route WM_COMMAND from the edit to our surface. We use the
+    // parent window's userdata (already set to *Surface).
+
+    // Set GWLP_USERDATA on the popup so the wndProc can route
+    // WM_COMMAND (EN_CHANGE) and WM_CTLCOLOREDIT to this Surface.
+    _ = w32.SetWindowLongPtrW(popup, w32.GWLP_USERDATA, @bitCast(@intFromPtr(self)));
+
+    self.search_hwnd = popup;
+    self.search_edit = edit;
+}
+
+/// Position the search popup at the top-right corner of the main window.
+fn positionSearchBar(self: *Surface) void {
+    const popup = self.search_hwnd orelse return;
+    const hwnd = self.hwnd orelse return;
+    var rect: w32.RECT = undefined;
+    if (w32.GetWindowRect(hwnd, &rect) != 0) {
+        const bar_width: i32 = 310;
+        const bar_height: i32 = 32;
+        const padding: i32 = 8;
+        // Position at top-right of the window, below the title bar
+        _ = w32.MoveWindow(
+            popup,
+            rect.right - bar_width - padding,
+            rect.top + 32 + padding, // 32px for title bar
+            bar_width,
+            bar_height,
+            1,
+        );
+    }
+}
+
+/// Handle text changes in the search edit control (EN_CHANGE).
+pub fn handleSearchChange(self: *Surface) void {
+    if (!self.core_surface_ready) return;
+    const search = self.search_edit orelse return;
+
+    // Get the current search text
+    var wbuf: [512]u16 = undefined;
+    const wlen: usize = @intCast(w32.GetWindowTextW(search, &wbuf, @intCast(wbuf.len)));
+
+    var utf8_buf: [1024]u8 = undefined;
+    const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, wbuf[0..wlen]) catch 0;
+
+    // Need a null-terminated slice for performBindingAction
+    var needle_buf: [1025]u8 = undefined;
+    @memcpy(needle_buf[0..utf8_len], utf8_buf[0..utf8_len]);
+    needle_buf[utf8_len] = 0;
+    const needle: [:0]const u8 = needle_buf[0..utf8_len :0];
+
+    _ = self.core_surface.performBindingAction(.{ .search = needle }) catch |err| {
+        log.err("search error: {}", .{err});
+    };
+}
+
+/// Handle key events in the search bar. Returns true if handled.
+pub fn handleSearchKey(self: *Surface, vk: u16) bool {
+    if (!self.core_surface_ready) return false;
+
+    switch (vk) {
+        w32.VK_RETURN => {
+            // Enter = next match, Shift+Enter = previous match
+            const shift = w32.GetKeyState(@as(i32, w32.VK_SHIFT)) < 0;
+            const nav: input.Binding.Action = if (shift)
+                .{ .navigate_search = .previous }
+            else
+                .{ .navigate_search = .next };
+            _ = self.core_surface.performBindingAction(nav) catch |err| {
+                log.err("navigate_search error: {}", .{err});
+            };
+            return true;
+        },
+        w32.VK_ESCAPE => {
+            _ = self.core_surface.performBindingAction(.end_search) catch |err| {
+                log.err("end_search error: {}", .{err});
+            };
+            return true;
+        },
+        else => return false,
+    }
+}
+
 /// Update the Win32 scrollbar to reflect the terminal's scroll state.
 /// Called from performAction(.scrollbar) when the viewport changes.
 pub fn setScrollbar(self: *Surface, scrollbar: terminal.Scrollbar) void {
@@ -659,6 +858,9 @@ pub fn handleResize(self: *Surface, width: u32, height: u32) void {
 
     self.width = width;
     self.height = height;
+
+    // Reposition the search bar if it's visible
+    if (self.search_active) self.positionSearchBar();
 
     if (!self.core_surface_ready) return;
 
