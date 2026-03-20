@@ -128,59 +128,74 @@ int main(int argc, char **argv) {
     const char *frames_dir = argv[1];
     const char *output_file = argv[2];
 
+    int exit_code = 1;
+    int n = 0;
+    size_t frame_count = 0;
+    size_t total_size = 0;
     char **frame_names = NULL;
-    int n = list_frame_files(frames_dir, &frame_names);
+    char **frame_contents = NULL;
+    size_t *frame_sizes = NULL;
+    char *joined = NULL;
+    uLongf compressed_size = 0;
+    unsigned char *compressed = NULL;
+    FILE *out = NULL;
+    z_stream stream = {0};
+    int stream_initialized = 0;
+
+    n = list_frame_files(frames_dir, &frame_names);
     if (n < 0) {
         fprintf(stderr, "Failed to scan directory %s: %s\n", frames_dir, strerror(errno));
-        return 1;
+        goto cleanup;
     }
+    frame_count = (size_t)n;
 
-    if (n == 0) {
+    if (frame_count == 0) {
         fprintf(stderr, "No frame files found in %s\n", frames_dir);
-        free(frame_names);
-        return 1;
+        goto cleanup;
     }
 
-    size_t total_size = 0;
-    char **frame_contents = calloc(n, sizeof(char*));
-    size_t *frame_sizes = calloc(n, sizeof(size_t));
+    frame_contents = calloc(frame_count, sizeof(char *));
+    frame_sizes = calloc(frame_count, sizeof(size_t));
+    if (!frame_contents || !frame_sizes) {
+        fprintf(stderr, "Failed to allocate frame buffers\n");
+        goto cleanup;
+    }
 
-    for (int i = 0; i < n; i++) {
+    for (size_t i = 0; i < frame_count; i++) {
         char path[4096];
         snprintf(path, sizeof(path), "%s/%s", frames_dir, frame_names[i]);
         
         frame_contents[i] = read_file(path, &frame_sizes[i]);
         if (!frame_contents[i]) {
-            return 1;
+            goto cleanup;
         }
         
         total_size += frame_sizes[i];
-        if (i < n - 1) total_size++;
+        if (i < frame_count - 1) total_size++;
     }
 
-    char *joined = malloc(total_size);
+    joined = malloc(total_size);
     if (!joined) {
         fprintf(stderr, "Failed to allocate joined buffer\n");
-        return 1;
+        goto cleanup;
     }
 
     size_t offset = 0;
-    for (int i = 0; i < n; i++) {
+    for (size_t i = 0; i < frame_count; i++) {
         memcpy(joined + offset, frame_contents[i], frame_sizes[i]);
         offset += frame_sizes[i];
-        if (i < n - 1) {
+        if (i < frame_count - 1) {
             joined[offset++] = SEPARATOR;
         }
     }
 
-    uLongf compressed_size = compressBound(total_size);
-    unsigned char *compressed = malloc(compressed_size);
+    compressed_size = compressBound(total_size);
+    compressed = malloc(compressed_size);
     if (!compressed) {
         fprintf(stderr, "Failed to allocate compression buffer\n");
-        return 1;
+        goto cleanup;
     }
 
-    z_stream stream = {0};
     stream.next_in = (unsigned char*)joined;
     stream.avail_in = total_size;
     stream.next_out = compressed;
@@ -190,33 +205,47 @@ int main(int argc, char **argv) {
     int ret = deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY);
     if (ret != Z_OK) {
         fprintf(stderr, "deflateInit2 failed: %d\n", ret);
-        return 1;
+        goto cleanup;
     }
+    stream_initialized = 1;
 
     ret = deflate(&stream, Z_FINISH);
     if (ret != Z_STREAM_END) {
         fprintf(stderr, "deflate failed: %d\n", ret);
-        deflateEnd(&stream);
-        return 1;
+        goto cleanup;
     }
 
     compressed_size = stream.total_out;
-    deflateEnd(&stream);
     
-    FILE *out = fopen(output_file, "wb");
+    out = fopen(output_file, "wb");
     if (!out) {
         fprintf(stderr, "Failed to create %s: %s\n", output_file, strerror(errno));
-        return 1;
+        goto cleanup;
     }
 
     if (fwrite(compressed, 1, compressed_size, out) != compressed_size) {
         fprintf(stderr, "Failed to write compressed data\n");
-        return 1;
+        goto cleanup;
     }
 
-    fclose(out);
+    exit_code = 0;
 
-    free_frame_names(frame_names, n);
-
-    return 0;
+cleanup:
+    if (out) {
+        fclose(out);
+    }
+    if (stream_initialized) {
+        deflateEnd(&stream);
+    }
+    free(compressed);
+    free(joined);
+    if (frame_contents) {
+        for (size_t i = 0; i < frame_count; i++) {
+            free(frame_contents[i]);
+        }
+    }
+    free(frame_contents);
+    free(frame_sizes);
+    free_frame_names(frame_names, frame_count);
+    return exit_code;
 }

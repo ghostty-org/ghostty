@@ -9827,8 +9827,12 @@ pub const Theme = struct {
         alloc: Allocator,
         input: []const u8,
     ) !Theme {
-        var light: ?[]const u8 = null;
-        var dark: ?[]const u8 = null;
+        var light: ?[:0]u8 = null;
+        var dark: ?[:0]u8 = null;
+        errdefer {
+            if (light) |v| alloc.free(v);
+            if (dark) |v| alloc.free(v);
+        }
 
         var iter = std.mem.splitScalar(u8, input, ',');
         while (iter.next()) |part_| {
@@ -9841,17 +9845,24 @@ pub const Theme = struct {
             if (value.len == 0) return error.InvalidValue;
 
             if (std.mem.eql(u8, key, "light")) {
-                light = try alloc.dupeZ(u8, value);
+                const copy = try alloc.dupeZ(u8, value);
+                if (light) |v| alloc.free(v);
+                light = copy;
             } else if (std.mem.eql(u8, key, "dark")) {
-                dark = try alloc.dupeZ(u8, value);
+                const copy = try alloc.dupeZ(u8, value);
+                if (dark) |v| alloc.free(v);
+                dark = copy;
             } else {
                 return error.InvalidValue;
             }
         }
 
+        const resolved_light = light orelse return error.InvalidValue;
+        const resolved_dark = dark orelse return error.InvalidValue;
+
         return .{
-            .light = light orelse return error.InvalidValue,
-            .dark = dark orelse return error.InvalidValue,
+            .light = resolved_light,
+            .dark = resolved_dark,
         };
     }
 
@@ -9947,6 +9958,14 @@ pub const Theme = struct {
             try testing.expectEqualStrings("bar", v.dark);
         }
 
+        // Light/dark with repeated keys keeps the last value.
+        {
+            var v: Theme = undefined;
+            try v.parseCLI(alloc, "light:foo,dark:bar,light:baz,dark:qux");
+            try testing.expectEqualStrings("baz", v.light);
+            try testing.expectEqualStrings("qux", v.dark);
+        }
+
         // Light/dark with Windows-style absolute paths.
         {
             var v: Theme = undefined;
@@ -9960,6 +9979,19 @@ pub const Theme = struct {
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, ""));
         try testing.expectError(error.InvalidValue, v.parseCLI(alloc, "light:foo"));
         try testing.expectError(error.InvalidValue, v.parseCLI(alloc, "dark:foo"));
+    }
+
+    test "parse Theme raw pair cleanup on repeats" {
+        const testing = std.testing;
+
+        try testing.expectError(
+            error.InvalidValue,
+            parseLightDarkPairRaw(testing.allocator, "light:foo,light:bar"),
+        );
+        try testing.expectError(
+            error.InvalidValue,
+            parseLightDarkPairRaw(testing.allocator, "dark:foo,dark:bar"),
+        );
     }
 };
 

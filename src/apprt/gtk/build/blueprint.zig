@@ -22,12 +22,8 @@ pub const blueprint_compiler_help =
     \\more information on the recommended build instructions.
 ;
 
-const adwaita_version = if (builtin.os.tag == .windows)
-    std.SemanticVersion{
-        .major = 255,
-        .minor = 255,
-        .patch = 255,
-    }
+const adwaita_version: ?std.SemanticVersion = if (builtin.os.tag == .windows)
+    null
 else adwaita_version: {
     const c = @cImport({
         @cInclude("adwaita.h");
@@ -43,6 +39,29 @@ const required_blueprint_version = std.SemanticVersion{
     .minor = 16,
     .patch = 0,
 };
+
+fn blueprintCompilerArgv(
+    alloc: std.mem.Allocator,
+    cmd_args: []const []const u8,
+) ![]const []const u8 {
+    var argv = std.ArrayList([]const u8).init(alloc);
+    errdefer argv.deinit();
+
+    if (builtin.os.tag == .windows) {
+        try argv.appendSlice(&.{
+            "python3",
+            "-X",
+            "utf8",
+            "-c",
+            "from blueprintcompiler.main import BlueprintApp; BlueprintApp().main()",
+        });
+    } else {
+        try argv.append("blueprint-compiler");
+    }
+
+    try argv.appendSlice(cmd_args);
+    return argv.toOwnedSlice();
+}
 
 pub fn main() !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
@@ -63,15 +82,17 @@ pub fn main() !void {
         .minor = try std.fmt.parseUnsigned(u8, arg_minor, 10),
         .patch = 0,
     };
-    if (adwaita_version.order(required_adwaita_version) == .lt) {
-        std.debug.print(
-            \\`libadwaita` is too old.
-            \\
-            \\Ghostty requires a version {f} or newer of `libadwaita` to
-            \\compile this blueprint. Please install it, ensure that it is
-            \\available on your PATH, and then retry building Ghostty.
-        , .{required_adwaita_version});
-        std.posix.exit(1);
+    if (adwaita_version) |detected_adwaita_version| {
+        if (detected_adwaita_version.order(required_adwaita_version) == .lt) {
+            std.debug.print(
+                \\`libadwaita` is too old.
+                \\
+                \\Ghostty requires a version {f} or newer of `libadwaita` to
+                \\compile this blueprint. Please install it, ensure that it is
+                \\available on your PATH, and then retry building Ghostty.
+            , .{required_adwaita_version});
+            std.posix.exit(1);
+        }
     }
 
     // Version checks
@@ -81,20 +102,9 @@ pub fn main() !void {
         var stderr: std.ArrayListUnmanaged(u8) = .empty;
         defer stderr.deinit(alloc);
 
-        var blueprint_compiler = std.process.Child.init(
-            if (builtin.os.tag == .windows)
-                &.{
-                    "python3",
-                    "-X",
-                    "utf8",
-                    "-c",
-                    "from blueprintcompiler.main import BlueprintApp; BlueprintApp().main()",
-                    "--version",
-                }
-            else
-                &.{ "blueprint-compiler", "--version" },
-            alloc,
-        );
+        const version_argv = try blueprintCompilerArgv(alloc, &.{"--version"});
+        defer alloc.free(version_argv);
+        var blueprint_compiler = std.process.Child.init(version_argv, alloc);
         blueprint_compiler.stdout_behavior = .Pipe;
         blueprint_compiler.stderr_behavior = .Pipe;
         try blueprint_compiler.spawn();
@@ -147,23 +157,12 @@ pub fn main() !void {
         var stderr: std.ArrayListUnmanaged(u8) = .empty;
         defer stderr.deinit(alloc);
 
-        var blueprint_compiler = std.process.Child.init(
-            if (builtin.os.tag == .windows)
-                &.{
-                    "python3",
-                    "-X",
-                    "utf8",
-                    "-c",
-                    "from blueprintcompiler.main import BlueprintApp; BlueprintApp().main()",
-                    "compile",
-                    "--output",
-                    output,
-                    input,
-                }
-            else
-                &.{ "blueprint-compiler", "compile", "--output", output, input },
+        const compile_argv = try blueprintCompilerArgv(
             alloc,
+            &.{ "compile", "--output", output, input },
         );
+        defer alloc.free(compile_argv);
+        var blueprint_compiler = std.process.Child.init(compile_argv, alloc);
         blueprint_compiler.stdout_behavior = .Pipe;
         blueprint_compiler.stderr_behavior = .Pipe;
         try blueprint_compiler.spawn();

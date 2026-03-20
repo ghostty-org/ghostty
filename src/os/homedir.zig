@@ -84,8 +84,7 @@ fn homeWindows(buf: []u8) !?[]const u8 {
             error.OutOfMemory => return Error.BufferTooSmall,
             error.InvalidWtf8, error.EnvironmentVariableNotFound => return null,
         };
-        // could shift the contents if this ever happens
-        if (drive.ptr != buf.ptr) @panic("codebug");
+        if (drive.ptr != buf.ptr) std.mem.copyForwards(u8, buf[0..drive.len], drive);
         break :blk drive.len;
     };
 
@@ -97,8 +96,7 @@ fn homeWindows(buf: []u8) !?[]const u8 {
             error.OutOfMemory => return Error.BufferTooSmall,
             error.InvalidWtf8, error.EnvironmentVariableNotFound => return null,
         };
-        // could shift the contents if this ever happens
-        if (homepath.ptr != path_buf.ptr) @panic("codebug");
+        if (homepath.ptr != path_buf.ptr) std.mem.copyForwards(u8, path_buf[0..homepath.len], homepath);
         break :blk homepath.len;
     };
 
