@@ -300,6 +300,11 @@ pub extern "user32" fn RegisterClassExW(
     *const WNDCLASSEXW,
 ) callconv(.c) u16;
 
+pub extern "user32" fn UnregisterClassW(
+    lpClassName: [*:0]const u16,
+    hInstance: ?HINSTANCE,
+) callconv(.c) i32;
+
 pub extern "user32" fn CreateWindowExW(
     dwExStyle: u32,
     lpClassName: [*:0]const u16,

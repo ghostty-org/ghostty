@@ -123,6 +123,9 @@ pub fn init(
 
     self.class_atom = w32.RegisterClassExW(&wc);
     if (self.class_atom == 0) return error.Win32Error;
+    errdefer if (self.class_atom != 0) {
+        _ = w32.UnregisterClassW(WINDOW_CLASS_NAME, self.hinstance);
+    };
 
     // Register the terminal surface class (OpenGL via WGL, needs CS_OWNDC).
     const tc = w32.WNDCLASSEXW{
@@ -142,6 +145,9 @@ pub fn init(
 
     self.terminal_class_atom = w32.RegisterClassExW(&tc);
     if (self.terminal_class_atom == 0) return error.Win32Error;
+    errdefer if (self.terminal_class_atom != 0) {
+        _ = w32.UnregisterClassW(TERMINAL_CLASS_NAME, self.hinstance);
+    };
 
     // Register the message-only window class (WM_APP_WAKEUP, WM_TIMER).
     const mc = w32.WNDCLASSEXW{
@@ -161,6 +167,9 @@ pub fn init(
 
     self.msg_class_atom = w32.RegisterClassExW(&mc);
     if (self.msg_class_atom == 0) return error.Win32Error;
+    errdefer if (self.msg_class_atom != 0) {
+        _ = w32.UnregisterClassW(MSG_CLASS_NAME, self.hinstance);
+    };
 
     // Create a message-only window for receiving WM_APP_WAKEUP.
     // HWND_MESSAGE makes it a message-only window (invisible, no rendering).
@@ -239,6 +248,19 @@ pub fn terminate(self: *App) void {
     if (self.bg_brush) |brush| {
         _ = w32.DeleteObject(@ptrCast(brush));
         self.bg_brush = null;
+    }
+
+    if (self.msg_class_atom != 0) {
+        _ = w32.UnregisterClassW(MSG_CLASS_NAME, self.hinstance);
+        self.msg_class_atom = 0;
+    }
+    if (self.terminal_class_atom != 0) {
+        _ = w32.UnregisterClassW(TERMINAL_CLASS_NAME, self.hinstance);
+        self.terminal_class_atom = 0;
+    }
+    if (self.class_atom != 0) {
+        _ = w32.UnregisterClassW(WINDOW_CLASS_NAME, self.hinstance);
+        self.class_atom = 0;
     }
 
     self.config.deinit();
