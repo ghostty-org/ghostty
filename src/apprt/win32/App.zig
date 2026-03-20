@@ -456,22 +456,24 @@ pub fn performAction(
         },
 
         .reload_config => {
-            // Reload configuration from disk.
+            // Reload config and push to the core, which triggers
+            // config_change actions on all surfaces.
             const alloc = self.core_app.alloc;
-            if (!value.soft) {
-                const new_config = Config.load(alloc) catch |err| {
+            if (value.soft) {
+                // Soft reload: re-apply existing config (for conditional state changes)
+                self.core_app.updateConfig(self, &self.config) catch |err| {
+                    log.err("soft config reload error: {}", .{err});
+                };
+            } else {
+                // Hard reload: read config from disk
+                var new_config = Config.load(alloc) catch |err| {
                     log.err("failed to reload config: {}", .{err});
                     return true;
                 };
-                self.config.deinit();
-                self.config = new_config;
-
-                // Recreate the background brush
-                if (self.bg_brush) |old_brush| {
-                    _ = w32.DeleteObject(@ptrCast(old_brush));
-                }
-                const bg = new_config.background;
-                self.bg_brush = w32.CreateSolidBrush(w32.RGB(bg.r, bg.g, bg.b));
+                defer new_config.deinit();
+                self.core_app.updateConfig(self, &new_config) catch |err| {
+                    log.err("config update error: {}", .{err});
+                };
             }
             return true;
         },

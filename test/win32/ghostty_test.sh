@@ -676,6 +676,63 @@ test_search() {
     echo "  ● PASSED"
 }
 
+test_config_reload() {
+    echo "▶ test_config_reload"
+
+    # Create a config with default background
+    local config_dir_wsl
+    config_dir_wsl="$(wslpath "$WIN_TEMP")/ghostty-test-config/ghostty"
+    mkdir -p "$config_dir_wsl"
+
+    cat > "$config_dir_wsl/config" << 'CFGEOF'
+background = #1e1e2e
+font-size = 14
+CFGEOF
+
+    local config_dir_win
+    config_dir_win="$(wslpath -w "$(wslpath "$WIN_TEMP")/ghostty-test-config")"
+    export XDG_CONFIG_HOME="$config_dir_win"
+    export WSLENV="XDG_CONFIG_HOME/w"
+
+    local output
+    output="$(ps -Action launch -ExePath "$GHOSTTY_EXE" -WaitMs 5000)"
+    local pid window_found
+    pid="$(get_val "$output" PID)"
+    window_found="$(get_val "$output" WINDOW_FOUND)"
+
+    if [ "$window_found" != "true" ]; then
+        echo "  ✗ Window did not appear"
+        FAIL=$((FAIL + 1))
+        unset XDG_CONFIG_HOME WSLENV
+        ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+        rm -rf "$(wslpath "$WIN_TEMP")/ghostty-test-config"
+        return
+    fi
+
+    sleep 1
+    screenshot "config_reload_before" "$pid"
+    echo "  ✓ Window launched with initial config"
+
+    # Now change the config to a bright red background
+    cat > "$config_dir_wsl/config" << 'CFGEOF'
+background = #cc0000
+font-size = 14
+CFGEOF
+
+    # Trigger config reload with Ctrl+Shift+,
+    ps -Action sendkeys -ProcessId "$pid" -Keys "^+,"
+    sleep 2
+
+    screenshot "config_reload_after" "$pid"
+    echo "  ✓ Config reload triggered (verify red background in screenshot)"
+
+    unset XDG_CONFIG_HOME WSLENV
+    ps -Action kill -ProcessId "$pid" 2>/dev/null || true
+    rm -rf "$(wslpath "$WIN_TEMP")/ghostty-test-config"
+    PASS=$((PASS + 1))
+    echo "  ● PASSED"
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 list_tests() {
@@ -693,6 +750,7 @@ list_tests() {
     echo "  notifications      — Desktop notification via OSC 9"
     echo "  window_size_config — Custom window size from config"
     echo "  search             — Search bar open/close/input"
+    echo "  config_reload      — Live config reload changes background"
 }
 
 run_test() {
@@ -710,6 +768,7 @@ run_test() {
         notifications)       test_notifications ;;
         window_size_config)  test_window_size_config ;;
         search)              test_search ;;
+        config_reload)       test_config_reload ;;
         *)                   echo "Unknown test: $1"; exit 1 ;;
     esac
 }
@@ -749,6 +808,8 @@ case "${1:-all}" in
         test_window_size_config
         echo ""
         test_search
+        echo ""
+        test_config_reload
         echo ""
         report
         ;;
