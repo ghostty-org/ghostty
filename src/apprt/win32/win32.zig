@@ -120,6 +120,7 @@ pub const MONITORINFO = extern struct {
 
 // Window messages
 pub const WM_APP: u32 = 0x8000;
+pub const WM_QUIT: u32 = 0x0012;
 pub const WM_CLOSE: u32 = 0x0010;
 pub const WM_DESTROY: u32 = 0x0002;
 pub const WM_SIZE: u32 = 0x0005;

@@ -351,7 +351,6 @@ pub fn getTitle(self: *const Surface) ?[:0]const u8 {
 
 pub fn close(self: *Surface, process_active: bool) void {
     log.debug("Surface.close called process_active={}", .{process_active});
-    _ = process_active;
     // Defer destruction to the message loop via PostMessage.
     // This avoids calling surface.deinit() from inside core_surface
     // callbacks (during tick), which causes reentrancy and crashes.

@@ -208,10 +208,19 @@ pub fn run(self: *App) !void {
 
     // Enter the Win32 message loop
     var msg: w32.MSG = undefined;
-    while (!self.quit_requested) {
+    while (true) {
         const result = w32.GetMessageW(&msg, null, 0, 0);
-        if (result == 0) break; // WM_QUIT
+        if (result == 0) {
+            // WM_QUIT received. Check if it's still wanted — stopQuitTimer()
+            // resets quit_requested if a new surface opened after
+            // PostQuitMessage was called (e.g. during startup).
+            // GetMessageW consumes the quit flag, so the next call will
+            // block normally for real messages.
+            if (!self.quit_requested) continue;
+            break;
+        }
         if (result < 0) return error.Win32Error;
+        if (self.quit_requested) break;
 
         // Intercept keystrokes destined for the search edit control so
         // Enter/Escape can navigate matches or close the search bar.
@@ -808,7 +817,18 @@ pub fn startQuitTimer(self: *App) void {
 pub fn stopQuitTimer(self: *App) void {
     switch (self.quit_timer_state) {
         .off => {},
-        .expired => self.quit_timer_state = .off,
+        .expired => {
+            self.quit_timer_state = .off;
+            // Reset quit_requested. The WM_QUIT posted by startQuitTimer's
+            // no-delay path can't be removed from the queue (it's a flag,
+            // not a real message). Instead, the message loop checks
+            // quit_requested when GetMessageW returns 0 — if false, it
+            // ignores the spurious WM_QUIT and continues. This handles
+            // the normal startup sequence: main_ghostty calls
+            // startQuitTimer() before any surfaces exist, then run()
+            // creates the first surface which triggers stopQuitTimer().
+            self.quit_requested = false;
+        },
         .active => {
             if (self.msg_hwnd) |hwnd| {
                 _ = w32.KillTimer(hwnd, QUIT_TIMER_ID);
