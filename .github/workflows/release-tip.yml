@@ -206,6 +206,51 @@ jobs:
             ghostty-source.tar.gz.minisig
           token: ${{ secrets.GH_RELEASE_TOKEN }}
 
+  terminfo:
+    needs: [setup]
+    if: |
+      needs.setup.outputs.should_skip != 'true' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.repository_owner == 'ghostty-org' &&
+          github.ref_name == 'main'
+        )
+      )
+    runs-on: namespace-profile-ghostty-xsm
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          path: |
+            /nix
+            /zig
+      - uses: cachix/install-nix-action@19effe9fe722874e6d46dd7182e4b8b7a43c4a99 # v31.10.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - name: Build Terminfo
+        run: |
+          nix develop -c zig build terminfo
+          cp zig-out/share/terminfo/ghostty.terminfo ghostty.terminfo
+
+      - name: Update Release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          name: 'Ghostty Tip ("Nightly")'
+          prerelease: true
+          tag_name: tip
+          target_commitish: ${{ github.sha }}
+          files: ghostty.terminfo
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+
   build-macos:
     needs: [setup]
     if: |

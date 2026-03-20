@@ -85,6 +85,7 @@ jobs:
       - skip
       - build-bench
       - build-dist
+      - build-terminfo
       - build-examples
       - build-flatpak
       - build-libghostty-vt
@@ -569,6 +570,36 @@ jobs:
           name: source-tarball
           path: |-
             ghostty-source.tar.gz
+
+  build-terminfo:
+    runs-on: namespace-profile-ghostty-xsm
+    needs: test
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1.4.2
+        with:
+          path: |
+            /nix
+            /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@19effe9fe722874e6d46dd7182e4b8b7a43c4a99 # v31.10.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build Terminfo
+        run: |
+          nix develop -c zig build terminfo
 
   trigger-snap:
     if: github.event_name != 'pull_request'
