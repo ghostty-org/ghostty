@@ -426,6 +426,39 @@ pub fn performAction(
             return true;
         },
 
+        .new_tab => {
+            // For now, open a new window. Proper tabbed UI with a tab
+            // bar is a future enhancement — this gives the Ctrl+Shift+T
+            // keybinding immediate functionality.
+            const alloc = self.core_app.alloc;
+            const surface = alloc.create(Surface) catch |err| {
+                log.err("failed to allocate new tab surface err={}", .{err});
+                return true;
+            };
+            surface.init(self) catch |err| {
+                log.err("failed to create new tab err={}", .{err});
+                alloc.destroy(surface);
+                return true;
+            };
+            return true;
+        },
+
+        .close_tab => {
+            // Close the current surface (same as close_window for now).
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.close(false);
+                },
+            }
+            return true;
+        },
+
+        .goto_tab, .move_tab, .set_tab_title, .toggle_tab_overview => {
+            // Acknowledge but no-op until proper tab bar UI is implemented.
+            return true;
+        },
+
         .initial_size => {
             switch (target) {
                 .app => {},

@@ -62,9 +62,12 @@ The goal is to track the upstream main branch while maintaining a native Windows
 - Child process exit notification
 - Toggle window decorations (hide/show title bar)
 
+- Tabs (Ctrl+Shift+T opens new window; tab bar UI planned)
+
 ### Not Yet Implemented
 
-- Tabs and splits
+- Tab bar UI (currently tabs open as separate windows)
+- Splits
 - Release build + installer (MSI/MSIX)
 
 ## Building
