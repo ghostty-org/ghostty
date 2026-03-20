@@ -5,12 +5,16 @@ const Window = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const apprt = @import("../../apprt.zig");
 
 const App = @import("App.zig");
 const Surface = @import("Surface.zig");
 const w32 = @import("win32.zig");
 
 const log = std.log.scoped(.win32);
+
+/// Maximum number of tabs per window.
+const MAX_TABS: usize = 64;
 
 /// The parent App.
 app: *App,
@@ -200,6 +204,228 @@ pub fn surfaceRect(self: *const Window) w32.RECT {
 pub fn getActiveSurface(self: *Window) ?*Surface {
     if (self.tab_count == 0) return null;
     return self.tab_surfaces[self.active_tab];
+}
+
+/// Add a new tab surface to this window. The surface is created,
+/// initialized, and inserted at the position dictated by config.
+pub fn addTab(self: *Window) !*Surface {
+    if (self.tab_count >= MAX_TABS) return error.TooManyTabs;
+
+    const alloc = self.app.core_app.alloc;
+    const surface = try alloc.create(Surface);
+    errdefer alloc.destroy(surface);
+    try surface.init(self.app, self);
+
+    // Determine insert position based on config.
+    const pos: usize = switch (self.app.config.@"window-new-tab-position") {
+        .current => if (self.tab_count > 0) self.active_tab + 1 else 0,
+        .end => self.tab_count,
+    };
+
+    // Shift elements right to make room at pos.
+    var i: usize = self.tab_count;
+    while (i > pos) : (i -= 1) {
+        self.tab_surfaces[i] = self.tab_surfaces[i - 1];
+        self.tab_titles[i] = self.tab_titles[i - 1];
+        self.tab_title_lens[i] = self.tab_title_lens[i - 1];
+    }
+    self.tab_surfaces[pos] = surface;
+    self.tab_count += 1;
+
+    // Set default title.
+    const default_title = std.unicode.utf8ToUtf16LeStringLiteral("Ghostty");
+    @memcpy(self.tab_titles[pos][0..default_title.len], default_title);
+    self.tab_title_lens[pos] = @intCast(default_title.len);
+
+    self.selectTabIndex(pos);
+    self.updateTabBarVisibility();
+    return surface;
+}
+
+/// Close a tab by surface pointer. Removes from the tab list,
+/// deinits the surface, and adjusts the active tab index.
+pub fn closeTab(self: *Window, surface: *Surface) void {
+    // Find tab index.
+    var tab_idx: ?usize = null;
+    for (self.tab_surfaces[0..self.tab_count], 0..) |s, i| {
+        if (s == surface) {
+            tab_idx = i;
+            break;
+        }
+    }
+    const idx = tab_idx orelse return;
+
+    // Hide and destroy.
+    if (surface.hwnd) |h| _ = w32.ShowWindow(h, w32.SW_HIDE);
+    surface.deinit();
+    self.app.core_app.alloc.destroy(surface);
+
+    // Shift left to fill gap.
+    var i: usize = idx;
+    while (i + 1 < self.tab_count) : (i += 1) {
+        self.tab_surfaces[i] = self.tab_surfaces[i + 1];
+        self.tab_titles[i] = self.tab_titles[i + 1];
+        self.tab_title_lens[i] = self.tab_title_lens[i + 1];
+    }
+    self.tab_count -= 1;
+
+    if (self.tab_count == 0) {
+        if (self.hwnd) |hwnd| _ = w32.DestroyWindow(hwnd);
+        return;
+    }
+
+    // Adjust active tab.
+    if (self.active_tab >= self.tab_count) {
+        self.active_tab = self.tab_count - 1;
+    } else if (self.active_tab > idx) {
+        self.active_tab -= 1;
+    }
+    self.selectTabIndex(self.active_tab);
+    self.updateTabBarVisibility();
+}
+
+/// Switch to the tab at the given index.
+pub fn selectTabIndex(self: *Window, idx: usize) void {
+    if (idx >= self.tab_count) return;
+
+    // Hide current tab.
+    if (self.active_tab < self.tab_count) {
+        if (self.tab_surfaces[self.active_tab].hwnd) |h| {
+            _ = w32.ShowWindow(h, w32.SW_HIDE);
+        }
+    }
+
+    self.active_tab = idx;
+    const surface = self.tab_surfaces[idx];
+
+    // Resize and show the new active tab.
+    const sr = self.surfaceRect();
+    if (surface.hwnd) |h| {
+        _ = w32.MoveWindow(h, sr.left, sr.top, @intCast(@max(sr.right - sr.left, 1)), @intCast(@max(sr.bottom - sr.top, 1)), 1);
+        _ = w32.ShowWindow(h, w32.SW_SHOW);
+        _ = w32.SetFocus(h);
+    }
+    self.updateWindowTitle();
+}
+
+/// Navigate to a tab by GotoTab target (previous, next, last, or index).
+pub fn selectTab(self: *Window, target: apprt.action.GotoTab) bool {
+    if (self.tab_count <= 1) return false;
+    const idx: usize = switch (target) {
+        .previous => if (self.active_tab > 0) self.active_tab - 1 else self.tab_count - 1,
+        .next => if (self.active_tab + 1 < self.tab_count) self.active_tab + 1 else 0,
+        .last => self.tab_count - 1,
+        _ => blk: {
+            const n: usize = @intCast(@intFromEnum(target));
+            break :blk if (n < self.tab_count) n else return false;
+        },
+    };
+    self.selectTabIndex(idx);
+    self.invalidateTabBar();
+    return true;
+}
+
+/// Update the top-level window title to match the active tab's title.
+fn updateWindowTitle(self: *Window) void {
+    const hwnd = self.hwnd orelse return;
+    if (self.tab_count == 0) return;
+    const len = self.tab_title_lens[self.active_tab];
+    var buf: [257]u16 = undefined;
+    @memcpy(buf[0..len], self.tab_titles[self.active_tab][0..len]);
+    buf[len] = 0;
+    _ = w32.SetWindowTextW(hwnd, @ptrCast(&buf));
+}
+
+/// Called when a tab's title changes. Updates the stored title
+/// and refreshes the window title bar / tab bar if needed.
+pub fn onTabTitleChanged(self: *Window, surface: *Surface, title: [:0]const u8) void {
+    for (self.tab_surfaces[0..self.tab_count], 0..) |s, i| {
+        if (s == surface) {
+            var wbuf: [256]u16 = undefined;
+            const wlen = std.unicode.utf8ToUtf16Le(&wbuf, title) catch 0;
+            const len: u16 = @intCast(@min(wlen, 255));
+            @memcpy(self.tab_titles[i][0..len], wbuf[0..len]);
+            self.tab_title_lens[i] = len;
+            if (i == self.active_tab) self.updateWindowTitle();
+            self.invalidateTabBar();
+            return;
+        }
+    }
+}
+
+/// Update tab bar visibility based on config and tab count.
+fn updateTabBarVisibility(self: *Window) void {
+    const show_config = self.app.config.@"window-show-tab-bar";
+    const should_show = switch (show_config) {
+        .always => true,
+        .auto => self.tab_count > 1,
+        .never => false,
+    };
+    if (should_show != self.tab_bar_visible) {
+        self.tab_bar_visible = should_show;
+        self.handleResize();
+    }
+}
+
+/// Invalidate the tab bar region so it gets repainted.
+pub fn invalidateTabBar(self: *Window) void {
+    const hwnd = self.hwnd orelse return;
+    var rect = w32.RECT{
+        .left = 0,
+        .top = 0,
+        .right = 10000,
+        .bottom = self.tabBarHeight(),
+    };
+    _ = w32.InvalidateRect(hwnd, &rect, 0);
+}
+
+/// Toggle fullscreen mode on the top-level window.
+/// Saves/restores window style and placement.
+pub fn toggleFullscreen(self: *Window) void {
+    const hwnd = self.hwnd orelse return;
+    if (!self.is_fullscreen) {
+        self.saved_style = w32.GetWindowLongW(hwnd, w32.GWL_STYLE);
+        _ = w32.GetWindowRect(hwnd, &self.saved_rect);
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, w32.WS_POPUP | w32.WS_VISIBLE_STYLE);
+        const monitor = w32.MonitorFromWindow(hwnd, w32.MONITOR_DEFAULTTONEAREST);
+        var mi: w32.MONITORINFO = undefined;
+        mi.cbSize = @sizeOf(w32.MONITORINFO);
+        if (w32.GetMonitorInfoW(monitor, &mi) != 0) {
+            _ = w32.SetWindowPos(hwnd, null,
+                mi.rcMonitor.left, mi.rcMonitor.top,
+                mi.rcMonitor.right - mi.rcMonitor.left,
+                mi.rcMonitor.bottom - mi.rcMonitor.top,
+                w32.SWP_NOZORDER | w32.SWP_FRAMECHANGED);
+        }
+    } else {
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, self.saved_style);
+        _ = w32.SetWindowPos(hwnd, null,
+            self.saved_rect.left, self.saved_rect.top,
+            self.saved_rect.right - self.saved_rect.left,
+            self.saved_rect.bottom - self.saved_rect.top,
+            w32.SWP_NOZORDER | w32.SWP_FRAMECHANGED);
+    }
+    self.is_fullscreen = !self.is_fullscreen;
+}
+
+/// Toggle window decorations (title bar + borders) on/off.
+pub fn toggleWindowDecorations(self: *Window) void {
+    const hwnd = self.hwnd orelse return;
+    const style = w32.GetWindowLongW(hwnd, w32.GWL_STYLE);
+    const has_decorations = (style & w32.WS_CAPTION) != 0;
+
+    if (has_decorations) {
+        // Remove decorations: strip caption and thick frame.
+        const new_style = style & ~@as(u32, w32.WS_CAPTION | w32.WS_THICKFRAME);
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, new_style);
+    } else {
+        // Restore decorations.
+        const new_style = style | w32.WS_CAPTION | w32.WS_THICKFRAME;
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, new_style);
+    }
+    // Force frame recalculation.
+    _ = w32.SetWindowPos(hwnd, null, 0, 0, 0, 0,
+        w32.SWP_NOZORDER | w32.SWP_FRAMECHANGED | w32.SWP_NOMOVE | w32.SWP_NOSIZE);
 }
 
 /// Handle WM_SIZE: resize the active surface's child HWND to fill

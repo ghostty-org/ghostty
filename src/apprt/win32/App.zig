@@ -198,12 +198,13 @@ pub fn init(
 }
 
 pub fn run(self: *App) !void {
-    // Create the initial window (heap-allocated because renderer/IO
-    // threads hold references to the surface).
+    // Create the initial Window container with one tab.
     const alloc = self.core_app.alloc;
-    const initial_surface = try alloc.create(Surface);
-    errdefer alloc.destroy(initial_surface);
-    try initial_surface.init(self);
+    const window = try alloc.create(Window);
+    errdefer alloc.destroy(window);
+    try window.init(self);
+    try self.windows.append(alloc, window);
+    _ = try window.addTab();
 
     // Enter the Win32 message loop
     var msg: w32.MSG = undefined;
@@ -308,13 +309,23 @@ pub fn performAction(
 
         .new_window => {
             const alloc = self.core_app.alloc;
-            const surface = alloc.create(Surface) catch |err| {
-                log.err("failed to allocate new surface err={}", .{err});
+            const window = alloc.create(Window) catch |err| {
+                log.err("failed to allocate new window err={}", .{err});
                 return true;
             };
-            surface.init(self) catch |err| {
-                log.err("failed to create new window err={}", .{err});
-                alloc.destroy(surface);
+            window.init(self) catch |err| {
+                log.err("failed to init new window err={}", .{err});
+                alloc.destroy(window);
+                return true;
+            };
+            self.windows.append(alloc, window) catch |err| {
+                log.err("failed to track new window err={}", .{err});
+                window.deinit();
+                alloc.destroy(window);
+                return true;
+            };
+            _ = window.addTab() catch |err| {
+                log.err("failed to add tab to new window err={}", .{err});
                 return true;
             };
             return true;
@@ -376,7 +387,7 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    if (core_surface.rt_surface.hwnd) |hwnd| {
+                    if (core_surface.rt_surface.parent_window.hwnd) |hwnd| {
                         if (w32.IsZoomed(hwnd) != 0) {
                             _ = w32.ShowWindow(hwnd, w32.SW_RESTORE);
                         } else {
@@ -504,19 +515,16 @@ pub fn performAction(
         },
 
         .new_tab => {
-            // For now, open a new window. Proper tabbed UI with a tab
-            // bar is a future enhancement — this gives the Ctrl+Shift+T
-            // keybinding immediate functionality.
-            const alloc = self.core_app.alloc;
-            const surface = alloc.create(Surface) catch |err| {
-                log.err("failed to allocate new tab surface err={}", .{err});
-                return true;
-            };
-            surface.init(self) catch |err| {
-                log.err("failed to create new tab err={}", .{err});
-                alloc.destroy(surface);
-                return true;
-            };
+            // Add a new tab to the parent window of the focused surface.
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    const parent = core_surface.rt_surface.parent_window;
+                    _ = parent.addTab() catch |err| {
+                        log.err("failed to add new tab err={}", .{err});
+                    };
+                },
+            }
             return true;
         },
 
@@ -531,8 +539,18 @@ pub fn performAction(
             return true;
         },
 
-        .goto_tab, .move_tab, .set_tab_title, .toggle_tab_overview => {
-            // Acknowledge but no-op until proper tab bar UI is implemented.
+        .goto_tab => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    _ = core_surface.rt_surface.parent_window.selectTab(value);
+                },
+            }
+            return true;
+        },
+
+        .move_tab, .set_tab_title, .toggle_tab_overview => {
+            // Acknowledge but no-op until further UI is implemented.
             return true;
         },
 
@@ -540,7 +558,7 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    if (core_surface.rt_surface.hwnd) |h| {
+                    if (core_surface.rt_surface.parent_window.hwnd) |h| {
                         // Convert client size to window size (accounts for
                         // title bar, borders, scrollbar).
                         var rect = w32.RECT{
@@ -557,7 +575,7 @@ pub fn performAction(
                             0,
                             rect.right - rect.left,
                             rect.bottom - rect.top,
-                            w32.SWP_NOZORDER | 0x0002, // SWP_NOMOVE
+                            w32.SWP_NOZORDER | w32.SWP_NOMOVE,
                         );
                     }
                 },
@@ -595,7 +613,7 @@ pub fn performAction(
                     const exit_code = value.exit_code;
                     if (exit_code != 0) {
                         // Show a message box for abnormal exit
-                        const hwnd_val = core_surface.rt_surface.hwnd;
+                        const hwnd_val = core_surface.rt_surface.parent_window.hwnd;
                         var buf: [256]u16 = undefined;
                         const msg_text = std.fmt.bufPrint(
                             @as([]u8, @ptrCast(&buf)),
@@ -638,7 +656,7 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    if (core_surface.rt_surface.hwnd) |h| {
+                    if (core_surface.rt_surface.parent_window.hwnd) |h| {
                         const current_ex = w32.GetWindowLongW(h, w32.GWL_EXSTYLE);
                         if (current_ex & w32.WS_EX_LAYERED != 0) {
                             // Remove layered style (restore full opacity)
@@ -665,7 +683,7 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    if (core_surface.rt_surface.hwnd) |h| {
+                    if (core_surface.rt_surface.parent_window.hwnd) |h| {
                         // Reset to default 800x600
                         var rect = w32.RECT{
                             .left = 0, .top = 0,
@@ -676,7 +694,7 @@ pub fn performAction(
                             h, null, 0, 0,
                             rect.right - rect.left,
                             rect.bottom - rect.top,
-                            w32.SWP_NOZORDER | 0x0002, // SWP_NOMOVE
+                            w32.SWP_NOZORDER | w32.SWP_NOMOVE,
                         );
                     }
                 },
@@ -688,7 +706,7 @@ pub fn performAction(
             switch (target) {
                 .app => {},
                 .surface => |core_surface| {
-                    if (core_surface.rt_surface.hwnd) |h| {
+                    if (core_surface.rt_surface.parent_window.hwnd) |h| {
                         // Get the window title and put it on the clipboard
                         var wbuf: [512]u16 = undefined;
                         const wlen: usize = @intCast(w32.GetWindowTextW(h, &wbuf, @intCast(wbuf.len)));
@@ -832,61 +850,6 @@ fn showDesktopNotification(
     _ = w32.SetTimer(hwnd, 2, 6000, null);
 }
 
-/// Create a new visible window. This is called by Surface.init and
-/// by performAction(.new_window).
-pub fn createWindow(self: *App) !w32.HWND {
-    const hwnd = w32.CreateWindowExW(
-        0,
-        WINDOW_CLASS_NAME,
-        std.unicode.utf8ToUtf16LeStringLiteral("Ghostty"),
-        w32.WS_OVERLAPPEDWINDOW,
-        w32.CW_USEDEFAULT,
-        w32.CW_USEDEFAULT,
-        800,
-        600,
-        null,
-        null,
-        self.hinstance,
-        null,
-    ) orelse return error.Win32Error;
-
-    // Enable dark mode window chrome so the title bar and frame match
-    // the terminal's dark background. This also prevents the bright
-    // white resize border that would otherwise flash during resize.
-    // Supported on Windows 10 build 18985+ and Windows 11.
-    const dark_mode: u32 = 1; // TRUE
-    _ = w32.DwmSetWindowAttribute(
-        hwnd,
-        w32.DWMWA_USE_IMMERSIVE_DARK_MODE,
-        @ptrCast(&dark_mode),
-        @sizeOf(u32),
-    );
-
-    // Apply dark theme to common controls (scrollbar, etc.) so they
-    // match the dark title bar instead of being bright white.
-    _ = w32.SetWindowTheme(
-        hwnd,
-        std.unicode.utf8ToUtf16LeStringLiteral("DarkMode_Explorer"),
-        null,
-    );
-
-    // If background opacity is less than 1.0, make the window
-    // transparent using the layered window API. This applies uniform
-    // alpha to the entire window (including text), but is the only
-    // reliable approach with legacy OpenGL/WGL contexts.
-    if (self.config.@"background-opacity" < 1.0) {
-        const current_ex = w32.GetWindowLongW(hwnd, w32.GWL_EXSTYLE);
-        _ = w32.SetWindowLongW(hwnd, w32.GWL_EXSTYLE, current_ex | w32.WS_EX_LAYERED);
-        const alpha: u8 = @intFromFloat(@round(self.config.@"background-opacity" * 255.0));
-        _ = w32.SetLayeredWindowAttributes(hwnd, 0, alpha, w32.LWA_ALPHA);
-    }
-
-    _ = w32.ShowWindow(hwnd, w32.SW_SHOW);
-    _ = w32.UpdateWindow(hwnd);
-
-    return hwnd;
-}
-
 /// Notify the core app of a tick.
 fn tick(self: *App) void {
     self.core_app.tick(self) catch |err| {
@@ -933,37 +896,19 @@ fn surfaceWndProc(
         },
 
         w32.WM_CLOSE => {
-            // If wparam=1 (set by Surface.close when process_active=true),
-            // show a confirmation dialog. For the X button (wparam=0), we
-            // don't call needsConfirmQuit() because without shell integration
-            // (common on Windows with cmd.exe), it always returns true since
-            // cursorIsAtPrompt() can't detect prompt state without OSC 133.
-            const needs_confirm = wparam == 1;
-
-            if (needs_confirm) {
-                const result = w32.MessageBoxW(
-                    hwnd,
-                    std.unicode.utf8ToUtf16LeStringLiteral(
-                        "A process is still running in this terminal.\r\nClose anyway?",
-                    ),
-                    std.unicode.utf8ToUtf16LeStringLiteral("Ghostty"),
-                    w32.MB_YESNO | w32.MB_ICONWARNING | w32.MB_DEFBUTTON2,
-                );
-                if (result != w32.IDYES) return 0;
-            }
-
-            // Destroy the window. This is safe here because WM_CLOSE is
-            // dispatched from the message loop (not from inside a
-            // core_surface callback), so no code holds a reference to
-            // the surface that would be invalidated.
-            if (surface.hwnd) |h| {
-                _ = w32.DestroyWindow(h);
-            }
+            // Child windows don't normally receive WM_CLOSE, but
+            // handle it gracefully by delegating to the parent Window.
+            surface.close(false);
             return 0;
         },
 
         w32.WM_DESTROY => {
-            surface.handleDestroy();
+            // The child HWND is being destroyed (by Surface.deinit or
+            // parent Window destruction). Clear state so deinit()
+            // doesn't double-destroy. Lifecycle is managed by Window.
+            _ = w32.SetWindowLongPtrW(hwnd, w32.GWLP_USERDATA, 0);
+            surface.hwnd = null;
+            surface.core_surface_ready = false;
             return 0;
         },
 

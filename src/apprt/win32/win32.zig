@@ -101,6 +101,8 @@ pub const GWL_STYLE: i32 = -16;
 pub const GWL_EXSTYLE: i32 = -20;
 
 // SetWindowPos flags
+pub const SWP_NOSIZE: u32 = 0x0001;
+pub const SWP_NOMOVE: u32 = 0x0002;
 pub const SWP_NOZORDER: u32 = 0x0004;
 pub const SWP_FRAMECHANGED: u32 = 0x0020;
 
@@ -436,6 +438,12 @@ pub extern "user32" fn SetWindowTextW(
 pub extern "user32" fn ValidateRect(
     hWnd: ?HWND,
     lpRect: ?*const RECT,
+) callconv(.c) i32;
+
+pub extern "user32" fn InvalidateRect(
+    hWnd: ?HWND,
+    lpRect: ?*const RECT,
+    bErase: i32,
 ) callconv(.c) i32;
 
 pub extern "user32" fn LoadCursorW(
