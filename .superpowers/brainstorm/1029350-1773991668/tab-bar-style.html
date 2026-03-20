@@ -1,0 +1,66 @@
+<h2>Tab Bar Style</h2>
+<p class="subtitle">How should the tab bar look and feel in Ghostty for Windows?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Custom-drawn (like GTK Adwaita)</h3>
+      <p>Render the tab bar ourselves using GDI/Direct2D. Full control over appearance — can match Ghostty's dark theme, use the same tab styling as GTK (rounded tabs, close buttons, new-tab button). This is what most modern terminal emulators do (Windows Terminal, WezTerm).</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Full visual control — matches Ghostty branding</li>
+          <li>Can implement all GTK tab features (wide tabs, tab overview, drag reorder)</li>
+          <li>Consistent look across themes/Windows versions</li>
+          <li>Windows Terminal and WezTerm both do this</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>More code to write and maintain</li>
+          <li>Must handle hit-testing, hover, drag-drop ourselves</li>
+          <li>Accessibility needs manual work (screen readers)</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Win32 Tab Control (native)</h3>
+      <p>Use the built-in Win32 <code>WC_TABCONTROL</code> common control. Looks like a native Windows property sheet with rectangular tabs. Functional but dated appearance.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Very little code — Windows handles everything</li>
+          <li>Built-in accessibility/screen reader support</li>
+          <li>Native Windows look</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Looks like a 1990s Windows dialog — dated and ugly</li>
+          <li>Very limited styling — can't match Ghostty's dark theme</li>
+          <li>No close button per tab, no drag reorder</li>
+          <li>No modern terminal does this</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid: Simple custom bar now, enhance later</h3>
+      <p>Start with a minimal custom-drawn tab bar — just tab titles, active indicator, close button, new-tab button. Skip drag reorder and tab overview for v1. Iterate towards full feature parity later.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Gets real tabs working quickly</li>
+          <li>Custom drawing gives us the dark theme match</li>
+          <li>Iterative — ship basic tabs, add polish later</li>
+          <li>Less code than full custom solution upfront</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Still need custom drawing code (but simpler)</li>
+          <li>Missing features initially (drag reorder, overview)</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>

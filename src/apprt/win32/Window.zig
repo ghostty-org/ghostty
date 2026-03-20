@@ -152,8 +152,10 @@ pub fn init(self: *Window, app: *App) !void {
         std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI"),
     );
 
-    _ = w32.ShowWindow(hwnd, w32.SW_SHOW);
-    _ = w32.UpdateWindow(hwnd);
+    // Don't show the window yet — addTab() will show the child
+    // surface which triggers ShowWindow on the parent as needed.
+    // Showing the parent before the terminal is ready can cause
+    // timing issues with ConPTY.
 }
 
 /// Deinitialize the Window: close all tabs, delete font, destroy HWND.
@@ -237,14 +239,26 @@ pub fn addTab(self: *Window) !*Surface {
     @memcpy(self.tab_titles[pos][0..default_title.len], default_title);
     self.tab_title_lens[pos] = @intCast(default_title.len);
 
-    self.selectTabIndex(pos);
+    if (self.tab_count == 1) {
+        // First tab — show the parent window now that the terminal is ready.
+        if (self.hwnd) |h| {
+            _ = w32.ShowWindow(h, w32.SW_SHOW);
+            _ = w32.UpdateWindow(h);
+        }
+        self.active_tab = pos;
+        self.updateWindowTitle();
+    } else {
+        self.selectTabIndex(pos);
+    }
     self.updateTabBarVisibility();
     return surface;
 }
 
 /// Close a tab by surface pointer. Removes from the tab list,
 /// deinits the surface, and adjusts the active tab index.
+/// TRACE: log caller for debugging.
 pub fn closeTab(self: *Window, surface: *Surface) void {
+    log.debug("closeTab called for surface={x} tab_count={}", .{ @intFromPtr(surface), self.tab_count });
     // Find tab index.
     var tab_idx: ?usize = null;
     for (self.tab_surfaces[0..self.tab_count], 0..) |s, i| {
@@ -305,6 +319,8 @@ pub fn selectTabIndex(self: *Window, idx: usize) void {
     // Resize and show the new active tab.
     const sr = self.surfaceRect();
     if (surface.hwnd) |h| {
+        // Only resize if necessary — avoid triggering WM_SIZE on a
+        // freshly-initialized surface whose ConPTY just started.
         _ = w32.MoveWindow(h, sr.left, sr.top, @intCast(@max(sr.right - sr.left, 1)), @intCast(@max(sr.bottom - sr.top, 1)), 1);
         _ = w32.ShowWindow(h, w32.SW_SHOW);
         _ = w32.SetFocus(h);

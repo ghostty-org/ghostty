@@ -1,0 +1,58 @@
+<h2>Tab Bar Layout & Position</h2>
+<p class="subtitle">Where should the tab bar sit and how should it interact with the title bar?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Below title bar (standard)</h3>
+      <p>Keep the native Windows title bar (with min/max/close buttons). Tab bar sits directly below it, above the terminal area. Similar to Chrome's original design or VS Code's tab layout.</p>
+      <div style="background:#1a1a2e;border-radius:8px;overflow:hidden;margin:12px 0;font-family:monospace;font-size:13px;">
+        <div style="background:#16213e;padding:6px 12px;color:#888;font-size:11px;display:flex;justify-content:space-between;">
+          <span>Ghostty</span>
+          <span>_ [] X</span>
+        </div>
+        <div style="background:#0f3460;padding:0;display:flex;gap:0;">
+          <div style="background:#1a1a2e;padding:6px 16px;color:#e0e0e0;border-bottom:2px solid #6c63ff;">~/.config</div>
+          <div style="padding:6px 16px;color:#888;">~/projects</div>
+          <div style="padding:6px 16px;color:#888;">~/docs</div>
+          <div style="padding:6px 8px;color:#888;">+</div>
+        </div>
+        <div style="padding:12px;color:#0f0;font-size:12px;">$ _</div>
+      </div>
+      <p style="color:#888;font-size:13px;">Simpler to implement. Native title bar handles window dragging, min/max/close. Tab bar is just a child region.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Integrated into title bar (like Windows Terminal)</h3>
+      <p>Tabs live inside the title bar area itself. Requires extending into the non-client area (DwmExtendFrameIntoClientArea). Saves vertical space. This is what Windows Terminal, Chrome, and Edge do.</p>
+      <div style="background:#1a1a2e;border-radius:8px;overflow:hidden;margin:12px 0;font-family:monospace;font-size:13px;">
+        <div style="background:#0f3460;padding:0;display:flex;align-items:center;">
+          <div style="display:flex;flex:1;gap:0;">
+            <div style="background:#1a1a2e;padding:8px 16px;color:#e0e0e0;border-bottom:2px solid #6c63ff;">~/.config</div>
+            <div style="padding:8px 16px;color:#888;">~/projects</div>
+            <div style="padding:8px 16px;color:#888;">~/docs</div>
+            <div style="padding:8px 8px;color:#888;">+</div>
+          </div>
+          <div style="padding:8px 12px;color:#888;font-size:11px;">_ [] X</div>
+        </div>
+        <div style="padding:12px;color:#0f0;font-size:12px;">$ _</div>
+      </div>
+      <p style="color:#888;font-size:13px;">More polished look, saves a row of pixels. But requires DWM non-client area customization — significantly more complex (hit testing, caption buttons, DPI handling).</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Option A first, Option B later</h3>
+      <p>Ship with tabs below the title bar initially. Add title bar integration as a follow-up (could be a config option like GTK's <code>gtk-titlebar-style: tabs</code> vs <code>native</code>).</p>
+      <div style="color:#888;font-size:13px;margin-top:8px;">
+        <p>This mirrors GTK which supports both modes via config. Start with the simpler "native" style, add the integrated "tabs" style as an enhancement.</p>
+      </div>
+    </div>
+  </div>
+</div>
