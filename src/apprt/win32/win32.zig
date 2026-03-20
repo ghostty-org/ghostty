@@ -778,6 +778,12 @@ pub const MARGINS = extern struct {
     bottom: i32,
 };
 
+pub extern "uxtheme" fn SetWindowTheme(
+    hwnd: HWND,
+    pszSubAppName: ?[*:0]const u16,
+    pszSubIdList: ?[*:0]const u16,
+) callconv(.c) i32;
+
 pub extern "dwmapi" fn DwmExtendFrameIntoClientArea(
     hWnd: HWND,
     pMarInset: *const MARGINS,

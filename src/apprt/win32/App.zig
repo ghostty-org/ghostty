@@ -501,6 +501,14 @@ pub fn createWindow(self: *App) !w32.HWND {
         @sizeOf(u32),
     );
 
+    // Apply dark theme to common controls (scrollbar, etc.) so they
+    // match the dark title bar instead of being bright white.
+    _ = w32.SetWindowTheme(
+        hwnd,
+        std.unicode.utf8ToUtf16LeStringLiteral("DarkMode_Explorer"),
+        null,
+    );
+
     // If background opacity is less than 1.0, make the window
     // transparent using the layered window API. This applies uniform
     // alpha to the entire window (including text), but is the only
