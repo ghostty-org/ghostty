@@ -1,5 +1,48 @@
 # Session Notes — Ghostties
 
+## Mar 20, 2026 (Session 8)
+
+### Traffic Light Vertical Alignment — Investigation (In Progress)
+
+Goal: Vertically center-align macOS window controls (traffic lights), sidebar "+" button, and terminal card sidebar toggle on one horizontal line — matching Dia Browser's toolbar pattern.
+
+### Approaches Tried
+
+1. **`setFrameOrigin` on buttons in `layout()`** — macOS overrides positions on every titlebar layout pass. Doesn't stick in normal windowed mode (works in fullscreen where buttons live in separate NSToolbarFullScreenWindow).
+
+2. **Async dispatch from `layout()`** — `DispatchQueue.main.async { repositionTrafficLights() }` — still doesn't stick. macOS wins the layout fight.
+
+3. **Align our elements to native traffic light position (~14pt)** — "+" and toggle aligned with each other at 14pt center, but too high/cramped. Doesn't match design mockup where buttons are lower (~22pt).
+
+### What Works
+- SwiftUI/AppKit elements (+ button, toggle button, title label) can be freely positioned and DO align with each other
+- The problem is exclusively: macOS won't let us reposition the standard window buttons
+
+### Untried Approaches (For Next Session)
+- NSToolbar with custom height (most promising — official API, how Dia likely does it)
+- NSWindow subclass `layoutIfNeeded()` override
+- KVO on close button frame to reposition on change
+- Move button container (superview) instead of individual buttons
+- Investigate Dia Browser's view hierarchy with Accessibility Inspector
+
+### Stashed Work
+All changes in `git stash` (stash@{0}). Includes:
+- `WorkspaceLayout.swift` — `trafficLightCenterY` constant
+- `WorkspaceSidebarView.swift` — toolbar frame/padding adjustments
+- `WorkspaceViewContainer.swift` — `repositionTrafficLights()`, sidebar toggle button in card titlebar, closed-mode card inset
+
+### Memory Updates
+- Saved `traffic-light-alignment.md` — full investigation notes
+- Saved `feedback-launch-preference.md` — user prefers `open` command over `zig build run` when not developing
+
+### Notes for Next Session
+- Pop stash (`git stash pop`) to restore in-progress work
+- Try NSToolbar approach first — most likely to succeed
+- Design reference: Paper artboard mockups + Dia Browser screenshots
+- Built app at `macos/build/ReleaseLocal/Ghostties.app` — can launch via `open` command
+
+---
+
 ## Mar 16, 2026 (Session 7)
 
 ### Merged v1.3.0 Branch to Main
