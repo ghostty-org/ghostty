@@ -970,3 +970,22 @@ pub extern "opengl32" fn wglMakeCurrent(
 pub extern "opengl32" fn wglDeleteContext(
     hglrc: HGLRC,
 ) callconv(.c) i32;
+
+// -----------------------------------------------------------------------
+// TrackMouseEvent API (for WM_MOUSELEAVE tracking)
+// -----------------------------------------------------------------------
+
+pub const WM_MOUSELEAVE: u32 = 0x02A3;
+
+pub const TRACKMOUSEEVENT = extern struct {
+    cbSize: u32,
+    dwFlags: u32,
+    hwndTrack: HWND,
+    dwHoverTime: u32,
+};
+
+pub const TME_LEAVE: u32 = 0x00000002;
+
+pub extern "user32" fn TrackMouseEvent(
+    lpEventTrack: *TRACKMOUSEEVENT,
+) callconv(.c) i32;

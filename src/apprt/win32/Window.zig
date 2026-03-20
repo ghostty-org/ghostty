@@ -678,6 +678,100 @@ fn handleResize(self: *Window) void {
     self.invalidateTabBar();
 }
 
+/// Handle a left-button click in the tab bar region.
+/// Dispatches to addTab, closeTab, or selectTabIndex depending on hit position.
+fn handleTabBarClick(self: *Window, x: i16, y: i16) void {
+    if (!self.tab_bar_visible) return;
+    if (y >= self.tabBarHeight()) return;
+
+    // Check new-tab button.
+    if (x >= self.new_tab_rect.left and x < self.new_tab_rect.right) {
+        _ = self.addTab() catch |err| {
+            log.err("failed to create new tab: {}", .{err});
+            return;
+        };
+        return;
+    }
+
+    // Check each tab.
+    const close_btn_w: i32 = @intFromFloat(@round(20.0 * self.scale));
+    const text_pad: i32 = @intFromFloat(@round(10.0 * self.scale));
+    for (0..self.tab_count) |i| {
+        const rect = self.tab_rects[i];
+        if (x >= rect.left and x < rect.right) {
+            // Check close button area (right side of tab).
+            const close_left = rect.right - close_btn_w - @divTrunc(text_pad, 2);
+            if (x >= close_left) {
+                self.closeTab(self.tab_surfaces[i]);
+            } else {
+                self.selectTabIndex(i);
+                self.invalidateTabBar();
+            }
+            return;
+        }
+    }
+}
+
+/// Handle mouse movement over the tab bar for hover effects.
+/// Registers TrackMouseEvent on first move so we get WM_MOUSELEAVE.
+fn handleTabBarMouseMove(self: *Window, x: i16, y: i16) void {
+    if (!self.tab_bar_visible) return;
+
+    // Register for WM_MOUSELEAVE if not already tracking.
+    if (!self.tracking_mouse) {
+        var tme = w32.TRACKMOUSEEVENT{
+            .cbSize = @sizeOf(w32.TRACKMOUSEEVENT),
+            .dwFlags = w32.TME_LEAVE,
+            .hwndTrack = self.hwnd.?,
+            .dwHoverTime = 0,
+        };
+        _ = w32.TrackMouseEvent(&tme);
+        self.tracking_mouse = true;
+    }
+
+    var new_hover: isize = -1;
+    var new_close = false;
+    var new_new_tab = false;
+
+    if (y < self.tabBarHeight()) {
+        // Check new-tab button.
+        if (x >= self.new_tab_rect.left and x < self.new_tab_rect.right) {
+            new_new_tab = true;
+        } else {
+            // Check tabs.
+            const close_btn_w: i32 = @intFromFloat(@round(20.0 * self.scale));
+            const text_pad: i32 = @intFromFloat(@round(10.0 * self.scale));
+            for (0..self.tab_count) |i| {
+                const rect = self.tab_rects[i];
+                if (x >= rect.left and x < rect.right) {
+                    new_hover = @intCast(i);
+                    const close_left = rect.right - close_btn_w - @divTrunc(text_pad, 2);
+                    new_close = x >= close_left;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (new_hover != self.hover_tab or new_close != self.hover_close or new_new_tab != self.hover_new_tab) {
+        self.hover_tab = new_hover;
+        self.hover_close = new_close;
+        self.hover_new_tab = new_new_tab;
+        self.invalidateTabBar();
+    }
+}
+
+/// Handle WM_MOUSELEAVE: reset all hover state and repaint.
+fn handleTabBarMouseLeave(self: *Window) void {
+    self.tracking_mouse = false;
+    if (self.hover_tab != -1 or self.hover_new_tab) {
+        self.hover_tab = -1;
+        self.hover_close = false;
+        self.hover_new_tab = false;
+        self.invalidateTabBar();
+    }
+}
+
 /// Handle WM_CLOSE: destroy the window.
 pub fn close(self: *Window) void {
     if (self.hwnd) |hwnd| {
@@ -747,6 +841,22 @@ pub fn windowWndProc(
             return 0;
         },
         w32.WM_ERASEBKGND => return 1,
+        w32.WM_LBUTTONDOWN => {
+            const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+            const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+            window.handleTabBarClick(x, y);
+            return 0;
+        },
+        w32.WM_MOUSEMOVE => {
+            const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+            const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+            window.handleTabBarMouseMove(x, y);
+            return 0;
+        },
+        w32.WM_MOUSELEAVE => {
+            window.handleTabBarMouseLeave();
+            return 0;
+        },
         else => return w32.DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
