@@ -44,23 +44,21 @@ fn blueprintCompilerArgv(
     alloc: std.mem.Allocator,
     cmd_args: []const []const u8,
 ) ![]const []const u8 {
-    var argv = std.ArrayList([]const u8).init(alloc);
-    errdefer argv.deinit();
-
-    if (builtin.os.tag == .windows) {
-        try argv.appendSlice(&.{
+    const prefix: []const []const u8 = if (builtin.os.tag == .windows)
+        &.{
             "python3",
             "-X",
             "utf8",
             "-c",
             "from blueprintcompiler.main import BlueprintApp; BlueprintApp().main()",
-        });
-    } else {
-        try argv.append("blueprint-compiler");
-    }
+        }
+    else
+        &.{"blueprint-compiler"};
 
-    try argv.appendSlice(cmd_args);
-    return argv.toOwnedSlice();
+    const argv = try alloc.alloc([]const u8, prefix.len + cmd_args.len);
+    @memcpy(argv[0..prefix.len], prefix);
+    @memcpy(argv[prefix.len..], cmd_args);
+    return argv;
 }
 
 pub fn main() !void {
