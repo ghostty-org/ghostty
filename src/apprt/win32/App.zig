@@ -426,6 +426,98 @@ pub fn performAction(
             return true;
         },
 
+        .initial_size => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    if (core_surface.rt_surface.hwnd) |h| {
+                        // Convert client size to window size (accounts for
+                        // title bar, borders, scrollbar).
+                        var rect = w32.RECT{
+                            .left = 0,
+                            .top = 0,
+                            .right = @intCast(value.width),
+                            .bottom = @intCast(value.height),
+                        };
+                        _ = w32.AdjustWindowRectEx(&rect, w32.WS_OVERLAPPEDWINDOW, 0, 0);
+                        _ = w32.SetWindowPos(
+                            h,
+                            null,
+                            0,
+                            0,
+                            rect.right - rect.left,
+                            rect.bottom - rect.top,
+                            w32.SWP_NOZORDER | 0x0002, // SWP_NOMOVE
+                        );
+                    }
+                },
+            }
+            return true;
+        },
+
+        .reload_config => {
+            // Reload configuration from disk.
+            const alloc = self.core_app.alloc;
+            if (!value.soft) {
+                const new_config = Config.load(alloc) catch |err| {
+                    log.err("failed to reload config: {}", .{err});
+                    return true;
+                };
+                self.config.deinit();
+                self.config = new_config;
+
+                // Recreate the background brush
+                if (self.bg_brush) |old_brush| {
+                    _ = w32.DeleteObject(@ptrCast(old_brush));
+                }
+                const bg = new_config.background;
+                self.bg_brush = w32.CreateSolidBrush(w32.RGB(bg.r, bg.g, bg.b));
+            }
+            return true;
+        },
+
+        .show_child_exited => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    const exit_code = value.exit_code;
+                    if (exit_code != 0) {
+                        // Show a message box for abnormal exit
+                        const hwnd_val = core_surface.rt_surface.hwnd;
+                        var buf: [256]u16 = undefined;
+                        const msg_text = std.fmt.bufPrint(
+                            @as([]u8, @ptrCast(&buf)),
+                            "Process exited with code {}\x00",
+                            .{exit_code},
+                        ) catch return true;
+                        _ = msg_text;
+                        // Use a simple wide string
+                        _ = w32.MessageBoxW(
+                            hwnd_val,
+                            std.unicode.utf8ToUtf16LeStringLiteral("The shell process exited unexpectedly."),
+                            std.unicode.utf8ToUtf16LeStringLiteral("Ghostty"),
+                            w32.MB_ICONWARNING,
+                        );
+                    }
+                },
+            }
+            return true;
+        },
+
+        .toggle_window_decorations => {
+            switch (target) {
+                .app => {},
+                .surface => |core_surface| {
+                    core_surface.rt_surface.toggleWindowDecorations();
+                },
+            }
+            return true;
+        },
+
+        .renderer_health => return true,
+        .mouse_visibility => return true,
+        .key_sequence, .key_table => return true,
+
         // Return false for unhandled actions
         else => return false,
     }

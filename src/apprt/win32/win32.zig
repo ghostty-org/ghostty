@@ -86,6 +86,8 @@ pub const CS_OWNDC: u32 = 0x0020;
 // Window styles
 pub const WS_OVERLAPPEDWINDOW: u32 = 0x00CF0000;
 pub const WS_POPUP: u32 = 0x80000000;
+pub const WS_CAPTION: u32 = 0x00C00000;
+pub const WS_THICKFRAME: u32 = 0x00040000;
 
 // Extended window styles
 pub const WS_EX_LAYERED: u32 = 0x00080000;
@@ -398,6 +400,13 @@ pub extern "user32" fn ScreenToClient(
 pub extern "user32" fn GetParent(
     hWnd: HWND,
 ) callconv(.c) ?HWND;
+
+pub extern "user32" fn AdjustWindowRectEx(
+    lpRect: *RECT,
+    dwStyle: u32,
+    bMenu: i32,
+    dwExStyle: u32,
+) callconv(.c) i32;
 
 pub extern "user32" fn GetDpiForWindow(
     hWnd: HWND,

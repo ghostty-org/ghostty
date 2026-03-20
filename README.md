@@ -56,6 +56,11 @@ The goal is to track the upstream main branch while maintaining a native Windows
 - URL detection with Ctrl+click to open in default browser
 - Desktop notifications via Shell_NotifyIcon balloon (OSC 9, OSC 777)
 - Persistent mouse cursor shapes (WM_SETCURSOR handling)
+- Find-in-terminal search bar (Ctrl+Shift+F, Enter/Shift+Enter, Escape)
+- Initial window size from config (`window-width`, `window-height`)
+- Config reload from disk (`reload_config` action)
+- Child process exit notification
+- Toggle window decorations (hide/show title bar)
 
 ### Not Yet Implemented
 

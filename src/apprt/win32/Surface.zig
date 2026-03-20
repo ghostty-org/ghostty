@@ -766,6 +766,26 @@ pub fn handleSearchKey(self: *Surface, vk: u16) bool {
     }
 }
 
+/// Toggle window decorations (title bar + borders) on/off.
+pub fn toggleWindowDecorations(self: *Surface) void {
+    const hwnd = self.hwnd orelse return;
+    const style = w32.GetWindowLongW(hwnd, w32.GWL_STYLE);
+    const has_decorations = (style & w32.WS_CAPTION) != 0;
+
+    if (has_decorations) {
+        // Remove decorations: strip caption and thick frame
+        const new_style = style & ~@as(u32, w32.WS_CAPTION | w32.WS_THICKFRAME);
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, new_style);
+    } else {
+        // Restore decorations
+        const new_style = style | w32.WS_CAPTION | w32.WS_THICKFRAME;
+        _ = w32.SetWindowLongW(hwnd, w32.GWL_STYLE, new_style);
+    }
+    // Force frame recalculation
+    _ = w32.SetWindowPos(hwnd, null, 0, 0, 0, 0,
+        w32.SWP_NOZORDER | w32.SWP_FRAMECHANGED | 0x0001 | 0x0002); // NOMOVE|NOSIZE
+}
+
 /// Update the Win32 scrollbar to reflect the terminal's scroll state.
 /// Called from performAction(.scrollbar) when the viewport changes.
 pub fn setScrollbar(self: *Surface, scrollbar: terminal.Scrollbar) void {
