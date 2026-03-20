@@ -783,20 +783,30 @@ pub fn close(self: *Window) void {
 /// clean up, and start the quit timer if no windows remain.
 fn onDestroy(self: *Window) void {
     // Remove from App's window list.
-    const items = self.app.windows.items;
+    const app = self.app;
+    const items = app.windows.items;
     for (items, 0..) |w, i| {
         if (w == self) {
-            _ = self.app.windows.orderedRemove(i);
+            _ = app.windows.orderedRemove(i);
             break;
         }
     }
+
+    // The parent HWND is already being destroyed by Win32 (we're inside
+    // WM_DESTROY). Child HWNDs are destroyed automatically by Win32
+    // before the parent's WM_DESTROY fires, so we must NOT call
+    // DestroyWindow on them again. Clear the child hwnd fields first,
+    // then deinit surfaces (which skips DestroyWindow when hwnd is null).
+    for (self.tab_surfaces[0..self.tab_count]) |surface| {
+        surface.hwnd = null;
+    }
     self.hwnd = null;
     self.deinit();
-    self.app.core_app.alloc.destroy(self);
+    app.core_app.alloc.destroy(self);
 
     // If no windows remain, start the quit timer.
-    if (self.app.windows.items.len == 0) {
-        self.app.startQuitTimer();
+    if (app.windows.items.len == 0) {
+        app.startQuitTimer();
     }
 }
 
