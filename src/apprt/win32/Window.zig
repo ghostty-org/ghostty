@@ -247,6 +247,8 @@ pub fn addTab(self: *Window) !*Surface {
         }
         self.active_tab = pos;
         self.updateWindowTitle();
+        // Set keyboard focus to the child surface so it receives input.
+        if (surface.hwnd) |h| _ = w32.SetFocus(h);
     } else {
         self.selectTabIndex(pos);
     }
@@ -886,6 +888,15 @@ pub fn windowWndProc(
         },
         w32.WM_PAINT => {
             window.paintTabBar();
+            return 0;
+        },
+        w32.WM_SETFOCUS => {
+            // Forward keyboard focus to the active child surface.
+            // Without this, keyboard input stays on the parent and
+            // is never delivered to the terminal.
+            if (window.getActiveSurface()) |s| {
+                if (s.hwnd) |h| _ = w32.SetFocus(h);
+            }
             return 0;
         },
         w32.WM_ERASEBKGND => return 1,
