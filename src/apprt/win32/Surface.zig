@@ -175,6 +175,14 @@ pub fn init(self: *Surface, app: *App, parent: *Window) !void {
         self.scale,
     });
 
+    // Show the child window before initializing the core surface.
+    // core_surface.init() spawns ConPTY + cmd.exe which needs the
+    // window to be visible and have valid dimensions. On the old
+    // top-level architecture, ShowWindow was called in createWindow()
+    // before core_surface.init(). We must preserve that order.
+    _ = w32.ShowWindow(hwnd, w32.SW_SHOW);
+    _ = w32.UpdateWindow(hwnd);
+
     // --- Core terminal surface initialization ---
     const alloc = app.core_app.alloc;
 

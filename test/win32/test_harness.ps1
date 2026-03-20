@@ -64,6 +64,9 @@ public class Win32Test {
     [DllImport("user32.dll")]
     public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
     [DllImport("user32.dll")]
     public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
@@ -79,28 +82,21 @@ public class Win32Test {
 function Find-GhosttyWindow {
     param([int]$ProcessId = 0)
 
-    $found = $null
-    $callback = [Win32Test+EnumWindowsProc]{
-        param($hWnd, $lParam)
-        if (-not [Win32Test]::IsWindowVisible($hWnd)) { return $true }
+    # Use FindWindow by class name — faster and more reliable than
+    # EnumWindows with a managed delegate callback.
+    $hWnd = [Win32Test]::FindWindow("GhosttyWindow", $null)
+    if ($hWnd -eq [IntPtr]::Zero) { return $null }
 
-        $sb = New-Object System.Text.StringBuilder 256
-        [Win32Test]::GetWindowText($hWnd, $sb, 256) | Out-Null
-        $title = $sb.ToString()
-
-        if ($title -like "*ghostty*" -or $title -like "*Ghostty*" -or $title -like "*cmd*" -or $title -like "*powershell*") {
-            $wpid = [uint32]0
-            [Win32Test]::GetWindowThreadProcessId($hWnd, [ref]$wpid) | Out-Null
-
-            if ($ProcessId -eq 0 -or $wpid -eq $ProcessId) {
-                $script:found = @{ Handle = $hWnd; Title = $title; Pid = $wpid }
-                return $false  # stop enumerating
-            }
-        }
-        return $true
+    # If a PID was specified, verify it matches.
+    if ($ProcessId -ne 0) {
+        $wpid = [uint32]0
+        [Win32Test]::GetWindowThreadProcessId($hWnd, [ref]$wpid) | Out-Null
+        if ($wpid -ne $ProcessId) { return $null }
     }
-    [Win32Test]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
-    return $script:found
+
+    $sb = New-Object System.Text.StringBuilder 256
+    [Win32Test]::GetWindowText($hWnd, $sb, 256) | Out-Null
+    return @{ Handle = $hWnd; Title = $sb.ToString(); Pid = $ProcessId }
 }
 
 function Invoke-Launch {
@@ -115,7 +111,7 @@ function Invoke-Launch {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $exe
     if ($Args) { $psi.Arguments = $Args }
-    $psi.UseShellExecute = $true
+    $psi.UseShellExecute = $false
 
     $proc = [System.Diagnostics.Process]::Start($psi)
     Write-Output "PID=$($proc.Id)"
