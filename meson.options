@@ -1,0 +1,2 @@
+option('zig-build-flags', type: 'string', value: '',
+    description: 'Additional flags to pass to zig build')
