@@ -26,8 +26,14 @@ const WM_APP_WAKEUP: u32 = w32.WM_APP + 1;
 /// Timer ID for the quit-after-last-window-closed delay.
 const QUIT_TIMER_ID: usize = 1;
 
-/// The Win32 window class name (wide string).
-const CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow");
+/// Window class for the top-level container (GDI painting, no CS_OWNDC).
+pub const WINDOW_CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow");
+
+/// Window class for terminal surfaces (OpenGL via WGL, needs CS_OWNDC).
+pub const TERMINAL_CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyTerminal");
+
+/// Window class for the message-only HWND (WM_APP_WAKEUP, WM_TIMER).
+pub const MSG_CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyMsg");
 
 /// The core application.
 core_app: *CoreApp,
@@ -43,8 +49,10 @@ msg_hwnd: ?w32.HWND = null,
 /// The HINSTANCE for this module.
 hinstance: w32.HINSTANCE,
 
-/// Window class atom from RegisterClassExW.
+/// Window class atoms from RegisterClassExW.
 class_atom: u16 = 0,
+terminal_class_atom: u16 = 0,
+msg_class_atom: u16 = 0,
 
 /// Background brush created from the configured background color.
 /// Used by WM_ERASEBKGND to fill exposed areas during resize,
@@ -97,10 +105,10 @@ pub fn init(
         .bg_brush = bg_brush,
     };
 
-    // Register the window class
+    // Register the window container class (GDI painting, no CS_OWNDC).
     const wc = w32.WNDCLASSEXW{
         .cbSize = @sizeOf(w32.WNDCLASSEXW),
-        .style = w32.CS_OWNDC,
+        .style = 0,
         .lpfnWndProc = &wndProc,
         .cbClsExtra = 0,
         .cbWndExtra = 0,
@@ -109,18 +117,56 @@ pub fn init(
         .hCursor = w32.LoadCursorW(null, w32.IDC_ARROW),
         .hbrBackground = bg_brush,
         .lpszMenuName = null,
-        .lpszClassName = CLASS_NAME,
+        .lpszClassName = WINDOW_CLASS_NAME,
         .hIconSm = null,
     };
 
     self.class_atom = w32.RegisterClassExW(&wc);
     if (self.class_atom == 0) return error.Win32Error;
 
+    // Register the terminal surface class (OpenGL via WGL, needs CS_OWNDC).
+    const tc = w32.WNDCLASSEXW{
+        .cbSize = @sizeOf(w32.WNDCLASSEXW),
+        .style = w32.CS_OWNDC,
+        .lpfnWndProc = &wndProc,
+        .cbClsExtra = 0,
+        .cbWndExtra = 0,
+        .hInstance = hinstance,
+        .hIcon = null,
+        .hCursor = w32.LoadCursorW(null, w32.IDC_ARROW),
+        .hbrBackground = null,
+        .lpszMenuName = null,
+        .lpszClassName = TERMINAL_CLASS_NAME,
+        .hIconSm = null,
+    };
+
+    self.terminal_class_atom = w32.RegisterClassExW(&tc);
+    if (self.terminal_class_atom == 0) return error.Win32Error;
+
+    // Register the message-only window class (WM_APP_WAKEUP, WM_TIMER).
+    const mc = w32.WNDCLASSEXW{
+        .cbSize = @sizeOf(w32.WNDCLASSEXW),
+        .style = 0,
+        .lpfnWndProc = &wndProc,
+        .cbClsExtra = 0,
+        .cbWndExtra = 0,
+        .hInstance = hinstance,
+        .hIcon = null,
+        .hCursor = null,
+        .hbrBackground = null,
+        .lpszMenuName = null,
+        .lpszClassName = MSG_CLASS_NAME,
+        .hIconSm = null,
+    };
+
+    self.msg_class_atom = w32.RegisterClassExW(&mc);
+    if (self.msg_class_atom == 0) return error.Win32Error;
+
     // Create a message-only window for receiving WM_APP_WAKEUP.
     // HWND_MESSAGE makes it a message-only window (invisible, no rendering).
     self.msg_hwnd = w32.CreateWindowExW(
         0,
-        CLASS_NAME,
+        MSG_CLASS_NAME,
         std.unicode.utf8ToUtf16LeStringLiteral("GhosttyMsg"),
         0, // no style needed
         0,
@@ -760,7 +806,7 @@ fn showDesktopNotification(
 pub fn createWindow(self: *App) !w32.HWND {
     const hwnd = w32.CreateWindowExW(
         0,
-        CLASS_NAME,
+        WINDOW_CLASS_NAME,
         std.unicode.utf8ToUtf16LeStringLiteral("Ghostty"),
         w32.WS_OVERLAPPEDWINDOW,
         w32.CW_USEDEFAULT,

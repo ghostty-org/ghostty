@@ -632,7 +632,7 @@ fn ensureSearchBar(self: *Surface) void {
     // doesn't appear in the taskbar).
     const popup = w32.CreateWindowExW(
         w32.WS_EX_TOOLWINDOW,
-        std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow"),
+        App.WINDOW_CLASS_NAME,
         std.unicode.utf8ToUtf16LeStringLiteral(""),
         w32.WS_POPUP | w32.WS_BORDER,
         0, 0, 310, 32,
