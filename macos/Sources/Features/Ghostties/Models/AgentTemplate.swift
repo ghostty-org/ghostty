@@ -140,7 +140,9 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         var parts: [String] = []
 
         if let command {
-            parts.append(Self.shellEscape(command))
+            // Don't shell-escape the command name — it needs to be resolved
+            // via PATH by the coordinator. Only values are escaped.
+            parts.append(command)
         }
 
         guard let agent else {

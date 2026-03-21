@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A popover presenting available session templates for a project.
 ///
@@ -154,17 +155,30 @@ struct TemplatePickerView: View {
 
 // MARK: - Template Edit Form
 
-/// An inline sheet for editing a custom template's name, command, and environment variables.
+/// An inline sheet for editing a template's name, kind, agent configuration,
+/// command, and environment variables.
+///
+/// The "Agent Configuration" section is only shown when `kind` is `.claudeCode`
+/// or `.custom`, since `.shell` sessions have no AI config.
 struct TemplateEditForm: View {
     let template: AgentTemplate
 
     @EnvironmentObject private var store: WorkspaceStore
     @Environment(\.dismiss) private var dismiss
 
+    // Basic fields
     @State private var name: String = ""
     @State private var kind: AgentTemplate.Kind = .custom
     @State private var command: String = ""
     @State private var envVarsText: String = ""
+
+    // Agent config fields
+    @State private var agentModel: String = ""
+    @State private var agentSystemPromptFile: String = ""
+    @State private var agentPermissionMode: String = ""
+    @State private var agentEffort: String = ""
+    @State private var agentAllowedTools: String = ""
+    @State private var agentAdditionalFlags: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -186,6 +200,13 @@ struct TemplateEditForm: View {
                     .labelsHidden()
                     .pickerStyle(.segmented)
                 }
+
+                // Agent Configuration — only for non-shell kinds
+                if kind != .shell {
+                    agentConfigSection
+                }
+
+                sectionHeader("Terminal")
 
                 field("Command") {
                     TextField("e.g. claude, python3", text: $command)
@@ -216,7 +237,7 @@ struct TemplateEditForm: View {
             }
         }
         .padding(20)
-        .frame(width: 320)
+        .frame(width: 340)
         .onAppear {
             name = template.name
             kind = template.kind
@@ -225,7 +246,97 @@ struct TemplateEditForm: View {
                 .map { "\($0.key)=\($0.value)" }
                 .sorted()
                 .joined(separator: "\n")
+
+            // Populate agent config fields from existing template
+            if let agent = template.agent {
+                agentModel = agent.model ?? ""
+                agentSystemPromptFile = agent.systemPromptFile ?? ""
+                agentPermissionMode = agent.permissionMode ?? ""
+                agentEffort = agent.effort ?? ""
+                agentAllowedTools = agent.allowedTools?.joined(separator: ",") ?? ""
+                agentAdditionalFlags = agent.additionalFlags?.joined(separator: " ") ?? ""
+            }
         }
+    }
+
+    // MARK: - Agent Configuration Section
+
+    private var agentConfigSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Agent Configuration")
+
+            field("Model") {
+                Picker("", selection: $agentModel) {
+                    Text("(none)").tag("")
+                    Text("opus").tag("opus")
+                    Text("sonnet").tag("sonnet")
+                    Text("haiku").tag("haiku")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            field("System Prompt") {
+                HStack(spacing: 4) {
+                    TextField("Path to .md file", text: $agentSystemPromptFile)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Browse") {
+                        browseSystemPromptFile()
+                    }
+                }
+            }
+
+            field("Permission Mode") {
+                Picker("", selection: $agentPermissionMode) {
+                    Text("(none)").tag("")
+                    Text("default").tag("default")
+                    Text("plan").tag("plan")
+                    Text("auto").tag("auto")
+                    Text("acceptEdits").tag("acceptEdits")
+                    Text("dontAsk").tag("dontAsk")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            field("Effort") {
+                Picker("", selection: $agentEffort) {
+                    Text("(none)").tag("")
+                    Text("low").tag("low")
+                    Text("medium").tag("medium")
+                    Text("high").tag("high")
+                    Text("max").tag("max")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            field("Allowed Tools") {
+                TextField("Read,Grep,Bash", text: $agentAllowedTools)
+                    .textFieldStyle(.roundedBorder)
+                Text("Comma-separated tool names")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            field("Additional Flags") {
+                TextField("--verbose --no-session", text: $agentAdditionalFlags)
+                    .textFieldStyle(.roundedBorder)
+                Text("Space-separated CLI flags")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .padding(.top, 4)
     }
 
     private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -237,15 +348,75 @@ struct TemplateEditForm: View {
         }
     }
 
+    private func browseSystemPromptFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.directoryURL = URL(fileURLWithPath: ("~/.claude" as NSString).expandingTildeInPath)
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            agentSystemPromptFile = url.path
+        }
+    }
+
+    // MARK: - Save
+
     private func save() {
         let trimmedCommand = command.trimmingCharacters(in: .whitespaces)
         let envVars = parseEnvironmentVariables(envVarsText)
+
+        // Build AgentConfig from state if kind is not .shell
+        let agentConfig: AgentTemplate.AgentConfig?? = {
+            guard kind != .shell else {
+                // Clear agent config for shell templates
+                return .some(nil)
+            }
+
+            let model = agentModel.isEmpty ? nil : agentModel
+            let systemPromptFile = agentSystemPromptFile.trimmingCharacters(in: .whitespaces).isEmpty
+                ? nil : agentSystemPromptFile.trimmingCharacters(in: .whitespaces)
+            let permissionMode = agentPermissionMode.isEmpty ? nil : agentPermissionMode
+            let effort = agentEffort.isEmpty ? nil : agentEffort
+
+            let allowedTools: [String]? = {
+                let trimmed = agentAllowedTools.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return nil }
+                return trimmed.split(separator: ",").map {
+                    String($0).trimmingCharacters(in: .whitespaces)
+                }.filter { !$0.isEmpty }
+            }()
+
+            let additionalFlags: [String]? = {
+                let trimmed = agentAdditionalFlags.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return nil }
+                return trimmed.split(separator: " ").map {
+                    String($0).trimmingCharacters(in: .whitespaces)
+                }.filter { !$0.isEmpty }
+            }()
+
+            // If all fields are empty, set agent to nil
+            if model == nil && systemPromptFile == nil && permissionMode == nil
+                && effort == nil && allowedTools == nil && additionalFlags == nil {
+                return .some(nil)
+            }
+
+            return .some(AgentTemplate.AgentConfig(
+                systemPromptFile: systemPromptFile,
+                model: model,
+                permissionMode: permissionMode,
+                effort: effort,
+                allowedTools: allowedTools,
+                additionalFlags: additionalFlags
+            ))
+        }()
+
         store.updateTemplate(
             id: template.id,
             name: name.trimmingCharacters(in: .whitespaces),
             kind: kind,
             command: trimmedCommand.isEmpty ? nil : trimmedCommand,
-            environmentVariables: envVars
+            environmentVariables: envVars,
+            agent: agentConfig
         )
         dismiss()
     }
