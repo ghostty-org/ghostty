@@ -343,6 +343,7 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
+    linux: Linux,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -356,6 +357,13 @@ pub const Platform = union(PlatformTag) {
         uiview: objc.Object,
     } else void;
 
+    pub const Linux = if (builtin.target.os.tag == .linux) struct {
+        /// A GtkGLArea widget pointer for OpenGL rendering.
+        /// The embedder must create and manage this widget.
+        /// Ghostty will use it to render terminal content via OpenGL.
+        gtk_widget: *anyopaque,
+    } else void;
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -365,6 +373,10 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
+        },
+
+        gtk: extern struct {
+            gtk_widget: ?*anyopaque,
         },
     };
 
@@ -385,6 +397,13 @@ pub const Platform = union(PlatformTag) {
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
             } else error.UnsupportedPlatform,
+
+            .linux => if (Linux != void) linux: {
+                const config = c_platform.gtk;
+                const gtk_widget = config.gtk_widget orelse
+                    break :linux error.GtkWidgetMustBeSet;
+                break :linux .{ .linux = .{ .gtk_widget = gtk_widget } };
+            } else error.UnsupportedPlatform,
         };
     }
 };
@@ -395,6 +414,7 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
+    linux = 3,
 };
 
 pub const EnvVar = extern struct {
@@ -1688,6 +1708,38 @@ pub const CAPI = struct {
     /// call as soon as possible (NOW if possible).
     export fn ghostty_surface_draw(surface: *Surface) void {
         surface.draw();
+    }
+
+    /// Notify the surface that the display/GL context has been realized.
+    /// On Linux, this should be called from the GtkGLArea "realize" callback
+    /// after the GL context is current. This initializes the OpenGL function
+    /// pointers (GLAD) so the renderer can draw.
+    /// NOTE: Only call this for RE-realization (after displayUnrealized).
+    /// For first-time initialization, use ghostty_surface_init_opengl instead.
+    export fn ghostty_surface_display_realized(surface: *Surface) void {
+        surface.core_surface.renderer.displayRealized() catch {};
+    }
+
+    /// Initialize OpenGL function pointers for the surface.
+    /// Call this from a GtkGLArea "realize" callback when the GL context
+    /// is current for the first time. This loads GLAD so the renderer
+    /// can execute GL calls.
+    export fn ghostty_surface_init_opengl(_: *Surface) void {
+        const opengl = @import("../renderer/OpenGL.zig");
+        opengl.prepareContext(null) catch |err| {
+            log.warn("failed to prepare GL context err={}", .{err});
+        };
+    }
+
+    /// Draw a frame directly using the current GL context.
+    /// This should be called from a GtkGLArea "render" signal callback
+    /// where the GL context is already current. Unlike ghostty_surface_draw()
+    /// which schedules a draw on the render thread, this executes the
+    /// draw immediately on the calling thread.
+    export fn ghostty_surface_draw_frame(surface: *Surface) void {
+        surface.core_surface.renderer.drawFrame(true) catch |err| {
+            log.warn("failed to draw frame err={}", .{err});
+        };
     }
 
     /// Update the size of a surface. This will trigger resize notifications

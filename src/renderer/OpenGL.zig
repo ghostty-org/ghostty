@@ -130,7 +130,7 @@ fn glDebugMessageCallback(
 }
 
 /// Prepares the provided GL context, loading it with glad.
-fn prepareContext(getProcAddress: anytype) !void {
+pub fn prepareContext(getProcAddress: anytype) !void {
     const version = try gl.glad.load(getProcAddress);
     const major = gl.glad.versionMajor(@intCast(version));
     const minor = gl.glad.versionMinor(@intCast(version));
@@ -170,9 +170,12 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         => try prepareContext(null),
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // For embedded Linux (libghostty), the embedder provides a
+            // GtkGLArea whose GL context is already current. Initialize
+            // OpenGL the same way as the GTK apprt.
+            if (comptime builtin.target.os.tag == .linux) {
+                try prepareContext(null);
+            }
         },
     }
 
@@ -209,9 +212,12 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // For embedded Linux, the GL context may not be current yet
+            // during threadEnter. Try loading GLAD here — if the context
+            // is current it will succeed, otherwise drawFrame will retry.
+            if (comptime builtin.target.os.tag == .linux) {
+                prepareContext(null) catch {};
+            }
         },
     }
 }
@@ -229,7 +235,8 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.embedded => {
-            // TODO: see threadEnter
+            // For embedded Linux, same as GTK: no unloading needed
+            // since we may share global bindings.
         },
     }
 }
@@ -238,14 +245,14 @@ pub fn displayRealized(self: *const OpenGL) void {
     _ = self;
 
     switch (apprt.runtime) {
-        apprt.gtk => prepareContext(null) catch |err| {
+        apprt.gtk, apprt.embedded => prepareContext(null) catch |err| {
             log.warn(
                 "Error preparing GL context in displayRealized, err={}",
                 .{err},
             );
         },
 
-        else => @compileError("only GTK should be calling displayRealized"),
+        else => @compileError("only GTK or embedded should be calling displayRealized"),
     }
 }
 
@@ -278,8 +285,10 @@ pub fn initShaders(
 /// Get the current size of the runtime surface.
 pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
     _ = self;
+    // GLAD may not be loaded yet (e.g. embedded Linux before GL context is current)
+    const getIntegerv = gl.glad.context.GetIntegerv orelse return error.OpenGLNotLoaded;
     var viewport: [4]gl.c.GLint = undefined;
-    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+    getIntegerv(gl.c.GL_VIEWPORT, &viewport);
     return .{
         .width = @intCast(viewport[2]),
         .height = @intCast(viewport[3]),
