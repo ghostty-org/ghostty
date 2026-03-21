@@ -62,6 +62,30 @@ After brainstorming, moved to `/workflows:plan` then started `/workflows:work`.
 
 **Phase 4** (not started): Tests
 
+### Review Fixes — All 13 Findings Resolved
+
+Ran 5-agent code review (architecture, security, performance, patterns, simplicity), then fixed all findings in 2 waves of parallel agents.
+
+**P1 Critical (security):**
+- Shell-escape all `buildCommand()` values via `shellEscape()` helper
+- Apply sanitization at write time (addTemplate/updateTemplate), not just load time
+- Replace additionalFlags blocklist with regex allowlist
+- Tighten regex =value to safe character class
+- Add sanitization to duplicateTemplate
+
+**P2 Important:**
+- Move buildCommand() file I/O off main thread (Task.detached)
+- Remove redundant buildCommand() call in ProjectDisclosureRow
+- Add withoutAgent() method, shared dangerousEnvKeys, 1MB file size cap
+
+**P3 Simplification:**
+- Remove AgentConfig custom decoder (additionalFlags now optional)
+- Simplify Kind decoding, force unwrap cleanup, perf guard
+
+**Post-fix verification:** Security sentinel + code simplicity re-reviews confirm all original findings resolved. 2 new medium issues found and fixed in same commit.
+
+**Tests:** 15 new tests added across AgentTemplateTests + WorkspacePersistenceTests
+
 ### New Files Created
 - `macos/Sources/Features/Ghostties/Models/AgentTemplate.swift`
 - `docs/brainstorms/2026-03-21-agent-templates-brainstorm.md`
@@ -70,11 +94,11 @@ After brainstorming, moved to `/workflows:plan` then started `/workflows:work`.
 - Shared: `reference_orchestrator-scaffolding-guide.md` (in ~/Code/ project memory)
 
 ### Notes for Next Session
-- **FIRST**: Run `zig build -Doptimize=ReleaseFast` to check build state
-- If build fails, check which files still reference `SessionTemplate` and fix
-- If build passes, move to Phase 4 (tests)
-- Orchestrator mode active — check ORCHESTRATOR.md for full state
+- Agent templates feature complete: model + persistence + views + tests + review fixes
+- All 13 review todos in `todos/` marked complete (019-031)
+- Menu bar agent status brainstorm ready for `/workflows:plan`
 - Stashed work in git stash (stash@{0}) for traffic light alignment
+- Orchestrator mode active — check ORCHESTRATOR.md for full state
 
 ### Agent Templates Brainstorm
 
