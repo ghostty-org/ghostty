@@ -91,20 +91,28 @@ pub fn build(b: *std.Build) !void {
     }
 
     // libghostty-vt
-    const libghostty_vt_shared = shared: {
-        if (config.target.result.cpu.arch.isWasm()) {
-            break :shared try buildpkg.GhosttyLibVt.initWasm(
-                b,
-                &mod,
-            );
-        }
-
-        break :shared try buildpkg.GhosttyLibVt.initShared(
+    if (config.emit_lib_vt_static) {
+        const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
             b,
             &mod,
         );
-    };
-    libghostty_vt_shared.install(b.getInstallStep());
+        libghostty_vt_static.install(b.getInstallStep());
+    } else {
+        const libghostty_vt_shared = shared: {
+            if (config.target.result.cpu.arch.isWasm()) {
+                break :shared try buildpkg.GhosttyLibVt.initWasm(
+                    b,
+                    &mod,
+                );
+            }
+
+            break :shared try buildpkg.GhosttyLibVt.initShared(
+                b,
+                &mod,
+            );
+        };
+        libghostty_vt_shared.install(b.getInstallStep());
+    }
 
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();
@@ -116,7 +124,7 @@ pub fn build(b: *std.Build) !void {
             resources.install();
             if (i18n) |v| v.install();
         }
-    } else if (!config.emit_lib_vt) {
+    } else if (!config.emit_lib_vt and !config.emit_lib_vt_static) {
         // The macOS Ghostty Library
         //
         // This is NOT libghostty (even though its named that for historical

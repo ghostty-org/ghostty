@@ -45,6 +45,30 @@ pub fn initWasm(
     };
 }
 
+pub fn initStatic(
+    b: *std.Build,
+    zig: *const GhosttyZig,
+) !GhosttyLibVt {
+    const lib = b.addLibrary(.{
+        .name = "ghostty-vt",
+        .root_module = zig.vt_c,
+        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+    });
+    lib.installHeadersDirectory(
+        b.path("include/ghostty"),
+        "ghostty",
+        .{ .include_extensions = &.{".h"} },
+    );
+
+    return .{
+        .step = &lib.step,
+        .artifact = b.addInstallArtifact(lib, .{}),
+        .output = lib.getEmittedBin(),
+        .dsym = null,
+        .pkg_config = pkgConfig(b),
+    };
+}
+
 pub fn initShared(
     b: *std.Build,
     zig: *const GhosttyZig,
@@ -97,29 +121,29 @@ pub fn initShared(
     };
 
     // pkg-config
-    const pc: std.Build.LazyPath = pc: {
-        const wf = b.addWriteFiles();
-        break :pc wf.add("libghostty-vt.pc", b.fmt(
-            \\prefix={s}
-            \\includedir=${{prefix}}/include
-            \\libdir=${{prefix}}/lib
-            \\
-            \\Name: libghostty-vt
-            \\URL: https://github.com/ghostty-org/ghostty
-            \\Description: Ghostty VT library
-            \\Version: 0.1.0
-            \\Cflags: -I${{includedir}}
-            \\Libs: -L${{libdir}} -lghostty-vt
-        , .{b.install_prefix}));
-    };
-
     return .{
         .step = &lib.step,
         .artifact = b.addInstallArtifact(lib, .{}),
         .output = lib.getEmittedBin(),
         .dsym = dsymutil,
-        .pkg_config = pc,
+        .pkg_config = pkgConfig(b),
     };
+}
+
+fn pkgConfig(b: *std.Build) std.Build.LazyPath {
+    const wf = b.addWriteFiles();
+    return wf.add("libghostty-vt.pc", b.fmt(
+        \\prefix={s}
+        \\includedir=${{prefix}}/include
+        \\libdir=${{prefix}}/lib
+        \\
+        \\Name: libghostty-vt
+        \\URL: https://github.com/ghostty-org/ghostty
+        \\Description: Ghostty VT library
+        \\Version: 0.1.0
+        \\Cflags: -I${{includedir}}
+        \\Libs: -L${{libdir}} -lghostty-vt
+    , .{b.install_prefix}));
 }
 
 pub fn install(

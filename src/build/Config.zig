@@ -52,6 +52,7 @@ emit_docs: bool = false,
 emit_exe: bool = false,
 emit_helpgen: bool = false,
 emit_lib_vt: bool = false,
+emit_lib_vt_static: bool = false,
 emit_macos_app: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
@@ -321,11 +322,17 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
     ) orelse false;
 
+    config.emit_lib_vt_static = b.option(
+        bool,
+        "emit-lib-vt-static",
+        "Set defaults for a static libghostty-vt-only build (disables xcframework, macOS app, and docs).",
+    ) orelse false;
+
     config.emit_exe = b.option(
         bool,
         "emit-exe",
         "Build and install main executables with 'build'",
-    ) orelse !config.emit_lib_vt;
+    ) orelse !(config.emit_lib_vt or config.emit_lib_vt_static);
 
     config.emit_test_exe = b.option(
         bool,
@@ -360,7 +367,8 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         if (config.emit_bench or
             config.emit_test_exe or
             config.emit_helpgen or
-            config.emit_lib_vt) break :emit_docs false;
+            config.emit_lib_vt or
+            config.emit_lib_vt_static) break :emit_docs false;
 
         // We always emit docs in system package mode.
         if (system_package) break :emit_docs true;
@@ -410,6 +418,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         "emit-xcframework",
         "Build and install the xcframework for the macOS library.",
     ) orelse !config.emit_lib_vt and
+        !config.emit_lib_vt_static and
         builtin.target.os.tag.isDarwin() and
         target.result.os.tag == .macos and
         config.app_runtime == .none and
@@ -421,7 +430,9 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         bool,
         "emit-macos-app",
         "Build and install the macOS app bundle.",
-    ) orelse !config.emit_lib_vt and config.emit_xcframework;
+    ) orelse !config.emit_lib_vt and
+        !config.emit_lib_vt_static and
+        config.emit_xcframework;
 
     //---------------------------------------------------------------
     // System Packages
