@@ -15,6 +15,8 @@ pub fn init(
     deps: *const SharedDeps,
     target: Target,
 ) !GhosttyXCFramework {
+    const include_visionos = deps.config.xcframework_visionos;
+
     // Universal macOS build
     const macos_universal = try GhosttyLib.initMacOSUniversal(b, deps);
 
@@ -53,37 +55,105 @@ pub fn init(
         }),
     ));
 
+    const visionos = if (include_visionos)
+        try GhosttyLib.initStatic(b, &try deps.retarget(
+            b,
+            b.resolveTargetQuery(.{
+                .cpu_arch = .aarch64,
+                .os_tag = .visionos,
+                .os_version_min = Config.osVersionMin(.visionos),
+                .abi = null,
+            }),
+        ))
+    else
+        null;
+
+    const visionos_sim = if (include_visionos)
+        try GhosttyLib.initStatic(b, &try deps.retarget(
+            b,
+            b.resolveTargetQuery(.{
+                .cpu_arch = .aarch64,
+                .os_tag = .visionos,
+                .os_version_min = Config.osVersionMin(.visionos),
+                .abi = .simulator,
+                .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
+            }),
+        ))
+    else
+        null;
+
     // The xcframework wraps our ghostty library so that we can link
     // it to the final app built with Swift.
-    const xcframework = XCFrameworkStep.create(b, .{
-        .name = "GhosttyKit",
-        .out_path = "macos/GhosttyKit.xcframework",
-        .libraries = switch (target) {
-            .universal => &.{
-                .{
-                    .library = macos_universal.output,
-                    .headers = b.path("include"),
-                    .dsym = macos_universal.dsym,
+    const xcframework = if (include_visionos)
+        XCFrameworkStep.create(b, .{
+            .name = "GhosttyKit",
+            .out_path = "macos/GhosttyKit.xcframework",
+            .libraries = switch (target) {
+                .universal => &.{
+                    .{
+                        .library = macos_universal.output,
+                        .headers = b.path("include"),
+                        .dsym = macos_universal.dsym,
+                    },
+                    .{
+                        .library = ios.output,
+                        .headers = b.path("include"),
+                        .dsym = ios.dsym,
+                    },
+                    .{
+                        .library = ios_sim.output,
+                        .headers = b.path("include"),
+                        .dsym = ios_sim.dsym,
+                    },
+                    .{
+                        .library = visionos.?.output,
+                        .headers = b.path("include"),
+                        .dsym = visionos.?.dsym,
+                    },
+                    .{
+                        .library = visionos_sim.?.output,
+                        .headers = b.path("include"),
+                        .dsym = visionos_sim.?.dsym,
+                    },
                 },
-                .{
-                    .library = ios.output,
-                    .headers = b.path("include"),
-                    .dsym = ios.dsym,
-                },
-                .{
-                    .library = ios_sim.output,
-                    .headers = b.path("include"),
-                    .dsym = ios_sim.dsym,
-                },
-            },
 
-            .native => &.{.{
-                .library = macos_native.output,
-                .headers = b.path("include"),
-                .dsym = macos_native.dsym,
-            }},
-        },
-    });
+                .native => &.{.{
+                    .library = macos_native.output,
+                    .headers = b.path("include"),
+                    .dsym = macos_native.dsym,
+                }},
+            },
+        })
+    else
+        XCFrameworkStep.create(b, .{
+            .name = "GhosttyKit",
+            .out_path = "macos/GhosttyKit.xcframework",
+            .libraries = switch (target) {
+                .universal => &.{
+                    .{
+                        .library = macos_universal.output,
+                        .headers = b.path("include"),
+                        .dsym = macos_universal.dsym,
+                    },
+                    .{
+                        .library = ios.output,
+                        .headers = b.path("include"),
+                        .dsym = ios.dsym,
+                    },
+                    .{
+                        .library = ios_sim.output,
+                        .headers = b.path("include"),
+                        .dsym = ios_sim.dsym,
+                    },
+                },
+
+                .native => &.{.{
+                    .library = macos_native.output,
+                    .headers = b.path("include"),
+                    .dsym = macos_native.dsym,
+                }},
+            },
+        });
 
     return .{
         .xcframework = xcframework,

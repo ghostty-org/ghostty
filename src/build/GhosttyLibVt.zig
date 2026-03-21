@@ -61,6 +61,9 @@ pub fn initShared(
         "ghostty",
         .{ .include_extensions = &.{".h"} },
     );
+    if (target.result.os.tag.isDarwin()) {
+        try @import("apple_sdk").addPaths(b, lib);
+    }
 
     if (lib.rootModuleTarget().abi.isAndroid()) {
         // Support 16kb page sizes, required for Android 15+.
@@ -119,6 +122,37 @@ pub fn initShared(
         .output = lib.getEmittedBin(),
         .dsym = dsymutil,
         .pkg_config = pc,
+    };
+}
+
+pub fn initStatic(
+    b: *std.Build,
+    zig: *const GhosttyZig,
+) !GhosttyLibVt {
+    const target = zig.vt.resolved_target.?;
+    const lib = b.addLibrary(.{
+        .name = "ghostty-vt",
+        .linkage = .static,
+        .root_module = zig.vt_c,
+        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+    });
+    lib.installHeadersDirectory(
+        b.path("include/ghostty"),
+        "ghostty",
+        .{ .include_extensions = &.{".h"} },
+    );
+    if (target.result.os.tag.isDarwin()) {
+        try @import("apple_sdk").addPaths(b, lib);
+    }
+    lib.bundle_compiler_rt = true;
+    lib.bundle_ubsan_rt = target.result.os.tag != .visionos;
+
+    return .{
+        .step = &lib.step,
+        .artifact = b.addInstallArtifact(lib, .{}),
+        .output = lib.getEmittedBin(),
+        .dsym = null,
+        .pkg_config = null,
     };
 }
 

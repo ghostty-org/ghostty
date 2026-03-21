@@ -20,6 +20,7 @@ const GitVersion = @import("GitVersion.zig");
 optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
 xcframework_target: XCFrameworkTarget = .universal,
+xcframework_visionos: bool = false,
 wasm_target: WasmTarget,
 
 /// Comptime interfaces
@@ -121,6 +122,12 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         "The target for the xcframework.",
     ) orelse .universal;
 
+    config.xcframework_visionos = b.option(
+        bool,
+        "xcframework-visionos",
+        "Include visionOS slices in GhosttyKit.xcframework.",
+    ) orelse false;
+
     //---------------------------------------------------------------
     // Comptime Interfaces
     config.font_backend = b.option(
@@ -175,6 +182,10 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         "simd",
         "Build with SIMD-accelerated code paths. Results in significant performance improvements.",
     ) orelse simd: {
+        // Zig's current visionOS C++ toolchain path is not reliable enough
+        // for our SIMD C++ dependencies yet.
+        if (target.result.os.tag == .visionos) break :simd false;
+
         // We can't build our SIMD dependencies for Wasm. Note that we may
         // still use SIMD features in the Wasm-builds.
         if (target.result.cpu.arch.isWasm()) break :simd false;
@@ -594,6 +605,13 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
             .patch = 0,
         } },
 
+        // visionOS 1 is the earliest supported baseline.
+        .visionos => .{ .semver = .{
+            .major = 1,
+            .minor = 0,
+            .patch = 0,
+        } },
+
         // This should never happen currently. If we add a new target then
         // we should add a new case here.
         else => null,
@@ -643,3 +661,10 @@ pub const ReleaseChannel = enum {
     /// Stable tagged releases.
     stable,
 };
+
+test "osVersionMin visionos" {
+    const testing = std.testing;
+    const version = osVersionMin(.visionos);
+    try testing.expect(version != null);
+    try testing.expectEqual(@as(u32, 1), version.?.semver.major);
+}

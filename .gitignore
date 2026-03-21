@@ -14,6 +14,7 @@ build-cmake/
 CMakeCache.txt
 CMakeFiles/
 /build.zig.zon.bak
+.toolchains/
 /result*
 /.nixos-test-history
 example/*.wasm

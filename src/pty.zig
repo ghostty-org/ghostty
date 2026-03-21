@@ -18,7 +18,7 @@ pub const winsize = extern struct {
 
 pub const Pty = switch (builtin.os.tag) {
     .windows => WindowsPty,
-    .ios => NullPty,
+    .ios, .visionos => NullPty,
     else => PosixPty,
 };
 
