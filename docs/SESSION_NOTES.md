@@ -93,12 +93,39 @@ Ran 5-agent code review (architecture, security, performance, patterns, simplici
 - `docs/plans/2026-03-21-agent-templates-brainstorm-plan.md`
 - Shared: `reference_orchestrator-scaffolding-guide.md` (in ~/Code/ project memory)
 
+### Agent Config UI + Preset Research
+
+Built full agent config edit form (model picker, prompt file browser, permission mode, effort, allowed tools). User feedback: **too complex** — needs curated presets, not raw config.
+
+**Research findings (6 MVP presets):**
+1. Pair Programmer (Sonnet, full access)
+2. Architect (Opus, read-only, no code)
+3. Code Reviewer (Sonnet, read-only, confidence scoring)
+4. Test Writer (Sonnet, scoped write to test dirs)
+5. Debugger (Opus, read + run, proposes but doesn't apply fixes)
+6. Orchestrator (Opus, delegate only, spawns subagents)
+
+**UX direction:** Preset gallery (card grid) instead of raw config form. Advanced settings available for power users.
+
+**Sources:** VoltAgent 100+ agent catalog, Superset workspace, Claude Code official plugins, Cursor 5 Personas, Aider architect mode.
+
+### Session 9 Commits
+
+| Commit | Description |
+|--------|-------------|
+| `ddde3627a` | feat: agent-first AgentTemplate model |
+| `a4b1fa05f` | docs: solution doc + 13 review todos |
+| `97c17a7e4` | docs: menu bar brainstorm |
+| `c9682cf8b` | fix: resolve all 13 review findings (P1-P3) |
+| `4db60077b` | docs: session notes update |
+| `e5ce3d1f9` | fix: agent config UI + command escaping bug |
+
 ### Notes for Next Session
-- Agent templates feature complete: model + persistence + views + tests + review fixes
-- All 13 review todos in `todos/` marked complete (019-031)
+- **Next feature:** Agent preset gallery UX — card grid picker with 6 curated presets, replacing raw config form
+- Research saved in memory: `feedback-agent-templates-ux.md`
 - Menu bar agent status brainstorm ready for `/workflows:plan`
-- Stashed work in git stash (stash@{0}) for traffic light alignment
-- Orchestrator mode active — check ORCHESTRATOR.md for full state
+- Traffic light alignment stashed (git stash)
+- Orchestrator mode active — check ORCHESTRATOR.md
 
 ### Agent Templates Brainstorm
 
