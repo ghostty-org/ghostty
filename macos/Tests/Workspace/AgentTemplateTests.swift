@@ -94,7 +94,7 @@ struct AgentTemplateTests {
         #expect(decoded.model == "sonnet")
         #expect(decoded.systemPromptFile == nil)
         #expect(decoded.permissionMode == nil)
-        #expect(decoded.additionalFlags.isEmpty)
+        #expect(decoded.additionalFlags == nil)
     }
 
     // MARK: - Full Template Codable
@@ -180,7 +180,7 @@ struct AgentTemplateTests {
     @Test func buildCommandPlainClaude() {
         let cc = AgentTemplate.claudeCode
         let cmd = cc.buildCommand()
-        #expect(cmd == "claude")  // no agent config -> just the command
+        #expect(cmd == "'claude'")  // no agent config -> just the command, shell-escaped
     }
 
     @Test func buildCommandWithModel() {
@@ -190,9 +190,9 @@ struct AgentTemplateTests {
             agent: AgentTemplate.AgentConfig(model: "sonnet")
         )
         let cmd = template.buildCommand()
-        #expect(cmd.contains("claude"))
+        #expect(cmd.contains("'claude'"))
         #expect(cmd.contains("--model"))
-        #expect(cmd.contains("sonnet"))
+        #expect(cmd.contains("'sonnet'"))
     }
 
     @Test func buildCommandWithPermissionMode() {
@@ -203,7 +203,7 @@ struct AgentTemplateTests {
         )
         let cmd = template.buildCommand()
         #expect(cmd.contains("--permission-mode"))
-        #expect(cmd.contains("plan"))
+        #expect(cmd.contains("'plan'"))
     }
 
     @Test func buildCommandWithEffort() {
@@ -214,7 +214,7 @@ struct AgentTemplateTests {
         )
         let cmd = template.buildCommand()
         #expect(cmd.contains("--effort"))
-        #expect(cmd.contains("max"))
+        #expect(cmd.contains("'max'"))
     }
 
     @Test func buildCommandWithAllowedTools() {
@@ -225,7 +225,7 @@ struct AgentTemplateTests {
         )
         let cmd = template.buildCommand()
         #expect(cmd.contains("--allowedTools"))
-        #expect(cmd.contains("Read,Grep,Bash"))
+        #expect(cmd.contains("'Read,Grep,Bash'"))
     }
 
     @Test func buildCommandWithAdditionalFlags() {
@@ -235,8 +235,8 @@ struct AgentTemplateTests {
             agent: AgentTemplate.AgentConfig(additionalFlags: ["--verbose", "--no-color"])
         )
         let cmd = template.buildCommand()
-        #expect(cmd.contains("--verbose"))
-        #expect(cmd.contains("--no-color"))
+        #expect(cmd.contains("'--verbose'"))
+        #expect(cmd.contains("'--no-color'"))
     }
 
     @Test func buildCommandWithMultipleOptions() {
@@ -250,9 +250,9 @@ struct AgentTemplateTests {
             )
         )
         let cmd = template.buildCommand()
-        #expect(cmd.contains("--model opus"))
-        #expect(cmd.contains("--permission-mode plan"))
-        #expect(cmd.contains("--effort max"))
+        #expect(cmd.contains("--model 'opus'"))
+        #expect(cmd.contains("--permission-mode 'plan'"))
+        #expect(cmd.contains("--effort 'max'"))
     }
 
     @Test func buildCommandCustomKind() {
@@ -261,6 +261,83 @@ struct AgentTemplateTests {
             command: "aider"
         )
         let cmd = template.buildCommand()
-        #expect(cmd == "aider")
+        #expect(cmd == "'aider'")
+    }
+
+    // MARK: - Shell Escape Security
+
+    @Test func buildCommandEscapesModelWithMetachars() {
+        let template = AgentTemplate(
+            name: "Test", kind: .claudeCode,
+            command: "claude",
+            agent: AgentTemplate.AgentConfig(model: "opus; rm -rf /")
+        )
+        let cmd = template.buildCommand()
+        // Metacharacters must be neutralized inside single quotes
+        #expect(cmd.contains("'opus; rm -rf /'"))
+    }
+
+    @Test func buildCommandEscapesAdditionalFlags() {
+        let template = AgentTemplate(
+            name: "Test", kind: .claudeCode,
+            command: "claude",
+            agent: AgentTemplate.AgentConfig(additionalFlags: ["$(whoami)"])
+        )
+        let cmd = template.buildCommand()
+        // Command substitution must be neutralized inside single quotes
+        #expect(cmd.contains("'$(whoami)'"))
+    }
+
+    @Test func buildCommandMissingPromptFileHandledGracefully() {
+        let template = AgentTemplate(
+            name: "Test", kind: .claudeCode,
+            command: "claude",
+            agent: AgentTemplate.AgentConfig(
+                systemPromptFile: "~/.claude/nonexistent-test-file-\(UUID().uuidString).md"
+            )
+        )
+        let cmd = template.buildCommand()
+        // Should not contain --append-system-prompt when file is missing
+        #expect(!cmd.contains("--append-system-prompt"))
+    }
+
+    // MARK: - withoutAgent
+
+    @Test func withoutAgentPreservesAllFieldsExceptAgent() {
+        let projectId = UUID()
+        let template = AgentTemplate(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Full Agent",
+            kind: .claudeCode,
+            command: "claude",
+            environmentVariables: ["FOO": "bar"],
+            workingDirectory: "/tmp",
+            isDefault: false,
+            isGlobal: false,
+            projectId: projectId,
+            agent: AgentTemplate.AgentConfig(model: "opus", permissionMode: "plan")
+        )
+        let stripped = template.withoutAgent()
+        #expect(stripped.id == template.id)
+        #expect(stripped.name == template.name)
+        #expect(stripped.kind == template.kind)
+        #expect(stripped.command == template.command)
+        #expect(stripped.environmentVariables == template.environmentVariables)
+        #expect(stripped.workingDirectory == template.workingDirectory)
+        #expect(stripped.isDefault == template.isDefault)
+        #expect(stripped.isGlobal == template.isGlobal)
+        #expect(stripped.projectId == template.projectId)
+        #expect(stripped.agent == nil)
+    }
+
+    // MARK: - dangerousEnvKeys
+
+    @Test func dangerousEnvKeysContainsExpectedKeys() {
+        // Verify the shared constant contains critical keys
+        #expect(AgentTemplate.dangerousEnvKeys.contains("DYLD_INSERT_LIBRARIES"))
+        #expect(AgentTemplate.dangerousEnvKeys.contains("PATH"))
+        #expect(AgentTemplate.dangerousEnvKeys.contains("HOME"))
+        #expect(AgentTemplate.dangerousEnvKeys.contains("LD_PRELOAD"))
+        #expect(AgentTemplate.dangerousEnvKeys.contains("PYTHONPATH"))
     }
 }

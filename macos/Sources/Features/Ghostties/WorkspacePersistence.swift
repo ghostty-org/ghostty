@@ -112,17 +112,34 @@ struct WorkspacePersistence {
         }
     }
 
-    /// Environment variable keys that should be stripped from loaded templates.
-    private static let dangerousEnvKeys: Set<String> = [
-        "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
-        "LD_PRELOAD", "LD_LIBRARY_PATH",
-        "PATH", "HOME", "SHELL", "USER", "LOGNAME",
-        "PYTHONPATH", "NODE_PATH", "RUBYLIB", "GEM_HOME", "GEM_PATH",
-    ]
+    /// Regex pattern matching valid CLI flags: single or double dash, then
+    /// alphanumeric/underscore/hyphen identifier, with an optional =value suffix.
+    /// Rejects shell metacharacters in flag names; restricts values to safe characters.
+    private static let validFlagPattern = "^--?[a-zA-Z][a-zA-Z0-9_-]*(=[a-zA-Z0-9_./:@=-]+)?$"
 
-    /// Characters that indicate shell injection in additional flags.
-    private static let dangerousFlagCharacters = CharacterSet(charactersIn: ";&|")
+    /// Sanitize a single template by stripping dangerous env keys and
+    /// validating additionalFlags against an allowlist regex.
+    ///
+    /// Called both at load time (via `validate`) and at write time
+    /// (via `WorkspaceStore.addTemplate` / `updateTemplate`).
+    static func sanitizeTemplate(_ template: AgentTemplate) -> AgentTemplate {
+        var sanitized = template
+
+        // Strip dangerous env keys.
+        let dangerousKeys = AgentTemplate.dangerousEnvKeys
+        sanitized.environmentVariables = sanitized.environmentVariables
+            .filter { !dangerousKeys.contains($0.key.uppercased()) }
+
+        // Validate additionalFlags with allowlist regex.
+        if var agent = sanitized.agent {
+            agent.additionalFlags = (agent.additionalFlags ?? []).filter { flag in
+                flag.range(of: validFlagPattern, options: .regularExpression) != nil
+            }
+            sanitized.agent = agent
+        }
+
+        return sanitized
+    }
 
     /// Validates referential integrity of loaded state.
     static func validate(_ state: State) -> State {
@@ -155,18 +172,9 @@ struct WorkspacePersistence {
             return true
         }
 
-        // Strip dangerous env keys and sanitize agent config from loaded templates.
+        // Sanitize each template (env keys + flag allowlist).
         for i in validated.templates.indices {
-            validated.templates[i].environmentVariables = validated.templates[i]
-                .environmentVariables.filter { !dangerousEnvKeys.contains($0.key.uppercased()) }
-
-            // Strip additional flags containing shell injection characters.
-            if validated.templates[i].agent != nil {
-                validated.templates[i].agent!.additionalFlags = validated.templates[i]
-                    .agent!.additionalFlags.filter { flag in
-                        flag.unicodeScalars.allSatisfy { !dangerousFlagCharacters.contains($0) }
-                    }
-            }
+            validated.templates[i] = Self.sanitizeTemplate(validated.templates[i])
         }
 
         return validated

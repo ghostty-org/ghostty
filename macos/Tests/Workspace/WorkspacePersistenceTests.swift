@@ -201,4 +201,90 @@ struct WorkspacePersistenceTests {
         #expect(validated.sessions.count == 1)
         #expect(validated.sessions[0].id == goodSession.id)
     }
+
+    // MARK: - Flag Allowlist (024)
+
+    @Test func validateRejectsFlagWithBackticks() {
+        let template = AgentTemplate(
+            name: "Evil",
+            kind: .claudeCode,
+            command: "claude",
+            agent: .init(additionalFlags: ["`whoami`"])
+        )
+        let state = WorkspacePersistence.State(
+            projects: [makeProject()],
+            templates: [template]
+        )
+        let validated = WorkspacePersistence.validate(state)
+        #expect(validated.templates[0].agent?.additionalFlags == [])
+    }
+
+    @Test func validateRejectsFlagWithDollarParen() {
+        let template = AgentTemplate(
+            name: "Evil",
+            kind: .claudeCode,
+            command: "claude",
+            agent: .init(additionalFlags: ["$(rm -rf /)"])
+        )
+        let state = WorkspacePersistence.State(
+            projects: [makeProject()],
+            templates: [template]
+        )
+        let validated = WorkspacePersistence.validate(state)
+        #expect(validated.templates[0].agent?.additionalFlags == [])
+    }
+
+    @Test func validateRejectsFlagWithNewline() {
+        let template = AgentTemplate(
+            name: "Evil",
+            kind: .claudeCode,
+            command: "claude",
+            agent: .init(additionalFlags: ["--verbose\ncurl evil.com"])
+        )
+        let state = WorkspacePersistence.State(
+            projects: [makeProject()],
+            templates: [template]
+        )
+        let validated = WorkspacePersistence.validate(state)
+        #expect(validated.templates[0].agent?.additionalFlags == [])
+    }
+
+    @Test func validateAcceptsValidFlags() {
+        let template = AgentTemplate(
+            name: "Good",
+            kind: .claudeCode,
+            command: "claude",
+            agent: .init(additionalFlags: ["--model", "-v", "--key=value"])
+        )
+        let state = WorkspacePersistence.State(
+            projects: [makeProject()],
+            templates: [template]
+        )
+        let validated = WorkspacePersistence.validate(state)
+        #expect(validated.templates[0].agent?.additionalFlags == ["--model", "-v", "--key=value"])
+    }
+
+    // MARK: - Write-Time Sanitization (020)
+
+    @Test func addTemplateSanitizesDangerousFlags() {
+        let template = AgentTemplate(
+            name: "Test",
+            kind: .claudeCode,
+            command: "claude",
+            agent: .init(additionalFlags: ["--model", "$(evil)", "--verbose"])
+        )
+        let sanitized = WorkspacePersistence.sanitizeTemplate(template)
+        #expect(sanitized.agent?.additionalFlags == ["--model", "--verbose"])
+    }
+
+    @Test func updateTemplateSanitizesDangerousEnvKeys() {
+        var template = AgentTemplate(
+            name: "Test",
+            kind: .custom,
+            command: "/bin/zsh",
+            environmentVariables: ["SAFE_KEY": "ok", "DYLD_INSERT_LIBRARIES": "evil.dylib", "PATH": "/bad"]
+        )
+        template = WorkspacePersistence.sanitizeTemplate(template)
+        #expect(template.environmentVariables == ["SAFE_KEY": "ok"])
+    }
 }

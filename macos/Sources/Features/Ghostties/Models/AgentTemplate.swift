@@ -48,39 +48,12 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
     ///
     /// All fields are optional — a minimal agent template needs only a command.
     struct AgentConfig: Codable, Hashable {
-        var systemPromptFile: String?
-        var model: String?
-        var permissionMode: String?
-        var effort: String?
-        var allowedTools: [String]?
-        var additionalFlags: [String]
-
-        init(
-            systemPromptFile: String? = nil,
-            model: String? = nil,
-            permissionMode: String? = nil,
-            effort: String? = nil,
-            allowedTools: [String]? = nil,
-            additionalFlags: [String] = []
-        ) {
-            self.systemPromptFile = systemPromptFile
-            self.model = model
-            self.permissionMode = permissionMode
-            self.effort = effort
-            self.allowedTools = allowedTools
-            self.additionalFlags = additionalFlags
-        }
-
-        // Custom decoder so all fields degrade gracefully when missing.
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.systemPromptFile = try container.decodeIfPresent(String.self, forKey: .systemPromptFile)
-            self.model = try container.decodeIfPresent(String.self, forKey: .model)
-            self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
-            self.effort = try container.decodeIfPresent(String.self, forKey: .effort)
-            self.allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools)
-            self.additionalFlags = try container.decodeIfPresent([String].self, forKey: .additionalFlags) ?? []
-        }
+        var systemPromptFile: String? = nil
+        var model: String? = nil
+        var permissionMode: String? = nil
+        var effort: String? = nil
+        var allowedTools: [String]? = nil
+        var additionalFlags: [String]? = nil
     }
 
     // MARK: - Initializer
@@ -149,16 +122,25 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
 
     // MARK: - CLI Construction
 
+    /// Shell-escape a value by wrapping in single quotes with internal quote escaping.
+    private static func shellEscape(_ value: String) -> String {
+        let escaped = value.contains("'") ? value.replacingOccurrences(of: "'", with: "'\\''") : value
+        return "'\(escaped)'"
+    }
+
+    /// Maximum file size (1 MB) for systemPromptFile contents.
+    private static let maxPromptFileSize = 1_048_576
+
     /// Build the full CLI string for launching this template.
     ///
     /// Starts with the command (or empty string for shell), then appends
-    /// agent config flags. Prompt file contents are read from disk and
-    /// shell-escaped with single quotes.
+    /// agent config flags. All values are shell-escaped with single quotes.
+    /// Prompt file contents are read from disk with a 1 MB size cap.
     func buildCommand() -> String {
         var parts: [String] = []
 
         if let command {
-            parts.append(command)
+            parts.append(Self.shellEscape(command))
         }
 
         guard let agent else {
@@ -167,37 +149,68 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
 
         if let model = agent.model {
             parts.append("--model")
-            parts.append(model)
+            parts.append(Self.shellEscape(model))
         }
 
         if let promptFile = agent.systemPromptFile {
             let expandedPath = (promptFile as NSString).expandingTildeInPath
-            if let contents = try? String(contentsOfFile: expandedPath, encoding: .utf8) {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: expandedPath)
+            let fileSize = attrs?[.size] as? Int ?? 0
+            if fileSize > Self.maxPromptFileSize {
+                print("[AgentTemplate] Skipping systemPromptFile: file too large (\(fileSize) bytes > \(Self.maxPromptFileSize))")
+            } else if let contents = try? String(contentsOfFile: expandedPath, encoding: .utf8) {
                 parts.append("--append-system-prompt")
-                // Shell-escape: wrap in single quotes, escape internal single quotes.
-                let escaped = contents.replacingOccurrences(of: "'", with: "'\\''")
-                parts.append("'\(escaped)'")
+                parts.append(Self.shellEscape(contents))
+            } else {
+                print("[AgentTemplate] Skipping systemPromptFile: file not found or unreadable at \(expandedPath)")
             }
         }
 
         if let permissionMode = agent.permissionMode {
             parts.append("--permission-mode")
-            parts.append(permissionMode)
+            parts.append(Self.shellEscape(permissionMode))
         }
 
         if let effort = agent.effort {
             parts.append("--effort")
-            parts.append(effort)
+            parts.append(Self.shellEscape(effort))
         }
 
         if let allowedTools = agent.allowedTools, !allowedTools.isEmpty {
             parts.append("--allowedTools")
-            parts.append(allowedTools.joined(separator: ","))
+            parts.append(Self.shellEscape(allowedTools.joined(separator: ",")))
         }
 
-        parts.append(contentsOf: agent.additionalFlags)
+        for flag in agent.additionalFlags ?? [] {
+            parts.append(Self.shellEscape(flag))
+        }
 
         return parts.joined(separator: " ")
+    }
+
+    // MARK: - Environment Safety
+
+    /// Environment variable keys that should be stripped from loaded templates.
+    ///
+    /// Shared constant — used by WorkspacePersistence and any other validation sites.
+    static let dangerousEnvKeys: Set<String> = [
+        "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
+        "LD_PRELOAD", "LD_LIBRARY_PATH",
+        "PATH", "HOME", "SHELL", "USER", "LOGNAME",
+        "PYTHONPATH", "NODE_PATH", "RUBYLIB", "GEM_HOME", "GEM_PATH",
+    ]
+
+    // MARK: - Copying
+
+    /// Return a copy of this template with agent config removed.
+    ///
+    /// Preserves all other fields. Safer than manual field-by-field copy
+    /// because new fields are automatically included.
+    func withoutAgent() -> AgentTemplate {
+        var copy = self
+        copy.agent = nil
+        return copy
     }
 
     // MARK: - Custom Codable
@@ -228,25 +241,16 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         self.projectId = try container.decodeIfPresent(UUID.self, forKey: .projectId)
         self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent)
 
-        // Decode Kind safely: raw String first, then construct with init(rawValue:),
-        // fall back to inference from command on unknown values.
-        // This follows the safe Codable enum pattern from the codebase — never throws,
-        // never wipes state on unknown raw values.
-        if let rawKind = try container.decodeIfPresent(String.self, forKey: .kind),
-           let decodedKind = Kind(rawValue: rawKind) {
-            self.kind = decodedKind
-        } else if container.contains(.kind) {
-            // Kind key present but unknown value — fall back to .shell
-            self.kind = .shell
+        // Decode Kind using Kind's own safe decoder (falls back to .shell on unknown values).
+        // Only handle nil case for old SessionTemplate migration.
+        if let decoded = try container.decodeIfPresent(Kind.self, forKey: .kind) {
+            self.kind = decoded
         } else {
-            // No kind key at all — old SessionTemplate format.
-            // Infer from command.
-            if command == nil {
-                self.kind = .shell
-            } else if command == "claude" {
-                self.kind = .claudeCode
-            } else {
-                self.kind = .custom
+            // Old SessionTemplate format — infer kind from command
+            switch self.command {
+            case nil: self.kind = .shell
+            case "claude": self.kind = .claudeCode
+            default: self.kind = .custom
             }
         }
     }

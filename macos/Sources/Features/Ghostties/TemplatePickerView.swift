@@ -250,16 +250,6 @@ struct TemplateEditForm: View {
         dismiss()
     }
 
-    /// Environment variable keys that could alter process loading behavior or
-    /// override fundamental system paths.
-    private static let dangerousEnvKeys: Set<String> = [
-        "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
-        "LD_PRELOAD", "LD_LIBRARY_PATH",
-        "PATH", "HOME", "SHELL", "USER", "LOGNAME",
-        "PYTHONPATH", "NODE_PATH", "RUBYLIB", "GEM_HOME", "GEM_PATH",
-    ]
-
     /// Parses "KEY=VALUE" lines into a dictionary, ignoring malformed lines
     /// and filtering out security-sensitive environment variable keys.
     private func parseEnvironmentVariables(_ text: String) -> [String: String] {
@@ -272,7 +262,7 @@ struct TemplateEditForm: View {
             let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
             let value = String(parts[1]).trimmingCharacters(in: .whitespaces)
             guard !key.isEmpty else { continue }
-            guard !Self.dangerousEnvKeys.contains(key.uppercased()) else { continue }
+            guard !AgentTemplate.dangerousEnvKeys.contains(key.uppercased()) else { continue }
             result[key] = value
         }
         return result

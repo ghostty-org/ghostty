@@ -99,36 +99,35 @@ final class SessionCoordinator: ObservableObject {
     ) async -> Bool {
         guard let ghosttyApp = ghostty.app else { return false }
 
-        // Build the full command string from the template (includes agent flags).
-        // For shell templates (no command), fullCommand will be empty -> use default shell.
-        // For agent templates, buildCommand() reads prompt files and appends CLI flags.
-        var fullCommand: String? = nil
-        if template.command != nil {
-            let built = template.buildCommand()
-            if !built.isEmpty {
-                fullCommand = built
-            }
-        }
-
-        // Resolve the base command off main thread with timeout.
-        // Only the first token (the binary name) needs PATH resolution;
-        // the rest are arguments that the shell will handle.
+        // Build the full command string and resolve the binary path, both off
+        // the main thread. buildCommand() reads prompt files from disk and
+        // resolveCommand() may spawn a login shell — neither should block UI.
+        // For shell templates (no command), resolvedCommand stays nil -> default shell.
         let resolvedCommand: String? = await {
-            guard let cmd = fullCommand else { return nil }
-            // Extract the base command (first token) for resolution.
-            let baseCommand = String(cmd.prefix(while: { !$0.isWhitespace }))
-            let resolveTask = Task.detached { Self.resolveCommand(baseCommand) }
+            guard template.command != nil else { return nil }
+
+            let buildAndResolveTask = Task.detached(priority: .userInitiated) { () -> String? in
+                // Build the full command string (includes agent flags, prompt file contents).
+                let built = template.buildCommand()
+                guard !built.isEmpty else { return nil }
+
+                // Extract the base command (first token) for PATH resolution.
+                let baseCommand = String(built.prefix(while: { !$0.isWhitespace }))
+                let resolvedBase = Self.resolveCommand(baseCommand)
+
+                // Replace the base command with its resolved absolute path.
+                if resolvedBase != baseCommand {
+                    return resolvedBase + built.dropFirst(baseCommand.count)
+                }
+                return built
+            }
             let timeoutTask = Task {
                 try await Task.sleep(for: .seconds(3))
-                resolveTask.cancel()
+                buildAndResolveTask.cancel()
             }
-            let resolvedBase = await resolveTask.value
+            let result = await buildAndResolveTask.value
             timeoutTask.cancel()
-            // Replace the base command with its resolved path.
-            if resolvedBase != baseCommand {
-                return resolvedBase + cmd.dropFirst(baseCommand.count)
-            }
-            return cmd
+            return result
         }()
 
         var config = Ghostty.SurfaceConfiguration()

@@ -207,9 +207,10 @@ final class WorkspaceStore: ObservableObject {
 
     @discardableResult
     func addTemplate(_ template: AgentTemplate) -> AgentTemplate {
-        templates.append(template)
+        let sanitized = WorkspacePersistence.sanitizeTemplate(template)
+        templates.append(sanitized)
         persist()
-        return template
+        return sanitized
     }
 
     func updateTemplate(
@@ -233,12 +234,15 @@ final class WorkspaceStore: ObservableObject {
         if let isGlobal { templates[index].isGlobal = isGlobal }
         if let projectId { templates[index].projectId = projectId }
         if let agent { templates[index].agent = agent }
+        templates[index] = WorkspacePersistence.sanitizeTemplate(templates[index])
         persist()
     }
 
     @discardableResult
     func duplicateTemplate(id: UUID) -> AgentTemplate? {
         guard let original = templates.first(where: { $0.id == id }) else { return nil }
+        // NOTE: Update this if AgentTemplate gains new stored properties.
+        // id is `let`, so encode/decode can't assign a fresh UUID — memberwise init is required.
         let copy = AgentTemplate(
             name: "Copy of \(original.name)",
             kind: original.kind,
@@ -249,9 +253,10 @@ final class WorkspaceStore: ObservableObject {
             projectId: original.projectId,
             agent: original.agent
         )
-        templates.append(copy)
+        let sanitized = WorkspacePersistence.sanitizeTemplate(copy)
+        templates.append(sanitized)
         persist()
-        return copy
+        return sanitized
     }
 
     func removeTemplate(id: UUID) {
