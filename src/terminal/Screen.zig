@@ -2998,11 +2998,11 @@ fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
     const cursor_pin = self.cursor.page_pin.*;
     if (cursor_pin.eql(click_pin)) return .zero;
 
-    const click_rac = click_pin.rowAndCell();
+    const click_rac = click_pin.rowAndCell().row;
 
     // If click pin is in the prompt area, traverse down the prompt rows.
     // Allow cursor movement only if one of the rows contains input.
-    if (click_rac.row.semantic_prompt != .none) {
+    if (click_rac.semantic_prompt != .none) {
         var row_pin = click_pin;
         prompt: while (true) {
             const rac = row_pin.rowAndCell();
