@@ -46,9 +46,8 @@ pub const Window = struct {
         return .{};
     }
 
-    pub fn deinit(self: Window, alloc: Allocator) void {
+    pub fn deinit(self: *Window) void {
         _ = self;
-        _ = alloc;
     }
 
     pub fn updateConfigEvent(

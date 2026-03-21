@@ -1,14 +1,19 @@
+pub const cell = @import("cell.zig");
 pub const color = @import("color.zig");
 pub const focus = @import("focus.zig");
 pub const formatter = @import("formatter.zig");
 pub const modes = @import("modes.zig");
 pub const osc = @import("osc.zig");
+pub const render = @import("render.zig");
 pub const key_event = @import("key_event.zig");
 pub const key_encode = @import("key_encode.zig");
 pub const mouse_event = @import("mouse_event.zig");
 pub const mouse_encode = @import("mouse_encode.zig");
 pub const paste = @import("paste.zig");
+pub const row = @import("row.zig");
 pub const sgr = @import("sgr.zig");
+pub const size_report = @import("size_report.zig");
+pub const style = @import("style.zig");
 pub const terminal = @import("terminal.zig");
 
 // The full C API, unexported.
@@ -30,6 +35,23 @@ pub const formatter_terminal_new = formatter.terminal_new;
 pub const formatter_format_buf = formatter.format_buf;
 pub const formatter_format_alloc = formatter.format_alloc;
 pub const formatter_free = formatter.free;
+
+pub const render_state_new = render.new;
+pub const render_state_free = render.free;
+pub const render_state_update = render.update;
+pub const render_state_get = render.get;
+pub const render_state_set = render.set;
+pub const render_state_colors_get = render.colors_get;
+pub const render_state_row_iterator_new = render.row_iterator_new;
+pub const render_state_row_iterator_next = render.row_iterator_next;
+pub const render_state_row_get = render.row_get;
+pub const render_state_row_set = render.row_set;
+pub const render_state_row_iterator_free = render.row_iterator_free;
+pub const render_state_row_cells_new = render.row_cells_new;
+pub const render_state_row_cells_next = render.row_cells_next;
+pub const render_state_row_cells_select = render.row_cells_select;
+pub const render_state_row_cells_get = render.row_cells_get;
+pub const render_state_row_cells_free = render.row_cells_free;
 
 pub const sgr_new = sgr.new;
 pub const sgr_free = sgr.free;
@@ -87,6 +109,15 @@ pub const mouse_encoder_encode = mouse_encode.encode;
 
 pub const paste_is_safe = paste.is_safe;
 
+pub const size_report_encode = size_report.encode;
+
+pub const cell_get = cell.get;
+
+pub const row_get = row.get;
+
+pub const style_default = style.default_style;
+pub const style_is_default = style.style_is_default;
+
 pub const terminal_new = terminal.new;
 pub const terminal_free = terminal.free;
 pub const terminal_reset = terminal.reset;
@@ -95,19 +126,33 @@ pub const terminal_vt_write = terminal.vt_write;
 pub const terminal_scroll_viewport = terminal.scroll_viewport;
 pub const terminal_mode_get = terminal.mode_get;
 pub const terminal_mode_set = terminal.mode_set;
+pub const terminal_get = terminal.get;
+pub const terminal_grid_ref = terminal.grid_ref;
+
+const grid_ref = @import("grid_ref.zig");
+pub const grid_ref_cell = grid_ref.grid_ref_cell;
+pub const grid_ref_row = grid_ref.grid_ref_row;
+pub const grid_ref_graphemes = grid_ref.grid_ref_graphemes;
+pub const grid_ref_style = grid_ref.grid_ref_style;
 
 test {
+    _ = cell;
     _ = color;
+    _ = grid_ref;
+    _ = row;
     _ = focus;
     _ = formatter;
     _ = modes;
     _ = osc;
+    _ = render;
     _ = key_event;
     _ = key_encode;
     _ = mouse_event;
     _ = mouse_encode;
     _ = paste;
     _ = sgr;
+    _ = size_report;
+    _ = style;
     _ = terminal;
 
     // We want to make sure we run the tests for the C allocator interface.

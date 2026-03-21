@@ -116,19 +116,23 @@ pub const Parser = struct {
                 )) |v| v + 1 else 0;
                 const line = written[idx..];
 
-                if (std.mem.startsWith(u8, line, "%end") or
-                    std.mem.startsWith(u8, line, "%error"))
-                {
-                    const err = std.mem.startsWith(u8, line, "%error");
-                    const output = std.mem.trimRight(u8, written[0..idx], "\r\n");
-
-                    // If it is an error then log it.
-                    if (err) log.warn("tmux control mode error={s}", .{output});
+                if (parseBlockTerminator(line)) |terminator| {
+                    const output = std.mem.trimRight(
+                        u8,
+                        written[0..idx],
+                        "\r\n",
+                    );
 
                     // Important: do not clear buffer since the notification
                     // contains it.
                     self.state = .idle;
-                    return if (err) .{ .block_err = output } else .{ .block_end = output };
+                    switch (terminator) {
+                        .end => return .{ .block_end = output },
+                        .err => {
+                            log.warn("tmux control mode error={s}", .{output});
+                            return .{ .block_err = output };
+                        },
+                    }
                 }
 
                 // Didn't end the block, continue accumulating.
@@ -143,6 +147,41 @@ pub const Parser = struct {
     }
 
     const ParseError = error{RegexError};
+
+    const BlockTerminator = enum { end, err };
+
+    /// Block payload is raw data, so a line only terminates a block if it
+    /// exactly matches tmux's `%end`/`%error` guard-line shape.
+    fn parseBlockTerminator(line_raw: []const u8) ?BlockTerminator {
+        var line = line_raw;
+        if (line.len > 0 and line[line.len - 1] == '\r') {
+            line = line[0 .. line.len - 1];
+        }
+
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const cmd = fields.next() orelse return null;
+        const terminator: BlockTerminator = if (std.mem.eql(u8, cmd, "%end"))
+            .end
+        else if (std.mem.eql(u8, cmd, "%error"))
+            .err
+        else
+            return null;
+
+        const time = fields.next() orelse return null;
+        const command_id = fields.next() orelse return null;
+        const flags = fields.next() orelse return null;
+        const extra = fields.next();
+
+        // In the future, we should compare these to the %begin block
+        // because the tmux source guarantees that these always match and
+        // that is a more robust way to match.
+        _ = std.fmt.parseInt(usize, time, 10) catch return null;
+        _ = std.fmt.parseInt(usize, command_id, 10) catch return null;
+        _ = std.fmt.parseInt(usize, flags, 10) catch return null;
+        if (extra != null) return null;
+
+        return terminator;
+    }
 
     fn parseNotification(self: *Parser) ParseError!?Notification {
         assert(self.state == .notification);
@@ -595,6 +634,81 @@ test "tmux begin/end data" {
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_end);
     try testing.expectEqualStrings("hello\nworld", n.block_end);
+}
+
+test "tmux block payload may start with %end" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%begin 1 1 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end not really\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("hello\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("%end not really\nhello", n.block_end);
+}
+
+test "tmux block payload may start with %error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%begin 1 1 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%error not really\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("hello\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("%error not really\nhello", n.block_end);
+}
+
+test "tmux block may terminate with real %error after misleading payload" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%begin 1 1 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%error not really\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("hello\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%error 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_err);
+    try testing.expectEqualStrings("%error not really\nhello", n.block_err);
+}
+
+test "tmux block terminator requires exact token count" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%begin 1 1 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 1 1 trailing\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("hello\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("%end 1 1 1 trailing\nhello", n.block_end);
+}
+
+test "tmux block terminator requires numeric metadata" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%begin 1 1 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end foo bar baz\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("hello\n") |byte| try testing.expect(try c.put(byte) == null);
+    for ("%end 1 1 1") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("%end foo bar baz\nhello", n.block_end);
 }
 
 test "tmux output" {

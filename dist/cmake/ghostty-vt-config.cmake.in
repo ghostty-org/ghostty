@@ -1,0 +1,33 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if(NOT TARGET ghostty-vt::ghostty-vt)
+    add_library(ghostty-vt::ghostty-vt SHARED IMPORTED)
+
+    set(_ghostty_vt_libdir "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
+
+    set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
+        IMPORTED_LOCATION "${_ghostty_vt_libdir}/@GHOSTTY_VT_REALNAME@"
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
+    )
+
+    if(APPLE)
+        set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
+            IMPORTED_SONAME "@rpath/@GHOSTTY_VT_SONAME@"
+            INTERFACE_LINK_DIRECTORIES "${_ghostty_vt_libdir}"
+        )
+        # Ensure consumers can find the @rpath dylib at runtime
+        set_property(TARGET ghostty-vt::ghostty-vt APPEND PROPERTY
+            INTERFACE_LINK_OPTIONS "LINKER:-rpath,${_ghostty_vt_libdir}"
+        )
+    elseif(NOT WIN32)
+        set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
+            IMPORTED_SONAME "@GHOSTTY_VT_SONAME@"
+        )
+    endif()
+
+    unset(_ghostty_vt_libdir)
+endif()
+
+check_required_components(ghostty-vt)

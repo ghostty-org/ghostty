@@ -68,6 +68,7 @@ douglance
 douglas
 drepper
 dzhlobo
+ekaterinepapava
 elias8
 ephemera
 eriksremess
@@ -84,7 +85,9 @@ guilhermetk
 hakonhagland
 halosatrio
 heaths
+heddxh heddxh
 -highimpact-dev Disrespectful AI user
+hlcfan
 hqnna
 hulet
 icodesign
@@ -112,11 +115,13 @@ laxystem
 liby
 linustalacko
 lonsagisawa
+luisnquin
 mac0ne
 mahnokropotkinvich
 marijagjorgjieva
 markdorison
 markhuot
+marler8997
 marrocco-simone
 matkotiric
 micaeljarniac
@@ -144,6 +149,7 @@ pangoraw
 pauley-unsaturated
 peilingjiang
 peterdavehello
+philocalyst
 phush0
 piedrahitac
 pluiedev
@@ -172,6 +178,7 @@ trag1c
 tristan957
 tweedbeetle
 uhojin
+unphased
 uzaaft
 vaughanandrews
 vlsi

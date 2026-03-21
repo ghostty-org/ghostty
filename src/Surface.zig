@@ -36,6 +36,7 @@ const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
+const ProcessInfo = @import("pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.surface);
 
@@ -6340,6 +6341,13 @@ fn testMouseSelectionIsNull(
             size,
         ),
     );
+}
+
+/// Get information about the process(es) running within the surface. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Surface, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.io.getProcessInfo(info);
 }
 
 test "Surface: selection logic" {

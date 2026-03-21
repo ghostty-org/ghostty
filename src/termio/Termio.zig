@@ -19,6 +19,7 @@ const apprt = @import("../apprt.zig");
 const internal_os = @import("../os/main.zig");
 const windows = internal_os.windows;
 const configpkg = @import("../config.zig");
+const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.io_exec);
 
@@ -526,48 +527,24 @@ pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeRepo
 
 fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
     const grid_size = self.size.grid();
+    const report_size: terminalpkg.size_report.Size = .{
+        .rows = grid_size.rows,
+        .columns = grid_size.columns,
+        .cell_width = self.size.cell.width,
+        .cell_height = self.size.cell.height,
+    };
 
     // 1024 bytes should be enough for size report since report
     // in columns and pixels.
     var buf: [1024]u8 = undefined;
-    const message = switch (style) {
-        .mode_2048 => try std.fmt.bufPrint(
-            &buf,
-            "\x1B[48;{};{};{};{}t",
-            .{
-                grid_size.rows,
-                grid_size.columns,
-                grid_size.rows * self.size.cell.height,
-                grid_size.columns * self.size.cell.width,
-            },
-        ),
-        .csi_14_t => try std.fmt.bufPrint(
-            &buf,
-            "\x1b[4;{};{}t",
-            .{
-                grid_size.rows * self.size.cell.height,
-                grid_size.columns * self.size.cell.width,
-            },
-        ),
-        .csi_16_t => try std.fmt.bufPrint(
-            &buf,
-            "\x1b[6;{};{}t",
-            .{
-                self.size.cell.height,
-                self.size.cell.width,
-            },
-        ),
-        .csi_18_t => try std.fmt.bufPrint(
-            &buf,
-            "\x1b[8;{};{}t",
-            .{
-                grid_size.rows,
-                grid_size.columns,
-            },
-        ),
-    };
+    var writer: std.Io.Writer = .fixed(&buf);
+    try terminalpkg.size_report.encode(
+        &writer,
+        style,
+        report_size,
+    );
 
-    try self.queueWrite(td, message, false);
+    try self.queueWrite(td, writer.buffered(), false);
 }
 
 /// Reset the synchronized output mode. This is usually called by timer
@@ -788,3 +765,10 @@ pub const ThreadData = struct {
         self.* = undefined;
     }
 };
+
+/// Get information about the process(es) attached to the backend. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Termio, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.backend.getProcessInfo(info);
+}

@@ -117,9 +117,9 @@ pub const Window = union(Protocol) {
         };
     }
 
-    pub fn deinit(self: *Window, alloc: Allocator) void {
+    pub fn deinit(self: *Window) void {
         switch (self.*) {
-            inline else => |*v| v.deinit(alloc),
+            inline else => |*v| v.deinit(),
         }
     }
 

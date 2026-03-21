@@ -1,8 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const configpkg = @import("../config.zig");
-const font = @import("../font/main.zig");
-const terminal = @import("../terminal/main.zig");
+const terminal_size = @import("../terminal/size.zig");
 
 const log = std.log.scoped(.renderer_size);
 
@@ -225,7 +224,7 @@ pub const ScreenSize = extern struct {
 
 /// The dimensions of the grid itself, in rows/columns units.
 pub const GridSize = extern struct {
-    pub const Unit = terminal.size.CellCountInt;
+    pub const Unit = terminal_size.CellCountInt;
 
     columns: Unit = 0,
     rows: Unit = 0,

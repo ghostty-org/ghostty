@@ -17,11 +17,17 @@
       flake = false;
     };
 
+    systems = {
+      url = "github:nix-systems/default";
+      flake = false;
+    };
+
     zig = {
       url = "github:mitchellh/zig-overlay";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-compat.follows = "flake-compat";
+        systems.follows = "systems";
       };
     };
 

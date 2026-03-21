@@ -13,6 +13,10 @@
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/modes.h>
+#include <ghostty/vt/grid_ref.h>
+#include <ghostty/vt/screen.h>
+#include <ghostty/vt/point.h>
+#include <ghostty/vt/style.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -96,6 +100,128 @@ typedef struct {
   GhosttyTerminalScrollViewportTag tag;
   GhosttyTerminalScrollViewportValue value;
 } GhosttyTerminalScrollViewport;
+
+/**
+ * Terminal screen identifier.
+ *
+ * Identifies which screen buffer is active in the terminal.
+ *
+ * @ingroup terminal
+ */
+typedef enum {
+  /** The primary (normal) screen. */
+  GHOSTTY_TERMINAL_SCREEN_PRIMARY = 0,
+
+  /** The alternate screen. */
+  GHOSTTY_TERMINAL_SCREEN_ALTERNATE = 1,
+} GhosttyTerminalScreen;
+
+/**
+ * Scrollbar state for the terminal viewport.
+ *
+ * Represents the scrollable area dimensions needed to render a scrollbar.
+ *
+ * @ingroup terminal
+ */
+typedef struct {
+  /** Total size of the scrollable area in rows. */
+  uint64_t total;
+
+  /** Offset into the total area that the viewport is at. */
+  uint64_t offset;
+
+  /** Length of the visible area in rows. */
+  uint64_t len;
+} GhosttyTerminalScrollbar;
+
+/**
+ * Terminal data types.
+ *
+ * These values specify what type of data to extract from a terminal
+ * using `ghostty_terminal_get`.
+ *
+ * @ingroup terminal
+ */
+typedef enum {
+  /** Invalid data type. Never results in any data extraction. */
+  GHOSTTY_TERMINAL_DATA_INVALID = 0,
+
+  /**
+   * Terminal width in cells.
+   *
+   * Output type: uint16_t *
+   */
+  GHOSTTY_TERMINAL_DATA_COLS = 1,
+
+  /**
+   * Terminal height in cells.
+   *
+   * Output type: uint16_t *
+   */
+  GHOSTTY_TERMINAL_DATA_ROWS = 2,
+
+  /**
+   * Cursor column position (0-indexed).
+   *
+   * Output type: uint16_t *
+   */
+  GHOSTTY_TERMINAL_DATA_CURSOR_X = 3,
+
+  /**
+   * Cursor row position within the active area (0-indexed).
+   *
+   * Output type: uint16_t *
+   */
+  GHOSTTY_TERMINAL_DATA_CURSOR_Y = 4,
+
+  /**
+   * Whether the cursor has a pending wrap (next print will soft-wrap).
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP = 5,
+
+  /**
+   * The currently active screen.
+   *
+   * Output type: GhosttyTerminalScreen *
+   */
+  GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN = 6,
+
+  /**
+   * Whether the cursor is visible (DEC mode 25).
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE = 7,
+
+  /**
+   * Current Kitty keyboard protocol flags.
+   *
+   * Output type: GhosttyKittyKeyFlags * (uint8_t *)
+   */
+  GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS = 8,
+
+  /**
+   * Scrollbar state for the terminal viewport.
+   *
+   * This may be expensive to calculate depending on where the viewport
+   * is (arbitrary pins are expensive). The caller should take care to only
+   * call this as needed and not too frequently.
+   *
+   * Output type: GhosttyTerminalScrollbar *
+   */
+  GHOSTTY_TERMINAL_DATA_SCROLLBAR = 9,
+
+  /**
+   * The current SGR style of the cursor.
+   *
+   * This is the style that will be applied to newly printed characters.
+   *
+   * Output type: GhosttyStyle *
+   */
+  GHOSTTY_TERMINAL_DATA_CURSOR_STYLE = 10,
+} GhosttyTerminalData;
 
 /**
  * Create a new terminal instance.
@@ -228,8 +354,58 @@ GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
  * @ingroup terminal
  */
 GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
-                                        GhosttyMode mode,
-                                        bool value);
+                                         GhosttyMode mode,
+                                         bool value);
+
+/**
+ * Get data from a terminal instance.
+ *
+ * Extracts typed data from the given terminal based on the specified
+ * data type. The output pointer must be of the appropriate type for the
+ * requested data kind. Valid data types and output types are documented
+ * in the `GhosttyTerminalData` enum.
+ *
+ * @param terminal The terminal handle (may be NULL)
+ * @param data The type of data to extract
+ * @param out Pointer to store the extracted data (type depends on data parameter)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
+ *         is NULL or the data type is invalid
+ *
+ * @ingroup terminal
+ */
+GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
+                                    GhosttyTerminalData data,
+                                    void *out);
+
+/**
+ * Resolve a point in the terminal grid to a grid reference.
+ *
+ * Resolves the given point (which can be in active, viewport, screen,
+ * or history coordinates) to a grid reference for that location. Use
+ * ghostty_grid_ref_cell() and ghostty_grid_ref_row() to extract the cell
+ * and row.
+ *
+ * Lookups using the `active` and `viewport` tags are fast. The `screen`
+ * and `history` tags may require traversing the full scrollback page list
+ * to resolve the y coordinate, so they can be expensive for large
+ * scrollback buffers.
+ *
+ * This function isn't meant to be used as the core of render loop. It
+ * isn't built to sustain the framerates needed for rendering large screens.
+ * Use the render state API for that. This API is instead meant for less
+ * strictly performance-sensitive use cases.
+ *
+ * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param point The point specifying which cell to look up
+ * @param[out] out_ref On success, set to the grid reference at the given point (may be NULL)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
+ *         is NULL or the point is out of bounds
+ *
+ * @ingroup terminal
+ */
+GhosttyResult ghostty_terminal_grid_ref(GhosttyTerminal terminal,
+                                        GhosttyPoint point,
+                                        GhosttyGridRef *out_ref);
 
 /** @} */
 

@@ -3,9 +3,19 @@ const testing = std.testing;
 const lib_alloc = @import("../../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
 const ZigTerminal = @import("../Terminal.zig");
+const ScreenSet = @import("../ScreenSet.zig");
+const PageList = @import("../PageList.zig");
+const kitty = @import("../kitty/key.zig");
 const modes = @import("../modes.zig");
+const point = @import("../point.zig");
 const size = @import("../size.zig");
+const cell_c = @import("cell.zig");
+const row_c = @import("row.zig");
+const grid_ref_c = @import("grid_ref.zig");
+const style_c = @import("style.zig");
 const Result = @import("result.zig").Result;
+
+const log = std.log.scoped(.terminal_c);
 
 /// C: GhosttyTerminal
 pub const Terminal = ?*ZigTerminal;
@@ -120,6 +130,102 @@ pub fn mode_set(
     const mode_tag: modes.ModeTag = @bitCast(tag);
     const mode = modes.modeFromInt(mode_tag.value, mode_tag.ansi) orelse return .invalid_value;
     t.modes.set(mode, value);
+    return .success;
+}
+
+/// C: GhosttyTerminalScreen
+pub const TerminalScreen = ScreenSet.Key;
+
+/// C: GhosttyTerminalScrollbar
+pub const TerminalScrollbar = PageList.Scrollbar.C;
+
+/// C: GhosttyTerminalData
+pub const TerminalData = enum(c_int) {
+    invalid = 0,
+    cols = 1,
+    rows = 2,
+    cursor_x = 3,
+    cursor_y = 4,
+    cursor_pending_wrap = 5,
+    active_screen = 6,
+    cursor_visible = 7,
+    kitty_keyboard_flags = 8,
+    scrollbar = 9,
+    cursor_style = 10,
+
+    /// Output type expected for querying the data of the given kind.
+    pub fn OutType(comptime self: TerminalData) type {
+        return switch (self) {
+            .invalid => void,
+            .cols, .rows, .cursor_x, .cursor_y => size.CellCountInt,
+            .cursor_pending_wrap, .cursor_visible => bool,
+            .active_screen => TerminalScreen,
+            .kitty_keyboard_flags => u8,
+            .scrollbar => TerminalScrollbar,
+            .cursor_style => style_c.Style,
+        };
+    }
+};
+
+pub fn get(
+    terminal_: Terminal,
+    data: TerminalData,
+    out: ?*anyopaque,
+) callconv(.c) Result {
+    if (comptime std.debug.runtime_safety) {
+        _ = std.meta.intToEnum(TerminalData, @intFromEnum(data)) catch {
+            log.warn("terminal_get invalid data value={d}", .{@intFromEnum(data)});
+            return .invalid_value;
+        };
+    }
+
+    return switch (data) {
+        inline else => |comptime_data| getTyped(
+            terminal_,
+            comptime_data,
+            @ptrCast(@alignCast(out)),
+        ),
+    };
+}
+
+fn getTyped(
+    terminal_: Terminal,
+    comptime data: TerminalData,
+    out: *data.OutType(),
+) Result {
+    const t = terminal_ orelse return .invalid_value;
+    switch (data) {
+        .invalid => return .invalid_value,
+        .cols => out.* = t.cols,
+        .rows => out.* = t.rows,
+        .cursor_x => out.* = t.screens.active.cursor.x,
+        .cursor_y => out.* = t.screens.active.cursor.y,
+        .cursor_pending_wrap => out.* = t.screens.active.cursor.pending_wrap,
+        .active_screen => out.* = t.screens.active_key,
+        .cursor_visible => out.* = t.modes.get(.cursor_visible),
+        .kitty_keyboard_flags => out.* = @as(u8, t.screens.active.kitty_keyboard.current().int()),
+        .scrollbar => out.* = t.screens.active.pages.scrollbar().cval(),
+        .cursor_style => out.* = .fromStyle(t.screens.active.cursor.style),
+    }
+
+    return .success;
+}
+
+pub fn grid_ref(
+    terminal_: Terminal,
+    pt: point.Point.C,
+    out_ref: ?*grid_ref_c.CGridRef,
+) callconv(.c) Result {
+    const t = terminal_ orelse return .invalid_value;
+    const zig_pt: point.Point = switch (pt.tag) {
+        .active => .{ .active = pt.value.active },
+        .viewport => .{ .viewport = pt.value.viewport },
+        .screen => .{ .screen = pt.value.screen },
+        .history => .{ .history = pt.value.history },
+    };
+    const p = t.screens.active.pages.pin(zig_pt) orelse
+        return .invalid_value;
+    if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
     return .success;
 }
 
@@ -396,4 +502,193 @@ test "vt_write" {
     const str = try t.?.plainString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("Hello", str);
+}
+
+test "get cols and rows" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var cols: size.CellCountInt = undefined;
+    var rows: size.CellCountInt = undefined;
+    try testing.expectEqual(Result.success, get(t, .cols, @ptrCast(&cols)));
+    try testing.expectEqual(Result.success, get(t, .rows, @ptrCast(&rows)));
+    try testing.expectEqual(80, cols);
+    try testing.expectEqual(24, rows);
+}
+
+test "get cursor position" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+
+    var x: size.CellCountInt = undefined;
+    var y: size.CellCountInt = undefined;
+    try testing.expectEqual(Result.success, get(t, .cursor_x, @ptrCast(&x)));
+    try testing.expectEqual(Result.success, get(t, .cursor_y, @ptrCast(&y)));
+    try testing.expectEqual(5, x);
+    try testing.expectEqual(0, y);
+}
+
+test "get null" {
+    var cols: size.CellCountInt = undefined;
+    try testing.expectEqual(Result.invalid_value, get(null, .cols, @ptrCast(&cols)));
+}
+
+test "get cursor_visible" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var visible: bool = undefined;
+    try testing.expectEqual(Result.success, get(t, .cursor_visible, @ptrCast(&visible)));
+    try testing.expect(visible);
+
+    // DEC mode 25 controls cursor visibility
+    const cursor_visible_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
+    try testing.expectEqual(Result.success, mode_set(t, cursor_visible_mode, false));
+    try testing.expectEqual(Result.success, get(t, .cursor_visible, @ptrCast(&visible)));
+    try testing.expect(!visible);
+}
+
+test "get active_screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var screen: TerminalScreen = undefined;
+    try testing.expectEqual(Result.success, get(t, .active_screen, @ptrCast(&screen)));
+    try testing.expectEqual(.primary, screen);
+}
+
+test "get kitty_keyboard_flags" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var flags: u8 = undefined;
+    try testing.expectEqual(Result.success, get(t, .kitty_keyboard_flags, @ptrCast(&flags)));
+    try testing.expectEqual(0, flags);
+
+    // Push kitty flags via VT sequence: CSI > 3 u (push disambiguate | report_events)
+    vt_write(t, "\x1b[>3u", 5);
+
+    try testing.expectEqual(Result.success, get(t, .kitty_keyboard_flags, @ptrCast(&flags)));
+    try testing.expectEqual(3, flags);
+}
+
+test "get invalid" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    try testing.expectEqual(Result.invalid_value, get(t, .invalid, null));
+}
+
+test "grid_ref" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_ref));
+
+    // Extract cell from grid ref and verify it contains 'H'
+    var out_cell: cell_c.CCell = undefined;
+    try testing.expectEqual(Result.success, grid_ref_c.grid_ref_cell(&out_ref, &out_cell));
+
+    var cp: u32 = 0;
+    try testing.expectEqual(Result.success, cell_c.get(out_cell, .codepoint, @ptrCast(&cp)));
+    try testing.expectEqual(@as(u32, 'H'), cp);
+}
+
+test "grid_ref null terminal" {
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.invalid_value, grid_ref(null, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_ref));
+}
+
+test "grid_ref out of bounds" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.invalid_value, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 100, .y = 0 } },
+    }, &out_ref));
 }

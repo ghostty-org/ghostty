@@ -53,6 +53,7 @@ pub const RenderState = terminal.RenderState;
 pub const Screen = terminal.Screen;
 pub const ScreenSet = terminal.ScreenSet;
 pub const Selection = terminal.Selection;
+pub const size_report = terminal.size_report;
 pub const SizeReportStyle = terminal.SizeReportStyle;
 pub const StringMap = terminal.StringMap;
 pub const Style = terminal.Style;
@@ -167,6 +168,11 @@ comptime {
         @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
         @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
+        @export(&c.style_default, .{ .name = "ghostty_style_default" });
+        @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });
+        @export(&c.cell_get, .{ .name = "ghostty_cell_get" });
+        @export(&c.row_get, .{ .name = "ghostty_row_get" });
         @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
         @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
         @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
@@ -181,6 +187,22 @@ comptime {
         @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
         @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
         @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
+        @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
+        @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
+        @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
+        @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
+        @export(&c.render_state_colors_get, .{ .name = "ghostty_render_state_colors_get" });
+        @export(&c.render_state_row_iterator_new, .{ .name = "ghostty_render_state_row_iterator_new" });
+        @export(&c.render_state_row_iterator_next, .{ .name = "ghostty_render_state_row_iterator_next" });
+        @export(&c.render_state_row_get, .{ .name = "ghostty_render_state_row_get" });
+        @export(&c.render_state_row_set, .{ .name = "ghostty_render_state_row_set" });
+        @export(&c.render_state_row_iterator_free, .{ .name = "ghostty_render_state_row_iterator_free" });
+        @export(&c.render_state_row_cells_new, .{ .name = "ghostty_render_state_row_cells_new" });
+        @export(&c.render_state_row_cells_next, .{ .name = "ghostty_render_state_row_cells_next" });
+        @export(&c.render_state_row_cells_select, .{ .name = "ghostty_render_state_row_cells_select" });
+        @export(&c.render_state_row_cells_get, .{ .name = "ghostty_render_state_row_cells_get" });
+        @export(&c.render_state_row_cells_free, .{ .name = "ghostty_render_state_row_cells_free" });
+        @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
@@ -189,6 +211,12 @@ comptime {
         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
         @export(&c.terminal_mode_get, .{ .name = "ghostty_terminal_mode_get" });
         @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
+        @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
+        @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+        @export(&c.grid_ref_cell, .{ .name = "ghostty_grid_ref_cell" });
+        @export(&c.grid_ref_row, .{ .name = "ghostty_grid_ref_row" });
+        @export(&c.grid_ref_graphemes, .{ .name = "ghostty_grid_ref_graphemes" });
+        @export(&c.grid_ref_style, .{ .name = "ghostty_grid_ref_style" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {

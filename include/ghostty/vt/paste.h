@@ -18,26 +18,7 @@
  *
  * ## Example
  *
- * @code{.c}
- * #include <stdio.h>
- * #include <string.h>
- * #include <ghostty/vt.h>
- * 
- * int main() {
- *   const char* safe_data = "hello world";
- *   const char* unsafe_data = "rm -rf /\n";
- * 
- *   if (ghostty_paste_is_safe(safe_data, strlen(safe_data))) {
- *     printf("Safe to paste\n");
- *   }
- * 
- *   if (!ghostty_paste_is_safe(unsafe_data, strlen(unsafe_data))) {
- *     printf("Unsafe! Contains newline\n");
- *   }
- * 
- *   return 0;
- * }
- * @endcode
+ * @snippet c-vt-paste/src/main.c paste-safety
  *
  * @{
  */

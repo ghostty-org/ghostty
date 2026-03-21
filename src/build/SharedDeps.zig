@@ -135,6 +135,33 @@ pub fn add(
     // Every exe needs the terminal options
     self.config.terminalOptions().add(b, step.root_module);
 
+    // C imports needed to manage/create PTYs
+    switch (target.result.os.tag) {
+        .freebsd,
+        .linux,
+        .macos,
+        => {
+            const c = b.addTranslateC(.{
+                .root_source_file = b.path("src/pty.c"),
+                .target = target,
+                .optimize = optimize,
+            });
+            switch (target.result.os.tag) {
+                .macos => {
+                    const libc = try std.zig.LibCInstallation.findNative(.{
+                        .allocator = b.allocator,
+                        .target = &target.result,
+                        .verbose = false,
+                    });
+                    c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+                },
+                else => {},
+            }
+            step.root_module.addImport("pty-c", c.createModule());
+        },
+        else => {},
+    }
+
     // Freetype. We always include this even if our font backend doesn't
     // use it because Dear Imgui uses Freetype.
     _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
@@ -626,9 +653,6 @@ fn addGtkNg(
             .wayland_protocols = wayland_protocols_dep.path(""),
         });
 
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/blur.xml"),
-        );
         // FIXME: replace with `zxdg_decoration_v1` once GTK merges https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/server-decoration.xml"),
@@ -640,13 +664,14 @@ fn addGtkNg(
             plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
         );
         scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
+        scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
 
         scanner.generate("wl_compositor", 1);
-        scanner.generate("org_kde_kwin_blur_manager", 1);
         scanner.generate("org_kde_kwin_server_decoration_manager", 1);
         scanner.generate("org_kde_kwin_slide_manager", 1);
         scanner.generate("kde_output_order_v1", 1);
         scanner.generate("xdg_activation_v1", 1);
+        scanner.generate("ext_background_effect_manager_v1", 1);
 
         step.root_module.addImport("wayland", b.createModule(.{
             .root_source_file = scanner.result,

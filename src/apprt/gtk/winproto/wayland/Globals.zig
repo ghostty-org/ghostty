@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
+const ext = wayland.client.ext;
 const kde = wayland.client.kde;
 const org = wayland.client.org;
 const xdg = wayland.client.xdg;
@@ -26,7 +27,8 @@ const Binding = struct {
 };
 
 pub const Tag = enum {
-    kde_blur_manager,
+    compositor,
+    ext_background_effect,
     kde_decoration_manager,
     kde_slide_manager,
     kde_output_order,
@@ -34,7 +36,8 @@ pub const Tag = enum {
 
     fn Type(comptime self: Tag) type {
         return switch (self) {
-            .kde_blur_manager => org.KdeKwinBlurManager,
+            .compositor => wl.Compositor,
+            .ext_background_effect => ext.BackgroundEffectManagerV1,
             .kde_decoration_manager => org.KdeKwinServerDecorationManager,
             .kde_slide_manager => org.KdeKwinSlideManager,
             .kde_output_order => kde.OutputOrderV1,
@@ -55,6 +58,8 @@ pub const State = struct {
     output_order_done: bool = true,
 
     default_deco_mode: ?org.KdeKwinServerDecorationManager.Mode = null,
+
+    bg_effect_capabilities: ext.BackgroundEffectManagerV1.Capability = .{},
 
     /// Reset cached state derived from kde_output_order_v1.
     fn resetOutputOrder(self: *State, alloc: Allocator) void {
@@ -102,6 +107,11 @@ fn onGlobalAttached(self: *Globals, comptime tag: Tag) void {
     // keeps listener setup and object lifetime in one
     // place and also supports globals that appear later.
     switch (tag) {
+        .ext_background_effect => {
+            const v = self.get(tag) orelse return;
+            v.setListener(*Globals, bgEffectListener, self);
+            self.needs_roundtrip = true;
+        },
         .kde_decoration_manager => {
             const v = self.get(tag) orelse return;
             v.setListener(*Globals, decoManagerListener, self);
@@ -175,6 +185,18 @@ fn registryListener(
                 kv.value.proxy.destroy();
                 self.map.remove(kv.key);
             }
+        },
+    }
+}
+
+fn bgEffectListener(
+    _: *ext.BackgroundEffectManagerV1,
+    event: ext.BackgroundEffectManagerV1.Event,
+    self: *Globals,
+) void {
+    switch (event) {
+        .capabilities => |cap| {
+            self.state.bg_effect_capabilities = cap.flags;
         },
     }
 }
