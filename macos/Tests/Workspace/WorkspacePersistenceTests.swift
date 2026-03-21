@@ -9,13 +9,13 @@ struct WorkspacePersistenceTests {
         Project(id: id, name: name, rootPath: "/tmp/\(name)", isPinned: false)
     }
 
-    private func makeTemplate(id: UUID = UUID(), name: String = "Custom") -> SessionTemplate {
-        SessionTemplate(id: id, name: name, command: "/bin/zsh", isDefault: false)
+    private func makeTemplate(id: UUID = UUID(), name: String = "Custom") -> AgentTemplate {
+        AgentTemplate(id: id, name: name, kind: .custom, command: "/bin/zsh", isDefault: false)
     }
 
     private func makeSession(
         projectId: UUID,
-        templateId: UUID = SessionTemplate.shell.id,
+        templateId: UUID = AgentTemplate.shell.id,
         name: String = "Shell — Test"
     ) -> AgentSession {
         AgentSession(name: name, templateId: templateId, projectId: projectId)

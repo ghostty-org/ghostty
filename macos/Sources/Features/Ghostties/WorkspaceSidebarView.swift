@@ -148,12 +148,12 @@ struct WorkspaceSidebarView: View {
     /// Create a new session in the currently selected project.
     private func createNewSessionForSelectedProject() {
         guard let project = selectedProject else { return }
-        let template: SessionTemplate
+        let template: AgentTemplate
         if let defaultId = project.defaultTemplateId,
            let defaultTemplate = store.templates.first(where: { $0.id == defaultId }) {
             template = defaultTemplate
         } else {
-            template = SessionTemplate.shell
+            template = AgentTemplate.shell
         }
         // Auto-expand the target project so the new session is visible.
         expandedProjectIds.insert(project.id)

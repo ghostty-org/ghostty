@@ -14,7 +14,7 @@ final class WorkspaceStore: ObservableObject {
 
     @Published private(set) var projects: [Project] = []
     @Published private(set) var sessions: [AgentSession] = []
-    @Published private(set) var templates: [SessionTemplate] = []
+    @Published private(set) var templates: [AgentTemplate] = []
 
     /// Global session status — shared across all windows so that a session
     /// running in Window A shows a green dot in Window B's sidebar too.
@@ -49,7 +49,7 @@ final class WorkspaceStore: ObservableObject {
         // Merge persisted custom templates with built-in defaults.
         // Defaults are always present; custom templates are additive.
         let customTemplates = state.templates.filter { !$0.isDefault }
-        self.templates = SessionTemplate.defaults + customTemplates
+        self.templates = AgentTemplate.defaults + customTemplates
     }
 
     // MARK: - Computed (Projects)
@@ -206,33 +206,48 @@ final class WorkspaceStore: ObservableObject {
     // MARK: - Template Actions
 
     @discardableResult
-    func addTemplate(name: String, command: String?, environmentVariables: [String: String] = [:]) -> SessionTemplate {
-        let template = SessionTemplate(
-            name: name,
-            command: command,
-            environmentVariables: environmentVariables
-        )
+    func addTemplate(_ template: AgentTemplate) -> AgentTemplate {
         templates.append(template)
         persist()
         return template
     }
 
-    func updateTemplate(id: UUID, name: String, command: String?, environmentVariables: [String: String]) {
+    func updateTemplate(
+        id: UUID,
+        name: String? = nil,
+        kind: AgentTemplate.Kind? = nil,
+        command: String? = nil,
+        environmentVariables: [String: String]? = nil,
+        workingDirectory: String? = nil,
+        isGlobal: Bool? = nil,
+        projectId: UUID?? = nil,
+        agent: AgentTemplate.AgentConfig?? = nil
+    ) {
         guard let index = templates.firstIndex(where: { $0.id == id }) else { return }
         guard !templates[index].isDefault else { return }
-        templates[index].name = name
-        templates[index].command = command
-        templates[index].environmentVariables = environmentVariables
+        if let name { templates[index].name = name }
+        if let kind { templates[index].kind = kind }
+        if let command { templates[index].command = command }
+        if let environmentVariables { templates[index].environmentVariables = environmentVariables }
+        if let workingDirectory { templates[index].workingDirectory = workingDirectory }
+        if let isGlobal { templates[index].isGlobal = isGlobal }
+        if let projectId { templates[index].projectId = projectId }
+        if let agent { templates[index].agent = agent }
         persist()
     }
 
     @discardableResult
-    func duplicateTemplate(id: UUID) -> SessionTemplate? {
+    func duplicateTemplate(id: UUID) -> AgentTemplate? {
         guard let original = templates.first(where: { $0.id == id }) else { return nil }
-        let copy = SessionTemplate(
+        let copy = AgentTemplate(
             name: "Copy of \(original.name)",
+            kind: original.kind,
             command: original.command,
-            environmentVariables: original.environmentVariables
+            environmentVariables: original.environmentVariables,
+            workingDirectory: original.workingDirectory,
+            isGlobal: original.isGlobal,
+            projectId: original.projectId,
+            agent: original.agent
         )
         templates.append(copy)
         persist()
@@ -249,6 +264,14 @@ final class WorkspaceStore: ObservableObject {
     /// Whether any session references a given template.
     func templateInUse(id: UUID) -> Bool {
         sessions.contains { $0.templateId == id }
+    }
+
+    /// Returns templates available for a given project context.
+    /// Global templates are always included, plus any scoped to the specific project.
+    func templates(for projectId: UUID?) -> [AgentTemplate] {
+        templates.filter { template in
+            template.isGlobal || template.projectId == projectId
+        }
     }
 
     // MARK: - Folder Picker

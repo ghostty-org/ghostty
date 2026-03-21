@@ -1,5 +1,102 @@
 # Session Notes — Ghostties
 
+## Mar 21, 2026 (Session 9)
+
+### Orchestrator Infrastructure Scaffolding
+
+Set up the orchestrator agent pattern for this project — agent context files, domain ownership, and AGENTS.md updates. No code changes; all documentation and context infrastructure.
+
+### What Was Done
+
+1. **Codebase exploration** — 3 parallel Explore agents mapped the full architecture:
+   - Workspace sidebar: all 16 files, state machine, data flow, session lifecycle
+   - Upstream terminal: window hierarchy, nib system, config propagation, 4 integration points
+   - Project structure: branches, stashes, test targets, docs, CI
+
+2. **Agent context files created** (in `.claude/projects/.../memory/`):
+   - `general-agent-context.md` — architecture, build, git, upstream integration points + gotchas
+   - `agent-workspace-sidebar.md` — sidebar state machine, data flow, layout tokens, cross-cutting checklists
+   - `agent-design.md` — design tokens, Paper MCP workflow, typography, theme conversion checklist
+
+3. **ORCHESTRATOR.md created** — live orchestrator state with:
+   - Domain ownership map (which context file covers which files)
+   - Subagent type selection guide
+   - Prompt template with project-specific conventions
+   - Fragile areas ranked by impact
+   - Full in-flight backlog pre-populated from session notes
+
+4. **AGENTS.md files updated** (additive, merge-safe):
+   - Root `AGENTS.md` — fork build commands, key directories, module naming, PR rules
+   - `macos/AGENTS.md` — fork scheme/target/output names, build command differences
+
+5. **MEMORY.md updated** — added Agent Context System section with links to all new files
+
+### New Files Created
+- `.claude/projects/.../memory/general-agent-context.md`
+- `.claude/projects/.../memory/agent-workspace-sidebar.md`
+- `.claude/projects/.../memory/agent-design.md`
+- `.claude/projects/.../memory/ORCHESTRATOR.md`
+
+### Files Modified
+- `AGENTS.md` (root) — added Ghostties Fork section at top
+- `macos/AGENTS.md` — added Ghostties Fork section at top
+- `.claude/projects/.../memory/MEMORY.md` — added agent context links
+
+### Key Decisions
+- **4 files, not 6**: Consolidated upstream-terminal into general context (only 4 integration points). Dropped agents-playbook (folded domain map into ORCHESTRATOR.md).
+- **Additive AGENTS.md edits**: Fork section at top of existing files, upstream content preserved below. Prevents merge conflicts on next upstream sync.
+- **Gotchas-first approach**: Every context file has a Gotchas section with non-obvious failure modes. Cross-cutting checklists in sidebar file ("if you touch X, also verify Y").
+
+### Agent Templates — Implementation Started
+
+After brainstorming, moved to `/workflows:plan` then started `/workflows:work`.
+
+**Phase 0** (done): SurfaceConfiguration passes commands through `/bin/sh -c` — arguments work as concatenated string.
+
+**Phase 1** (done): Created `AgentTemplate.swift`, updated `WorkspacePersistence.swift` + `WorkspaceStore.swift`.
+
+**Phases 2+3** (launched in parallel, MAY NOT HAVE FINISHED):
+- Phase 2: SessionCoordinator + ProjectDisclosureRow → use AgentTemplate
+- Phase 3: All view files → replace SessionTemplate refs + delete SessionTemplate.swift
+- Both agents were running when session ended (WiFi loss)
+
+**Phase 4** (not started): Tests
+
+### New Files Created
+- `macos/Sources/Features/Ghostties/Models/AgentTemplate.swift`
+- `docs/brainstorms/2026-03-21-agent-templates-brainstorm.md`
+- `docs/plans/2026-03-21-feat-agent-template-system-plan.md`
+- `docs/plans/2026-03-21-agent-templates-brainstorm-plan.md`
+- Shared: `reference_orchestrator-scaffolding-guide.md` (in ~/Code/ project memory)
+
+### Notes for Next Session
+- **FIRST**: Run `zig build -Doptimize=ReleaseFast` to check build state
+- If build fails, check which files still reference `SessionTemplate` and fix
+- If build passes, move to Phase 4 (tests)
+- Orchestrator mode active — check ORCHESTRATOR.md for full state
+- Stashed work in git stash (stash@{0}) for traffic light alignment
+
+### Agent Templates Brainstorm
+
+Brainstormed the agent-first template system — replacing `SessionTemplate` with `AgentTemplate`.
+
+**Key decisions (8 total):**
+1. Agent-first redesign: every session is an "agent" (Shell = agent with no AI config)
+2. AgentConfig: systemPromptFile + model + additionalFlags (3 knobs)
+3. Kind enum: .shell, .claudeCode, .custom
+4. 3 built-in defaults: Shell, Claude Code, Orchestrator
+5. Relaunch rebuilds CLI from template (template is source of truth)
+6. Global templates + per-project overrides
+7. .custom kind supports any command + optional agent config (aider, dev servers)
+
+**Brainstorm document:** `docs/brainstorms/2026-03-21-agent-templates-brainstorm.md`
+
+**Open questions for plan phase:** persistence migration, CLI flag verification, per-project storage, UI for agent config, prompt file discovery, template CRUD
+
+**Shared knowledge:** Also wrote `reference_orchestrator-scaffolding-guide.md` to shared project memory (anonymized guide for scaffolding orchestrator infrastructure in any project)
+
+---
+
 ## Mar 20, 2026 (Session 8)
 
 ### Traffic Light Vertical Alignment — Investigation (In Progress)

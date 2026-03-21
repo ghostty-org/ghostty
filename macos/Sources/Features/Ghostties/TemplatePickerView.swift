@@ -14,9 +14,9 @@ struct TemplatePickerView: View {
     @EnvironmentObject private var coordinator: SessionCoordinator
     @Environment(\.dismiss) private var dismiss
 
-    @State private var editingTemplate: SessionTemplate?
+    @State private var editingTemplate: AgentTemplate?
     @State private var showDeleteConfirmation = false
-    @State private var templateToDelete: SessionTemplate?
+    @State private var templateToDelete: AgentTemplate?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -60,7 +60,7 @@ struct TemplatePickerView: View {
 
     // MARK: - Template Row
 
-    private func templateRow(_ template: SessionTemplate) -> some View {
+    private func templateRow(_ template: AgentTemplate) -> some View {
         Button(action: { createSession(from: template) }) {
             HStack(spacing: 8) {
                 Image(systemName: iconName(for: template))
@@ -87,7 +87,13 @@ struct TemplatePickerView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            if !template.isDefault {
+            if template.isDefault {
+                Button("Duplicate and Edit...") {
+                    if let copy = store.duplicateTemplate(id: template.id) {
+                        editingTemplate = copy
+                    }
+                }
+            } else {
                 Button("Edit...") {
                     editingTemplate = template
                 }
@@ -125,17 +131,15 @@ struct TemplatePickerView: View {
 
     // MARK: - Actions
 
-    private func iconName(for template: SessionTemplate) -> String {
-        if template.command == "claude" {
-            return "sparkle"
+    private func iconName(for template: AgentTemplate) -> String {
+        switch template.kind {
+        case .shell: return "terminal"
+        case .claudeCode: return template.agent != nil ? "cpu" : "sparkle"
+        case .custom: return "gearshape"
         }
-        if template.isDefault {
-            return "terminal"
-        }
-        return "gearshape"
     }
 
-    private func createSession(from template: SessionTemplate) {
+    private func createSession(from template: AgentTemplate) {
         Task {
             await coordinator.createQuickSession(for: project, template: template)
         }
@@ -143,7 +147,7 @@ struct TemplatePickerView: View {
     }
 
     private func addCustomTemplate() {
-        let newTemplate = store.addTemplate(name: "New Template", command: nil)
+        let newTemplate = store.addTemplate(AgentTemplate(name: "New Template", kind: .custom))
         editingTemplate = newTemplate
     }
 }
@@ -152,12 +156,13 @@ struct TemplatePickerView: View {
 
 /// An inline sheet for editing a custom template's name, command, and environment variables.
 struct TemplateEditForm: View {
-    let template: SessionTemplate
+    let template: AgentTemplate
 
     @EnvironmentObject private var store: WorkspaceStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
+    @State private var kind: AgentTemplate.Kind = .custom
     @State private var command: String = ""
     @State private var envVarsText: String = ""
 
@@ -170,6 +175,16 @@ struct TemplateEditForm: View {
                 field("Name") {
                     TextField("Template name", text: $name)
                         .textFieldStyle(.roundedBorder)
+                }
+
+                field("Kind") {
+                    Picker("", selection: $kind) {
+                        Text("Shell").tag(AgentTemplate.Kind.shell)
+                        Text("Claude Code").tag(AgentTemplate.Kind.claudeCode)
+                        Text("Custom").tag(AgentTemplate.Kind.custom)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
                 }
 
                 field("Command") {
@@ -204,6 +219,7 @@ struct TemplateEditForm: View {
         .frame(width: 320)
         .onAppear {
             name = template.name
+            kind = template.kind
             command = template.command ?? ""
             envVarsText = template.environmentVariables
                 .map { "\($0.key)=\($0.value)" }
@@ -227,6 +243,7 @@ struct TemplateEditForm: View {
         store.updateTemplate(
             id: template.id,
             name: name.trimmingCharacters(in: .whitespaces),
+            kind: kind,
             command: trimmedCommand.isEmpty ? nil : trimmedCommand,
             environmentVariables: envVars
         )

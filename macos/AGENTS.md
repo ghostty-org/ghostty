@@ -1,3 +1,16 @@
+## Ghostties Fork
+
+This fork uses different build tooling than upstream.
+
+- **Scheme**: `Ghostties` (not `Ghostty`)
+- **Build output**: `macos/build/ReleaseLocal/Ghostties.app`
+- **Build command**: `zig build run -Doptimize=ReleaseFast` (not `build.nu`)
+- **Swift module**: `import Ghostty` (PRODUCT_MODULE_NAME is still `Ghostty`)
+- **Unit tests**: `zig build test` or Xcode Cmd+U
+- **Test targets**: `GhosttyTests`, `GhosttyUITests` (unchanged from upstream)
+
+---
+
 # macOS Ghostty Application
 
 - Use `swiftlint` for formatting and linting Swift code.

@@ -1,3 +1,31 @@
+## Ghostties Fork
+
+This is a fork of ghostty-org/ghostty that adds a multi-agent workspace sidebar.
+
+- **Origin**: `SeanSmithDesign/ghostties` — all PRs go here
+- **Upstream**: `ghostty-org/ghostty` — read-only reference. **NEVER** open PRs against upstream.
+
+### Build
+
+- **Build + launch**: `zig build run -Doptimize=ReleaseFast`
+- **Clean rebuild**: `rm -rf macos/build && zig build run -Doptimize=ReleaseFast`
+- **Launch built app**: `open macos/build/ReleaseLocal/Ghostties.app`
+- **Xcode tests**: Open `macos/Ghostties.xcodeproj`, Cmd+U
+
+### Key Directories
+
+- `macos/Sources/Features/Ghostties/` — workspace sidebar feature (fork's main addition)
+- `macos/Sources/Features/Terminal/` — upstream terminal (integration points)
+- `macos/Tests/Workspace/` — sidebar unit tests
+
+### Module Naming
+
+- `PRODUCT_MODULE_NAME = Ghostty` — all Swift code uses `import Ghostty` (do NOT change)
+- `PRODUCT_NAME = Ghostties` — the .app bundle name
+- Xcode scheme: `Ghostties`
+
+---
+
 # Agent Development Guide
 
 A file for [guiding coding agents](https://agents.md/).

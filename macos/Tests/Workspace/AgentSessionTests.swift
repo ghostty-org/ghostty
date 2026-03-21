@@ -48,7 +48,7 @@ struct AgentSessionTests {
     // MARK: - AgentSession Init
 
     @Test func sessionInitStoresAllFields() {
-        let templateId = SessionTemplate.shell.id
+        let templateId = AgentTemplate.shell.id
         let projectId = UUID()
 
         let session = AgentSession(
@@ -73,7 +73,7 @@ struct AgentSessionTests {
     @Test func sessionCodableRoundTrip() throws {
         let original = AgentSession(
             name: "Claude Code — Test",
-            templateId: SessionTemplate.claudeCode.id,
+            templateId: AgentTemplate.claudeCode.id,
             projectId: UUID()
         )
 

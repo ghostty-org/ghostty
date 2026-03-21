@@ -259,11 +259,38 @@ struct ProjectDisclosureRow: View {
 
     private func relaunchSession(_ session: AgentSession) {
         guard let template = store.templates.first(where: { $0.id == session.templateId }) else {
+            // Template was deleted — cannot relaunch.
+            print("Warning: Template for session '\(session.name)' not found (templateId: \(session.templateId))")
             return
         }
+
+        // For agent templates, verify the command can be built.
+        // If a prompt file is missing, fall back to the base command.
+        var launchTemplate = template
+        if template.agent != nil {
+            let built = template.buildCommand()
+            if built.isEmpty && template.command != nil {
+                // buildCommand returned empty but template has a base command —
+                // something went wrong with agent config. Launch with base command only.
+                print("Warning: Agent template '\(template.name)' buildCommand() returned empty, using base command")
+                launchTemplate = AgentTemplate(
+                    id: template.id,
+                    name: template.name,
+                    kind: template.kind,
+                    command: template.command,
+                    environmentVariables: template.environmentVariables,
+                    workingDirectory: template.workingDirectory,
+                    isDefault: template.isDefault,
+                    isGlobal: template.isGlobal,
+                    projectId: template.projectId,
+                    agent: nil
+                )
+            }
+        }
+
         coordinator.clearRuntime(id: session.id)
         Task {
-            await coordinator.createSession(session: session, template: template, project: project)
+            await coordinator.createSession(session: session, template: launchTemplate, project: project)
         }
     }
 

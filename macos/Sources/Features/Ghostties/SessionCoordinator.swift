@@ -94,26 +94,45 @@ final class SessionCoordinator: ObservableObject {
     @discardableResult
     func createSession(
         session: AgentSession,
-        template: SessionTemplate,
+        template: AgentTemplate,
         project: Project
     ) async -> Bool {
         guard let ghosttyApp = ghostty.app else { return false }
 
-        // Resolve command off main thread with timeout.
+        // Build the full command string from the template (includes agent flags).
+        // For shell templates (no command), fullCommand will be empty -> use default shell.
+        // For agent templates, buildCommand() reads prompt files and appends CLI flags.
+        var fullCommand: String? = nil
+        if template.command != nil {
+            let built = template.buildCommand()
+            if !built.isEmpty {
+                fullCommand = built
+            }
+        }
+
+        // Resolve the base command off main thread with timeout.
+        // Only the first token (the binary name) needs PATH resolution;
+        // the rest are arguments that the shell will handle.
         let resolvedCommand: String? = await {
-            guard let cmd = template.command else { return nil }
-            let resolveTask = Task.detached { Self.resolveCommand(cmd) }
+            guard let cmd = fullCommand else { return nil }
+            // Extract the base command (first token) for resolution.
+            let baseCommand = String(cmd.prefix(while: { !$0.isWhitespace }))
+            let resolveTask = Task.detached { Self.resolveCommand(baseCommand) }
             let timeoutTask = Task {
                 try await Task.sleep(for: .seconds(3))
                 resolveTask.cancel()
             }
-            let result = await resolveTask.value
+            let resolvedBase = await resolveTask.value
             timeoutTask.cancel()
-            return result
+            // Replace the base command with its resolved path.
+            if resolvedBase != baseCommand {
+                return resolvedBase + cmd.dropFirst(baseCommand.count)
+            }
+            return cmd
         }()
 
         var config = Ghostty.SurfaceConfiguration()
-        config.workingDirectory = project.rootPath
+        config.workingDirectory = template.workingDirectory ?? project.rootPath
         config.command = resolvedCommand
         config.environmentVariables = template.environmentVariables
 
@@ -138,7 +157,7 @@ final class SessionCoordinator: ObservableObject {
     /// Shared helper used by ProjectDisclosureRow, WorkspaceSidebarView, and TemplatePickerView
     /// to avoid duplicating session-creation logic.
     @discardableResult
-    func createQuickSession(for project: Project, template: SessionTemplate) async -> Bool {
+    func createQuickSession(for project: Project, template: AgentTemplate) async -> Bool {
         let store = WorkspaceStore.shared
         let count = store.sessions(for: project.id).count
         let name = "\(template.name) \(count + 1)"

@@ -30,7 +30,7 @@ struct WorkspacePersistence {
     struct State: Codable {
         var projects: [Project]
         var sessions: [AgentSession]
-        var templates: [SessionTemplate]
+        var templates: [AgentTemplate]
 
         /// Sidebar mode when the app last saved state.
         /// `.overlay` is transient — always persisted as `.closed`.
@@ -42,7 +42,7 @@ struct WorkspacePersistence {
         init(
             projects: [Project] = [],
             sessions: [AgentSession] = [],
-            templates: [SessionTemplate] = [],
+            templates: [AgentTemplate] = [],
             sidebarMode: SidebarMode = .pinned,
             lastSelectedProjectId: UUID? = nil
         ) {
@@ -63,7 +63,7 @@ struct WorkspacePersistence {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
             self.sessions = try container.decodeIfPresent([AgentSession].self, forKey: .sessions) ?? []
-            self.templates = try container.decodeIfPresent([SessionTemplate].self, forKey: .templates) ?? []
+            self.templates = try container.decodeIfPresent([AgentTemplate].self, forKey: .templates) ?? []
             self.lastSelectedProjectId = try container.decodeIfPresent(UUID.self, forKey: .lastSelectedProjectId)
 
             // Try new sidebarMode first; fall back to legacy sidebarVisible bool.
@@ -121,13 +121,16 @@ struct WorkspacePersistence {
         "PYTHONPATH", "NODE_PATH", "RUBYLIB", "GEM_HOME", "GEM_PATH",
     ]
 
+    /// Characters that indicate shell injection in additional flags.
+    private static let dangerousFlagCharacters = CharacterSet(charactersIn: ";&|")
+
     /// Validates referential integrity of loaded state.
     static func validate(_ state: State) -> State {
         var validated = state
 
         // Remove sessions whose template no longer exists.
         let knownTemplateIds = Set(state.templates.map(\.id))
-            .union(SessionTemplate.defaults.map(\.id))
+            .union(AgentTemplate.defaults.map(\.id))
         validated.sessions = state.sessions.filter { session in
             knownTemplateIds.contains(session.templateId)
         }
@@ -144,10 +147,26 @@ struct WorkspacePersistence {
             validated.lastSelectedProjectId = nil
         }
 
-        // Strip dangerous env keys from loaded templates.
+        // Clear orphaned project-scoped templates whose project was deleted.
+        validated.templates = validated.templates.filter { template in
+            if let projectId = template.projectId {
+                return knownProjectIds.contains(projectId)
+            }
+            return true
+        }
+
+        // Strip dangerous env keys and sanitize agent config from loaded templates.
         for i in validated.templates.indices {
             validated.templates[i].environmentVariables = validated.templates[i]
                 .environmentVariables.filter { !dangerousEnvKeys.contains($0.key.uppercased()) }
+
+            // Strip additional flags containing shell injection characters.
+            if validated.templates[i].agent != nil {
+                validated.templates[i].agent!.additionalFlags = validated.templates[i]
+                    .agent!.additionalFlags.filter { flag in
+                        flag.unicodeScalars.allSatisfy { !dangerousFlagCharacters.contains($0) }
+                    }
+            }
         }
 
         return validated
