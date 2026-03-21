@@ -60,6 +60,9 @@ final class ScriptWindow: NSObject {
     @objc(tabs)
     var tabs: [ScriptTab] {
         guard NSApp.isAppleScriptEnabled else { return [] }
+        if (primaryController as? TerminalController)?.usesCustomTabs == true {
+            return []
+        }
         return controllers.map { ScriptTab(window: self, controller: $0) }
     }
 
@@ -69,6 +72,9 @@ final class ScriptWindow: NSObject {
     @objc(selectedTab)
     var selectedTab: ScriptTab? {
         guard NSApp.isAppleScriptEnabled else { return nil }
+        if (primaryController as? TerminalController)?.usesCustomTabs == true {
+            return nil
+        }
         guard let selectedController else { return nil }
         return ScriptTab(window: self, controller: selectedController)
     }
@@ -82,6 +88,9 @@ final class ScriptWindow: NSObject {
     @objc(valueInTabsWithUniqueID:)
     func valueInTabs(uniqueID: String) -> ScriptTab? {
         guard NSApp.isAppleScriptEnabled else { return nil }
+        if (primaryController as? TerminalController)?.usesCustomTabs == true {
+            return nil
+        }
         guard let controller = controller(tabID: uniqueID) else { return nil }
         return ScriptTab(window: self, controller: controller)
     }

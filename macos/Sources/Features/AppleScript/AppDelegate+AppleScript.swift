@@ -230,6 +230,12 @@ extension NSApplication {
     func handleNewTabScriptCommand(_ command: NSScriptCommand) -> ScriptTab? {
         guard validateScript(command: command) else { return nil }
 
+        if TerminalController.preferredParent?.usesCustomTabs ?? true {
+            command.scriptErrorNumber = errAEEventNotPermitted
+            command.scriptErrorString = "AppleScript tab commands are unavailable with Ghostty custom macOS tabs."
+            return nil
+        }
+
         guard let appDelegate = delegate as? AppDelegate else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = "Ghostty app delegate is unavailable."

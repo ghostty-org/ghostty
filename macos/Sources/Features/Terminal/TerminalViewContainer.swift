@@ -5,6 +5,9 @@ import SwiftUI
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
 class TerminalViewContainer: NSView {
     private let terminalView: NSView
+    private let customTabBar = GhosttyCustomTabBar()
+    private var terminalTopConstraint: NSLayoutConstraint?
+    private var customTabBarHeightConstraint: NSLayoutConstraint?
 
     /// Combined glass effect and inactive tint overlay view
     private(set) var glassEffectView: NSView?
@@ -53,10 +56,24 @@ class TerminalViewContainer: NSView {
     }
 
     private func setup() {
+        customTabBar.translatesAutoresizingMaskIntoConstraints = false
+        customTabBar.isHidden = true
+        addSubview(customTabBar)
+
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        let tabBarHeightConstraint = customTabBar.heightAnchor.constraint(equalToConstant: 0)
+        let terminalTopConstraint = terminalView.topAnchor.constraint(equalTo: customTabBar.bottomAnchor)
+        self.customTabBarHeightConstraint = tabBarHeightConstraint
+        self.terminalTopConstraint = terminalTopConstraint
+
         NSLayoutConstraint.activate([
-            terminalView.topAnchor.constraint(equalTo: topAnchor),
+            customTabBar.topAnchor.constraint(equalTo: topAnchor),
+            customTabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            customTabBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            tabBarHeightConstraint,
+            terminalTopConstraint,
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -87,6 +104,33 @@ class TerminalViewContainer: NSView {
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
         window?.contentView as? TerminalViewContainer
+    }
+}
+
+extension TerminalViewContainer {
+    func configureCustomTabBar(delegate: GhosttyCustomTabBarDelegate?) {
+        customTabBar.delegate = delegate
+    }
+
+    func updateCustomTabBar(
+        items: [GhosttyCustomTabItem],
+        selectedIndex: Int,
+        backgroundColor: NSColor,
+        isKeyWindow: Bool,
+        allowsWindowDrag: Bool
+    ) {
+        let shouldShow = items.count > 1
+        customTabBar.isHidden = !shouldShow
+        customTabBarHeightConstraint?.constant = shouldShow ? GhosttyCustomTabBar.barHeight : 0
+
+        guard shouldShow else { return }
+        customTabBar.update(
+            items: items,
+            selectedIndex: selectedIndex,
+            backgroundColor: backgroundColor,
+            isKeyWindow: isKeyWindow,
+            allowsWindowDrag: allowsWindowDrag
+        )
     }
 }
 

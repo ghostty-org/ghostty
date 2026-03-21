@@ -840,17 +840,33 @@ class BaseTerminalController: NSWindowController,
         applyTitleToWindow()
     }
 
-    private func applyTitleToWindow() {
-        guard let window else { return }
+    func restoreWindowTitleState(lastComputedTitle: String, titleOverride: String?) {
+        self.lastComputedTitle = lastComputedTitle
+        self.titleOverride = titleOverride
+        if titleOverride == nil {
+            applyTitleToWindow()
+        }
+    }
 
+    var currentWindowTitle: String {
         if let titleOverride {
-            window.title = computeTitle(
+            return computeTitle(
                 title: titleOverride,
-                bell: focusedSurface?.bell ?? false)
-            return
+                bell: focusedSurface?.bell ?? false
+            )
         }
 
-        window.title = lastComputedTitle
+        return lastComputedTitle
+    }
+
+    private func applyTitleToWindow() {
+        guard let window else { return }
+        let title = currentWindowTitle
+        window.title = title
+        windowTitleDidChange(to: title)
+    }
+
+    func windowTitleDidChange(to: String) {
     }
 
     func pwdDidChange(to: URL?) {
@@ -1287,6 +1303,12 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func changeTabTitle(_ sender: Any) {
+        if let terminalController = self as? TerminalController,
+           terminalController.usesCustomTabs {
+            promptTabTitle()
+            return
+        }
+
         if let targetWindow = window {
             let inlineHostWindow =
                 targetWindow.tabbedWindows?

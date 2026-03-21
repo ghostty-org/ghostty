@@ -41,28 +41,45 @@ extension TerminalRestorable {
 
 /// The state stored for terminal window restoration.
 class TerminalRestorableState: TerminalRestorable {
-    class var version: Int { 7 }
+    class var version: Int { 8 }
 
-    let focusedSurface: String?
-    let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    struct TabState: Codable {
+        let id: UUID
+        let focusedSurface: String?
+        let surfaceTree: SplitTree<Ghostty.SurfaceView>
+        let titleOverride: String?
+        let displayTitle: String
+    }
+
+    let tabs: [TabState]
+    let activeTabIndex: Int
     let effectiveFullscreenMode: FullscreenMode?
     let tabColor: TerminalTabColor
-    let titleOverride: String?
 
     init(from controller: TerminalController) {
-        self.focusedSurface = controller.focusedSurface?.id.uuidString
-        self.surfaceTree = controller.surfaceTree
+        let tabs = controller.restorableCustomTabs()
+        self.tabs = tabs.map {
+            .init(
+                id: $0.id,
+                focusedSurface: $0.focusedSurfaceID?.uuidString,
+                surfaceTree: $0.surfaceTree,
+                titleOverride: $0.titleOverride,
+                displayTitle: $0.displayTitle
+            )
+        }
+        self.activeTabIndex = min(
+            max(controller.restorableActiveCustomTabIndex(), 0),
+            max(tabs.count - 1, 0)
+        )
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
         self.tabColor = (controller.window as? TerminalWindow)?.tabColor ?? .none
-        self.titleOverride = controller.titleOverride
     }
 
     required init(copy other: TerminalRestorableState) {
-        self.surfaceTree = other.surfaceTree
-        self.focusedSurface = other.focusedSurface
+        self.tabs = other.tabs
+        self.activeTabIndex = other.activeTabIndex
         self.effectiveFullscreenMode = other.effectiveFullscreenMode
         self.tabColor = other.tabColor
-        self.titleOverride = other.titleOverride
     }
 }
 
@@ -113,9 +130,13 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // can be found for events from libghostty. This uses the low-level
         // createWindow so that AppKit can place the window wherever it should
         // be.
+        let activeTabIndex = min(max(state.activeTabIndex, 0), max(state.tabs.count - 1, 0))
+        let initialTree = state.tabs[safe: activeTabIndex]?.surfaceTree
+            ?? state.tabs.first?.surfaceTree
+            ?? .init()
         let c = TerminalController.init(
             appDelegate.ghostty,
-            withSurfaceTree: state.surfaceTree)
+            withSurfaceTree: initialTree)
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return
@@ -124,22 +145,20 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // Restore our tab color
         (window as? TerminalWindow)?.tabColor = state.tabColor
 
-        // Restore the tab title override
-        c.titleOverride = state.titleOverride
+        let restoredTabs = state.tabs.map {
+            TerminalController.CustomTabState(
+                id: $0.id,
+                surfaceTree: $0.surfaceTree,
+                focusedSurfaceID: $0.focusedSurface.flatMap(UUID.init(uuidString:)),
+                titleOverride: $0.titleOverride,
+                displayTitle: $0.displayTitle
+            )
+        }
+        c.restoreCustomTabs(restoredTabs, activeIndex: activeTabIndex)
 
-        // Setup our restored state on the controller
-        // Find the focused surface in surfaceTree
-        if let focusedStr = state.focusedSurface {
-            var foundView: Ghostty.SurfaceView?
-            for view in c.surfaceTree where view.id.uuidString == focusedStr {
-                foundView = view
-                break
-            }
-
-            if let view = foundView {
-                c.focusedSurface = view
-                restoreFocus(to: view, inWindow: window)
-            }
+        if let focusedSurfaceID = state.tabs[safe: activeTabIndex]?.focusedSurface,
+           let focusedView = c.surfaceTree.first(where: { $0.id.uuidString == focusedSurfaceID }) {
+            restoreFocus(to: focusedView, inWindow: window)
         }
 
         completionHandler(window, nil)
@@ -189,4 +208,3 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
     }
 }
-

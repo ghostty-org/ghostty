@@ -46,6 +46,42 @@ class MockConfig: Ghostty.Config {
 }
 
 struct TerminalViewContainerTests {
+    @Test func customTabBarVisibilityTracksTabCount() async throws {
+        let view = await MockTerminalViewContainer {
+            EmptyView()
+        }
+
+        let tabBar = try await MainActor.run {
+            let items = view.descendants(withClassName: "GhosttyCustomTabBar")
+            return try #require(items.first as? GhosttyCustomTabBar)
+        }
+
+        await MainActor.run {
+            view.updateCustomTabBar(
+                items: [GhosttyCustomTabItem(id: UUID(), title: "One")],
+                selectedIndex: 0,
+                backgroundColor: .windowBackgroundColor,
+                isKeyWindow: true,
+                allowsWindowDrag: false
+            )
+        }
+        #expect(await MainActor.run { tabBar.isHidden })
+
+        await MainActor.run {
+            view.updateCustomTabBar(
+                items: [
+                    GhosttyCustomTabItem(id: UUID(), title: "One"),
+                    GhosttyCustomTabItem(id: UUID(), title: "Two"),
+                ],
+                selectedIndex: 0,
+                backgroundColor: .windowBackgroundColor,
+                isKeyWindow: true,
+                allowsWindowDrag: false
+            )
+        }
+        #expect(await MainActor.run { !tabBar.isHidden })
+    }
+
     @Test func glassAvailability() async throws {
         let view = await MockTerminalViewContainer {
             EmptyView()

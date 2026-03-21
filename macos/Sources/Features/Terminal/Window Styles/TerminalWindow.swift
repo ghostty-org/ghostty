@@ -94,13 +94,9 @@ class TerminalWindow: NSWindow {
             self.configureTabContextMenuIfNeeded(menu)
         }
 
-        // This is required so that window restoration properly creates our tabs
-        // again. I'm not sure why this is required. If you don't do this, then
-        // tabs restore as separate windows.
-        tabbingMode = .preferred
-        DispatchQueue.main.async {
-            self.tabbingMode = .automatic
-        }
+        // Ghostty manages its own macOS tabs in content view, so AppKit window
+        // tabbing must stay disabled even if the system preference is enabled.
+        tabbingMode = .disallowed
 
         // All new windows are based on the app config at the time of creation.
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
@@ -238,6 +234,10 @@ class TerminalWindow: NSWindow {
     }
 
     override func mergeAllWindows(_ sender: Any?) {
+        if terminalController?.usesCustomTabs == true {
+            return
+        }
+
         super.mergeAllWindows(sender)
 
         // It takes an event loop cycle to merge all the windows so we set a
@@ -245,6 +245,22 @@ class TerminalWindow: NSWindow {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.terminalController?.relabelTabs()
         }
+    }
+
+    override func moveTabToNewWindow(_ sender: Any?) {
+        if terminalController?.usesCustomTabs == true {
+            return
+        }
+
+        super.moveTabToNewWindow(sender)
+    }
+
+    override func toggleTabOverview(_ sender: Any?) {
+        if terminalController?.usesCustomTabs == true {
+            return
+        }
+
+        super.toggleTabOverview(sender)
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
