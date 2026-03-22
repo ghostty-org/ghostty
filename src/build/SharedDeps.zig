@@ -528,8 +528,15 @@ pub fn add(
         }
     }
 
-    // If we're building an exe then we have additional dependencies.
-    if (step.kind != .lib) {
+    const needs_linux_embedded_gtk =
+        step.kind == .lib and
+        step.rootModuleTarget().os.tag == .linux and
+        self.config.app_runtime == .none and
+        self.config.renderer == .opengl;
+
+    // If we're building an exe, or libghostty on Linux with the embedded
+    // GTK OpenGL path, then we need additional dependencies.
+    if (step.kind != .lib or needs_linux_embedded_gtk) {
         // We always statically compile glad
         step.addIncludePath(b.path("vendor/glad/include/"));
         step.addCSourceFile(.{
@@ -541,7 +548,9 @@ pub fn add(
         // get access to glib for dbus.
         if (self.config.flatpak) step.linkSystemLibrary2("gtk4", dynamic_link_opts);
 
-        switch (self.config.app_runtime) {
+        if (needs_linux_embedded_gtk) {
+            try self.addGtkNg(step);
+        } else switch (self.config.app_runtime) {
             .none => {},
             .gtk => try self.addGtkNg(step),
         }

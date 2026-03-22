@@ -38,6 +38,7 @@ typedef enum {
   GHOSTTY_PLATFORM_INVALID,
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
+  GHOSTTY_PLATFORM_LINUX,
 } ghostty_platform_e;
 
 typedef enum {
@@ -426,9 +427,15 @@ typedef struct {
   void* uiview;
 } ghostty_platform_ios_s;
 
+typedef struct {
+  void* gtk_gl_area;
+} ghostty_platform_linux_s;
+
 typedef union {
   ghostty_platform_macos_s macos;
   ghostty_platform_ios_s ios;
+  // `linux` collides with preprocessor-defined identifiers on some toolchains.
+  ghostty_platform_linux_s linux_;
 } ghostty_platform_u;
 
 typedef enum {
@@ -1084,6 +1091,9 @@ void ghostty_surface_refresh(ghostty_surface_t);
 void ghostty_surface_draw(ghostty_surface_t);
 void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
 void ghostty_surface_set_focus(ghostty_surface_t, bool);
+void ghostty_surface_set_linux_gtk_gl_area(ghostty_surface_t, void*);
+void ghostty_surface_display_unrealized(ghostty_surface_t);
+void ghostty_surface_display_realized(ghostty_surface_t);
 void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
 void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
 ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);

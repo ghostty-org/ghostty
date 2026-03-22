@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const gl = @import("opengl");
+const gtk = if (builtin.target.os.tag == .linux) @import("gtk") else struct {};
 const shadertoy = @import("shadertoy.zig");
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
@@ -160,8 +161,6 @@ fn prepareContext(getProcAddress: anytype) !void {
 
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    _ = surface;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -170,9 +169,25 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         => try prepareContext(null),
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            if (builtin.target.os.tag != .linux) return;
+
+            switch (surface.platform) {
+                .linux => |platform| {
+                    const gl_area: *gtk.GLArea = platform.gtk_gl_area;
+                    gl_area.makeCurrent();
+                    if (gl_area.getError()) |err| {
+                        log.warn(
+                            "failed to make GtkGLArea context current msg={s}",
+                            .{err.f_message orelse "(no message)"},
+                        );
+                        return error.GLAreaError;
+                    }
+
+                    try prepareContext(null);
+                },
+
+                else => {},
+            }
         },
     }
 
@@ -209,9 +224,10 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            if (builtin.target.os.tag != .linux) return;
+
+            // Embedded Linux mirrors GTK: the host GTK thread owns the
+            // GtkGLArea context and performs actual draw calls.
         },
     }
 }
@@ -229,7 +245,9 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.embedded => {
-            // TODO: see threadEnter
+            if (builtin.target.os.tag != .linux) return;
+
+            // Embedded Linux mirrors GTK: no renderer-thread GL teardown.
         },
     }
 }
@@ -245,7 +263,16 @@ pub fn displayRealized(self: *const OpenGL) void {
             );
         },
 
-        else => @compileError("only GTK should be calling displayRealized"),
+        apprt.embedded => if (builtin.target.os.tag == .linux) {
+            prepareContext(null) catch |err| {
+                log.warn(
+                    "Error preparing GL context in embedded displayRealized, err={}",
+                    .{err},
+                );
+            };
+        } else @compileError("only Linux embedded should be calling displayRealized"),
+
+        else => @compileError("unsupported runtime for displayRealized"),
     }
 }
 

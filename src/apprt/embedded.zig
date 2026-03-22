@@ -8,7 +8,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const lib = @import("../lib/main.zig");
 const objc = @import("objc");
+const gtk = if (builtin.target.os.tag == .linux) @import("gtk") else struct {};
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const input = @import("../input.zig");
@@ -24,8 +26,11 @@ const Config = configpkg.Config;
 const log = std.log.scoped(.embedded_window);
 
 pub const resourcesDir = internal_os.resourcesDir;
+pub const must_draw_from_app_thread = builtin.target.os.tag == .linux;
 
 pub const App = struct {
+    pub const must_draw_from_app_thread = builtin.target.os.tag == .linux;
+
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
     /// directly to a C callconv and not pay for any translation costs.
@@ -343,6 +348,7 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
+    linux: Linux,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -356,6 +362,11 @@ pub const Platform = union(PlatformTag) {
         uiview: objc.Object,
     } else void;
 
+    pub const Linux = if (builtin.target.os.tag == .linux) struct {
+        /// The realized GtkGLArea that owns the GL context for this surface.
+        gtk_gl_area: *gtk.GLArea,
+    } else void;
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -365,6 +376,12 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
+        },
+
+        // `linux` collides with preprocessor-defined identifiers on some
+        // toolchains, so the C ABI field uses a trailing underscore.
+        linux_: extern struct {
+            gtk_gl_area: ?*anyopaque,
         },
     };
 
@@ -385,6 +402,15 @@ pub const Platform = union(PlatformTag) {
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
             } else error.UnsupportedPlatform,
+
+            .linux => if (Linux != void) linux: {
+                const config = c_platform.linux_;
+                const gtk_gl_area = config.gtk_gl_area orelse
+                    break :linux error.GtkGLAreaMustBeSet;
+                break :linux .{ .linux = .{
+                    .gtk_gl_area = @ptrCast(@alignCast(gtk_gl_area)),
+                } };
+            } else error.UnsupportedPlatform,
         };
     }
 };
@@ -395,6 +421,11 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
+    linux = 3,
+
+    test "ghostty.h PlatformTag" {
+        try lib.checkGhosttyHEnum(PlatformTag, "GHOSTTY_PLATFORM_");
+    }
 };
 
 pub const EnvVar = extern struct {
@@ -770,6 +801,47 @@ pub const Surface = struct {
         self.core_surface.draw() catch |err| {
             log.err("error in draw err={}", .{err});
             return;
+        };
+    }
+
+    pub fn setLinuxGtkGLArea(self: *Surface, gtk_gl_area: ?*anyopaque) void {
+        if (builtin.target.os.tag != .linux) return;
+
+        switch (self.platform) {
+            .linux => |*platform| {
+                const ptr = gtk_gl_area orelse return;
+                platform.gtk_gl_area = @ptrCast(@alignCast(ptr));
+            },
+
+            else => {},
+        }
+    }
+
+    pub fn displayUnrealized(self: *Surface) void {
+        if (builtin.target.os.tag != .linux) return;
+        self.core_surface.renderer.displayUnrealized();
+    }
+
+    pub fn displayRealized(self: *Surface) void {
+        if (builtin.target.os.tag != .linux) return;
+
+        switch (self.platform) {
+            .linux => |platform| {
+                platform.gtk_gl_area.makeCurrent();
+                if (platform.gtk_gl_area.getError()) |err| {
+                    log.warn(
+                        "failed to make GtkGLArea context current during embedded displayRealized msg={s}",
+                        .{err.f_message orelse "(no message)"},
+                    );
+                    return;
+                }
+            },
+
+            else => {},
+        }
+
+        self.core_surface.renderer.displayRealized() catch |err| {
+            log.warn("embedded displayRealized failed err={}", .{err});
         };
     }
 
@@ -1730,6 +1802,21 @@ pub const CAPI = struct {
     /// Update the focused state of a surface.
     export fn ghostty_surface_set_focus(surface: *Surface, focused: bool) void {
         surface.focusCallback(focused);
+    }
+
+    export fn ghostty_surface_set_linux_gtk_gl_area(
+        surface: *Surface,
+        gtk_gl_area: ?*anyopaque,
+    ) void {
+        surface.setLinuxGtkGLArea(gtk_gl_area);
+    }
+
+    export fn ghostty_surface_display_unrealized(surface: *Surface) void {
+        surface.displayUnrealized();
+    }
+
+    export fn ghostty_surface_display_realized(surface: *Surface) void {
+        surface.displayRealized();
     }
 
     /// Update the occlusion state of a surface.

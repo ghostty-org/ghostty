@@ -1189,7 +1189,7 @@ fn selectionScrollTick(self: *Surface) !void {
             .y = pos_vp.y,
         },
     }) orelse {
-        if (comptime std.debug.runtime_safety) unreachable;
+        self.cancelInvalidLeftClickSelectionLocked(t);
         return;
     };
     try self.dragLeftClickSingle(pin, pos.x);
@@ -1197,6 +1197,25 @@ fn selectionScrollTick(self: *Surface) !void {
     // We modified our viewport and selection so we need to queue
     // a render.
     try self.queueRender();
+}
+
+fn cancelInvalidLeftClickSelectionLocked(
+    self: *Surface,
+    t: *terminal.Terminal,
+) void {
+    self.queueIo(
+        .{ .selection_scroll = false },
+        .locked,
+    );
+    self.mouse.click_state[@intFromEnum(input.MouseButton.left)] = .release;
+    self.mouse.left_click_count = 0;
+
+    if (self.mouse.left_click_pin) |prev| {
+        if (t.screens.get(self.mouse.left_click_screen)) |pin_screen| {
+            pin_screen.pages.untrackPin(prev);
+        }
+        self.mouse.left_click_pin = null;
+    }
 }
 
 fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
@@ -4791,7 +4810,7 @@ pub fn cursorPosCallback(
                 .y = pos_vp.y,
             },
         }) orelse {
-            if (comptime std.debug.runtime_safety) unreachable;
+            self.cancelInvalidLeftClickSelectionLocked(t);
             return;
         };
 
