@@ -70,7 +70,7 @@ final class SessionCoordinator: ObservableObject {
 
     /// The last surface title seen for each session. Used as a proxy for the last
     /// terminal output line when detecting "needs attention" prompts.
-    private var lastOutputLines: [UUID: String] = [:]
+    private var lastSurfaceTitle: [UUID: String] = [:]
 
     /// When each session entered the processing state (continuous output).
     /// Cleared when the session returns to a prompt. Used for long-running detection.
@@ -78,6 +78,14 @@ final class SessionCoordinator: ObservableObject {
 
     /// How long a session must be continuously processing before showing as long-running.
     private static let longRunningThreshold: ContinuousClock.Duration = .seconds(1800)
+
+    /// Known prompt patterns for detecting "needs attention" state.
+    private static let promptPatterns: [String] = [
+        "\\[Y/n\\]", "\\[y/N\\]", "\\[yes/no\\]",
+        "Allow\\s", "Do you want", "Press Enter",
+        "Confirm", "approve", "permission",
+        "\\(y\\)", "\\(yes\\)",
+    ]
 
     init(ghostty: Ghostty.App) {
         self.ghostty = ghostty
@@ -245,7 +253,7 @@ final class SessionCoordinator: ObservableObject {
         lastOutputTimestamps.removeValue(forKey: id)
         isAtPrompt.removeValue(forKey: id)
         processingStartTimes.removeValue(forKey: id)
-        lastOutputLines.removeValue(forKey: id)
+        lastSurfaceTitle.removeValue(forKey: id)
         WorkspaceStore.shared.removeSessionStatus(id: id)
     }
 
@@ -505,7 +513,7 @@ final class SessionCoordinator: ObservableObject {
                 // Capture the surface title as a proxy for the last output line.
                 // Used by isLikelyPromptingForInput to detect attention-needed state.
                 if let title = surface?.title, !title.isEmpty {
-                    self.lastOutputLines[sessionId] = title
+                    self.lastSurfaceTitle[sessionId] = title
                 }
             }
     }
@@ -616,7 +624,7 @@ final class SessionCoordinator: ObservableObject {
     /// Returns true if a known pattern matches, or if the last line ends with a
     /// prompt character and is long enough to be meaningful (> 3 chars).
     private func isLikelyPromptingForInput(sessionId: UUID) -> Bool {
-        guard let lastLine = lastOutputLines[sessionId] else { return false }
+        guard let lastLine = lastSurfaceTitle[sessionId] else { return false }
         let trimmed = lastLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
@@ -624,13 +632,7 @@ final class SessionCoordinator: ObservableObject {
         let endsWithPromptChar = trimmed.hasSuffix("?") || trimmed.hasSuffix(":")
 
         // Layer 2: Known prompt patterns (pure regex, no LLM)
-        let promptPatterns = [
-            "\\[Y/n\\]", "\\[y/N\\]", "\\[yes/no\\]",
-            "Allow\\s", "Do you want", "Press Enter",
-            "Confirm", "approve", "permission",
-            "\\(y\\)", "\\(yes\\)",
-        ]
-        let matchesPattern = promptPatterns.contains { pattern in
+        let matchesPattern = Self.promptPatterns.contains { pattern in
             trimmed.range(of: pattern, options: .regularExpression) != nil
         }
 

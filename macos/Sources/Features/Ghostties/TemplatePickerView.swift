@@ -83,7 +83,7 @@ struct TemplatePickerView: View {
                     .padding(.top, 8)
 
                 ForEach(presetTemplates) { template in
-                    presetRow(template)
+                    templateRow(template, isPreset: true)
                 }
             }
 
@@ -134,12 +134,18 @@ struct TemplatePickerView: View {
             .padding(.vertical, 2)
     }
 
-    // MARK: - Preset Row (richer: icon + name + description)
+    // MARK: - Template Row
 
-    private func presetRow(_ template: AgentTemplate) -> some View {
-        Button(action: { handlePresetTap(template) }) {
+    /// Unified row builder for presets, built-ins, and custom templates.
+    ///
+    /// - Parameters:
+    ///   - template: The template to display.
+    ///   - isPreset: Whether this is a file-based preset (uses preview-or-launch tap behavior).
+    @ViewBuilder
+    private func templateRow(_ template: AgentTemplate, isPreset: Bool = false) -> some View {
+        Button(action: { isPreset ? handlePresetTap(template) : createSession(from: template) }) {
             HStack(spacing: 8) {
-                Image(systemName: template.icon ?? iconName(for: template))
+                Image(systemName: resolvedIcon(for: template))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
@@ -151,51 +157,11 @@ struct TemplatePickerView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
-                    }
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("Duplicate and Edit...") {
-                if let copy = store.duplicateTemplate(id: template.id) {
-                    editingTemplate = copy
-                }
-            }
-            if template.templateDescription != nil {
-                Button("Edit Preset File...") {
-                    openPresetInEditor(template)
-                }
-            }
-        }
-    }
-
-    // MARK: - Template Row (standard: icon + name + command)
-
-    private func templateRow(_ template: AgentTemplate) -> some View {
-        Button(action: { createSession(from: template) }) {
-            HStack(spacing: 8) {
-                Image(systemName: template.icon ?? iconName(for: template))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(template.name)
-                        .font(.system(size: 12, weight: .medium))
-                    if let description = template.templateDescription {
-                        Text(description)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    } else if let command = template.command {
+                    } else if !isPreset, let command = template.command {
                         Text(command)
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
-                    } else {
+                    } else if !isPreset {
                         Text("Default shell")
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
@@ -209,7 +175,18 @@ struct TemplatePickerView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            if template.isDefault {
+            if isPreset {
+                Button("Duplicate and Edit...") {
+                    if let copy = store.duplicateTemplate(id: template.id) {
+                        editingTemplate = copy
+                    }
+                }
+                if template.templateDescription != nil {
+                    Button("Edit Preset File...") {
+                        openPresetInEditor(template)
+                    }
+                }
+            } else if template.isDefault {
                 Button("Duplicate and Edit...") {
                     if let copy = store.duplicateTemplate(id: template.id) {
                         editingTemplate = copy
@@ -238,7 +215,7 @@ struct TemplatePickerView: View {
             if let template = previewingTemplate {
                 // Header: icon + name
                 HStack(spacing: 8) {
-                    Image(systemName: template.icon ?? iconName(for: template))
+                    Image(systemName: resolvedIcon(for: template))
                         .font(.system(size: 16))
                         .foregroundStyle(.secondary)
                     Text(template.name)
@@ -335,6 +312,12 @@ struct TemplatePickerView: View {
         }
     }
 
+    /// Resolve the display icon for a template, preferring its explicit icon
+    /// over the kind-based default.
+    private func resolvedIcon(for template: AgentTemplate) -> String {
+        template.icon ?? iconName(for: template)
+    }
+
     private func handlePresetTap(_ template: AgentTemplate) {
         if skipPresetPreview {
             createSession(from: template)
@@ -359,8 +342,14 @@ struct TemplatePickerView: View {
         // Find the preset file by name in ~/.ghostties/presets/
         let filename = template.name.lowercased().replacingOccurrences(of: " ", with: "-") + ".md"
         let path = (PresetLoader.presetsDirectoryPath as NSString).appendingPathComponent(filename)
-        let url = URL(fileURLWithPath: path)
-        if FileManager.default.fileExists(atPath: path) {
+
+        // Validate the resolved path stays within the presets directory.
+        let resolvedPath = (path as NSString).standardizingPath
+        let presetsDir = (PresetLoader.presetsDirectoryPath as NSString).standardizingPath
+        guard resolvedPath.hasPrefix(presetsDir + "/") else { return }
+
+        let url = URL(fileURLWithPath: resolvedPath)
+        if FileManager.default.fileExists(atPath: resolvedPath) {
             NSWorkspace.shared.open(url)
         }
     }

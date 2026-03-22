@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// An agent-first template for creating terminal sessions.
 ///
@@ -145,6 +146,11 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         return "'\(escaped)'"
     }
 
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.ghostties",
+        category: "AgentTemplate"
+    )
+
     /// Maximum file size (1 MB) for systemPromptFile contents.
     private static let maxPromptFileSize = 1_048_576
 
@@ -176,12 +182,12 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
             let attrs = try? FileManager.default.attributesOfItem(atPath: expandedPath)
             let fileSize = attrs?[.size] as? Int ?? 0
             if fileSize > Self.maxPromptFileSize {
-                print("[AgentTemplate] Skipping systemPromptFile: file too large (\(fileSize) bytes > \(Self.maxPromptFileSize))")
+                Self.logger.warning("Skipping systemPromptFile: file too large (\(fileSize) bytes > \(Self.maxPromptFileSize))")
             } else if let contents = try? String(contentsOfFile: expandedPath, encoding: .utf8) {
                 parts.append("--append-system-prompt")
                 parts.append(Self.shellEscape(contents))
             } else {
-                print("[AgentTemplate] Skipping systemPromptFile: file not found or unreadable at \(expandedPath)")
+                Self.logger.warning("Skipping systemPromptFile: file not found or unreadable at \(expandedPath)")
             }
         } else if let systemPrompt = agent.systemPrompt, !systemPrompt.isEmpty {
             // Inline system prompt from preset body.

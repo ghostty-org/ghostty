@@ -49,8 +49,10 @@ final class WorkspaceStore: ObservableObject {
         // Seed bundled presets to ~/.ghostties/presets/ on first launch.
         PresetLoader.seedIfNeeded()
 
-        // Load file-based presets from ~/.ghostties/presets/.
-        let presets = PresetLoader.loadPresets()
+        // Load file-based presets from ~/.ghostties/presets/ and sanitize them.
+        let presets = PresetLoader.loadPresets().map {
+            WorkspacePersistence.sanitizeTemplate($0)
+        }
 
         // Merge persisted custom templates with built-in defaults and presets.
         // Order: presets first, then built-in defaults, then custom templates.
