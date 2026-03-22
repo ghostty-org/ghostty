@@ -69,18 +69,21 @@ You are an expert code reviewer...
 First Launch:
   WorkspaceStore.init()
     -> PresetLoader.seedIfNeeded()
-       -> Creates ~/.ghostties/presets/
-       -> Writes 6 bundled .md files from embedded Swift strings
+       -> Creates ~/.ghostties/presets/ (mode 0o700)
+       -> Copies bundled .md files from Bundle.main Resources/Presets
     -> PresetLoader.loadPresets()
+       -> Verifies directory is real (not a symlink)
        -> Scans directory for .md files
-       -> Parses frontmatter + body
+       -> Parses frontmatter + body, validates command field
        -> Returns [AgentTemplate] with isDefault=true, deterministic UUIDs
+    -> sanitizeTemplate() applied to each loaded preset
     -> Merges: presets + defaults + custom templates
 
 Subsequent Launches:
   WorkspaceStore.init()
     -> PresetLoader.seedIfNeeded() (no-op, directory exists)
-    -> PresetLoader.loadPresets() (scans, parses, returns templates)
+    -> PresetLoader.loadPresets() (symlink check, scan, parse, validate)
+    -> sanitizeTemplate() applied to each loaded preset
     -> Merges: presets + defaults + custom templates
 
 Community Preset:
@@ -90,7 +93,7 @@ Community Preset:
 
 ### Preset Embedding Strategy
 
-Preset content is embedded as Swift string constants in `PresetLoader.swift` rather than Xcode bundle resources. This avoids modifying the Xcode project's `project.pbxproj` file and keeps the build simpler. The same content is also stored as standalone `.md` files in `macos/Resources/Presets/` for reference.
+Preset content ships as `.md` files in `macos/Resources/Presets/` and is bundled into the app via Xcode's Copy Bundle Resources phase. At seed time, `PresetLoader.seedIfNeeded()` copies them from `Bundle.main` to `~/.ghostties/presets/` — no inline Swift strings.
 
 ### UUID Stability
 
@@ -105,14 +108,32 @@ Presets use deterministic UUIDs generated from `SHA256("com.ghostties.presets:<f
 - The `WorkspacePersistence.validate()` method must include preset IDs in the known template set
 - Preset templates are `isDefault: true` so they can't be deleted or edited through the standard UI
 
+### Hardening Measures
+
+- **Command validation** — `parsePreset()` rejects any preset whose `command` field contains whitespace or shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, `(`, `)`, `{`, `}`). Prevents command injection via community preset files.
+- **Template sanitization** — Every loaded preset passes through `WorkspacePersistence.sanitizeTemplate()` which strips dangerous env keys and enforces a flag allowlist, same as user-created templates.
+- **Directory permissions** — `seedIfNeeded()` creates `~/.ghostties/presets/` with POSIX mode `0o700` (owner-only read/write/execute).
+- **Symlink check** — `loadPresets()` verifies the presets directory is a real directory, not a symlink. Refuses to load if it resolves to a symlink.
+- **Path traversal protection** — `openPresetInEditor()` resolves the file path via `standardizingPath` and validates it stays within the presets directory before opening.
+- **Structured logging** — All warnings and errors use `OSLog.Logger` (subsystem: bundle identifier, category: `PresetLoader`) instead of `print()`.
+
+### Code Quality Improvements
+
+- **Merged row builders** — `TemplatePickerView` uses a single `templateRow(_:isPreset:)` method for both preset and custom template rows instead of separate builders.
+- **Static prompt patterns** — `SessionCoordinator.promptPatterns` is a `static let` array rather than recomputed per call.
+- **Renamed property** — `lastOutput` renamed to `lastSurfaceTitle` for clarity about what is being tracked (surface title, not raw terminal output).
+
 ## Verification
 
-1. Delete `~/.ghostties/presets/` and launch the app — 6 preset files should be created
+1. Delete `~/.ghostties/presets/` and launch the app — 6 preset files should be created with `0o700` directory permissions
 2. Verify all 6 presets appear in the template picker under "PRESETS" section
 3. Click a preset — preview card should show with model, access, and description
 4. Check "Don't show previews" — subsequent clicks should launch directly
 5. Create a session from a preset, quit, relaunch — session should still reference the preset template
 6. Drop a custom `.md` file in `~/.ghostties/presets/` — it should appear on next launch
+7. Drop a preset with `command: "claude;rm -rf"` — it should be rejected (check Console.app for PresetLoader warning)
+8. Replace `~/.ghostties/presets/` with a symlink to another directory — `loadPresets()` should return empty and log a warning
+9. Right-click "Edit Preset File..." on a preset whose name contains `../` — the open should be silently blocked
 
 ### Files Changed
 

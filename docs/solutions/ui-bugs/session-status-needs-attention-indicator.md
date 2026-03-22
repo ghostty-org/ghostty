@@ -24,16 +24,18 @@ Added a new `SessionIndicatorState.needsAttention` case with a distinct purple i
 
 ### Detection Logic (`SessionCoordinator.isLikelyPromptingForInput`)
 
-Two layers evaluated against the surface title (last known terminal title):
+Two layers evaluated against `lastSurfaceTitle[sessionId]` (the terminal's surface title, used as a proxy for the last output line):
 
 1. **Prompt character heuristic**: title ends with `?` or `:` and is longer than 3 characters
-2. **Pattern matching**: regex against known prompt patterns (`[Y/n]`, `Allow`, `Do you want`, `Press Enter`, `Confirm`, `approve`, `permission`, `(y)`, `(yes)`)
+2. **Pattern matching**: regex against `promptPatterns` — a `static let` array of known prompt patterns (`[Y/n]`, `Allow`, `Do you want`, `Press Enter`, `Confirm`, `approve`, `permission`, `(y)`, `(yes)`)
+
+The `promptPatterns` array is declared as `private static let` on `SessionCoordinator` to avoid re-allocating on every call to `isLikelyPromptingForInput`.
 
 Returns true if a pattern matches (strong signal) OR if the prompt character heuristic matches (weaker signal, but sufficient with length guard).
 
 ### Data Flow
 
-The surface title is captured in `subscribeToOutput()` when `lastOutputSubject` fires. This reuses the existing Combine subscription without adding new terminal integrations. The title is stored in `lastOutputLines[sessionId]` and read by `isLikelyPromptingForInput()` when the indicator state computation reaches the `.waiting` branch.
+The surface title is captured in `subscribeToOutput()` when `lastOutputSubject` fires. This reuses the existing Combine subscription without adding new terminal integrations. The title is stored in `lastSurfaceTitle[sessionId]` and read by `isLikelyPromptingForInput()` when the indicator state computation reaches the `.waiting` branch.
 
 ## Files Changed
 
@@ -42,11 +44,11 @@ The surface title is captured in `subscribeToOutput()` when `lastOutputSubject` 
 | `macos/Sources/Features/Ghostties/Models/AgentSession.swift` | Added `.needsAttention` case, priority 5; bumped `.error` to 6 |
 | `macos/Sources/Features/Ghostties/WorkspaceLayout.swift` | Added `needsAttentionPurple` color token |
 | `macos/Sources/Features/Ghostties/SessionDetailView.swift` | Purple color mapping, 1.0s pulse animation, semibold text weight, accessibility label |
-| `macos/Sources/Features/Ghostties/SessionCoordinator.swift` | `lastOutputLines` tracking, `isLikelyPromptingForInput()` method, `.needsAttention` in `indicatorState(for:)` |
+| `macos/Sources/Features/Ghostties/SessionCoordinator.swift` | `lastSurfaceTitle` tracking, `promptPatterns` (`static let`), `isLikelyPromptingForInput()` method, `.needsAttention` in `indicatorState(for:)` |
 | `macos/Sources/Features/Ghostties/ProjectDisclosureRow.swift` | Purple in `projectHeaderColor` switch |
 | `macos/Tests/Workspace/AgentSessionTests.swift` | Updated priority sort test, added comparison tests |
 
 ## Known Limitations
 
-- **Title-based detection**: uses the terminal title as a proxy for the last output line. If the terminal title is set to something unrelated (e.g., a path), the heuristic may miss prompts. Future improvement: add OSC escape code support if Claude Code ever exposes a machine-readable "waiting for permission" signal.
-- **False positives**: a subprocess that sets the title to something ending with `?` will trigger needsAttention even if it's not actually waiting for input. The 2-second silence threshold from the `.waiting` check provides a natural guard.
+- **Surface title as proxy**: `lastSurfaceTitle` captures the terminal's surface title (set via escape sequences like OSC 0/2) as a proxy for the last output line. This is not the actual terminal content -- any program can set the title to arbitrary text via `\e]0;...\a`. A process that sets the title to a question mark or a pattern like `[Y/n]` will trigger a false positive. Conversely, if a prompt appears in terminal output but the title is unchanged (e.g., still showing a path), the heuristic will miss it. Future improvement: use a machine-readable signal (OSC extension or sideband) if Claude Code ever exposes one.
+- **False positives from title manipulation**: a subprocess that sets the title to something ending with `?` or matching a known pattern will trigger needsAttention even if it's not actually waiting for input. The 2-second silence threshold from the `.waiting` check provides a natural guard.

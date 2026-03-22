@@ -1,5 +1,58 @@
 # Session Notes — Ghostties
 
+## Mar 22, 2026 (Session 10)
+
+### Agent Preset Gallery + Session Status Indicator
+
+Two features implemented in parallel via orchestrator-delegated subagents.
+
+**Feature 1: Agent Preset Gallery**
+- PresetLoader parses .md files with YAML frontmatter from ~/.ghostties/presets/
+- 6 MVP presets: Pair Programmer, Architect, Code Reviewer, Test Writer, Debugger, Orchestrator
+- Enhanced picker with sections (PRESETS / YOUR TEMPLATES), preview cards, "Don't show previews" toggle
+- Tool-agnostic (command field supports claude/codex/aider)
+- Community-extensible via file drops
+- Presets seeded from Bundle.main on first launch
+
+**Feature 2: Session Status — needsAttention**
+- New `.needsAttention` indicator state with purple #A855F7 color
+- Faster 1.0s pulse (vs 2.0s for waiting)
+- Two-layer detection: silence heuristic + output pattern matching (pure regex, no LLM)
+- Detects [Y/n], Allow?, Do you want, Press Enter, etc.
+
+**Review Fixes (24 total this session)**
+- Session 9 carryover: 12 findings from agent template review (todos 032-043)
+- Session 10: 12 findings from preset gallery + status review (todos 032-043)
+- P1: presets bypass sanitization, command injection
+- P2: path traversal, 270 LOC duplication eliminated, permissions, logging
+- P3: merged row builders, static patterns, symlink check, naming, dead code
+
+### Brainstorms Captured
+- Agent preset gallery UX
+- Session status improvements (needsAttention)
+
+### Future Items Discussed
+- Seed presets to ~/.claude/prompts/ for cross-app use
+- Ghost-themed audio cues (ElevenLabs sound effects API)
+- Menu bar agent status dropdown (brainstormed Session 9, not yet built)
+
+### Commits
+| Commit | Description |
+|--------|-------------|
+| `d183e8eea` | docs: preset gallery brainstorm |
+| `5cb55a9f0` | docs: session status brainstorm |
+| `911e6eedb` | feat: preset gallery + needsAttention indicator |
+| `ffaabd995` | fix: all 12 review findings |
+
+### Notes for Next Session
+- Menu bar agent status — brainstorm exists, ready for /workflows:plan
+- Seed presets to ~/.claude/prompts/ (cross-app agent presets)
+- Ghost-themed audio cues for status changes (ElevenLabs)
+- Quality review of preset prompt content
+- Traffic light alignment still stashed (git stash)
+
+---
+
 ## Mar 21, 2026 (Session 9)
 
 ### Orchestrator Infrastructure Scaffolding
