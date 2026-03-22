@@ -204,12 +204,13 @@ struct ProjectDisclosureRow: View {
     /// Map the aggregated indicator to a chevron color (same palette as session rows).
     private var projectHeaderColor: Color {
         switch projectHeaderIndicator {
-        case .error:       return Color(nsColor: .systemRed)
-        case .waiting:     return WorkspaceLayout.waitingTerracotta
-        case .longRunning: return Color(nsColor: .systemYellow)
-        case .processing:  return Color(nsColor: .systemGreen)
-        case .idle:        return Color(.secondaryLabelColor)
-        case .inactive:    return Color(.tertiaryLabelColor)
+        case .error:          return Color(nsColor: .systemRed)
+        case .needsAttention: return WorkspaceLayout.needsAttentionPurple
+        case .waiting:        return WorkspaceLayout.waitingTerracotta
+        case .longRunning:    return Color(nsColor: .systemYellow)
+        case .processing:     return Color(nsColor: .systemGreen)
+        case .idle:           return Color(.secondaryLabelColor)
+        case .inactive:       return Color(.tertiaryLabelColor)
         }
     }
 

@@ -68,6 +68,10 @@ final class SessionCoordinator: ObservableObject {
     /// Reset to false on any output activity. Used to distinguish idle vs waiting.
     private var isAtPrompt: [UUID: Bool] = [:]
 
+    /// The last surface title seen for each session. Used as a proxy for the last
+    /// terminal output line when detecting "needs attention" prompts.
+    private var lastOutputLines: [UUID: String] = [:]
+
     /// When each session entered the processing state (continuous output).
     /// Cleared when the session returns to a prompt. Used for long-running detection.
     private var processingStartTimes: [UUID: ContinuousClock.Instant] = [:]
@@ -241,6 +245,7 @@ final class SessionCoordinator: ObservableObject {
         lastOutputTimestamps.removeValue(forKey: id)
         isAtPrompt.removeValue(forKey: id)
         processingStartTimes.removeValue(forKey: id)
+        lastOutputLines.removeValue(forKey: id)
         WorkspaceStore.shared.removeSessionStatus(id: id)
     }
 
@@ -488,7 +493,7 @@ final class SessionCoordinator: ObservableObject {
     /// Subscribe to a session's root surface output activity via Combine.
     private func subscribeToOutput(surface: Ghostty.SurfaceView, sessionId: UUID) {
         outputSubscriptions[sessionId] = surface.lastOutputSubject
-            .sink { [weak self] in
+            .sink { [weak self, weak surface] in
                 guard let self else { return }
                 self.lastOutputTimestamps[sessionId] = .now
                 // Output means we're no longer at the prompt.
@@ -496,6 +501,11 @@ final class SessionCoordinator: ObservableObject {
                 // Start tracking processing duration if not already.
                 if self.processingStartTimes[sessionId] == nil {
                     self.processingStartTimes[sessionId] = .now
+                }
+                // Capture the surface title as a proxy for the last output line.
+                // Used by isLikelyPromptingForInput to detect attention-needed state.
+                if let title = surface?.title, !title.isEmpty {
+                    self.lastOutputLines[sessionId] = title
                 }
             }
     }
@@ -556,10 +566,11 @@ final class SessionCoordinator: ObservableObject {
     /// Compute the view-layer indicator state for a session.
     ///
     /// Combines lifecycle status, output recency, and shell prompt signals into
-    /// one of six visual states. For running sessions:
+    /// one of seven visual states. For running sessions:
     /// - Recent output → processing (or long-running if 30+ min continuous)
     /// - No recent output + at shell prompt → idle
-    /// - No recent output + NOT at shell prompt → waiting (needs attention)
+    /// - No recent output + NOT at prompt + likely prompting → needsAttention
+    /// - No recent output + NOT at shell prompt → waiting
     func indicatorState(for sessionId: UUID) -> SessionIndicatorState {
         let status = statuses[sessionId]
             ?? WorkspaceStore.shared.globalStatuses[sessionId]
@@ -581,7 +592,11 @@ final class SessionCoordinator: ObservableObject {
             if isAtPrompt[sessionId] == true {
                 return .idle
             }
-            // Not at prompt — subprocess may need input.
+            // Not at prompt — check if the agent is likely prompting for user input.
+            if isLikelyPromptingForInput(sessionId: sessionId) {
+                return .needsAttention
+            }
+            // Silent but no strong signal of a prompt — generic waiting.
             return .waiting
 
         case .completed, .exited, .killed:
@@ -590,6 +605,38 @@ final class SessionCoordinator: ObservableObject {
         case .error:
             return .error
         }
+    }
+
+    /// Check if a session is likely blocked on user input based on its last output.
+    ///
+    /// Uses two layers of detection:
+    /// - Layer 1: Last output ends with `?` or `:` (prompt character heuristic)
+    /// - Layer 2: Known prompt patterns (permission prompts, yes/no, confirm)
+    ///
+    /// Returns true if a known pattern matches, or if the last line ends with a
+    /// prompt character and is long enough to be meaningful (> 3 chars).
+    private func isLikelyPromptingForInput(sessionId: UUID) -> Bool {
+        guard let lastLine = lastOutputLines[sessionId] else { return false }
+        let trimmed = lastLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        // Layer 1: Last character is ? or :
+        let endsWithPromptChar = trimmed.hasSuffix("?") || trimmed.hasSuffix(":")
+
+        // Layer 2: Known prompt patterns (pure regex, no LLM)
+        let promptPatterns = [
+            "\\[Y/n\\]", "\\[y/N\\]", "\\[yes/no\\]",
+            "Allow\\s", "Do you want", "Press Enter",
+            "Confirm", "approve", "permission",
+            "\\(y\\)", "\\(yes\\)",
+        ]
+        let matchesPattern = promptPatterns.contains { pattern in
+            trimmed.range(of: pattern, options: .regularExpression) != nil
+        }
+
+        // Pattern match is a strong signal on its own.
+        // Prompt char is weaker — require minimum line length to avoid false positives.
+        return matchesPattern || (endsWithPromptChar && trimmed.count > 3)
     }
 
     /// Update a session's status locally and in the global store.

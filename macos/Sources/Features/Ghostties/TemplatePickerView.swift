@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 /// template creates a new AgentSession, wires it to a Ghostty surface, and
 /// inserts the surface into the split tree.
 ///
+/// Templates are organized into sections:
+/// - **PRESETS**: File-based presets from `~/.ghostties/presets/`
+/// - **BUILT-IN**: Shell and Claude Code defaults
+/// - **YOUR TEMPLATES**: User-created custom templates
+///
+/// Clicking a preset shows a preview card (unless "Don't show previews" is set).
 /// Non-default templates have a context menu for Edit, Duplicate, and Delete.
 struct TemplatePickerView: View {
     let project: Project
@@ -18,26 +24,34 @@ struct TemplatePickerView: View {
     @State private var editingTemplate: AgentTemplate?
     @State private var showDeleteConfirmation = false
     @State private var templateToDelete: AgentTemplate?
+    @State private var previewingTemplate: AgentTemplate?
+
+    @AppStorage("ghostties.skipPresetPreview") private var skipPresetPreview = false
+
+    /// Preset templates loaded from `~/.ghostties/presets/` (have a `templateDescription`).
+    private var presetTemplates: [AgentTemplate] {
+        store.templates.filter { $0.templateDescription != nil && $0.isDefault }
+    }
+
+    /// Built-in templates (Shell, Claude Code, etc.) — no preset description.
+    private var builtinTemplates: [AgentTemplate] {
+        store.templates.filter { $0.templateDescription == nil && $0.isDefault }
+    }
+
+    /// User-created custom templates.
+    private var customTemplates: [AgentTemplate] {
+        store.templates.filter { !$0.isDefault }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("New Session")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-
-            ForEach(store.templates) { template in
-                templateRow(template)
+        VStack(alignment: .leading, spacing: 0) {
+            if previewingTemplate != nil {
+                previewCard
+            } else {
+                templateList
             }
-
-            Divider()
-                .padding(.horizontal, 8)
-
-            addCustomButton
         }
-        .padding(.bottom, 8)
-        .frame(width: 200)
+        .frame(width: 220)
         .sheet(item: $editingTemplate) { template in
             TemplateEditForm(template: template)
         }
@@ -59,18 +73,125 @@ struct TemplatePickerView: View {
         }
     }
 
-    // MARK: - Template Row
+    // MARK: - Template List
 
-    private func templateRow(_ template: AgentTemplate) -> some View {
-        Button(action: { createSession(from: template) }) {
+    private var templateList: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Presets section
+            if !presetTemplates.isEmpty {
+                sectionHeader("PRESETS")
+                    .padding(.top, 8)
+
+                ForEach(presetTemplates) { template in
+                    presetRow(template)
+                }
+            }
+
+            // Built-in section
+            if !builtinTemplates.isEmpty {
+                if !presetTemplates.isEmpty {
+                    Divider()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                }
+
+                ForEach(builtinTemplates) { template in
+                    templateRow(template)
+                }
+            }
+
+            // Custom templates section
+            if !customTemplates.isEmpty {
+                Divider()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+
+                sectionHeader("YOUR TEMPLATES")
+
+                ForEach(customTemplates) { template in
+                    templateRow(template)
+                }
+            }
+
+            Divider()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+
+            addCustomButton
+
+            Spacer()
+                .frame(height: 8)
+        }
+    }
+
+    // MARK: - Section Header
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+    }
+
+    // MARK: - Preset Row (richer: icon + name + description)
+
+    private func presetRow(_ template: AgentTemplate) -> some View {
+        Button(action: { handlePresetTap(template) }) {
             HStack(spacing: 8) {
-                Image(systemName: iconName(for: template))
+                Image(systemName: template.icon ?? iconName(for: template))
                     .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(template.name)
                         .font(.system(size: 12, weight: .medium))
-                    if let command = template.command {
+                    if let description = template.templateDescription {
+                        Text(description)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Duplicate and Edit...") {
+                if let copy = store.duplicateTemplate(id: template.id) {
+                    editingTemplate = copy
+                }
+            }
+            if template.templateDescription != nil {
+                Button("Edit Preset File...") {
+                    openPresetInEditor(template)
+                }
+            }
+        }
+    }
+
+    // MARK: - Template Row (standard: icon + name + command)
+
+    private func templateRow(_ template: AgentTemplate) -> some View {
+        Button(action: { createSession(from: template) }) {
+            HStack(spacing: 8) {
+                Image(systemName: template.icon ?? iconName(for: template))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(template.name)
+                        .font(.system(size: 12, weight: .medium))
+                    if let description = template.templateDescription {
+                        Text(description)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    } else if let command = template.command {
                         Text(command)
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
@@ -83,7 +204,7 @@ struct TemplatePickerView: View {
                 Spacer()
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -110,6 +231,80 @@ struct TemplatePickerView: View {
         }
     }
 
+    // MARK: - Preview Card
+
+    private var previewCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let template = previewingTemplate {
+                // Header: icon + name
+                HStack(spacing: 8) {
+                    Image(systemName: template.icon ?? iconName(for: template))
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                    Text(template.name)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                // Metadata
+                VStack(alignment: .leading, spacing: 4) {
+                    if let model = template.agent?.model {
+                        metadataRow(label: "Model", value: model)
+                    }
+                    if let access = template.accessLabel {
+                        metadataRow(label: "Access", value: access)
+                    }
+                    if let permissionMode = template.agent?.permissionMode {
+                        metadataRow(label: "Mode", value: permissionMode)
+                    }
+                }
+
+                // Description
+                if let description = template.templateDescription {
+                    Text(description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
+
+                // Don't show previews toggle
+                Toggle(isOn: $skipPresetPreview) {
+                    Text("Don't show previews")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .toggleStyle(.checkbox)
+
+                // Action buttons
+                HStack {
+                    Button("Back") {
+                        previewingTemplate = nil
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Launch") {
+                        createSession(from: template)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(12)
+    }
+
+    private func metadataRow(label: String, value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .frame(width: 40, alignment: .trailing)
+            Text(value)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: - Add Custom Template
 
     private var addCustomButton: some View {
@@ -123,7 +318,7 @@ struct TemplatePickerView: View {
                 Spacer()
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -140,6 +335,14 @@ struct TemplatePickerView: View {
         }
     }
 
+    private func handlePresetTap(_ template: AgentTemplate) {
+        if skipPresetPreview {
+            createSession(from: template)
+        } else {
+            previewingTemplate = template
+        }
+    }
+
     private func createSession(from template: AgentTemplate) {
         Task {
             await coordinator.createQuickSession(for: project, template: template)
@@ -150,6 +353,16 @@ struct TemplatePickerView: View {
     private func addCustomTemplate() {
         let newTemplate = store.addTemplate(AgentTemplate(name: "New Template", kind: .custom))
         editingTemplate = newTemplate
+    }
+
+    private func openPresetInEditor(_ template: AgentTemplate) {
+        // Find the preset file by name in ~/.ghostties/presets/
+        let filename = template.name.lowercased().replacingOccurrences(of: " ", with: "-") + ".md"
+        let path = (PresetLoader.presetsDirectoryPath as NSString).appendingPathComponent(filename)
+        let url = URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: path) {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
 

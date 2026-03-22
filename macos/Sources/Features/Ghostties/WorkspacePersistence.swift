@@ -146,8 +146,12 @@ struct WorkspacePersistence {
         var validated = state
 
         // Remove sessions whose template no longer exists.
+        // Include built-in defaults AND file-based preset IDs so sessions
+        // referencing presets survive across app launches.
+        let presetIds = PresetLoader.loadPresets().map(\.id)
         let knownTemplateIds = Set(state.templates.map(\.id))
             .union(AgentTemplate.defaults.map(\.id))
+            .union(presetIds)
         validated.sessions = state.sessions.filter { session in
             knownTemplateIds.contains(session.templateId)
         }

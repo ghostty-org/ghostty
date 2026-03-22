@@ -46,10 +46,16 @@ final class WorkspaceStore: ObservableObject {
         self.sidebarMode = state.sidebarMode
         self.lastSelectedProjectId = state.lastSelectedProjectId
 
-        // Merge persisted custom templates with built-in defaults.
-        // Defaults are always present; custom templates are additive.
+        // Seed bundled presets to ~/.ghostties/presets/ on first launch.
+        PresetLoader.seedIfNeeded()
+
+        // Load file-based presets from ~/.ghostties/presets/.
+        let presets = PresetLoader.loadPresets()
+
+        // Merge persisted custom templates with built-in defaults and presets.
+        // Order: presets first, then built-in defaults, then custom templates.
         let customTemplates = state.templates.filter { !$0.isDefault }
-        self.templates = AgentTemplate.defaults + customTemplates
+        self.templates = presets + AgentTemplate.defaults + customTemplates
     }
 
     // MARK: - Computed (Projects)
@@ -251,7 +257,10 @@ final class WorkspaceStore: ObservableObject {
             workingDirectory: original.workingDirectory,
             isGlobal: original.isGlobal,
             projectId: original.projectId,
-            agent: original.agent
+            agent: original.agent,
+            templateDescription: original.templateDescription,
+            icon: original.icon,
+            accessLabel: original.accessLabel
         )
         let sanitized = WorkspacePersistence.sanitizeTemplate(copy)
         templates.append(sanitized)

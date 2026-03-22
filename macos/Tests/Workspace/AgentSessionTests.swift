@@ -40,9 +40,19 @@ struct AgentSessionTests {
 
     @Test func indicatorStatePriority() {
         // Error is highest priority, inactive is lowest.
-        let states: [SessionIndicatorState] = [.inactive, .processing, .error, .waiting, .idle, .longRunning]
+        let states: [SessionIndicatorState] = [
+            .inactive, .processing, .error, .waiting, .idle, .longRunning, .needsAttention,
+        ]
         let sorted = states.sorted()
-        #expect(sorted == [.inactive, .idle, .processing, .longRunning, .waiting, .error])
+        #expect(sorted == [.inactive, .idle, .processing, .longRunning, .waiting, .needsAttention, .error])
+    }
+
+    @Test func needsAttentionPriorityHigherThanWaiting() {
+        #expect(SessionIndicatorState.needsAttention > SessionIndicatorState.waiting)
+    }
+
+    @Test func needsAttentionPriorityLowerThanError() {
+        #expect(SessionIndicatorState.needsAttention < SessionIndicatorState.error)
     }
 
     // MARK: - AgentSession Init

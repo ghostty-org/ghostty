@@ -72,27 +72,29 @@ enum SessionStatus: Equatable {
 ///
 /// `SessionStatus` tracks *what happened* to the process. This enum tracks
 /// *what the user should see* — it folds in output recency and shell prompt signals
-/// so the ghost indicator can distinguish six distinct visual states.
+/// so the ghost indicator can distinguish seven distinct visual states.
 ///
 /// Conforms to `Comparable` so project headers can aggregate by priority.
-/// States needing user attention (`waiting`, `longRunning`) rank highest below `error`.
+/// States needing user attention (`needsAttention`, `waiting`) rank highest below `error`.
 enum SessionIndicatorState: Comparable {
-    case inactive    // exited/completed/killed — collapsed, outline ghost
-    case idle        // at shell prompt, nothing to do
-    case processing  // actively producing output
-    case longRunning // processing for 30+ min continuously
-    case waiting     // needs user input (subprocess blocked)
+    case inactive       // exited/completed/killed — collapsed, outline ghost
+    case idle           // at shell prompt, nothing to do
+    case processing     // actively producing output
+    case longRunning    // processing for 30+ min continuously
+    case waiting        // silent, not at shell prompt (subprocess may be running)
+    case needsAttention // agent blocked on user input (permission prompt, question)
     case error
 
     /// The priority for aggregation — higher value wins in project headers.
     private var priority: Int {
         switch self {
-        case .inactive:    return 0
-        case .idle:        return 1
-        case .processing:  return 2
-        case .longRunning: return 3
-        case .waiting:     return 4
-        case .error:       return 5
+        case .inactive:       return 0
+        case .idle:           return 1
+        case .processing:     return 2
+        case .longRunning:    return 3
+        case .waiting:        return 4
+        case .needsAttention: return 5
+        case .error:          return 6
         }
     }
 

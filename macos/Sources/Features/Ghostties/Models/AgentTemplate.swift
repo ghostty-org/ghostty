@@ -13,6 +13,15 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
     var isGlobal: Bool
     var projectId: UUID?
 
+    /// Short description shown in the template picker subtitle.
+    var templateDescription: String?
+
+    /// SF Symbol name for the picker icon (e.g. "star", "building.2").
+    var icon: String?
+
+    /// Display label for the preset's access level (e.g. "read-only", "full").
+    var accessLabel: String?
+
     // Terminal config
     var command: String?
     var environmentVariables: [String: String]
@@ -49,6 +58,8 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
     /// All fields are optional — a minimal agent template needs only a command.
     struct AgentConfig: Codable, Hashable {
         var systemPromptFile: String? = nil
+        /// Inline system prompt content (used by presets instead of a file reference).
+        var systemPrompt: String? = nil
         var model: String? = nil
         var permissionMode: String? = nil
         var effort: String? = nil
@@ -68,7 +79,10 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         isDefault: Bool = false,
         isGlobal: Bool = true,
         projectId: UUID? = nil,
-        agent: AgentConfig? = nil
+        agent: AgentConfig? = nil,
+        templateDescription: String? = nil,
+        icon: String? = nil,
+        accessLabel: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -80,6 +94,9 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         self.isGlobal = isGlobal
         self.projectId = projectId
         self.agent = agent
+        self.templateDescription = templateDescription
+        self.icon = icon
+        self.accessLabel = accessLabel
     }
 
     // MARK: - Built-in Templates (deterministic UUIDs)
@@ -166,6 +183,10 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
             } else {
                 print("[AgentTemplate] Skipping systemPromptFile: file not found or unreadable at \(expandedPath)")
             }
+        } else if let systemPrompt = agent.systemPrompt, !systemPrompt.isEmpty {
+            // Inline system prompt from preset body.
+            parts.append("--append-system-prompt")
+            parts.append(Self.shellEscape(systemPrompt))
         }
 
         if let permissionMode = agent.permissionMode {
@@ -221,6 +242,7 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         case id, name, kind, isDefault, isGlobal, projectId
         case command, environmentVariables, workingDirectory
         case agent
+        case templateDescription, icon, accessLabel
     }
 
     /// Custom decoder for backward compatibility with old SessionTemplate JSON.
@@ -242,6 +264,9 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         self.isGlobal = try container.decodeIfPresent(Bool.self, forKey: .isGlobal) ?? true
         self.projectId = try container.decodeIfPresent(UUID.self, forKey: .projectId)
         self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent)
+        self.templateDescription = try container.decodeIfPresent(String.self, forKey: .templateDescription)
+        self.icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        self.accessLabel = try container.decodeIfPresent(String.self, forKey: .accessLabel)
 
         // Decode Kind using Kind's own safe decoder (falls back to .shell on unknown values).
         // Only handle nil case for old SessionTemplate migration.

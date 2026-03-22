@@ -20,6 +20,7 @@ struct SessionRow: View {
     @State private var isHovered = false
     @State private var isBouncing = false
     @State private var isPulsing = false
+    @State private var isAttentionPulsing = false
 
     /// Whether animations should be suppressed (Reduce Motion preference).
     private var reduceMotion: Bool {
@@ -40,7 +41,7 @@ struct SessionRow: View {
                     }
             } else {
                 Text(session.name)
-                    .font(.system(size: 12, weight: indicatorState == .waiting ? .medium : .regular))
+                    .font(.system(size: 12, weight: indicatorState == .needsAttention ? .semibold : indicatorState == .waiting ? .medium : .regular))
                     .foregroundColor(sessionTextColor)
                     .lineLimit(1)
             }
@@ -83,15 +84,32 @@ struct SessionRow: View {
                     : .default,
                 value: isBouncing
             )
-            .opacity(isPulsing && !reduceMotion ? 0.6 : 1.0)
-            .animation(
-                isPulsing && !reduceMotion
-                    ? .easeInOut(duration: 2.0).repeatForever(autoreverses: true)
-                    : .default,
-                value: isPulsing
-            )
+            .opacity(pulseOpacity)
+            .animation(pulseAnimation, value: isPulsing)
+            .animation(pulseAnimation, value: isAttentionPulsing)
 
         indicator
+    }
+
+    /// The target opacity for pulse animations.
+    /// Only one pulse type is active at a time (waiting or needsAttention).
+    private var pulseOpacity: Double {
+        if !reduceMotion && (isPulsing || isAttentionPulsing) {
+            return 0.6
+        }
+        return 1.0
+    }
+
+    /// The animation to use for the active pulse, or nil when no pulse is active.
+    private var pulseAnimation: Animation? {
+        guard !reduceMotion else { return .default }
+        if isAttentionPulsing {
+            return .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
+        }
+        if isPulsing {
+            return .easeInOut(duration: 2.0).repeatForever(autoreverses: true)
+        }
+        return .default
     }
 
     @ViewBuilder
@@ -116,19 +134,20 @@ struct SessionRow: View {
 
     private var statusColor: Color {
         switch indicatorState {
-        case .processing:  return Color(nsColor: .systemGreen)
-        case .waiting:     return WorkspaceLayout.waitingTerracotta
-        case .longRunning: return Color(nsColor: .systemYellow)
-        case .idle:        return Color(.secondaryLabelColor)
-        case .error:       return Color(nsColor: .systemRed)
-        case .inactive:    return Color(.tertiaryLabelColor)
+        case .processing:     return Color(nsColor: .systemGreen)
+        case .waiting:        return WorkspaceLayout.waitingTerracotta
+        case .needsAttention: return WorkspaceLayout.needsAttentionPurple
+        case .longRunning:    return Color(nsColor: .systemYellow)
+        case .idle:           return Color(.secondaryLabelColor)
+        case .error:          return Color(nsColor: .systemRed)
+        case .inactive:       return Color(.tertiaryLabelColor)
         }
     }
 
     private var sessionTextColor: Color {
         if isActive { return .primary }
         switch indicatorState {
-        case .waiting, .processing, .longRunning: return .primary
+        case .waiting, .needsAttention, .processing, .longRunning: return .primary
         case .idle:     return Color(.secondaryLabelColor)
         case .inactive: return Color(.tertiaryLabelColor)
         case .error:    return .primary
@@ -149,12 +168,13 @@ struct SessionRow: View {
 
     private var statusLabel: String {
         switch indicatorState {
-        case .processing:  return "processing"
-        case .waiting:     return "waiting for input"
-        case .longRunning: return "running for a long time"
-        case .idle:        return "idle"
-        case .error:       return "error"
-        case .inactive:    return "inactive"
+        case .processing:     return "processing"
+        case .waiting:        return "waiting for input"
+        case .needsAttention: return "needs your attention"
+        case .longRunning:    return "running for a long time"
+        case .idle:           return "idle"
+        case .error:          return "error"
+        case .inactive:       return "inactive"
         }
     }
 
@@ -163,5 +183,6 @@ struct SessionRow: View {
     private func updateAnimations(for state: SessionIndicatorState) {
         isBouncing = (state == .processing)
         isPulsing = (state == .waiting)
+        isAttentionPulsing = (state == .needsAttention)
     }
 }

@@ -62,6 +62,9 @@ enum WorkspaceLayout {
 
     /// Terracotta/warm rust accent for the "waiting" indicator state. #c97350
     static let waitingTerracotta = Color(red: 0.788, green: 0.451, blue: 0.314)
+
+    /// Purple accent for the "needs attention" indicator state. #A855F7
+    static let needsAttentionPurple = Color(red: 0.659, green: 0.333, blue: 0.969)
 }
 
 // MARK: - Workspace Notifications
