@@ -9,14 +9,8 @@
 #define SEPARATOR '\x01'
 #define CHUNK_SIZE 16384
 
-static int filter_frames(const struct dirent *entry) {
-    const char *name = entry->d_name;
-    size_t len = strlen(name);
-    return len > 4 && strcmp(name + len - 4, ".txt") == 0;
-}
-
-static int compare_frames(const struct dirent **a, const struct dirent **b) {
-    return strcmp((*a)->d_name, (*b)->d_name);
+static int compare_strings(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
 }
 
 static char *read_file(const char *path, size_t *out_size) {
@@ -54,17 +48,50 @@ int main(int argc, char **argv) {
     const char *frames_dir = argv[1];
     const char *output_file = argv[2];
 
-    struct dirent **namelist;
-    int n = scandir(frames_dir, &namelist, filter_frames, compare_frames);
-    if (n < 0) {
-        fprintf(stderr, "Failed to scan directory %s: %s\n", frames_dir, strerror(errno));
+    DIR *dir = opendir(frames_dir);
+    if (!dir) {
+        fprintf(stderr, "Failed to open directory %s: %s\n", frames_dir, strerror(errno));
         return 1;
     }
+
+    // Collect .txt filenames
+    int n = 0;
+    int cap = 64;
+    char **names = malloc(cap * sizeof(char*));
+    if (!names) {
+        fprintf(stderr, "Failed to allocate names array\n");
+        return 1;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+        if (len <= 4 || strcmp(name + len - 4, ".txt") != 0)
+            continue;
+        if (n >= cap) {
+            cap *= 2;
+            names = realloc(names, cap * sizeof(char*));
+            if (!names) {
+                fprintf(stderr, "Failed to grow names array\n");
+                return 1;
+            }
+        }
+        names[n] = strdup(name);
+        if (!names[n]) {
+            fprintf(stderr, "Failed to duplicate name\n");
+            return 1;
+        }
+        n++;
+    }
+    closedir(dir);
 
     if (n == 0) {
         fprintf(stderr, "No frame files found in %s\n", frames_dir);
         return 1;
     }
+
+    qsort(names, n, sizeof(char*), compare_strings);
 
     size_t total_size = 0;
     char **frame_contents = calloc(n, sizeof(char*));
@@ -72,13 +99,13 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < n; i++) {
         char path[4096];
-        snprintf(path, sizeof(path), "%s/%s", frames_dir, namelist[i]->d_name);
-        
+        snprintf(path, sizeof(path), "%s/%s", frames_dir, names[i]);
+
         frame_contents[i] = read_file(path, &frame_sizes[i]);
         if (!frame_contents[i]) {
             return 1;
         }
-        
+
         total_size += frame_sizes[i];
         if (i < n - 1) total_size++;
     }
