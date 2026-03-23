@@ -6,6 +6,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const posix = std.posix;
+const windows = std.os.windows;
 const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
 const hyperlink = @import("hyperlink.zig");
@@ -25,6 +26,41 @@ const alignForward = std.mem.alignForward;
 const alignBackward = std.mem.alignBackward;
 
 const log = std.log.scoped(.page);
+
+/// Allocate page-aligned, zeroed backing memory. On POSIX systems this
+/// uses mmap with MAP_PRIVATE | MAP_ANONYMOUS. On Windows it uses
+/// VirtualAlloc with MEM_COMMIT | MEM_RESERVE which guarantees zeroed
+/// pages. Kept here rather than in src/os/ since this is the only
+/// callsite; an os-level abstraction seemed overkill.
+fn backingAlloc(n: usize) ![]align(std.heap.page_size_min) u8 {
+    if (comptime builtin.os.tag == .windows) {
+        const addr = windows.VirtualAlloc(
+            null,
+            n,
+            windows.MEM_COMMIT | windows.MEM_RESERVE,
+            windows.PAGE_READWRITE,
+        ) catch return error.OutOfMemory;
+        return @as([*]align(std.heap.page_size_min) u8, @alignCast(@ptrCast(addr)))[0..n];
+    } else {
+        return posix.mmap(
+            null,
+            n,
+            posix.PROT.READ | posix.PROT.WRITE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+            -1,
+            0,
+        );
+    }
+}
+
+/// Free backing memory previously allocated by backingAlloc.
+fn backingFree(mem: []align(std.heap.page_size_min) u8) void {
+    if (comptime builtin.os.tag == .windows) {
+        windows.VirtualFree(@alignCast(@ptrCast(mem.ptr)), 0, windows.MEM_RELEASE);
+    } else {
+        posix.munmap(mem);
+    }
+}
 
 /// The allocator to use for multi-codepoint grapheme data. We use
 /// a chunk size of 4 codepoints. It'd be best to set this empirically
@@ -167,20 +203,13 @@ pub const Page = struct {
     pub inline fn init(cap: Capacity) !Page {
         const l = layout(cap);
 
-        // We use mmap directly to avoid Zig allocator overhead
-        // (small but meaningful for this path) and because a private
-        // anonymous mmap is guaranteed on Linux and macOS to be zeroed,
+        // We allocate page-aligned zeroed memory directly to avoid Zig
+        // allocator overhead (small but meaningful for this path). Both
+        // mmap (POSIX) and VirtualAlloc (Windows) guarantee zeroed pages,
         // which is a critical property for us.
         assert(l.total_size % std.heap.page_size_min == 0);
-        const backing = try posix.mmap(
-            null,
-            l.total_size,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try backingAlloc(l.total_size);
+        errdefer backingFree(backing);
 
         const buf = OffsetBuf.init(backing);
         return initBuf(buf, l);
@@ -245,7 +274,7 @@ pub const Page = struct {
     /// this if you allocated the backing memory yourself (i.e. you used
     /// initBuf).
     pub inline fn deinit(self: *Page) void {
-        posix.munmap(self.memory);
+        backingFree(self.memory);
         self.* = undefined;
     }
 
@@ -578,15 +607,8 @@ pub const Page = struct {
     /// using the page allocator. If you want to manage memory manually,
     /// use cloneBuf.
     pub inline fn clone(self: *const Page) !Page {
-        const backing = try posix.mmap(
-            null,
-            self.memory.len,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try backingAlloc(self.memory.len);
+        errdefer backingFree(backing);
         return self.cloneBuf(backing);
     }
 
