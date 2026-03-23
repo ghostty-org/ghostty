@@ -9,14 +9,20 @@ const Key = @import("key.zig").Key;
 pub fn entryFormatter(
     name: []const u8,
     writer: *std.Io.Writer,
+    links: bool,
 ) EntryFormatter {
-    return .{ .name = name, .writer = writer };
+    return .{
+        .name = name,
+        .writer = writer,
+        .links = links,
+    };
 }
 
 /// The entry formatter type for a given writer.
 pub const EntryFormatter = struct {
     name: []const u8,
     writer: *std.Io.Writer,
+    links: bool,
 
     pub fn formatEntry(
         self: @This(),
@@ -27,6 +33,7 @@ pub const EntryFormatter = struct {
             T,
             self.name,
             value,
+            self.links,
             self.writer,
         );
     }
@@ -37,26 +44,45 @@ pub fn formatEntry(
     comptime T: type,
     name: []const u8,
     value: T,
+    links: bool,
     writer: *std.Io.Writer,
 ) !void {
+    var linkstart_buf: [128]u8 = undefined;
+    var linkend_buf: [16]u8 = undefined;
+
+    const linkstart, const linkend = l: {
+        if (!links) break :l .{ "", "" };
+        const linkstart = std.fmt.bufPrint(
+            &linkstart_buf,
+            "\x1b]8;;https://ghostty.org/docs/config/reference#{s}\x1b\\",
+            .{name},
+        ) catch break :l .{ "", "" };
+        const linkend = std.fmt.bufPrint(
+            &linkend_buf,
+            "\x1b]8;;\x1b\\",
+            .{},
+        ) catch break :l .{ "", "" };
+        break :l .{ linkstart, linkend };
+    };
+
     switch (@typeInfo(T)) {
         .bool, .int => {
-            try writer.print("{s} = {}\n", .{ name, value });
+            try writer.print("{s}{s}{s} = {}\n", .{ linkstart, name, linkend, value });
             return;
         },
 
         .float => {
-            try writer.print("{s} = {d}\n", .{ name, value });
+            try writer.print("{s}{s}{s} = {d}\n", .{ linkstart, name, linkend, value });
             return;
         },
 
         .@"enum" => {
-            try writer.print("{s} = {t}\n", .{ name, value });
+            try writer.print("{s}{s}{s} = {t}\n", .{ linkstart, name, linkend, value });
             return;
         },
 
         .void => {
-            try writer.print("{s} = \n", .{name});
+            try writer.print("{s}{s}{s} = \n", .{ linkstart, name, linkend });
             return;
         },
 
@@ -66,10 +92,11 @@ pub fn formatEntry(
                     info.child,
                     name,
                     inner,
+                    links,
                     writer,
                 );
             } else {
-                try writer.print("{s} = \n", .{name});
+                try writer.print("{s}{s}{s} = \n", .{ linkstart, name, linkend });
             }
 
             return;
@@ -79,7 +106,7 @@ pub fn formatEntry(
             []const u8,
             [:0]const u8,
             => {
-                try writer.print("{s} = {s}\n", .{ name, value });
+                try writer.print("{s}{s}{s} = {s}\n", .{ linkstart, name, linkend, value });
                 return;
             },
 
@@ -92,12 +119,12 @@ pub fn formatEntry(
         // call BACK to our formatEntry to write each primitive
         // value.
         .@"struct" => |info| if (@hasDecl(T, "formatEntry")) {
-            try value.formatEntry(entryFormatter(name, writer));
+            try value.formatEntry(entryFormatter(name, writer, links));
             return;
         } else switch (info.layout) {
             // Packed structs we special case.
             .@"packed" => {
-                try writer.print("{s} = ", .{name});
+                try writer.print("{s}{s}{s} = ", .{ linkstart, name, linkend });
                 inline for (info.fields, 0..) |field, i| {
                     if (i > 0) try writer.print(",", .{});
                     try writer.print("{s}{s}", .{
@@ -113,7 +140,7 @@ pub fn formatEntry(
         },
 
         .@"union" => if (@hasDecl(T, "formatEntry")) {
-            try value.formatEntry(entryFormatter(name, writer));
+            try value.formatEntry(entryFormatter(name, writer, links));
             return;
         },
 
@@ -137,6 +164,9 @@ pub const FileFormatter = struct {
 
     /// Only include changed values from the default.
     changed: bool = false,
+
+    /// Use OSC 8 to link to the online documentation.
+    links: bool = false,
 
     /// Implements std.fmt so it can be used directly with std.fmt.
     pub fn format(
@@ -176,6 +206,7 @@ pub const FileFormatter = struct {
                     field.type,
                     field.name,
                     value,
+                    self.links,
                     writer,
                 ) catch return error.WriteFailed;
 
@@ -231,14 +262,14 @@ test "formatEntry bool" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(bool, "a", true, &buf.writer);
+        try formatEntry(bool, "a", true, false, &buf.writer);
         try testing.expectEqualStrings("a = true\n", buf.written());
     }
 
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(bool, "a", false, &buf.writer);
+        try formatEntry(bool, "a", false, false, &buf.writer);
         try testing.expectEqualStrings("a = false\n", buf.written());
     }
 }
@@ -249,7 +280,7 @@ test "formatEntry int" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(u8, "a", 123, &buf.writer);
+        try formatEntry(u8, "a", 123, false, &buf.writer);
         try testing.expectEqualStrings("a = 123\n", buf.written());
     }
 }
@@ -260,7 +291,7 @@ test "formatEntry float" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(f64, "a", 0.7, &buf.writer);
+        try formatEntry(f64, "a", 0.7, false, &buf.writer);
         try testing.expectEqualStrings("a = 0.7\n", buf.written());
     }
 }
@@ -272,7 +303,7 @@ test "formatEntry enum" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(Enum, "a", .two, &buf.writer);
+        try formatEntry(Enum, "a", .two, false, &buf.writer);
         try testing.expectEqualStrings("a = two\n", buf.written());
     }
 }
@@ -283,7 +314,7 @@ test "formatEntry void" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(void, "a", {}, &buf.writer);
+        try formatEntry(void, "a", {}, false, &buf.writer);
         try testing.expectEqualStrings("a = \n", buf.written());
     }
 }
@@ -294,14 +325,14 @@ test "formatEntry optional" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(?bool, "a", null, &buf.writer);
+        try formatEntry(?bool, "a", null, false, &buf.writer);
         try testing.expectEqualStrings("a = \n", buf.written());
     }
 
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(?bool, "a", false, &buf.writer);
+        try formatEntry(?bool, "a", false, false, &buf.writer);
         try testing.expectEqualStrings("a = false\n", buf.written());
     }
 }
@@ -312,7 +343,7 @@ test "formatEntry string" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry([]const u8, "a", "hello", &buf.writer);
+        try formatEntry([]const u8, "a", "hello", false, &buf.writer);
         try testing.expectEqualStrings("a = hello\n", buf.written());
     }
 }
@@ -327,7 +358,18 @@ test "formatEntry packed struct" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(Value, "a", .{}, &buf.writer);
+        try formatEntry(Value, "a", .{}, false, &buf.writer);
         try testing.expectEqualStrings("a = one,no-two\n", buf.written());
+    }
+}
+
+test "formatEntry links" {
+    const testing = std.testing;
+
+    {
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+        try formatEntry(void, "a", {}, true, &buf.writer);
+        try testing.expectEqualStrings("\x1b]8;;https://ghostty.org/docs/config/reference#a\x1b\\a\x1b]8;;\x1b\\ = \n", buf.written());
     }
 }

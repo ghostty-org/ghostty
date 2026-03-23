@@ -147,7 +147,7 @@ pub const ReadableIO = union(enum) {
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "raw:foo");
-        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = raw:foo\n", buf.written());
     }
 };

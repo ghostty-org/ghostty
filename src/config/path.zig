@@ -331,7 +331,7 @@ pub const Path = union(enum) {
 
         var item: Path = undefined;
         try item.parseCLI(alloc, "A");
-        try item.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try item.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
@@ -347,7 +347,7 @@ pub const Path = union(enum) {
         var item: Path = undefined;
         try item.parseCLI(alloc, "A");
         try item.parseCLI(alloc, "?B");
-        try item.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try item.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = ?B\n", buf.written());
     }
 };
@@ -473,7 +473,7 @@ pub const RepeatablePath = struct {
         defer buf.deinit();
 
         var list: RepeatablePath = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
@@ -488,7 +488,7 @@ pub const RepeatablePath = struct {
 
         var list: RepeatablePath = .{};
         try list.parseCLI(alloc, "A");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
@@ -504,7 +504,7 @@ pub const RepeatablePath = struct {
         var list: RepeatablePath = .{};
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "?B");
-        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = A\na = ?B\n", buf.written());
     }
 };

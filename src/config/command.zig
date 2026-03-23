@@ -305,7 +305,7 @@ pub const Command = union(enum) {
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "echo hello");
-        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = echo hello\n", buf.written());
     }
 
@@ -320,7 +320,7 @@ pub const Command = union(enum) {
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "direct: echo hello");
-        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer, false));
         try std.testing.expectEqualSlices(u8, "a = direct:echo hello\n", buf.written());
     }
 };
