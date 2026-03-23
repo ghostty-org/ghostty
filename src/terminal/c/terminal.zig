@@ -195,7 +195,10 @@ pub fn get(
         };
     }
 
+    if (data == .invalid) return .invalid_value;
+
     return switch (data) {
+        .invalid => unreachable,
         inline else => |comptime_data| getTyped(
             terminal_,
             comptime_data,
