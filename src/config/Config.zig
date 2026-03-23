@@ -9815,9 +9815,16 @@ pub const Theme = struct {
         // we're parsing a light/dark mode theme pair. Note that "=" isn't
         // actually valid for setting a light/dark mode pair but I anticipate
         // it'll be a common typo.
+        //
+        // On Windows, a colon at position 1 is a drive letter (e.g. C:\...)
+        // and should not trigger light/dark pair parsing.
+        const has_colon = if (comptime builtin.os.tag == .windows)
+            if (std.mem.indexOf(u8, input, ":")) |idx| idx != 1 else false
+        else
+            std.mem.indexOf(u8, input, ":") != null;
         if (std.mem.indexOf(u8, input, ",") != null or
             std.mem.indexOf(u8, input, "=") != null or
-            std.mem.indexOf(u8, input, ":") != null)
+            has_colon)
         {
             self.* = try cli.args.parseAutoStruct(
                 Theme,

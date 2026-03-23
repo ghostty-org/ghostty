@@ -13,7 +13,13 @@
 //!
 //! Quotes and escapes are not stripped or decoded, that must be handled as a
 //! separate step!
+//!
+//! On Windows, backslash is only treated as an escape character inside quoted
+//! strings. Outside quotes, backslash is a literal character (path separator).
 const CommaSplitter = @This();
+
+const builtin = @import("builtin");
+const native_os = builtin.os.tag;
 
 pub const Error = error{
     UnclosedQuote,
@@ -77,6 +83,11 @@ pub fn next(self: *CommaSplitter) Error!?[]const u8 {
                 },
                 '\\' => {
                     self.index += 1;
+                    if (comptime native_os == .windows) {
+                        // On Windows, backslash is the path separator so
+                        // we treat it as a literal character outside quotes.
+                        continue :loop .normal;
+                    }
                     last = .normal;
                     continue :loop .escape;
                 },
@@ -277,7 +288,12 @@ test "splitter 9" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\x");
-    try testing.expectError(error.UnfinishedEscape, s.next());
+    if (comptime native_os == .windows) {
+        // On Windows, backslash outside quotes is literal.
+        try testing.expectEqualStrings("\\x", (try s.next()).?);
+    } else {
+        try testing.expectError(error.UnfinishedEscape, s.next());
+    }
 }
 
 test "splitter 10" {
@@ -285,7 +301,11 @@ test "splitter 10" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\x5");
-    try testing.expectError(error.UnfinishedEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\x5", (try s.next()).?);
+    } else {
+        try testing.expectError(error.UnfinishedEscape, s.next());
+    }
 }
 
 test "splitter 11" {
@@ -293,7 +313,11 @@ test "splitter 11" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\u");
-    try testing.expectError(error.UnfinishedEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\u", (try s.next()).?);
+    } else {
+        try testing.expectError(error.UnfinishedEscape, s.next());
+    }
 }
 
 test "splitter 12" {
@@ -301,7 +325,11 @@ test "splitter 12" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\u{");
-    try testing.expectError(error.UnfinishedEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\u{", (try s.next()).?);
+    } else {
+        try testing.expectError(error.UnfinishedEscape, s.next());
+    }
 }
 
 test "splitter 13" {
@@ -309,7 +337,11 @@ test "splitter 13" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\u{}");
-    try testing.expectError(error.IllegalEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\u{}", (try s.next()).?);
+    } else {
+        try testing.expectError(error.IllegalEscape, s.next());
+    }
 }
 
 test "splitter 14" {
@@ -317,7 +349,11 @@ test "splitter 14" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\u{h1}");
-    try testing.expectError(error.IllegalEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\u{h1}", (try s.next()).?);
+    } else {
+        try testing.expectError(error.IllegalEscape, s.next());
+    }
 }
 
 test "splitter 15" {
@@ -334,7 +370,11 @@ test "splitter 16" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\u{110000}");
-    try testing.expectError(error.IllegalEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\u{110000}", (try s.next()).?);
+    } else {
+        try testing.expectError(error.IllegalEscape, s.next());
+    }
 }
 
 test "splitter 17" {
@@ -342,16 +382,28 @@ test "splitter 17" {
     const testing = std.testing;
 
     var s: CommaSplitter = .init("\\d");
-    try testing.expectError(error.IllegalEscape, s.next());
+    if (comptime native_os == .windows) {
+        try testing.expectEqualStrings("\\d", (try s.next()).?);
+    } else {
+        try testing.expectError(error.IllegalEscape, s.next());
+    }
 }
 
 test "splitter 18" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: CommaSplitter = .init("\\n\\r\\t\\\"\\'\\\\");
-    try testing.expectEqualStrings("\\n\\r\\t\\\"\\'\\\\", (try s.next()).?);
-    try testing.expect(null == try s.next());
+    if (comptime native_os == .windows) {
+        // On Windows, backslash outside quotes is literal, so the
+        // unescaped `"` starts a quoted section.
+        var s: CommaSplitter = .init("\\n\\r\\t\\'\\\\");
+        try testing.expectEqualStrings("\\n\\r\\t\\'\\\\", (try s.next()).?);
+        try testing.expect(null == try s.next());
+    } else {
+        var s: CommaSplitter = .init("\\n\\r\\t\\\"\\'\\\\");
+        try testing.expectEqualStrings("\\n\\r\\t\\\"\\'\\\\", (try s.next()).?);
+        try testing.expect(null == try s.next());
+    }
 }
 
 test "splitter 19" {
@@ -420,5 +472,24 @@ test "splitter 25" {
 
     var s: CommaSplitter = .init("a,\\u{10,df}");
     try testing.expectEqualStrings("a", (try s.next()).?);
-    try testing.expectError(error.IllegalEscape, s.next());
+    if (comptime native_os == .windows) {
+        // On Windows, backslash is literal, so comma splits normally.
+        try testing.expectEqualStrings("\\u{10", (try s.next()).?);
+        try testing.expectEqualStrings("df}", (try s.next()).?);
+    } else {
+        try testing.expectError(error.IllegalEscape, s.next());
+    }
+}
+
+test "splitter windows paths" {
+    // Backslash in Windows-style paths should not be treated as escapes.
+    if (comptime native_os != .windows) return;
+
+    const std = @import("std");
+    const testing = std.testing;
+
+    var s: CommaSplitter = .init("light:C:\\Users\\foo\\theme,dark:C:\\Users\\bar\\theme");
+    try testing.expectEqualStrings("light:C:\\Users\\foo\\theme", (try s.next()).?);
+    try testing.expectEqualStrings("dark:C:\\Users\\bar\\theme", (try s.next()).?);
+    try testing.expect(null == try s.next());
 }
