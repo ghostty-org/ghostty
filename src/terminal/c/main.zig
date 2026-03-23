@@ -139,6 +139,8 @@ pub const grid_ref_graphemes = grid_ref.grid_ref_graphemes;
 pub const grid_ref_style = grid_ref.grid_ref_style;
 
 test {
+    const terminal_options = @import("terminal_options");
+
     _ = buildpkg;
     _ = cell;
     _ = color;
@@ -149,15 +151,21 @@ test {
     _ = modes;
     _ = osc;
     _ = render;
-    _ = key_event;
-    _ = key_encode;
-    _ = mouse_event;
-    _ = mouse_encode;
-    _ = paste;
     _ = sgr;
     _ = size_report;
     _ = style;
     _ = terminal;
+
+    // These modules have test blocks with transitive imports into
+    // config/, font/, etc. that are only available in the full Ghostty
+    // build, not in the standalone lib-vt module.
+    if (comptime terminal_options.artifact == .ghostty) {
+        _ = key_event;
+        _ = key_encode;
+        _ = mouse_event;
+        _ = mouse_encode;
+        _ = paste;
+    }
 
     // We want to make sure we run the tests for the C allocator interface.
     _ = @import("../../lib/allocator.zig");

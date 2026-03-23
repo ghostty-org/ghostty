@@ -92,6 +92,8 @@ pub const Shape = enum(c_int) {
     };
 
     test "ghostty.h MouseShape" {
+        // ghostty.h is only available in the full Ghostty build.
+        if (comptime build_options.artifact != .ghostty) return;
         try lib.checkGhosttyHEnum(Shape, "GHOSTTY_MOUSE_SHAPE_");
     }
 };

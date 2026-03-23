@@ -205,6 +205,8 @@ pub const Command = union(Key) {
             pause,
 
             test "ghostty.h Command.ProgressReport.State" {
+                // ghostty.h is only available in the full Ghostty build.
+                if (comptime build_options.artifact != .ghostty) return;
                 try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
             }
         };

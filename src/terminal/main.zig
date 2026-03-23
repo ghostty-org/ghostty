@@ -77,7 +77,12 @@ pub const options = @import("terminal_options");
 pub const c_api = if (options.c_abi) @import("c/main.zig") else void;
 
 test {
-    @import("std").testing.refAllDecls(@This());
+    // refAllDecls pulls in transitive dependencies (ghostty.h, oniguruma,
+    // freetype, etc.) that are only available in the full Ghostty build,
+    // not in the standalone lib-vt module.
+    if (comptime options.artifact == .ghostty) {
+        @import("std").testing.refAllDecls(@This());
+    }
 
     // Internals
     _ = @import("bitmap_allocator.zig");
