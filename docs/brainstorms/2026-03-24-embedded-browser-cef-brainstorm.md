@@ -107,6 +107,41 @@ SIDEBAR          TERMINAL              BROWSER PANEL
 
 **MVP is tab-style switching** (sidebar only, no side-by-side). The three-column layout is a Phase 2+ enhancement once the browser panel is stable.
 
+### Visual Treatment — Floating Card (Matches Terminal)
+
+The browser panel uses the **same floating card treatment as the terminal**, not the sidebar's flat style:
+
+- **Rounded corners** — `terminalCornerRadius` (12pt), `cornerCurve: .continuous`
+- **Canvas background** — the warm beige/pink canvas shows behind and between the cards
+- **Inset padding** — `terminalInset` (8pt) gap between the browser card and window edges, and between the terminal and browser cards
+- **Shadow** — same `shadowOpacity: 0.15`, `shadowRadius: 8`, `shadowOffset: (0, -2)` as the terminal's `terminalShadowHost`
+- **Title bar region** — top area of the card holds the tab bar + URL bar, same height as `terminalTitleBarHeight`
+- **Background color** — card background matches the terminal card (`cardBackgroundCGColor`), adapts to light/dark mode
+
+Both cards float on the canvas as equal peers:
+
+```
+┌─ canvas (warm background) ──────────────────────────────────────────┐
+│                                                                      │
+│  ┌─ sidebar ─┐  ┌─ terminal card ─────┐  ┌─ browser card ────────┐  │
+│  │ (flat,    │  │  ╭─────────────────╮ │  │  ╭────────────────╮   │  │
+│  │  no card, │  │  │ title / toggle  │ │  │  │ tabs + URL bar │   │  │
+│  │  flush)   │  │  ├─────────────────┤ │  │  ├────────────────┤   │  │
+│  │           │  │  │                 │ │  │  │                │   │  │
+│  │           │  │  │  terminal       │ │  │  │  web page      │   │  │
+│  │           │  │  │                 │ │  │  │                │   │  │
+│  │           │  │  │                 │ │  │  ├────────────────┤   │  │
+│  │           │  │  │                 │ │  │  │  DevTools      │   │  │
+│  │           │  │  ╰─────────────────╯ │  │  ╰────────────────╯   │  │
+│  └───────────┘  └──────────────────────┘  └───────────────────────┘  │
+│      ↑                    ↑                          ↑               │
+│   no shadow          shadow + rounded           shadow + rounded     │
+│   no padding         8pt inset all sides        8pt inset all sides  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+The implementation reuses `WorkspaceViewContainer`'s existing `terminalShadowHost` pattern — a new `browserShadowHost` NSView with identical layer configuration (shadow, corner radius, background color). The CEF browser view sits inside it with `masksToBounds = true` for corner clipping.
+
 ## Bridging Architecture
 
 CEF exposes a C API. Swift can't call C++ directly. The bridge goes:
