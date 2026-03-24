@@ -35,6 +35,7 @@ struct ProjectDisclosureRow: View {
                         ghostCharacter: project.ghostCharacter,
                         isActive: coordinator.activeSessionId == session.id,
                         isEditing: editingSessionId == session.id,
+                        agentTemplateName: agentTemplateName(for: session),
                         editingName: editingSessionId == session.id ? $editingName : .constant(""),
                         isRenameFocused: $renameFieldFocused,
                         onCommitRename: { commitRename(session: session) },
@@ -218,6 +219,15 @@ struct ProjectDisclosureRow: View {
 
     private var sessions: [AgentSession] {
         store.sessions(for: project.id)
+    }
+
+    /// Returns the template name if the session was launched with agent config, nil otherwise.
+    private func agentTemplateName(for session: AgentSession) -> String? {
+        guard let template = store.templates.first(where: { $0.id == session.templateId }),
+              template.agent != nil else {
+            return nil
+        }
+        return template.name
     }
 
     // MARK: - New Session Button

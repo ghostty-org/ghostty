@@ -11,6 +11,8 @@ struct SessionRow: View {
     var ghostCharacter: GhostCharacter? = nil
     var isActive: Bool = false
     var isEditing: Bool = false
+    /// Template name shown as a subtle badge when the session was launched with agent config.
+    var agentTemplateName: String? = nil
     @Binding var editingName: String
     var isRenameFocused: FocusState<Bool>.Binding
     var onCommitRename: () -> Void
@@ -44,6 +46,17 @@ struct SessionRow: View {
                     .font(.system(size: 12, weight: indicatorState == .needsAttention ? .semibold : indicatorState == .waiting ? .medium : .regular))
                     .foregroundColor(sessionTextColor)
                     .lineLimit(1)
+
+                if let agentTemplateName {
+                    HStack(spacing: 2) {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 8))
+                        Text(agentTemplateName)
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .foregroundColor(Color(.tertiaryLabelColor))
+                    .lineLimit(1)
+                }
             }
 
             Spacer()
@@ -69,7 +82,7 @@ struct SessionRow: View {
             updateAnimations(for: indicatorState)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(session.name), \(statusLabel)\(isActive ? ", active" : "")")
+        .accessibilityLabel("\(session.name)\(agentTemplateName.map { ", \($0) agent" } ?? ""), \(statusLabel)\(isActive ? ", active" : "")")
     }
 
     // MARK: - Ghost Indicator
