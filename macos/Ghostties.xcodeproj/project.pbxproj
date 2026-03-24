@@ -32,6 +32,7 @@
 		B0A55AC12F72F4C100018CBF /* architect.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB72F72F4C100018CBF /* architect.md */; };
 		B0A55AC22F72F4C100018CBF /* pair-programmer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABB2F72F4C100018CBF /* pair-programmer.md */; };
 		B0A55AC32F72F4C100018CBF /* orchestrator.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABA2F72F4C100018CBF /* orchestrator.md */; };
+		B0A55ADC2F7313F500018CBF /* Chromium Embedded Framework.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B0A55ADB2F7313F500018CBF /* Chromium Embedded Framework.framework */; };
 		FC5218FA2D10FFCE004C93E0 /* zsh in Resources */ = {isa = PBXBuildFile; fileRef = FC5218F92D10FFC7004C93E0 /* zsh */; };
 		FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */ = {isa = PBXBuildFile; fileRef = FC9ABA9B2D0F538D0020D4C8 /* bash-completion */; };
 /* End PBXBuildFile section */
@@ -103,6 +104,7 @@
 		B0A55ABA2F72F4C100018CBF /* orchestrator.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = orchestrator.md; sourceTree = "<group>"; };
 		B0A55ABB2F72F4C100018CBF /* pair-programmer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "pair-programmer.md"; sourceTree = "<group>"; };
 		B0A55ABC2F72F4C100018CBF /* test-writer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "test-writer.md"; sourceTree = "<group>"; };
+		B0A55ADB2F7313F500018CBF /* Chromium Embedded Framework.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "Chromium Embedded Framework.framework"; path = "../vendor/cef/Release/Chromium Embedded Framework.framework"; sourceTree = SOURCE_ROOT; };
 		FC5218F92D10FFC7004C93E0 /* zsh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = zsh; path = "../zig-out/share/zsh"; sourceTree = "<group>"; };
 		FC9ABA9B2D0F538D0020D4C8 /* bash-completion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bash-completion"; path = "../zig-out/share/bash-completion"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -311,6 +313,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A51BFC272B30F1B800E92F16 /* Sparkle in Frameworks */,
+				B0A55ADC2F7313F500018CBF /* Chromium Embedded Framework.framework in Frameworks */,
 				A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */,
 				A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */,
 			);
@@ -379,6 +382,7 @@
 		A5D495A3299BECBA00DD1313 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				B0A55ADB2F7313F500018CBF /* Chromium Embedded Framework.framework */,
 				A56B880A2A840447007A0E29 /* Carbon.framework */,
 				A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */,
 			);
@@ -756,6 +760,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				NEW_SETTING = "";
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -1082,6 +1087,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				"FRAMEWORK_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef/Release";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1099,6 +1105,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
+				NEW_SETTING = "";
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -1144,6 +1151,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				"FRAMEWORK_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef/Release";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -1155,6 +1163,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				NEW_SETTING = "";
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
