@@ -257,10 +257,11 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         return parts.joined(separator: " ")
     }
 
-    /// A shell command that prints a dim banner confirming the agent template
+    /// A shell command that prints a branded banner confirming the agent template
     /// was loaded. Returns nil for templates without agent config.
     ///
-    /// Example output: `⚙ Orchestrator · opus · system prompt loaded`
+    /// Renders as a terracotta (#C97350) background bar with white bold text
+    /// and a ghost icon, matching the Ghostties brand.
     var launchBanner: String? {
         guard let agent else { return nil }
         var parts: [String] = [name]
@@ -269,7 +270,8 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
             parts.append("system prompt loaded")
         }
         let text = parts.joined(separator: " · ")
-        return "printf '\\033[2m\\342\\232\\231 %s\\033[0m\\n' \(Self.shellEscape(text))"
+        // Terracotta background (48;2;201;115;80) + white bold text (97;1) + ghost emoji
+        return "printf '\\033[48;2;201;115;80m\\033[97m\\033[1m \\360\\237\\221\\273 %s \\033[0m\\n' \(Self.shellEscape(text))"
     }
 
     // MARK: - Environment Safety
