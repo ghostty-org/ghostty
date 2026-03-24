@@ -73,8 +73,9 @@ if [ -f "$CEF_DIR/.version" ]; then
 fi
 
 # ─── Build download URL ─────────────────────────────────────────────
-# Filename format: cef_binary_<cef_version>+chromium-<chromium_version>_<platform>.tar.bz2
-CEF_FILENAME="cef_binary_${CEF_VERSION}+chromium-${CHROMIUM_VERSION}_${CEF_PLATFORM}.tar.bz2"
+# Filename format: cef_binary_<cef_version>_<platform>.tar.bz2
+# Note: cef_version already includes +chromium-<version> suffix
+CEF_FILENAME="cef_binary_${CEF_VERSION}_${CEF_PLATFORM}.tar.bz2"
 CEF_URL="${CEF_BASE_URL}/${CEF_FILENAME}"
 
 echo ""
