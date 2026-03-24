@@ -270,8 +270,9 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
             parts.append("system prompt loaded")
         }
         let text = parts.joined(separator: " · ")
-        // Terracotta background (48;2;201;115;80) + white bold text (97;1) + ghost emoji
-        return "printf '\\033[48;2;201;115;80m\\033[97m\\033[1m \\360\\237\\221\\273 %s \\033[0m\\n' \(Self.shellEscape(text))"
+        // Muted terracotta background (48;2;210;150;120) + white bold text (97;1) + ghost emoji
+        // Extra blank line after for breathing room before Claude's banner
+        return "printf '\\033[48;2;210;150;120m\\033[97m\\033[1m \\360\\237\\221\\273 %s \\033[0m\\n\\n' \(Self.shellEscape(text))"
     }
 
     // MARK: - Environment Safety
