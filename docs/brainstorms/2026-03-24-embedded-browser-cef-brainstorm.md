@@ -489,6 +489,37 @@ Mitigation: The download is still fast on modern connections (~10s on 100Mbps). 
 
 **Exit criteria:** An agent in a terminal session can programmatically navigate the browser, take screenshots, and read page content.
 
+## Browser Panel Toggle + Icon System
+
+The browser panel is toggled via a **globe icon** in the terminal card's title bar (top-right), mirroring the sidebar toggle (top-left). Both icons follow a filled/outline system:
+
+```
+┌─ terminal card title bar ──────────────────────────────────────┐
+│  ☐ sidebar toggle      Session Title           🌐 browser toggle │
+│  (outline = closed)                            (outline = closed) │
+│  (filled = open)                               (filled = open)    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+| State | Sidebar Icon | Browser Icon |
+|-------|-------------|-------------|
+| Panel closed | `sidebar.left` (outline) | `globe` (outline) |
+| Panel open | `sidebar.left.fill` (filled) | `globe.fill` (filled) |
+
+This forms a consistent **panel toggle system** — outline means closed, filled means open. The same pattern can extend to future panels.
+
+**Keyboard shortcut:** `Cmd+B` for browser toggle (mirrors `Cmd+S` for sidebar toggle).
+
+**Behavior:**
+- Globe icon added to `terminalShadowHost` (same as sidebar toggle but trailing edge)
+- Click toggles the browser panel open/closed with animation
+- When browser panel opens: terminal card shrinks, browser card animates in from the right
+- When browser panel closes: browser card animates out, terminal card expands
+
+**Existing sidebar toggle should also adopt the filled/outline system:**
+- Update `sidebarToggleButton` to use `sidebar.left.fill` when sidebar is in `.pinned` or `.overlay` mode
+- Use `sidebar.left` (outline) when sidebar is in `.closed` mode
+
 ## Open Questions
 
 1. **CEF distribution strategy** — vendor the CEF binary in the repo (~300MB in Git LFS) or download at build time? LFS is simpler for CI. Download keeps the repo small but adds a build dependency.
