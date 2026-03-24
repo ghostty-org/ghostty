@@ -1,5 +1,67 @@
 # Session Notes — Ghostties
 
+## Mar 24, 2026 (Session 11)
+
+### Template Injection, Menu Bar, Sidebar Overhaul + CEF Browser Brainstorm
+
+Massive session: 15 commits, 3 parallel implementation workstreams, browser research, and CEF brainstorm.
+
+**Template Injection Fixes (verified working)**
+- `buildCommand()` changed from inline `--append-system-prompt` (broke on multi-line content) to `--append-system-prompt-file`
+- Inline preset prompts write to temp cache files (`~/.ghostties/cache/prompts/`)
+- PresetLoader versioned re-seeding via `.seed-version` marker
+- TUI launch banner: terracotta background bar with ghost icon, confirms template loaded
+- Wrapper script approach for banner (Ghostty's `exec -l` breaks `&&` chaining)
+- 38 AgentTemplate tests + 6 PresetLoader tests, all passing
+
+**Menu Bar Agent Status**
+- NSStatusItem with ghost silhouette icon + color-coded status dot
+- Aggregate state: error (red) > needsAttention (purple) > waiting (terracotta) > processing (green)
+- Popover dropdown: sessions grouped by project, click-to-focus
+- 8 MenuBar tests passing
+
+**Sidebar Header Overhaul**
+- Sidebar toggle moved from sidebar toolbar to terminal card header (AppKit NSButton)
+- NSToolbar approach for traffic light alignment tested but REVERTED (blocks clicks on buttons)
+- Sidebar content hidden (alpha 0) when collapsed — fixes "+" leaking through
+- Cmd+S added as sidebar toggle shortcut (Dia Browser convention)
+- Template edit form made scrollable to fix cut-off issue
+
+**Design Polish**
+- Agent template badge (cpu icon + name) added then hidden — too much clutter for now
+- "+" button alignment adjusted for terminal inset offset
+
+**CEF Embedded Browser Brainstorm**
+- Full brainstorm doc: `docs/brainstorms/2026-03-24-embedded-browser-cef-brainstorm.md`
+- CEF (Chromium Embedded Framework) chosen over WKWebView/Ultralight/Servo/Qt
+- Browser panel as floating card matching terminal treatment (same shadow/radius/inset)
+- Internal tab bar inside browser panel, 3-column max layout
+- Globe icon (top-right of terminal) toggles browser, mirrors sidebar toggle (top-left)
+- Filled/outline icon system: outline = closed, filled = open
+- Cmd+B for browser, Cmd+S for sidebar
+- 4 implementation phases planned
+
+**Research**
+- LibGhostty/Ghostling evaluated — not applicable, stay on GhosttyKit
+- Embedded browser options compared — WKWebView, CEF, Ultralight, Servo, Wry, Vercel agent-browser
+- CEF ARM64 macOS builds confirmed available from Spotify CDN
+
+**New Files**
+- `macos/Sources/Features/Ghostties/MenuBar/MenuBarController.swift`
+- `macos/Sources/Features/Ghostties/MenuBar/MenuBarDropdownView.swift`
+- `macos/Sources/Features/Ghostties/MenuBar/MenuBarIconRenderer.swift`
+- `macos/Tests/Workspace/MenuBarTests.swift`
+- `macos/Tests/Workspace/PresetLoaderTests.swift`
+- `docs/brainstorms/2026-03-24-embedded-browser-cef-brainstorm.md`
+
+**Commits:** `b058c5d86` through `4314e36b0` (15 commits)
+
+**Known Issues / TODO**
+- Traffic light vertical alignment still not solved (NSToolbar approach blocked clicks, reverted)
+- Terminal init error on empty state (may be pre-existing)
+- Menu bar status dots may not update visually (needs more testing)
+- Bundled preset .md files need to be registered in Xcode project (drag-drop in Xcode UI)
+
 ## Mar 22, 2026 (Session 10)
 
 ### Agent Preset Gallery + Session Status Indicator
