@@ -143,14 +143,28 @@ final class SessionCoordinator: ObservableObject {
             return result
         }()
 
-        // Prepend a dim banner line confirming the agent template was loaded.
-        // The banner runs before the resolved command via `&&`.
+        // For agent templates, write a wrapper script that prints a banner
+        // then exec's into the real command. Direct `&&` chaining breaks because
+        // Ghostty wraps the command with `exec -l`, which replaces the process
+        // before the second command runs.
         let finalCommand: String? = {
             guard let cmd = resolvedCommand else { return nil }
-            if let banner = template.launchBanner {
-                return "\(banner) && \(cmd)"
+            guard let banner = template.launchBanner else { return cmd }
+
+            let scriptDir = ("~/.ghostties/cache/launchers" as NSString).expandingTildeInPath
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: scriptDir) {
+                try? fm.createDirectory(atPath: scriptDir, withIntermediateDirectories: true, attributes: [
+                    .posixPermissions: 0o700,
+                ])
             }
-            return cmd
+            let scriptPath = (scriptDir as NSString).appendingPathComponent("\(session.id.uuidString).sh")
+            let script = "#!/bin/bash\n\(banner)\nexec \(cmd)\n"
+            if (try? script.write(toFile: scriptPath, atomically: true, encoding: .utf8)) != nil {
+                try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptPath)
+                return scriptPath
+            }
+            return cmd // fallback: skip banner
         }()
 
         var config = Ghostty.SurfaceConfiguration()
