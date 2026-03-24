@@ -47,16 +47,17 @@ struct SessionRow: View {
                     .foregroundColor(sessionTextColor)
                     .lineLimit(1)
 
-                if let agentTemplateName {
-                    HStack(spacing: 2) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 8))
-                        Text(agentTemplateName)
-                            .font(.system(size: 9, weight: .medium))
-                    }
-                    .foregroundColor(Color(.tertiaryLabelColor))
-                    .lineLimit(1)
-                }
+                // Agent template badge — hidden for now, revisit when more agent types exist.
+                // if let agentTemplateName {
+                //     HStack(spacing: 2) {
+                //         Image(systemName: "cpu")
+                //             .font(.system(size: 8))
+                //         Text(agentTemplateName)
+                //             .font(.system(size: 9, weight: .medium))
+                //     }
+                //     .foregroundColor(Color(.tertiaryLabelColor))
+                //     .lineLimit(1)
+                // }
             }
 
             Spacer()
