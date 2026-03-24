@@ -84,7 +84,6 @@ struct WorkspaceSidebarView: View {
         HStack {
             Spacer()
             ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
-            ToolbarIconButton(systemName: "sidebar.left", label: "Toggle sidebar", action: toggleSidebar)
         }
         .padding(.horizontal, 12)
         .frame(height: WorkspaceLayout.titlebarSpacerHeight)
@@ -129,13 +128,6 @@ struct WorkspaceSidebarView: View {
     private var selectedProject: Project? {
         guard let id = selectedProjectId else { return nil }
         return store.projects.first { $0.id == id }
-    }
-
-    private func toggleSidebar() {
-        NSApp.sendAction(
-            #selector(TerminalController.toggleWorkspaceSidebar(_:)),
-            to: nil, from: nil
-        )
     }
 
     private func presentFolderPicker() {

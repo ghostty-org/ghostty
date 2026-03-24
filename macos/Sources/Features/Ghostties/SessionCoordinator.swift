@@ -93,6 +93,7 @@ final class SessionCoordinator: ObservableObject {
         observeProjectRemoval()
         observeCommandFinished()
         observePromptReady()
+        observeMenuBarFocus()
         startActivityTimer()
     }
 
@@ -112,14 +113,14 @@ final class SessionCoordinator: ObservableObject {
         guard let ghosttyApp = ghostty.app else { return false }
 
         // Build the full command string and resolve the binary path, both off
-        // the main thread. buildCommand() reads prompt files from disk and
+        // the main thread. buildCommand() may write prompt cache files and
         // resolveCommand() may spawn a login shell — neither should block UI.
         // For shell templates (no command), resolvedCommand stays nil -> default shell.
         let resolvedCommand: String? = await {
             guard template.command != nil else { return nil }
 
             let buildAndResolveTask = Task.detached(priority: .userInitiated) { () -> String? in
-                // Build the full command string (includes agent flags, prompt file contents).
+                // Build the full command string (includes agent flags, prompt file references).
                 let built = template.buildCommand()
                 guard !built.isEmpty else { return nil }
 
@@ -255,6 +256,7 @@ final class SessionCoordinator: ObservableObject {
         processingStartTimes.removeValue(forKey: id)
         lastSurfaceTitle.removeValue(forKey: id)
         WorkspaceStore.shared.removeSessionStatus(id: id)
+        WorkspaceStore.shared.removeIndicatorState(id: id)
     }
 
     // MARK: - Private
@@ -553,6 +555,28 @@ final class SessionCoordinator: ObservableObject {
         processingStartTimes.removeValue(forKey: sessionId)
     }
 
+    /// Observe menu bar session focus requests so clicking a row in the dropdown
+    /// activates the correct session and brings its window to the front.
+    private func observeMenuBarFocus() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(menuBarDidRequestFocus(_:)),
+            name: .menuBarFocusSession,
+            object: nil
+        )
+    }
+
+    @objc private func menuBarDidRequestFocus(_ notification: Notification) {
+        guard let sessionId = notification.userInfo?["sessionId"] as? UUID,
+              sessionTrees[sessionId] != nil else { return }
+        focusSession(id: sessionId)
+        // Bring this coordinator's window to the front.
+        if let window = containerView?.window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// Start a 1-second repeating timer that triggers view re-evaluation.
     ///
     /// This is how the sidebar detects the active→waiting transition: the timer
@@ -566,6 +590,13 @@ final class SessionCoordinator: ObservableObject {
                 let hasRunning = self.statuses.values.contains { $0.isAlive }
                 if hasRunning {
                     self.objectWillChange.send()
+
+                    // Push each running session's indicator state to the global store
+                    // so the menu bar icon can reflect the aggregate status.
+                    for (id, status) in self.statuses where status.isAlive {
+                        let state = self.indicatorState(for: id)
+                        WorkspaceStore.shared.updateIndicatorState(id: id, state: state)
+                    }
                 }
             }
         }
@@ -656,6 +687,7 @@ final class SessionCoordinator: ObservableObject {
         MainActor.assumeIsolated {
             for id in statuses.keys {
                 WorkspaceStore.shared.removeSessionStatus(id: id)
+                WorkspaceStore.shared.removeIndicatorState(id: id)
             }
         }
     }

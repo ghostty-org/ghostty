@@ -34,36 +34,65 @@ struct PresetLoader {
 
     // MARK: - Public API
 
-    /// Seed bundled presets to `~/.ghostties/presets/` if the directory doesn't exist yet.
+    /// Current seed version. Bump this when bundled presets change to trigger re-seeding.
+    static let seedVersion = 1
+
+    /// Seed bundled presets to `~/.ghostties/presets/` using versioned seeding.
+    ///
+    /// Checks a `.seed-version` marker file to determine if seeding is needed.
+    /// Only copies bundled files that don't already exist (additive, never overwrites user edits).
     static func seedIfNeeded() {
         let fm = FileManager.default
         let dirPath = presetsDirectoryPath
+        let versionFilePath = (dirPath as NSString).appendingPathComponent(".seed-version")
 
-        // Only seed if the directory doesn't exist at all.
-        // If the user deleted presets or the directory exists but is empty, respect that.
-        guard !fm.fileExists(atPath: dirPath) else { return }
+        // Check the current seed version.
+        let currentVersion: Int
+        if let versionData = fm.contents(atPath: versionFilePath),
+           let versionString = String(data: versionData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let version = Int(versionString) {
+            currentVersion = version
+        } else {
+            currentVersion = 0
+        }
 
-        do {
-            try fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true, attributes: [
-                .posixPermissions: 0o700,
-            ])
-        } catch {
-            logger.error("Failed to create presets directory: \(error.localizedDescription)")
-            return
+        // Skip if already at or above the current seed version.
+        guard currentVersion < seedVersion else { return }
+
+        // Create the directory if it doesn't exist.
+        if !fm.fileExists(atPath: dirPath) {
+            do {
+                try fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true, attributes: [
+                    .posixPermissions: 0o700,
+                ])
+            } catch {
+                logger.error("Failed to create presets directory: \(error.localizedDescription)")
+                return
+            }
         }
 
         // Copy bundled .md files from app Resources/Presets into the user directory.
-        guard let bundledURLs = Bundle.main.urls(forResourcesWithExtension: "md", subdirectory: "Presets") else {
-            logger.warning("No bundled preset files found in app bundle")
-            return
-        }
-        for url in bundledURLs {
-            let destPath = (dirPath as NSString).appendingPathComponent(url.lastPathComponent)
-            do {
-                try fm.copyItem(at: url, to: URL(fileURLWithPath: destPath))
-            } catch {
-                logger.error("Failed to copy preset \(url.lastPathComponent): \(error.localizedDescription)")
+        // Only copy files that don't already exist — never overwrite user edits.
+        if let bundledURLs = Bundle.main.urls(forResourcesWithExtension: "md", subdirectory: "Presets") {
+            for url in bundledURLs {
+                let destPath = (dirPath as NSString).appendingPathComponent(url.lastPathComponent)
+                if !fm.fileExists(atPath: destPath) {
+                    do {
+                        try fm.copyItem(at: url, to: URL(fileURLWithPath: destPath))
+                    } catch {
+                        logger.error("Failed to copy preset \(url.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
             }
+        } else {
+            logger.warning("No bundled preset files found in app bundle")
+        }
+
+        // Write the new seed version marker.
+        do {
+            try "\(seedVersion)".write(toFile: versionFilePath, atomically: true, encoding: .utf8)
+        } catch {
+            logger.error("Failed to write seed version marker: \(error.localizedDescription)")
         }
     }
 
@@ -200,7 +229,7 @@ struct PresetLoader {
     ///
     /// Handles simple `key: value` pairs and list values in both inline `[a, b]`
     /// and multi-line `- item` syntax.
-    private static func parseFrontmatter(_ text: String) -> [String: Any] {
+    static func parseFrontmatter(_ text: String) -> [String: Any] {
         var result: [String: Any] = [:]
         let lines = text.components(separatedBy: .newlines)
 
@@ -260,7 +289,7 @@ struct PresetLoader {
     ///
     /// Uses the first 16 bytes of the SHA-256 hash, with version/variant bits set
     /// for a UUID v5-like result. The same filename always produces the same UUID.
-    private static func deterministicUUID(from input: String) -> UUID {
+    static func deterministicUUID(from input: String) -> UUID {
         let namespace = "com.ghostties.presets"
         let combined = "\(namespace):\(input)"
         let hash = SHA256.hash(data: Data(combined.utf8))

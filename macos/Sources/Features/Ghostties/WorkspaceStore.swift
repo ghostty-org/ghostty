@@ -21,6 +21,11 @@ final class WorkspaceStore: ObservableObject {
     /// Coordinators write via `updateSessionStatus`; views read directly.
     @Published private(set) var globalStatuses: [UUID: SessionStatus] = [:]
 
+    /// Global indicator states — the view-layer state for each running session.
+    /// Updated by SessionCoordinator's activity timer; consumed by MenuBarController
+    /// to render the aggregate status dot in the menu bar.
+    @Published private(set) var globalIndicatorStates: [UUID: SessionIndicatorState] = [:]
+
     /// Current sidebar mode. Persisted across launches.
     /// `.overlay` is transient — always saved as `.closed`.
     /// Only `WorkspaceViewContainer.transitionTo(_:)` should mutate this
@@ -209,6 +214,18 @@ final class WorkspaceStore: ObservableObject {
     /// Remove a session's global status entry (called on cleanup).
     func removeSessionStatus(id: UUID) {
         globalStatuses.removeValue(forKey: id)
+    }
+
+    // MARK: - Indicator State (Menu Bar)
+
+    /// Update a session's view-layer indicator state for menu bar consumption.
+    func updateIndicatorState(id: UUID, state: SessionIndicatorState) {
+        globalIndicatorStates[id] = state
+    }
+
+    /// Remove a session's indicator state entry (called on cleanup).
+    func removeIndicatorState(id: UUID) {
+        globalIndicatorStates.removeValue(forKey: id)
     }
 
     // MARK: - Template Actions

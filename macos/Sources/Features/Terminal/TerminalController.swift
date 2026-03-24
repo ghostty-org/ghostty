@@ -1226,6 +1226,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         while !window.titlebarAccessoryViewControllers.isEmpty {
             window.removeTitlebarAccessoryViewController(at: 0)
         }
+
+        // Add an empty NSToolbar with unified style to make the titlebar taller.
+        // This causes macOS to vertically center the traffic lights within the
+        // enlarged titlebar region, aligning them with the sidebar toolbar icons
+        // and the terminal card title bar. This is the official API approach —
+        // direct `setFrameOrigin` on traffic light buttons doesn't stick because
+        // macOS overrides the positions on every titlebar layout pass.
+        let toolbar = NSToolbar(identifier: "WorkspaceTitlebar")
+        toolbar.delegate = self
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
     }
 
     @IBAction func toggleWorkspaceSidebar(_ sender: Any?) {
@@ -1690,5 +1702,31 @@ extension TerminalController {
         } else {
             return nil
         }
+    }
+}
+
+// MARK: - NSToolbarDelegate (Workspace Titlebar)
+
+extension TerminalController: NSToolbarDelegate {
+    /// The workspace titlebar uses an empty NSToolbar to enlarge the titlebar
+    /// region and let macOS auto-center the traffic lights. Only flexible space
+    /// items are provided — there are no visible toolbar items.
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace]
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        if itemIdentifier == .flexibleSpace {
+            return NSToolbarItem(itemIdentifier: .flexibleSpace)
+        }
+        return nil
     }
 }

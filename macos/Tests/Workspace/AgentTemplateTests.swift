@@ -340,4 +340,44 @@ struct AgentTemplateTests {
         #expect(AgentTemplate.dangerousEnvKeys.contains("LD_PRELOAD"))
         #expect(AgentTemplate.dangerousEnvKeys.contains("PYTHONPATH"))
     }
+
+    // MARK: - Inline Prompt Cache File
+
+    @Test func buildCommandInlinePromptWritesTempFile() throws {
+        let templateId = UUID()
+        let promptBody = "You are a helpful code reviewer.\nCheck for bugs and security issues."
+        let template = AgentTemplate(
+            id: templateId,
+            name: "Reviewer", kind: .claudeCode,
+            command: "claude",
+            agent: AgentTemplate.AgentConfig(systemPrompt: promptBody)
+        )
+        let cmd = template.buildCommand()
+
+        // Should use file-based prompt injection, not inline.
+        #expect(cmd.contains("--append-system-prompt-file"))
+        #expect(!cmd.contains("--append-system-prompt '"))
+
+        // Verify the cache file exists on disk with correct content.
+        let cacheDir = ("~/.ghostties/cache/prompts" as NSString).expandingTildeInPath
+        let cachePath = (cacheDir as NSString).appendingPathComponent("\(templateId.uuidString).prompt.md")
+        let written = try String(contentsOfFile: cachePath, encoding: .utf8)
+        #expect(written == promptBody)
+
+        // Clean up the cache file.
+        try? FileManager.default.removeItem(atPath: cachePath)
+    }
+
+    @Test func buildCommandInlinePromptEmptyString() {
+        let template = AgentTemplate(
+            name: "Empty", kind: .claudeCode,
+            command: "claude",
+            agent: AgentTemplate.AgentConfig(systemPrompt: "")
+        )
+        let cmd = template.buildCommand()
+
+        // Empty systemPrompt should be skipped entirely.
+        #expect(!cmd.contains("--append-system-prompt"))
+        #expect(!cmd.contains("--append-system-prompt-file"))
+    }
 }

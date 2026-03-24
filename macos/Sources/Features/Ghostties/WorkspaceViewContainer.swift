@@ -67,6 +67,30 @@ class WorkspaceViewContainer: NSView {
         return label
     }()
 
+    /// Sidebar toggle button in the terminal card's titlebar region (top-left).
+    /// Placed here (not in the sidebar) so it's accessible when the sidebar is closed.
+    private lazy var sidebarToggleButton: NSButton = {
+        let button = NSButton()
+        button.image = NSImage(
+            systemSymbolName: "sidebar.left",
+            accessibilityDescription: "Toggle Sidebar"
+        )
+        button.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 13, weight: .medium
+        )
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .secondaryLabelColor
+        button.target = self
+        button.action = #selector(toggleSidebar)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setAccessibilityIdentifier("sidebarToggleButton")
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .vertical)
+        return button
+    }()
+
     private var cancellables = Set<AnyCancellable>()
 
     /// Current sidebar state — always kept in sync with `WorkspaceStore.shared.sidebarMode`.
@@ -174,7 +198,7 @@ class WorkspaceViewContainer: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        guard sidebarMode == .pinned else { return }
+        guard sidebarMode == .pinned || sidebarMode == .closed else { return }
         layer?.backgroundColor = canvasBackgroundCGColor
         terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
     }
@@ -195,7 +219,13 @@ class WorkspaceViewContainer: NSView {
                 width: termSize.width + WorkspaceLayout.sidebarWidth + inset * 2,
                 height: termSize.height + inset * 2
             )
-        case .closed, .overlay:
+        case .closed:
+            let inset = WorkspaceLayout.terminalInset
+            return NSSize(
+                width: termSize.width + inset * 2,
+                height: termSize.height + inset * 2
+            )
+        case .overlay:
             return termSize
         }
     }
@@ -296,16 +326,18 @@ class WorkspaceViewContainer: NSView {
                 shadowHostBottomConstraint.animator().constant = -inset
                 terminalTopConstraint.animator().constant = WorkspaceLayout.terminalTitleBarHeight
                 titleLabel.animator().alphaValue = 1
+                sidebarToggleButton.animator().alphaValue = 1
                 sidebarOverlayBackground.animator().alphaValue = 0
 
             case .closed:
                 sidebarWidthConstraint.animator().constant = 0
-                shadowHostTopConstraint.animator().constant = 0
-                shadowHostLeadingToSuperview.animator().constant = 0
-                shadowHostTrailingConstraint.animator().constant = 0
-                shadowHostBottomConstraint.animator().constant = 0
-                terminalTopConstraint.animator().constant = 0
-                titleLabel.animator().alphaValue = 0
+                shadowHostTopConstraint.animator().constant = inset
+                shadowHostLeadingToSuperview.animator().constant = inset
+                shadowHostTrailingConstraint.animator().constant = -inset
+                shadowHostBottomConstraint.animator().constant = -inset
+                terminalTopConstraint.animator().constant = WorkspaceLayout.terminalTitleBarHeight
+                titleLabel.animator().alphaValue = 1
+                sidebarToggleButton.animator().alphaValue = 1
                 sidebarOverlayBackground.animator().alphaValue = 0
 
             case .overlay:
@@ -317,6 +349,7 @@ class WorkspaceViewContainer: NSView {
                 shadowHostBottomConstraint.animator().constant = 0
                 terminalTopConstraint.animator().constant = 0
                 titleLabel.animator().alphaValue = 0
+                sidebarToggleButton.animator().alphaValue = 0
                 sidebarOverlayBackground.animator().alphaValue = 1
             }
         }
@@ -332,12 +365,12 @@ class WorkspaceViewContainer: NSView {
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
         case .closed:
-            terminalContainer.layer?.cornerRadius = 0
-            terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-            terminalShadowHost.layer?.shadowOpacity = 0
-            terminalShadowHost.layer?.cornerRadius = 0
-            terminalShadowHost.layer?.backgroundColor = nil
-            layer?.backgroundColor = nil
+            terminalContainer.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
+            terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            terminalShadowHost.layer?.shadowOpacity = 0.15
+            terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
+            terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
         case .overlay:
             terminalContainer.layer?.cornerRadius = 0
@@ -456,35 +489,39 @@ class WorkspaceViewContainer: NSView {
         // the terminal clips its own corners via masksToBounds.
         terminalShadowHost.addSubview(terminalContainer)
         terminalShadowHost.addSubview(titleLabel)
+        terminalShadowHost.addSubview(sidebarToggleButton)
         terminalContainer.translatesAutoresizingMaskIntoConstraints = false
 
         // Read persisted sidebar mode.
         let initialMode = WorkspaceStore.shared.sidebarMode
         self.sidebarMode = initialMode
         let isPinned = initialMode == .pinned
+        // Both pinned and closed modes show the floating card with insets.
+        let hasCardInset = initialMode != .overlay
         let initialWidth: CGFloat = isPinned ? WorkspaceLayout.sidebarWidth : 0
 
         sidebarWidthConstraint = sidebarHostingView.widthAnchor.constraint(equalToConstant: initialWidth)
 
-        let inset: CGFloat = isPinned ? WorkspaceLayout.terminalInset : 0
+        let inset: CGFloat = hasCardInset ? WorkspaceLayout.terminalInset : 0
         // Inset constraints target the shadow host, not the terminal directly.
         shadowHostTopConstraint = terminalShadowHost.topAnchor.constraint(
             equalTo: topAnchor, constant: inset)
         shadowHostTrailingConstraint = terminalShadowHost.trailingAnchor.constraint(
-            equalTo: trailingAnchor, constant: isPinned ? -inset : 0)
+            equalTo: trailingAnchor, constant: hasCardInset ? -inset : 0)
         shadowHostBottomConstraint = terminalShadowHost.bottomAnchor.constraint(
-            equalTo: bottomAnchor, constant: isPinned ? -inset : 0)
+            equalTo: bottomAnchor, constant: hasCardInset ? -inset : 0)
 
         // Dual leading constraints (mutually exclusive).
         shadowHostLeadingToSidebar = terminalShadowHost.leadingAnchor.constraint(
             equalTo: sidebarHostingView.trailingAnchor, constant: inset)
         shadowHostLeadingToSuperview = terminalShadowHost.leadingAnchor.constraint(
-            equalTo: leadingAnchor, constant: 0)
+            equalTo: leadingAnchor, constant: hasCardInset ? inset : 0)
         shadowHostLeadingToSidebar.isActive = isPinned
         shadowHostLeadingToSuperview.isActive = !isPinned
 
-        // Terminal top offset inside the shadow host — reserves title bar space when pinned.
-        let titlebarInset: CGFloat = isPinned ? WorkspaceLayout.terminalTitleBarHeight : 0
+        // Terminal top offset inside the shadow host — reserves title bar space
+        // when pinned or closed (card modes show title + toggle button).
+        let titlebarInset: CGFloat = hasCardInset ? WorkspaceLayout.terminalTitleBarHeight : 0
         terminalTopConstraint = terminalContainer.topAnchor.constraint(
             equalTo: terminalShadowHost.topAnchor, constant: titlebarInset)
 
@@ -515,19 +552,26 @@ class WorkspaceViewContainer: NSView {
             terminalContainer.trailingAnchor.constraint(equalTo: terminalShadowHost.trailingAnchor),
             terminalContainer.bottomAnchor.constraint(equalTo: terminalShadowHost.bottomAnchor),
 
-            // Title label centered in the titlebar region of the card.
-            titleLabel.centerXAnchor.constraint(equalTo: terminalShadowHost.centerXAnchor),
-            titleLabel.topAnchor.constraint(
+            // Sidebar toggle button at top-left of the terminal card titlebar.
+            sidebarToggleButton.leadingAnchor.constraint(
+                equalTo: terminalShadowHost.leadingAnchor, constant: 8),
+            sidebarToggleButton.centerYAnchor.constraint(
                 equalTo: terminalShadowHost.topAnchor,
-                constant: 6),
+                constant: WorkspaceLayout.terminalTitleBarHeight / 2),
+
+            // Title label centered in the titlebar region, vertically aligned
+            // with the sidebar toggle button.
+            titleLabel.centerXAnchor.constraint(equalTo: terminalShadowHost.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(
+                equalTo: sidebarToggleButton.centerYAnchor),
         ])
 
-        // Terminal floating card: all four corners rounded when pinned.
+        // Terminal floating card: top corners rounded when in card mode (pinned/closed).
         terminalContainer.wantsLayer = true
-        terminalContainer.layer?.cornerRadius = isPinned ? WorkspaceLayout.terminalCornerRadius : 0
+        terminalContainer.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
         terminalContainer.layer?.cornerCurve = .continuous
-        terminalContainer.layer?.maskedCorners = isPinned
-            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]  // bottom only (MinY = bottom in CA coords)
+        terminalContainer.layer?.maskedCorners = hasCardInset
+            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]  // top corners only (MinY = bottom in CA coords)
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         terminalContainer.layer?.masksToBounds = true
 
@@ -535,24 +579,25 @@ class WorkspaceViewContainer: NSView {
         // layer exists (wantsLayer in a property closure may not create it in time).
         terminalShadowHost.wantsLayer = true
         terminalShadowHost.layer?.shadowColor = NSColor.black.cgColor
-        terminalShadowHost.layer?.shadowOpacity = isPinned ? 0.15 : 0
+        terminalShadowHost.layer?.shadowOpacity = hasCardInset ? 0.15 : 0
         terminalShadowHost.layer?.shadowRadius = 8
         terminalShadowHost.layer?.shadowOffset = CGSize(width: 0, height: -2)
 
         // Card background behind the title bar region. No masksToBounds — shadow
         // must render outside the layer bounds.
-        terminalShadowHost.layer?.cornerRadius = isPinned ? WorkspaceLayout.terminalCornerRadius : 0
+        terminalShadowHost.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
         terminalShadowHost.layer?.cornerCurve = .continuous
-        terminalShadowHost.layer?.backgroundColor = isPinned ? cardBackgroundCGColor : nil
+        terminalShadowHost.layer?.backgroundColor = hasCardInset ? cardBackgroundCGColor : nil
 
-        // Canvas background — visible behind the floating card in pinned mode.
-        layer?.backgroundColor = isPinned ? canvasBackgroundCGColor : nil
+        // Canvas background — visible behind the floating card in pinned and closed modes.
+        layer?.backgroundColor = hasCardInset ? canvasBackgroundCGColor : nil
 
         // Background material is only visible in overlay (floating hover) mode.
         // In pinned mode the sidebar is transparent; in closed mode it's hidden entirely.
         backgroundEffectView.isHidden = true
-        if !isPinned {
+        if initialMode == .overlay {
             titleLabel.alphaValue = 0
+            sidebarToggleButton.alphaValue = 0
         }
 
         // Bind title label to the active session name.

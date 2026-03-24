@@ -154,18 +154,50 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
     /// Maximum file size (1 MB) for systemPromptFile contents.
     private static let maxPromptFileSize = 1_048_576
 
+    /// Directory for cached prompt files written from inline systemPrompt content.
+    private static let promptCacheDir = ("~/.ghostties/cache/prompts" as NSString).expandingTildeInPath
+
+    /// Write inline prompt content to a cache file and return the path.
+    ///
+    /// Creates `~/.ghostties/cache/prompts/<template-id>.prompt.md` with 0o700 directory
+    /// permissions. Returns nil if the write fails.
+    static func writePromptCacheFile(templateId: UUID, content: String) -> String? {
+        let fm = FileManager.default
+        let dirPath = promptCacheDir
+
+        // Create the cache directory if needed (with restrictive permissions).
+        if !fm.fileExists(atPath: dirPath) {
+            do {
+                try fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true, attributes: [
+                    .posixPermissions: 0o700,
+                ])
+            } catch {
+                logger.warning("Failed to create prompt cache directory: \(error.localizedDescription)")
+                return nil
+            }
+        }
+
+        let filePath = (dirPath as NSString).appendingPathComponent("\(templateId.uuidString).prompt.md")
+        do {
+            try content.write(toFile: filePath, atomically: true, encoding: .utf8)
+            return filePath
+        } catch {
+            logger.warning("Failed to write prompt cache file: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// Build the full CLI string for launching this template.
     ///
     /// Starts with the command (or empty string for shell), then appends
     /// agent config flags. All values are shell-escaped with single quotes.
-    /// Prompt file contents are read from disk with a 1 MB size cap.
+    /// Prompt files are referenced via `--append-system-prompt-file`; inline
+    /// prompts are written to cache files first. File size capped at 1 MB.
     func buildCommand() -> String {
         var parts: [String] = []
 
         if let command {
-            // Don't shell-escape the command name — it needs to be resolved
-            // via PATH by the coordinator. Only values are escaped.
-            parts.append(command)
+            parts.append(Self.shellEscape(command))
         }
 
         guard let agent else {
@@ -183,16 +215,24 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
             let fileSize = attrs?[.size] as? Int ?? 0
             if fileSize > Self.maxPromptFileSize {
                 Self.logger.warning("Skipping systemPromptFile: file too large (\(fileSize) bytes > \(Self.maxPromptFileSize))")
-            } else if let contents = try? String(contentsOfFile: expandedPath, encoding: .utf8) {
-                parts.append("--append-system-prompt")
-                parts.append(Self.shellEscape(contents))
+            } else if FileManager.default.fileExists(atPath: expandedPath) {
+                parts.append("--append-system-prompt-file")
+                parts.append(Self.shellEscape(expandedPath))
             } else {
                 Self.logger.warning("Skipping systemPromptFile: file not found or unreadable at \(expandedPath)")
             }
         } else if let systemPrompt = agent.systemPrompt, !systemPrompt.isEmpty {
-            // Inline system prompt from preset body.
-            parts.append("--append-system-prompt")
-            parts.append(Self.shellEscape(systemPrompt))
+            // Inline system prompt from preset body — write to a cache file so we
+            // can use --append-system-prompt-file instead of passing content inline.
+            if let cachePath = Self.writePromptCacheFile(templateId: id, content: systemPrompt) {
+                parts.append("--append-system-prompt-file")
+                parts.append(Self.shellEscape(cachePath))
+            } else {
+                // Fallback to inline if cache file write fails.
+                Self.logger.warning("Falling back to inline --append-system-prompt for template \(name)")
+                parts.append("--append-system-prompt")
+                parts.append(Self.shellEscape(systemPrompt))
+            }
         }
 
         if let permissionMode = agent.permissionMode {

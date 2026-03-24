@@ -19,10 +19,14 @@ enum WorkspaceLayout {
     static let sidebarWidth: CGFloat = 220
 
     /// Height reserved at top for window traffic light controls.
+    /// With an NSToolbar (.unified style) the titlebar is taller (~38pt),
+    /// so the sidebar toolbar row uses this as its frame height.
     static let titlebarSpacerHeight: CGFloat = 38
 
     /// Height of the session-name title bar inside the terminal card.
-    static let terminalTitleBarHeight: CGFloat = 28
+    /// Matches the toolbar-enlarged titlebar so elements align across
+    /// the sidebar and terminal header.
+    static let terminalTitleBarHeight: CGFloat = 38
 
     /// Corner radius on the floating terminal panel (all four corners).
     static let terminalCornerRadius: CGFloat = 12
@@ -86,4 +90,9 @@ extension Notification.Name {
     /// Posted by TerminalController when the user presses Cmd+Shift+T.
     /// The notification object is the originating NSWindow.
     static let workspaceNewSession = Notification.Name("com.seansmithdesign.ghostties.workspace.newSession")
+
+    /// Posted by MenuBarDropdownView when the user clicks a session row.
+    /// userInfo contains "sessionId" (UUID). SessionCoordinators observe this
+    /// to focus the tapped session and bring its window to the front.
+    static let menuBarFocusSession = Notification.Name("com.seansmithdesign.ghostties.menuBar.focusSession")
 }

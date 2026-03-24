@@ -137,6 +137,9 @@ class AppDelegate: NSObject,
         updateController.viewModel
     }
 
+    /// Menu bar status indicator showing aggregate agent session state.
+    private var menuBarController: MenuBarController?
+
     /// The elapsed time since the process was started
     var timeSinceLaunch: TimeInterval {
         return ProcessInfo.processInfo.systemUptime - applicationLaunchTime
@@ -300,6 +303,10 @@ class AppDelegate: NSObject,
 
         // Setup signal handlers
         setupSignals()
+
+        // Setup the menu bar agent status indicator.
+        menuBarController = MenuBarController()
+        menuBarController?.setup()
 
         switch Ghostty.launchSource {
         case .app:
