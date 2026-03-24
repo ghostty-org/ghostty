@@ -26,6 +26,12 @@
 		A5985CE62C33060F00C57AD3 /* man in Resources */ = {isa = PBXBuildFile; fileRef = A5985CE52C33060F00C57AD3 /* man */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
+		B0A55ABE2F72F4C100018CBF /* debugger.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB92F72F4C100018CBF /* debugger.md */; };
+		B0A55ABF2F72F4C100018CBF /* code-reviewer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB82F72F4C100018CBF /* code-reviewer.md */; };
+		B0A55AC02F72F4C100018CBF /* test-writer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABC2F72F4C100018CBF /* test-writer.md */; };
+		B0A55AC12F72F4C100018CBF /* architect.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB72F72F4C100018CBF /* architect.md */; };
+		B0A55AC22F72F4C100018CBF /* pair-programmer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABB2F72F4C100018CBF /* pair-programmer.md */; };
+		B0A55AC32F72F4C100018CBF /* orchestrator.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABA2F72F4C100018CBF /* orchestrator.md */; };
 		FC5218FA2D10FFCE004C93E0 /* zsh in Resources */ = {isa = PBXBuildFile; fileRef = FC5218F92D10FFC7004C93E0 /* zsh */; };
 		FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */ = {isa = PBXBuildFile; fileRef = FC9ABA9B2D0F538D0020D4C8 /* bash-completion */; };
 /* End PBXBuildFile section */
@@ -91,6 +97,12 @@
 		A5B3053D299BEAAB0047F10C /* Ghostties.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostties.entitlements; sourceTree = "<group>"; };
 		A5D4499D2B53AE7B000F5B83 /* Ghostty-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ghostty-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
+		B0A55AB72F72F4C100018CBF /* architect.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = architect.md; sourceTree = "<group>"; };
+		B0A55AB82F72F4C100018CBF /* code-reviewer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "code-reviewer.md"; sourceTree = "<group>"; };
+		B0A55AB92F72F4C100018CBF /* debugger.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = debugger.md; sourceTree = "<group>"; };
+		B0A55ABA2F72F4C100018CBF /* orchestrator.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = orchestrator.md; sourceTree = "<group>"; };
+		B0A55ABB2F72F4C100018CBF /* pair-programmer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "pair-programmer.md"; sourceTree = "<group>"; };
+		B0A55ABC2F72F4C100018CBF /* test-writer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "test-writer.md"; sourceTree = "<group>"; };
 		FC5218F92D10FFC7004C93E0 /* zsh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = zsh; path = "../zig-out/share/zsh"; sourceTree = "<group>"; };
 		FC9ABA9B2D0F538D0020D4C8 /* bash-completion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bash-completion"; path = "../zig-out/share/bash-completion"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -318,6 +330,7 @@
 		A5A1F8862A489D7400D1E8BC /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				B0A55ABD2F72F4C100018CBF /* Presets */,
 				FC9ABA9B2D0F538D0020D4C8 /* bash-completion */,
 				29C15B1C2CDC3B2000520DD4 /* bat */,
 				A586167B2B7703CC009BDB1D /* fish */,
@@ -370,6 +383,19 @@
 				A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B0A55ABD2F72F4C100018CBF /* Presets */ = {
+			isa = PBXGroup;
+			children = (
+				B0A55AB72F72F4C100018CBF /* architect.md */,
+				B0A55AB82F72F4C100018CBF /* code-reviewer.md */,
+				B0A55AB92F72F4C100018CBF /* debugger.md */,
+				B0A55ABA2F72F4C100018CBF /* orchestrator.md */,
+				B0A55ABB2F72F4C100018CBF /* pair-programmer.md */,
+				B0A55ABC2F72F4C100018CBF /* test-writer.md */,
+			);
+			path = Presets;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -571,6 +597,12 @@
 				FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */,
 				A553F4142E06EB1600257779 /* Ghostties.icon in Resources */,
 				29C15B1D2CDC3B2900520DD4 /* bat in Resources */,
+				B0A55ABE2F72F4C100018CBF /* debugger.md in Resources */,
+				B0A55ABF2F72F4C100018CBF /* code-reviewer.md in Resources */,
+				B0A55AC02F72F4C100018CBF /* test-writer.md in Resources */,
+				B0A55AC12F72F4C100018CBF /* architect.md in Resources */,
+				B0A55AC22F72F4C100018CBF /* pair-programmer.md in Resources */,
+				B0A55AC32F72F4C100018CBF /* orchestrator.md in Resources */,
 				A586167C2B7703CC009BDB1D /* fish in Resources */,
 				8F3A9B4C2FA6B88000A18D13 /* Ghostty.sdef in Resources */,
 				55154BE02B33911F001622DC /* ghostty in Resources */,
