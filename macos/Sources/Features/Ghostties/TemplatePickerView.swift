@@ -383,51 +383,54 @@ struct TemplateEditForm: View {
     @State private var agentAdditionalFlags: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Edit Template")
                 .font(.system(size: 13, weight: .semibold))
 
-            VStack(alignment: .leading, spacing: 8) {
-                field("Name") {
-                    TextField("Template name", text: $name)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                field("Kind") {
-                    Picker("", selection: $kind) {
-                        Text("Shell").tag(AgentTemplate.Kind.shell)
-                        Text("Claude Code").tag(AgentTemplate.Kind.claudeCode)
-                        Text("Custom").tag(AgentTemplate.Kind.custom)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    field("Name") {
+                        TextField("Template name", text: $name)
+                            .textFieldStyle(.roundedBorder)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                }
 
-                // Agent Configuration — only for non-shell kinds
-                if kind != .shell {
-                    agentConfigSection
-                }
+                    field("Kind") {
+                        Picker("", selection: $kind) {
+                            Text("Shell").tag(AgentTemplate.Kind.shell)
+                            Text("Claude Code").tag(AgentTemplate.Kind.claudeCode)
+                            Text("Custom").tag(AgentTemplate.Kind.custom)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                    }
 
-                sectionHeader("Terminal")
+                    // Agent Configuration — only for non-shell kinds
+                    if kind != .shell {
+                        agentConfigSection
+                    }
 
-                field("Command") {
-                    TextField("e.g. claude, python3", text: $command)
-                        .textFieldStyle(.roundedBorder)
-                    Text("Leave empty for default shell")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
+                    sectionHeader("Terminal")
 
-                field("Environment") {
-                    TextEditor(text: $envVarsText)
-                        .font(.system(size: 11, design: .monospaced))
-                        .frame(height: 60)
-                        .border(Color(.separatorColor), width: 0.5)
-                    Text("KEY=VALUE, one per line")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                    field("Command") {
+                        TextField("e.g. claude, python3", text: $command)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Leave empty for default shell")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    field("Environment") {
+                        TextEditor(text: $envVarsText)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(height: 48)
+                            .border(Color(.separatorColor), width: 0.5)
+                        Text("KEY=VALUE, one per line")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
+            .frame(maxHeight: 420)
 
             HStack {
                 Spacer()
