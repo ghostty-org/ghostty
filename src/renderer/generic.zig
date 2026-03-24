@@ -115,6 +115,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// True if the window is focused
         focused: bool,
 
+        /// True if blinking text should be displayed and false when it should
+        /// not be visible. Toggled on the same timer as cursor_blink_visible.
+        text_blink_visible: bool,
+
         /// Flag to indicate that our focus state changed for custom
         /// shaders to update their state.
         custom_shader_focused_changed: bool = false,
@@ -705,6 +709,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .grid_metrics = font_critical.metrics,
                 .size = options.size,
                 .focused = true,
+                .text_blink_visible = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
                 .last_bottom_node = null,
@@ -1124,6 +1129,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             state: *renderer.State,
             cursor_blink_visible: bool,
+            text_blink_visible: bool,
         ) Allocator.Error!void {
             // const start = std.time.Instant.now() catch unreachable;
             // const start_micro = std.time.microTimestamp();
@@ -1360,6 +1366,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
 
+                if (text_blink_visible != self.text_blink_visible) {
+                    self.text_blink_visible = text_blink_visible;
+                    self.markDirty();
+                }
+
                 // Build our GPU cells
                 self.rebuildCells(
                     critical.preedit,
@@ -1369,6 +1380,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .blink_visible = cursor_blink_visible,
                     }),
                     &critical.links,
+                    self.text_blink_visible,
                 ) catch |err| {
                     // This means we weren't able to allocate our buffer
                     // to update the cells. In this case, we continue with
@@ -2309,6 +2321,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
             links: *const terminal.RenderState.CellSet,
+            text_blink_visible: bool,
         ) Allocator.Error!void {
             const state: *terminal.RenderState = &self.terminal_state;
 
@@ -2432,6 +2445,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     selection,
                     highlights,
                     links,
+                    text_blink_visible,
                 ) catch |err| {
                     // This should never happen except under exceptional
                     // scenarios. In this case, we don't want to corrupt
@@ -2616,6 +2630,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             selection: ?[2]terminal.size.CellCountInt,
             highlights: *const std.ArrayList(terminal.RenderState.Highlight),
             links: *const terminal.RenderState.CellSet,
+            text_blink_visible: bool,
         ) !void {
             const state = &self.terminal_state;
 
@@ -2926,7 +2941,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (style.flags.invisible) {
                     continue;
                 }
-
+                // If blinking and in the hidden phase, skip all foreground 
+                // rendering (matches xterm behavior)
+                const blink_hidden = style.flags.blink and !text_blink_visible;
                 // Give links a single underline, unless they already have
                 // an underline, in which case use a double underline to
                 // distinguish them.
@@ -2946,26 +2963,28 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // We draw underlines first so that they layer underneath text.
                 // This improves readability when a colored underline is used
                 // which intersects parts of the text (descenders).
-                if (underline != .none) self.addUnderline(
-                    @intCast(x),
-                    @intCast(y),
-                    underline,
-                    style.underlineColor(&state.colors.palette) orelse fg,
-                    alpha,
-                ) catch |err| {
-                    log.warn(
-                        "error adding underline to cell, will be invalid x={} y={}, err={}",
-                        .{ x, y, err },
-                    );
-                };
-
-                if (style.flags.overline) self.addOverline(@intCast(x), @intCast(y), fg, alpha) catch |err| {
+                if (!blink_hidden) {
+                    if (underline != .none) self.addUnderline(
+                        @intCast(x),
+                        @intCast(y),
+                        underline,
+                        style.underlineColor(&state.colors.palette) orelse fg,
+                        alpha,
+                    ) catch |err| {
+                        log.warn(
+                            "error adding underline to cell, will be invalid x={} y={}, err={}",
+                            .{ x, y, err },
+                        );
+                    };
+                }
+                if (!blink_hidden) {
+                    if (style.flags.overline) self.addOverline(@intCast(x), @intCast(y), fg, alpha) catch |err| {
                     log.warn(
                         "error adding overline to cell, will be invalid x={} y={}, err={}",
                         .{ x, y, err },
                     );
-                };
-
+                    };
+                }
                 // If we're at or past the end of our shaper run then
                 // we need to get the next run from the run iterator.
                 if (shaper_cells != null and shaper_cells_i >= shaper_cells.?.len) {
@@ -3022,7 +3041,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         run.offset + shaped_cells[shaper_cells_i].x == x) : ({
                         shaper_cells_i += 1;
                     }) {
-                        self.addGlyph(
+                        if (!blink_hidden) {
+                            self.addGlyph(
                             @intCast(x),
                             @intCast(y),
                             state.cols,
@@ -3037,11 +3057,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 .{ x, y, err },
                             );
                         };
+                        }
                     }
                 }
 
                 // Finally, draw a strikethrough if necessary.
-                if (style.flags.strikethrough) self.addStrikethrough(
+                if (!blink_hidden) {
+                    if (style.flags.strikethrough) self.addStrikethrough(
                     @intCast(x),
                     @intCast(y),
                     fg,
@@ -3052,6 +3074,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .{ x, y, err },
                     );
                 };
+                }
             }
         }
 
