@@ -320,6 +320,7 @@ class WorkspaceViewContainer: NSView {
             switch newMode {
             case .pinned:
                 sidebarWidthConstraint.animator().constant = WorkspaceLayout.sidebarWidth
+                sidebarHostingView.animator().alphaValue = 1
                 shadowHostTopConstraint.animator().constant = inset
                 shadowHostLeadingToSidebar.animator().constant = inset
                 shadowHostTrailingConstraint.animator().constant = -inset
@@ -331,6 +332,7 @@ class WorkspaceViewContainer: NSView {
 
             case .closed:
                 sidebarWidthConstraint.animator().constant = 0
+                sidebarHostingView.animator().alphaValue = 0
                 shadowHostTopConstraint.animator().constant = inset
                 shadowHostLeadingToSuperview.animator().constant = inset
                 shadowHostTrailingConstraint.animator().constant = -inset
@@ -342,6 +344,7 @@ class WorkspaceViewContainer: NSView {
 
             case .overlay:
                 sidebarWidthConstraint.animator().constant = WorkspaceLayout.sidebarWidth
+                sidebarHostingView.animator().alphaValue = 1
                 // Terminal stays full-width (leading to superview, no insets).
                 shadowHostTopConstraint.animator().constant = 0
                 shadowHostLeadingToSuperview.animator().constant = 0
@@ -595,7 +598,9 @@ class WorkspaceViewContainer: NSView {
         // Background material is only visible in overlay (floating hover) mode.
         // In pinned mode the sidebar is transparent; in closed mode it's hidden entirely.
         backgroundEffectView.isHidden = true
-        if initialMode == .overlay {
+        if initialMode == .closed {
+            sidebarHostingView.alphaValue = 0
+        } else if initialMode == .overlay {
             titleLabel.alphaValue = 0
             sidebarToggleButton.alphaValue = 0
         }
