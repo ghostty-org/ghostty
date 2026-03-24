@@ -616,6 +616,17 @@ class AppDelegate: NSObject,
         sidebarItem.keyEquivalentModifierMask = [.command, .shift]
         sidebarItem.setImageIfDesired(systemSymbolName: "sidebar.left")
 
+        // Hidden duplicate: Cmd+S also toggles the sidebar (Dia Browser convention).
+        // Terminals have no Save action, so this shortcut is safe to claim.
+        let sidebarItemCmdS = NSMenuItem(
+            title: "Toggle Sidebar",
+            action: #selector(TerminalController.toggleWorkspaceSidebar(_:)),
+            keyEquivalent: "s"
+        )
+        sidebarItemCmdS.keyEquivalentModifierMask = [.command]
+        sidebarItemCmdS.isHidden = true
+        sidebarItemCmdS.allowsKeyEquivalentWhenHidden = true
+
         // "Next Project" — Cmd+Shift+]
         let nextItem = NSMenuItem(
             title: "Next Project",
@@ -645,10 +656,11 @@ class AppDelegate: NSObject,
 
         // Insert workspace group at the top of the View menu.
         viewMenu.insertItem(sidebarItem, at: 0)
-        viewMenu.insertItem(nextItem, at: 1)
-        viewMenu.insertItem(prevItem, at: 2)
-        viewMenu.insertItem(newSessionItem, at: 3)
-        viewMenu.insertItem(NSMenuItem.separator(), at: 4)
+        viewMenu.insertItem(sidebarItemCmdS, at: 1)
+        viewMenu.insertItem(nextItem, at: 2)
+        viewMenu.insertItem(prevItem, at: 3)
+        viewMenu.insertItem(newSessionItem, at: 4)
+        viewMenu.insertItem(NSMenuItem.separator(), at: 5)
 
     }
 
