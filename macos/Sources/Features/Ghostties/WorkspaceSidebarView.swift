@@ -86,13 +86,7 @@ struct WorkspaceSidebarView: View {
             ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
         }
         .padding(.horizontal, 12)
-        .frame(height: WorkspaceLayout.terminalTitleBarHeight)
-        // The sidebar starts at the window's top edge (ignoresSafeArea),
-        // but the terminal card is inset by `terminalInset` from the top.
-        // Adding matching top padding aligns the "+" button center with the
-        // traffic lights and the sidebar toggle button in the terminal card
-        // (both sit at terminalInset + terminalTitleBarHeight / 2 from window top).
-        .padding(.top, WorkspaceLayout.terminalInset)
+        .frame(height: WorkspaceLayout.titlebarSpacerHeight)
     }
 
     // MARK: - Empty State

@@ -1227,17 +1227,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window.removeTitlebarAccessoryViewController(at: 0)
         }
 
-        // Add an empty NSToolbar with unified style to make the titlebar taller.
-        // This causes macOS to vertically center the traffic lights within the
-        // enlarged titlebar region, aligning them with the sidebar toolbar icons
-        // and the terminal card title bar. This is the official API approach —
-        // direct `setFrameOrigin` on traffic light buttons doesn't stick because
-        // macOS overrides the positions on every titlebar layout pass.
-        let toolbar = NSToolbar(identifier: "WorkspaceTitlebar")
-        toolbar.delegate = self
-        toolbar.showsBaselineSeparator = false
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
+        // NSToolbar approach for traffic light alignment was removed because
+        // the enlarged titlebar hit area intercepts clicks on the "+" and
+        // sidebar toggle buttons. Traffic light alignment will be revisited
+        // with a different approach (e.g., repositioning in layout passes).
     }
 
     @IBAction func toggleWorkspaceSidebar(_ sender: Any?) {

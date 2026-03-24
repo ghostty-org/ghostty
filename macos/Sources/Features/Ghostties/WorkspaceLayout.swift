@@ -19,14 +19,10 @@ enum WorkspaceLayout {
     static let sidebarWidth: CGFloat = 220
 
     /// Height reserved at top for window traffic light controls.
-    /// With an NSToolbar (.unified style) the titlebar is taller (~38pt),
-    /// so the sidebar toolbar row uses this as its frame height.
-    static let titlebarSpacerHeight: CGFloat = 38
+    static let titlebarSpacerHeight: CGFloat = 28
 
     /// Height of the session-name title bar inside the terminal card.
-    /// Matches the toolbar-enlarged titlebar so elements align across
-    /// the sidebar and terminal header.
-    static let terminalTitleBarHeight: CGFloat = 38
+    static let terminalTitleBarHeight: CGFloat = 28
 
     /// Corner radius on the floating terminal panel (all four corners).
     static let terminalCornerRadius: CGFloat = 12
