@@ -2,7 +2,7 @@
 name: Test Writer
 description: Writes tests for existing code
 command: claude
-model: sonnet
+model: opus
 permissionMode: default
 icon: checkmark.shield
 access: full

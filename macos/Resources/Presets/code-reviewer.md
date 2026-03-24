@@ -2,7 +2,7 @@
 name: Code Reviewer
 description: Reviews code for bugs, security, and quality
 command: claude
-model: sonnet
+model: opus
 permissionMode: plan
 icon: magnifyingglass
 access: read-only

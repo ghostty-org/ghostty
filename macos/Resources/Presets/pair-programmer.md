@@ -2,7 +2,7 @@
 name: Pair Programmer
 description: Collaborative coding partner
 command: claude
-model: sonnet
+model: opus
 permissionMode: default
 icon: person.2
 access: full

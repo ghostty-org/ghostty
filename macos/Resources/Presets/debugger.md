@@ -2,7 +2,7 @@
 name: Debugger
 description: Diagnoses and fixes bugs
 command: claude
-model: sonnet
+model: opus
 permissionMode: default
 icon: ant
 access: full
