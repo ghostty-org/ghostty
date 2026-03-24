@@ -5755,30 +5755,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             defer self.renderer_state.mutex.unlock();
 
             const screen: *terminal.Screen = self.io.terminal.screens.active;
-            const sel = if (screen.selection) |*sel| sel else blk: {
-                // For word adjustments, create a new selection at the cursor
-                // position so the user can start selecting by word without
-                // needing an existing selection (matching macOS text editor
-                // behavior).
-                switch (direction) {
-                    .word_left, .word_right => {
-                        const cursor_pin = screen.cursor.page_pin.*;
-                        try screen.select(
-                            terminal.Selection.init(cursor_pin, cursor_pin, false),
-                        );
-                        break :blk &(screen.selection.?);
-                    },
-                    else => {
-                        // For non-word adjustments, we do not perform
-                        // this action, allowing the keybind to fall
-                        // through to the terminal.
-                        return false;
-                    },
-                }
-            };
-            const boundary: ?[]const u21 = switch (direction) {
-                .word_left, .word_right => self.config.selection_word_chars,
-                else => null,
+            const sel = if (screen.selection) |*sel| sel else {
+                // If we don't have a selection we do not perform this
+                // action, allowing the keybind to fall through to the
+                // terminal.
+                return false;
             };
             sel.adjust(screen, switch (direction) {
                 .left => .left,
@@ -5793,7 +5774,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .end_of_line => .end_of_line,
                 .word_left => .word_left,
                 .word_right => .word_right,
-            }, boundary);
+            }, self.config.selection_word_chars);
 
             // If the selection endpoint is outside of the current viewpoint,
             // scroll it in to view. Note we always specifically use sel.end

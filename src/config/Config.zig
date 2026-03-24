@@ -6576,15 +6576,17 @@ pub const Keybinds = struct {
             .{ .adjust_selection = .end },
             .{ .performable = true },
         );
-        try self.set.put(
+        try self.set.putFlags(
             alloc,
             .{ .key = .{ .physical = .arrow_left }, .mods = .{ .shift = true, .alt = true } },
             .{ .adjust_selection = .word_left },
+            .{ .performable = true },
         );
-        try self.set.put(
+        try self.set.putFlags(
             alloc,
             .{ .key = .{ .physical = .arrow_right }, .mods = .{ .shift = true, .alt = true } },
             .{ .adjust_selection = .word_right },
+            .{ .performable = true },
         );
 
         // Tabs common to all platforms
