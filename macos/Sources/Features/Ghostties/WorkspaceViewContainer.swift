@@ -42,6 +42,16 @@ class WorkspaceViewContainer: NSView {
         return view
     }()
 
+    /// Shadow host for the browser panel — identical layer config to terminalShadowHost.
+    private let browserShadowHost: NSView = {
+        let view = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    /// The browser panel content (navigation bar + content area placeholder).
+    private let browserPanelView = BrowserPanelView()
+
     /// Sidebar material backing for overlay mode. In pinned mode the shared
     /// `backgroundEffectView` already covers the sidebar area, so this is hidden.
     /// In overlay mode it provides the .sidebar material behind the hosting view
@@ -91,6 +101,30 @@ class WorkspaceViewContainer: NSView {
         return button
     }()
 
+    /// Browser toggle button in the terminal card's titlebar region (top-right).
+    /// Globe icon — tinted with accent color when browser is visible.
+    private lazy var browserToggleButton: NSButton = {
+        let button = NSButton()
+        button.image = NSImage(
+            systemSymbolName: "globe",
+            accessibilityDescription: "Toggle Browser"
+        )
+        button.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 13, weight: .medium
+        )
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .secondaryLabelColor
+        button.target = self
+        button.action = #selector(toggleBrowser)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setAccessibilityIdentifier("browserToggleButton")
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .vertical)
+        return button
+    }()
+
     private var cancellables = Set<AnyCancellable>()
 
     /// Current sidebar state — always kept in sync with `WorkspaceStore.shared.sidebarMode`.
@@ -111,6 +145,17 @@ class WorkspaceViewContainer: NSView {
     /// `.closed`/`.overlay`: terminal leading follows superview leading (full-width).
     private var shadowHostLeadingToSidebar: NSLayoutConstraint!
     private var shadowHostLeadingToSuperview: NSLayoutConstraint!
+
+    /// Whether the browser panel is currently visible (expanded).
+    private var isBrowserVisible = false
+
+    /// Browser shadow host constraints for the 3-column layout.
+    private var browserWidthConstraint: NSLayoutConstraint!
+    private var browserShadowHostTopConstraint: NSLayoutConstraint!
+    private var browserShadowHostBottomConstraint: NSLayoutConstraint!
+    private var browserShadowHostTrailingConstraint: NSLayoutConstraint!
+    /// Terminal trailing to browser leading (8pt gap when browser is visible).
+    private var shadowHostTrailingToBrowser: NSLayoutConstraint!
 
     /// Tracking area for hover detection. Only one is active at a time.
     private var activeTrackingArea: NSTrackingArea?
@@ -201,6 +246,7 @@ class WorkspaceViewContainer: NSView {
         guard sidebarMode == .pinned || sidebarMode == .closed else { return }
         layer?.backgroundColor = canvasBackgroundCGColor
         terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+        browserShadowHost.layer?.backgroundColor = cardBackgroundCGColor
     }
 
     /// Zero out safe area insets so Auto Layout constraints measure from
@@ -241,6 +287,12 @@ class WorkspaceViewContainer: NSView {
             cornerHeight: WorkspaceLayout.terminalCornerRadius,
             transform: nil
         )
+        browserShadowHost.layer?.shadowPath = CGPath(
+            roundedRect: browserShadowHost.bounds,
+            cornerWidth: WorkspaceLayout.terminalCornerRadius,
+            cornerHeight: WorkspaceLayout.terminalCornerRadius,
+            transform: nil
+        )
         sidebarOverlayBackground.layer?.shadowPath = CGPath(
             rect: sidebarOverlayBackground.bounds,
             transform: nil
@@ -265,6 +317,57 @@ class WorkspaceViewContainer: NSView {
         case .closed:  transitionTo(.pinned)
         case .overlay: transitionTo(.pinned)  // promote overlay to pinned
         }
+    }
+
+    // MARK: - Browser Toggle
+
+    /// Toggle browser panel visibility via keyboard shortcut (Cmd+B) or globe button.
+    @objc func toggleBrowser() {
+        isBrowserVisible.toggle()
+
+        let inset = WorkspaceLayout.terminalInset
+
+        // Swap trailing constraints: terminal trails to browser or to window edge.
+        if isBrowserVisible {
+            shadowHostTrailingConstraint.isActive = false
+            shadowHostTrailingToBrowser.isActive = true
+        } else {
+            shadowHostTrailingToBrowser.isActive = false
+            shadowHostTrailingConstraint.isActive = true
+        }
+
+        // Update globe button tint: accent color when open, secondary when closed.
+        browserToggleButton.contentTintColor = isBrowserVisible
+            ? NSColor(red: 0.788, green: 0.451, blue: 0.314, alpha: 1)  // terracotta
+            : .secondaryLabelColor
+
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = reduceMotion ? 0 : 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+            if self.isBrowserVisible {
+                // Expand browser to share width with terminal.
+                let availableWidth = bounds.width
+                    - (sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0)
+                    - inset * (sidebarMode == .pinned ? 3 : 3)  // leading + gap + trailing
+                let browserWidth = max(
+                    WorkspaceLayout.browserMinWidth,
+                    availableWidth * (1 - WorkspaceLayout.browserSplitRatio)
+                )
+                browserWidthConstraint.animator().constant = browserWidth
+                browserShadowHost.animator().alphaValue = 1
+            } else {
+                // Collapse browser.
+                browserWidthConstraint.animator().constant = 0
+                browserShadowHost.animator().alphaValue = 0
+            }
+        }
+
+        // Shadow + corner radius (non-animatable).
+        browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
+
+        invalidateIntrinsicContentSize()
     }
 
     /// Minimum interval between transitions to prevent rapid oscillation
@@ -323,26 +426,47 @@ class WorkspaceViewContainer: NSView {
                 sidebarHostingView.animator().alphaValue = 1
                 shadowHostTopConstraint.animator().constant = inset
                 shadowHostLeadingToSidebar.animator().constant = inset
-                shadowHostTrailingConstraint.animator().constant = -inset
+                if !isBrowserVisible {
+                    shadowHostTrailingConstraint.animator().constant = -inset
+                }
                 shadowHostBottomConstraint.animator().constant = -inset
                 terminalTopConstraint.animator().constant = WorkspaceLayout.terminalTitleBarHeight
                 titleLabel.animator().alphaValue = 1
                 sidebarToggleButton.animator().alphaValue = 1
+                browserToggleButton.animator().alphaValue = 1
                 sidebarOverlayBackground.animator().alphaValue = 0
+                // Browser insets match terminal.
+                browserShadowHostTopConstraint.animator().constant = inset
+                browserShadowHostBottomConstraint.animator().constant = -inset
+                browserShadowHostTrailingConstraint.animator().constant = -inset
 
             case .closed:
                 sidebarWidthConstraint.animator().constant = 0
                 sidebarHostingView.animator().alphaValue = 0
                 shadowHostTopConstraint.animator().constant = inset
                 shadowHostLeadingToSuperview.animator().constant = inset
-                shadowHostTrailingConstraint.animator().constant = -inset
+                if !isBrowserVisible {
+                    shadowHostTrailingConstraint.animator().constant = -inset
+                }
                 shadowHostBottomConstraint.animator().constant = -inset
                 terminalTopConstraint.animator().constant = WorkspaceLayout.terminalTitleBarHeight
                 titleLabel.animator().alphaValue = 1
                 sidebarToggleButton.animator().alphaValue = 1
+                browserToggleButton.animator().alphaValue = 1
                 sidebarOverlayBackground.animator().alphaValue = 0
+                // Browser insets match terminal.
+                browserShadowHostTopConstraint.animator().constant = inset
+                browserShadowHostBottomConstraint.animator().constant = -inset
+                browserShadowHostTrailingConstraint.animator().constant = -inset
 
             case .overlay:
+                // If browser was visible, swap trailing constraint back to window edge.
+                if isBrowserVisible {
+                    shadowHostTrailingToBrowser.isActive = false
+                    shadowHostTrailingConstraint.isActive = true
+                    isBrowserVisible = false
+                    browserToggleButton.contentTintColor = .secondaryLabelColor
+                }
                 sidebarWidthConstraint.animator().constant = WorkspaceLayout.sidebarWidth
                 sidebarHostingView.animator().alphaValue = 1
                 // Terminal stays full-width (leading to superview, no insets).
@@ -353,7 +477,14 @@ class WorkspaceViewContainer: NSView {
                 terminalTopConstraint.animator().constant = 0
                 titleLabel.animator().alphaValue = 0
                 sidebarToggleButton.animator().alphaValue = 0
+                browserToggleButton.animator().alphaValue = 0
                 sidebarOverlayBackground.animator().alphaValue = 1
+                // Collapse browser in overlay mode.
+                browserWidthConstraint.animator().constant = 0
+                browserShadowHost.animator().alphaValue = 0
+                browserShadowHostTopConstraint.animator().constant = 0
+                browserShadowHostBottomConstraint.animator().constant = 0
+                browserShadowHostTrailingConstraint.animator().constant = 0
             }
         }
 
@@ -365,6 +496,9 @@ class WorkspaceViewContainer: NSView {
             terminalShadowHost.layer?.shadowOpacity = 0.15
             terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            browserShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
+            browserShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
         case .closed:
@@ -373,6 +507,9 @@ class WorkspaceViewContainer: NSView {
             terminalShadowHost.layer?.shadowOpacity = 0.15
             terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            browserShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
+            browserShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
         case .overlay:
@@ -381,6 +518,9 @@ class WorkspaceViewContainer: NSView {
             terminalShadowHost.layer?.shadowOpacity = 0
             terminalShadowHost.layer?.cornerRadius = 0
             terminalShadowHost.layer?.backgroundColor = nil
+            browserShadowHost.layer?.cornerRadius = 0
+            browserShadowHost.layer?.backgroundColor = nil
+            browserShadowHost.layer?.shadowOpacity = 0
             layer?.backgroundColor = nil
             sidebarOverlayBackground.layer?.shadowOpacity = 0.2
         }
@@ -473,11 +613,12 @@ class WorkspaceViewContainer: NSView {
         // Canvas layer — the warm background visible behind the floating card.
         wantsLayer = true
 
-        // Z-order: background material → overlay background → sidebar → shadow host.
+        // Z-order: background material → overlay background → sidebar → terminal → browser.
         addSubview(backgroundEffectView)
         addSubview(sidebarOverlayBackground)
         addSubview(sidebarHostingView)
         addSubview(terminalShadowHost)
+        addSubview(browserShadowHost)
 
         sidebarHostingView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -493,7 +634,12 @@ class WorkspaceViewContainer: NSView {
         terminalShadowHost.addSubview(terminalContainer)
         terminalShadowHost.addSubview(titleLabel)
         terminalShadowHost.addSubview(sidebarToggleButton)
+        terminalShadowHost.addSubview(browserToggleButton)
         terminalContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        // Browser panel lives inside browser shadow host.
+        browserPanelView.translatesAutoresizingMaskIntoConstraints = false
+        browserShadowHost.addSubview(browserPanelView)
 
         // Read persisted sidebar mode.
         let initialMode = WorkspaceStore.shared.sidebarMode
@@ -509,10 +655,25 @@ class WorkspaceViewContainer: NSView {
         // Inset constraints target the shadow host, not the terminal directly.
         shadowHostTopConstraint = terminalShadowHost.topAnchor.constraint(
             equalTo: topAnchor, constant: inset)
+        // Terminal trailing to window edge (active when browser is hidden).
         shadowHostTrailingConstraint = terminalShadowHost.trailingAnchor.constraint(
             equalTo: trailingAnchor, constant: hasCardInset ? -inset : 0)
         shadowHostBottomConstraint = terminalShadowHost.bottomAnchor.constraint(
             equalTo: bottomAnchor, constant: hasCardInset ? -inset : 0)
+
+        // Terminal trailing to browser leading (active when browser is visible).
+        shadowHostTrailingToBrowser = terminalShadowHost.trailingAnchor.constraint(
+            equalTo: browserShadowHost.leadingAnchor, constant: -inset)
+        shadowHostTrailingToBrowser.isActive = false
+
+        // Browser shadow host constraints — starts hidden (width 0, alpha 0).
+        browserWidthConstraint = browserShadowHost.widthAnchor.constraint(equalToConstant: 0)
+        browserShadowHostTopConstraint = browserShadowHost.topAnchor.constraint(
+            equalTo: topAnchor, constant: inset)
+        browserShadowHostBottomConstraint = browserShadowHost.bottomAnchor.constraint(
+            equalTo: bottomAnchor, constant: hasCardInset ? -inset : 0)
+        browserShadowHostTrailingConstraint = browserShadowHost.trailingAnchor.constraint(
+            equalTo: trailingAnchor, constant: hasCardInset ? -inset : 0)
 
         // Dual leading constraints (mutually exclusive).
         shadowHostLeadingToSidebar = terminalShadowHost.leadingAnchor.constraint(
@@ -562,11 +723,29 @@ class WorkspaceViewContainer: NSView {
                 equalTo: terminalShadowHost.topAnchor,
                 constant: WorkspaceLayout.terminalTitleBarHeight / 2),
 
+            // Browser toggle button at top-right of the terminal card titlebar.
+            browserToggleButton.trailingAnchor.constraint(
+                equalTo: terminalShadowHost.trailingAnchor, constant: -8),
+            browserToggleButton.centerYAnchor.constraint(
+                equalTo: sidebarToggleButton.centerYAnchor),
+
             // Title label centered in the titlebar region, vertically aligned
             // with the sidebar toggle button.
             titleLabel.centerXAnchor.constraint(equalTo: terminalShadowHost.centerXAnchor),
             titleLabel.centerYAnchor.constraint(
                 equalTo: sidebarToggleButton.centerYAnchor),
+
+            // Browser shadow host — positioned to the right of the terminal.
+            browserShadowHostTopConstraint,
+            browserShadowHostBottomConstraint,
+            browserShadowHostTrailingConstraint,
+            browserWidthConstraint,
+
+            // Browser panel fills its shadow host.
+            browserPanelView.topAnchor.constraint(equalTo: browserShadowHost.topAnchor),
+            browserPanelView.leadingAnchor.constraint(equalTo: browserShadowHost.leadingAnchor),
+            browserPanelView.trailingAnchor.constraint(equalTo: browserShadowHost.trailingAnchor),
+            browserPanelView.bottomAnchor.constraint(equalTo: browserShadowHost.bottomAnchor),
         ])
 
         // Terminal floating card: top corners rounded when in card mode (pinned/closed).
@@ -592,6 +771,18 @@ class WorkspaceViewContainer: NSView {
         terminalShadowHost.layer?.cornerCurve = .continuous
         terminalShadowHost.layer?.backgroundColor = hasCardInset ? cardBackgroundCGColor : nil
 
+        // Browser shadow host — identical layer config to terminal shadow host.
+        browserShadowHost.wantsLayer = true
+        browserShadowHost.layer?.shadowColor = NSColor.black.cgColor
+        browserShadowHost.layer?.shadowOpacity = 0  // hidden initially
+        browserShadowHost.layer?.shadowRadius = 8
+        browserShadowHost.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        browserShadowHost.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
+        browserShadowHost.layer?.cornerCurve = .continuous
+        browserShadowHost.layer?.backgroundColor = hasCardInset ? cardBackgroundCGColor : nil
+        browserShadowHost.layer?.masksToBounds = true
+        browserShadowHost.alphaValue = 0  // hidden initially
+
         // Canvas background — visible behind the floating card in pinned and closed modes.
         layer?.backgroundColor = hasCardInset ? canvasBackgroundCGColor : nil
 
@@ -603,6 +794,7 @@ class WorkspaceViewContainer: NSView {
         } else if initialMode == .overlay {
             titleLabel.alphaValue = 0
             sidebarToggleButton.alphaValue = 0
+            browserToggleButton.alphaValue = 0
         }
 
         // Bind title label to the active session name.

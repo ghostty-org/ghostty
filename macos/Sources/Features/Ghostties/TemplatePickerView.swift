@@ -309,6 +309,7 @@ struct TemplatePickerView: View {
         case .shell: return "terminal"
         case .claudeCode: return template.agent != nil ? "cpu" : "sparkle"
         case .custom: return "gearshape"
+        case .browser: return "globe"
         }
     }
 

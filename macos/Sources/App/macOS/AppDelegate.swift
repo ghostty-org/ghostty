@@ -627,6 +627,15 @@ class AppDelegate: NSObject,
         sidebarItemCmdS.isHidden = true
         sidebarItemCmdS.allowsKeyEquivalentWhenHidden = true
 
+        // "Toggle Browser" — Cmd+B
+        let browserItem = NSMenuItem(
+            title: "Toggle Browser",
+            action: #selector(TerminalController.toggleWorkspaceBrowser(_:)),
+            keyEquivalent: "b"
+        )
+        browserItem.keyEquivalentModifierMask = [.command]
+        browserItem.setImageIfDesired(systemSymbolName: "globe")
+
         // "Next Project" — Cmd+Shift+]
         let nextItem = NSMenuItem(
             title: "Next Project",
@@ -657,10 +666,11 @@ class AppDelegate: NSObject,
         // Insert workspace group at the top of the View menu.
         viewMenu.insertItem(sidebarItem, at: 0)
         viewMenu.insertItem(sidebarItemCmdS, at: 1)
-        viewMenu.insertItem(nextItem, at: 2)
-        viewMenu.insertItem(prevItem, at: 3)
-        viewMenu.insertItem(newSessionItem, at: 4)
-        viewMenu.insertItem(NSMenuItem.separator(), at: 5)
+        viewMenu.insertItem(browserItem, at: 2)
+        viewMenu.insertItem(nextItem, at: 3)
+        viewMenu.insertItem(prevItem, at: 4)
+        viewMenu.insertItem(newSessionItem, at: 5)
+        viewMenu.insertItem(NSMenuItem.separator(), at: 6)
 
     }
 

@@ -15,6 +15,9 @@ zig build run -Doptimize=ReleaseFast   # Build + launch release app
 rm -rf macos/build && zig build run -Doptimize=ReleaseFast  # Clean rebuild
 open macos/Ghostties.xcodeproj         # Open in Xcode
 # Cmd+U in Xcode to run tests
+
+# Browser (CEF) — optional, needed for embedded browser
+bash scripts/download-cef.sh  # Downloads ~300MB CEF framework
 ```
 
 ## Xcode Project

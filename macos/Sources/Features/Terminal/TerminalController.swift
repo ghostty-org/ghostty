@@ -1238,6 +1238,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         container.toggleSidebar()
     }
 
+    @IBAction func toggleWorkspaceBrowser(_ sender: Any?) {
+        guard let container = window?.contentView as? WorkspaceViewContainer else { return }
+        container.toggleBrowser()
+    }
+
     @IBAction func selectNextProject(_ sender: Any?) {
         NotificationCenter.default.post(name: .workspaceSelectNextProject, object: window)
     }

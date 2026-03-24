@@ -34,6 +34,12 @@ enum WorkspaceLayout {
     /// Width of the invisible hover trigger strip at the left edge (closed mode).
     static let overlayTriggerWidth: CGFloat = 10
 
+    /// Minimum width for the browser panel when visible.
+    static let browserMinWidth: CGFloat = 320
+
+    /// Default split ratio for terminal vs browser (terminal gets this fraction).
+    static let browserSplitRatio: CGFloat = 0.5
+
     /// Background for expanded project group container (dark mode).
     static let expandedContainerDark = Color(white: 0.16)
 

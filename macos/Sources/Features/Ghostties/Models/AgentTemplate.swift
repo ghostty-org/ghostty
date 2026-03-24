@@ -42,6 +42,7 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         case shell
         case claudeCode
         case custom
+        case browser
 
         // Safe decoder: decode as raw String, construct with init(rawValue:),
         // fall back to .shell on unknown values. Never throws, never wipes state.
@@ -135,8 +136,19 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         )
     )
 
+    /// Embedded Chromium browser session.
+    static let browser = AgentTemplate(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+        name: "Browser",
+        kind: .browser,
+        isDefault: true,
+        isGlobal: true,
+        templateDescription: "Embedded Chromium browser",
+        icon: "globe"
+    )
+
     /// All built-in templates, in display order.
-    static let defaults: [AgentTemplate] = [shell, claudeCode, orchestrator]
+    static let defaults: [AgentTemplate] = [shell, claudeCode, orchestrator, browser]
 
     // MARK: - CLI Construction
 

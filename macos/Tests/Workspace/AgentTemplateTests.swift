@@ -33,9 +33,20 @@ struct AgentTemplateTests {
         #expect(orch.isDefault == true)
     }
 
+    @Test func builtInBrowserTemplate() {
+        let browser = AgentTemplate.browser
+        #expect(browser.kind == .browser)
+        #expect(browser.command == nil)
+        #expect(browser.icon == "globe")
+        #expect(browser.agent == nil)
+        #expect(browser.isDefault == true)
+        #expect(browser.isGlobal == true)
+        #expect(browser.templateDescription == "Embedded Chromium browser")
+    }
+
     @Test func defaultsContainsAllBuiltIns() {
-        #expect(AgentTemplate.defaults.count == 3)
-        #expect(AgentTemplate.defaults.map(\.name) == ["Shell", "Claude Code", "Orchestrator"])
+        #expect(AgentTemplate.defaults.count == 4)
+        #expect(AgentTemplate.defaults.map(\.name) == ["Shell", "Claude Code", "Orchestrator", "Browser"])
     }
 
     @Test func deterministicUUIDs() {
@@ -43,16 +54,23 @@ struct AgentTemplateTests {
         #expect(AgentTemplate.shell.id.uuidString == "00000000-0000-0000-0000-000000000001")
         #expect(AgentTemplate.claudeCode.id.uuidString == "00000000-0000-0000-0000-000000000002")
         #expect(AgentTemplate.orchestrator.id.uuidString == "00000000-0000-0000-0000-000000000003")
+        #expect(AgentTemplate.browser.id.uuidString == "00000000-0000-0000-0000-000000000004")
     }
 
     // MARK: - Kind Enum Codable
 
     @Test func kindRoundTrip() throws {
-        for kind in [AgentTemplate.Kind.shell, .claudeCode, .custom] {
+        for kind in [AgentTemplate.Kind.shell, .claudeCode, .custom, .browser] {
             let data = try JSONEncoder().encode(kind)
             let decoded = try JSONDecoder().decode(AgentTemplate.Kind.self, from: data)
             #expect(decoded == kind)
         }
+    }
+
+    @Test func browserKindCodableRoundTrip() throws {
+        let data = try JSONEncoder().encode(AgentTemplate.Kind.browser)
+        let decoded = try JSONDecoder().decode(AgentTemplate.Kind.self, from: data)
+        #expect(decoded == .browser)
     }
 
     @Test func kindInvalidRawValueDefaultsToShell() throws {
@@ -175,6 +193,12 @@ struct AgentTemplateTests {
         let shell = AgentTemplate.shell
         let cmd = shell.buildCommand()
         #expect(cmd == "")  // nil command -> empty string, Ghostty uses default shell
+    }
+
+    @Test func buildCommandBrowser() {
+        let browser = AgentTemplate.browser
+        let cmd = browser.buildCommand()
+        #expect(cmd == "")  // nil command, no agent -> empty string
     }
 
     @Test func buildCommandPlainClaude() {
