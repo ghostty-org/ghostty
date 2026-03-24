@@ -139,6 +139,8 @@ struct MenuBarDropdownView: View {
     // MARK: - Actions
 
     private func focusSession(_ sessionId: UUID) {
+        // Close the popover first so it doesn't block the window activation.
+        NSApp.keyWindow?.contentViewController?.dismiss(nil)
         NotificationCenter.default.post(
             name: .menuBarFocusSession,
             object: nil,

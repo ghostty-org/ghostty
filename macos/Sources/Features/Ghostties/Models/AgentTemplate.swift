@@ -257,6 +257,21 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
         return parts.joined(separator: " ")
     }
 
+    /// A shell command that prints a dim banner confirming the agent template
+    /// was loaded. Returns nil for templates without agent config.
+    ///
+    /// Example output: `⚙ Orchestrator · opus · system prompt loaded`
+    var launchBanner: String? {
+        guard let agent else { return nil }
+        var parts: [String] = [name]
+        if let model = agent.model { parts.append(model) }
+        if agent.systemPromptFile != nil || agent.systemPrompt != nil {
+            parts.append("system prompt loaded")
+        }
+        let text = parts.joined(separator: " · ")
+        return "printf '\\033[2m\\342\\232\\231 %s\\033[0m\\n' \(Self.shellEscape(text))"
+    }
+
     // MARK: - Environment Safety
 
     /// Environment variable keys that should be stripped from loaded templates.

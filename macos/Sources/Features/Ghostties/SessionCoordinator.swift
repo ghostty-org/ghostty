@@ -143,9 +143,19 @@ final class SessionCoordinator: ObservableObject {
             return result
         }()
 
+        // Prepend a dim banner line confirming the agent template was loaded.
+        // The banner runs before the resolved command via `&&`.
+        let finalCommand: String? = {
+            guard let cmd = resolvedCommand else { return nil }
+            if let banner = template.launchBanner {
+                return "\(banner) && \(cmd)"
+            }
+            return cmd
+        }()
+
         var config = Ghostty.SurfaceConfiguration()
         config.workingDirectory = template.workingDirectory ?? project.rootPath
-        config.command = resolvedCommand
+        config.command = finalCommand
         config.environmentVariables = template.environmentVariables
 
         let newView = Ghostty.SurfaceView(ghosttyApp, baseConfig: config)
