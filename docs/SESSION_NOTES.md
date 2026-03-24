@@ -4,13 +4,13 @@
 
 ### Template Injection, Menu Bar, Sidebar Overhaul + CEF Browser Brainstorm
 
-Massive session: 15 commits, 3 parallel implementation workstreams, browser research, and CEF brainstorm.
+Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF browser foundation, research, and design work.
 
 **Template Injection Fixes (verified working)**
-- `buildCommand()` changed from inline `--append-system-prompt` (broke on multi-line content) to `--append-system-prompt-file`
+- `buildCommand()` changed from inline `--append-system-prompt` to `--append-system-prompt-file`
 - Inline preset prompts write to temp cache files (`~/.ghostties/cache/prompts/`)
 - PresetLoader versioned re-seeding via `.seed-version` marker
-- TUI launch banner: terracotta background bar with ghost icon, confirms template loaded
+- TUI launch banner: muted terracotta background bar with ghost emoji, confirms template loaded
 - Wrapper script approach for banner (Ghostty's `exec -l` breaks `&&` chaining)
 - 38 AgentTemplate tests + 6 PresetLoader tests, all passing
 
@@ -30,37 +30,59 @@ Massive session: 15 commits, 3 parallel implementation workstreams, browser rese
 **Design Polish**
 - Agent template badge (cpu icon + name) added then hidden — too much clutter for now
 - "+" button alignment adjusted for terminal inset offset
+- TUI banner iterated: dim → terracotta background → muted terracotta + extra spacing
 
-**CEF Embedded Browser Brainstorm**
-- Full brainstorm doc: `docs/brainstorms/2026-03-24-embedded-browser-cef-brainstorm.md`
-- CEF (Chromium Embedded Framework) chosen over WKWebView/Ultralight/Servo/Qt
-- Browser panel as floating card matching terminal treatment (same shadow/radius/inset)
-- Internal tab bar inside browser panel, 3-column max layout
-- Globe icon (top-right of terminal) toggles browser, mirrors sidebar toggle (top-left)
-- Filled/outline icon system: outline = closed, filled = open
-- Cmd+B for browser, Cmd+S for sidebar
-- 4 implementation phases planned
+**Agent Presets**
+- 6 MVP preset .md files created: Pair Programmer, Architect, Code Reviewer, Test Writer, Debugger, Orchestrator
+- All defaulting to opus model
+- Registered in Xcode project at `macos/Presets/` (folder reference)
+- Cleaned up duplicate at `macos/Resources/Presets/`
 
-**Research**
-- LibGhostty/Ghostling evaluated — not applicable, stay on GhosttyKit
-- Embedded browser options compared — WKWebView, CEF, Ultralight, Servo, Wry, Vercel agent-browser
-- CEF ARM64 macOS builds confirmed available from Spotify CDN
+**CEF Embedded Browser — Research + Brainstorm + Phase 1 Foundation**
+- Research: WKWebView, CEF, Ultralight, Servo, Wry, Vercel agent-browser — CEF chosen for Chrome DevTools + CDP
+- Research: LibGhostty/Ghostling evaluated — not applicable, stay on GhosttyKit
+- Research: CEF ARM64 macOS builds confirmed, ~150-200MB bundle impact
+- Brainstorm doc: `docs/brainstorms/2026-03-24-embedded-browser-cef-brainstorm.md`
+- Phase 1 plan: `docs/plans/2026-03-24-embedded-browser-cef-phase1-plan.md`
+- Design: browser panel as floating card (matches terminal), internal tab bar, 3-column max layout
+- Design: globe icon (top-right) toggles browser, filled/outline icon system
+- **Phase 1 Foundation implemented (6 parallel agents):**
+  - `Kind.browser` on AgentTemplate + 4 tests
+  - CEF download script (`scripts/download-cef.sh`) — queries API for latest stable
+  - `CEFBridge.h/.mm` — ObjC++ manager (lazy init, 60fps message loop, shutdown)
+  - `CEFBrowserView.h/.mm` — browser NSView (navigate, DevTools, delegates)
+  - `BrowserTabManager.swift` + `BrowserTabBar.swift` + 8 tests
+  - `BrowserPanelView.swift` + `BrowserNavigationBar.swift` + globe toggle + 3-column layout
+  - All compile with `#if __has_include` conditional guards
+- CEF downloaded (146.0.6, Chromium 146), framework linked in Xcode, **build succeeds**
+- 258 unit tests passing, 0 failures
 
-**New Files**
+**New Files (this session)**
 - `macos/Sources/Features/Ghostties/MenuBar/MenuBarController.swift`
 - `macos/Sources/Features/Ghostties/MenuBar/MenuBarDropdownView.swift`
 - `macos/Sources/Features/Ghostties/MenuBar/MenuBarIconRenderer.swift`
+- `macos/Sources/Features/Ghostties/BrowserPanelView.swift`
+- `macos/Sources/Features/Ghostties/BrowserNavigationBar.swift`
+- `macos/Sources/Features/Ghostties/BrowserTabManager.swift`
+- `macos/Sources/Features/Ghostties/BrowserTabBar.swift`
+- `macos/Sources/Helpers/CEF/CEFBridge.h` + `.mm`
+- `macos/Sources/Helpers/CEF/CEFBrowserView.h` + `.mm`
 - `macos/Tests/Workspace/MenuBarTests.swift`
 - `macos/Tests/Workspace/PresetLoaderTests.swift`
+- `macos/Tests/Workspace/BrowserTabManagerTests.swift`
+- `macos/Presets/` (6 preset .md files)
+- `scripts/download-cef.sh`
 - `docs/brainstorms/2026-03-24-embedded-browser-cef-brainstorm.md`
+- `docs/plans/2026-03-24-embedded-browser-cef-phase1-plan.md`
 
-**Commits:** `b058c5d86` through `4314e36b0` (15 commits)
+**Commits:** `b058c5d86` through `3a366b3a6` (25+ commits)
 
-**Known Issues / TODO**
+**Known Issues / Next Steps**
 - Traffic light vertical alignment still not solved (NSToolbar approach blocked clicks, reverted)
 - Terminal init error on empty state (may be pre-existing)
-- Menu bar status dots may not update visually (needs more testing)
-- Bundled preset .md files need to be registered in Xcode project (drag-drop in Xcode UI)
+- Menu bar status dots may not update visually (needs testing)
+- CEF Phase 1 remaining: helper process setup (Step 7), embed framework in app bundle (Step 8), session integration (Step 9), smoke test (Step 10)
+- XCUITests for browser panel toggle + tab lifecycle (planned, not yet implemented)
 
 ## Mar 22, 2026 (Session 10)
 
