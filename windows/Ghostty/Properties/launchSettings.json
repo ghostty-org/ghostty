@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Ghostty (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Ghostty (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

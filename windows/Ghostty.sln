@@ -1,0 +1,9 @@
+<Solution>
+    <Project Path="Ghostty/Ghostty.csproj">
+        <Deploy />
+    </Project>
+    <Properties Name="Visual Studio">
+        <!-- Support is provisionally available on Visual Studio 17.10 and later versions. -->
+        <Property Name="OpenWith" Value="17" />
+    </Properties>
+</Solution>

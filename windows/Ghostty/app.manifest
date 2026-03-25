@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="Ghostty.app"/>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!--The ID below informs the system that this application is compatible with OS features first introduced in Windows 8. 
+      For more info see https://learn.microsoft.com/windows/win32/sysinfo/targeting-your-application-at-windows-8-1 
+      
+      It is also necessary to support features in unpackaged applications, for example the custom titlebar implementation.-->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <!-- The combination of below two tags have the following effect:
+        1) Per-Monitor for >= Windows 10 Anniversary Update
+        2) System < Windows 10 Anniversary Update
+      -->
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
