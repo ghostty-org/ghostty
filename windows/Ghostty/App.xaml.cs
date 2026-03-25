@@ -6,7 +6,7 @@ namespace Ghostty;
 
 public partial class App : Application
 {
-    private Window? _window;
+    public static Window? MainWindow { get; private set; }
 
     public App()
     {
@@ -15,25 +15,25 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs e)
     {
-        _window ??= new Window
+        MainWindow ??= new Window
         {
             Title = "Ghostty"
         };
 
-        if (_window.Content is not Frame rootFrame)
+        if (MainWindow.Content is not Frame rootFrame)
         {
             rootFrame = new Frame();
             rootFrame.NavigationFailed += OnNavigationFailed;
-            _window.Content = rootFrame;
+            MainWindow.Content = rootFrame;
         }
 
         rootFrame.Navigate(typeof(Views.MainPage), e.Arguments);
 
         // Resize to fit the 800x600 image
-        var appWindow = _window.AppWindow;
+        var appWindow = MainWindow.AppWindow;
         appWindow.Resize(new SizeInt32(816, 639));
 
-        _window.Activate();
+        MainWindow.Activate();
     }
 
     private void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
