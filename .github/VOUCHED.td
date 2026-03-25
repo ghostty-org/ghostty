@@ -45,6 +45,7 @@ bitigchi
 bkircher
 bo2themax
 brentschroeter
+brianc442
 cespare
 charliie-dev
 chernetskyi
