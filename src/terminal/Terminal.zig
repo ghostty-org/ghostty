@@ -1164,6 +1164,20 @@ pub fn semanticPrompt(
     cmd: osc.Command.SemanticPrompt,
 ) !void {
     switch (cmd.action) {
+        .fresh_line_new_prompt,
+        .new_command,
+        .prompt_start,
+        .end_prompt_start_input,
+        .end_prompt_start_input_terminate_eol,
+        => self.resetMouseReporting(),
+
+        .fresh_line,
+        .end_input_start_output,
+        .end_command,
+        => {},
+    }
+
+    switch (cmd.action) {
         .fresh_line => try self.semanticPromptFreshLine(),
 
         .fresh_line_new_prompt => {
@@ -1279,6 +1293,20 @@ pub fn semanticPrompt(
             self.screens.active.cursorSetSemanticContent(.output);
         },
     }
+}
+
+fn resetMouseReporting(self: *Terminal) void {
+    self.flags.mouse_event = .none;
+    self.flags.mouse_format = .x10;
+
+    self.modes.set(.mouse_event_x10, false);
+    self.modes.set(.mouse_event_normal, false);
+    self.modes.set(.mouse_event_button, false);
+    self.modes.set(.mouse_event_any, false);
+    self.modes.set(.mouse_format_utf8, false);
+    self.modes.set(.mouse_format_sgr, false);
+    self.modes.set(.mouse_format_urxvt, false);
+    self.modes.set(.mouse_format_sgr_pixels, false);
 }
 
 // OSC 133;L
@@ -12017,6 +12045,30 @@ test "Terminal: semantic prompt" {
         const row = list_cell.row;
         try testing.expectEqual(.none, row.semantic_prompt);
     }
+}
+
+test "Terminal: semantic prompt resets mouse reporting state" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    t.flags.mouse_event = .any;
+    t.flags.mouse_format = .sgr;
+    t.modes.set(.mouse_event_any, true);
+    t.modes.set(.mouse_format_sgr, true);
+
+    try t.semanticPrompt(.init(.fresh_line_new_prompt));
+
+    try testing.expectEqual(.none, t.flags.mouse_event);
+    try testing.expectEqual(.x10, t.flags.mouse_format);
+    try testing.expect(!t.modes.get(.mouse_event_x10));
+    try testing.expect(!t.modes.get(.mouse_event_normal));
+    try testing.expect(!t.modes.get(.mouse_event_button));
+    try testing.expect(!t.modes.get(.mouse_event_any));
+    try testing.expect(!t.modes.get(.mouse_format_utf8));
+    try testing.expect(!t.modes.get(.mouse_format_sgr));
+    try testing.expect(!t.modes.get(.mouse_format_urxvt));
+    try testing.expect(!t.modes.get(.mouse_format_sgr_pixels));
 }
 
 test "Terminal: semantic prompt continuations" {

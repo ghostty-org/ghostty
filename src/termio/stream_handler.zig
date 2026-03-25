@@ -1075,6 +1075,20 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         cmd: Stream.Action.SemanticPrompt,
     ) !void {
+        const reset_mouse = switch (cmd.action) {
+            .fresh_line_new_prompt,
+            .new_command,
+            .prompt_start,
+            .end_prompt_start_input,
+            .end_prompt_start_input_terminate_eol,
+            => true,
+
+            .fresh_line,
+            .end_input_start_output,
+            .end_command,
+            => false,
+        };
+
         switch (cmd.action) {
             .end_input_start_output => {
                 self.surfaceMessageWriter(.start_command);
@@ -1105,6 +1119,8 @@ pub const StreamHandler = struct {
         // We do this last so failures are still processed correctly
         // above.
         try self.terminal.semanticPrompt(cmd);
+
+        if (reset_mouse) try self.setMouseShape(.text);
     }
 
     fn reportPwd(self: *StreamHandler, url: []const u8) !void {
