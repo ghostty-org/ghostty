@@ -1163,19 +1163,7 @@ pub fn semanticPrompt(
     self: *Terminal,
     cmd: osc.Command.SemanticPrompt,
 ) !void {
-    switch (cmd.action) {
-        .fresh_line_new_prompt,
-        .new_command,
-        .prompt_start,
-        .end_prompt_start_input,
-        .end_prompt_start_input_terminate_eol,
-        => self.resetMouseReporting(),
-
-        .fresh_line,
-        .end_input_start_output,
-        .end_command,
-        => {},
-    }
+    if (cmd.action.resetsMouse()) self.resetMouseReporting();
 
     switch (cmd.action) {
         .fresh_line => try self.semanticPromptFreshLine(),

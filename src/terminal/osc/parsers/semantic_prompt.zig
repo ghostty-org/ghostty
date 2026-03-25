@@ -28,6 +28,22 @@ pub const Command = struct {
         end_prompt_start_input_terminate_eol, // 'I'
         end_input_start_output, // 'C'
         end_command, // 'D'
+
+        pub fn resetsMouse(self: Action) bool {
+            return switch (self) {
+                .fresh_line_new_prompt,
+                .new_command,
+                .prompt_start,
+                .end_prompt_start_input,
+                .end_prompt_start_input_terminate_eol,
+                => true,
+
+                .fresh_line,
+                .end_input_start_output,
+                .end_command,
+                => false,
+            };
+        }
     };
 
     pub fn init(action: Action) Command {
