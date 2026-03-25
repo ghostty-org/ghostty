@@ -1,8 +1,10 @@
-on: [push, pull_request]
+on:
+  push: {}
+  pull_request: {}
 name: Nix
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name != 'main' && github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || (github.ref_name != 'main' && github.ref_name || github.run_id) }}
   cancel-in-progress: true
 
 jobs:

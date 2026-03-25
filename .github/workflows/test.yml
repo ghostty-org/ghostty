@@ -6,8 +6,11 @@ on:
 name: Test
 
 # We only want the latest commit to test for any non-main ref.
+# Use head_ref (PR source branch) when available so that push and
+# pull_request events for the same branch share a concurrency group,
+# preventing duplicate CI runs.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name != 'main' && github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || (github.ref_name != 'main' && github.ref_name || github.run_id) }}
   cancel-in-progress: true
 
 jobs:
