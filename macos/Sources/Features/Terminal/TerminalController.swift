@@ -19,10 +19,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         let nib = switch config.macosTitlebarStyle {
-        case "native": "Terminal"
-        case "hidden": "TerminalHiddenTitlebar"
-        case "transparent": "TerminalTransparentTitlebar"
-        case "tabs":
+        case .native: "Terminal"
+        case .hidden: "TerminalHiddenTitlebar"
+        case .transparent: "TerminalTransparentTitlebar"
+        case .tabs:
 #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 "TerminalTabsTitlebarTahoe"
@@ -32,7 +32,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 #else
             "TerminalTabsTitlebarVentura"
 #endif
-        default: defaultValue
         }
 
         return nib
@@ -56,9 +55,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
-
-    /// This will be set to the initial frame of the window from the xib on load.
-    private var initialFrame: NSRect?
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -204,7 +200,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if all.count > 1 {
             lastCascadePoint = window.cascadeTopLeft(from: lastCascadePoint)
         } else {
-            lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
+            // We assume the window frame is already correct at this point,
+            // so we pass .zero to let cascade use the current frame position.
+            lastCascadePoint = window.cascadeTopLeft(from: .zero)
         }
     }
 
@@ -260,6 +258,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // take effect. Our best theory is there is some next-event-loop-tick logic
         // that Cocoa is doing that we need to be after.
         DispatchQueue.main.async {
+            c.showWindow(self)
+
             // Only cascade if we aren't fullscreen.
             if let window = c.window {
                 if !window.styleMask.contains(.fullScreen) {
@@ -267,8 +267,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
                 }
             }
-
-            c.showWindow(self)
 
             // All new_window actions force our app to be active, so that the new
             // window is focused and visible.
@@ -322,6 +320,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let treeSize: CGSize? = tree.root?.viewBounds()
 
         DispatchQueue.main.async {
+            c.showWindow(self)
             if let window = c.window {
                 // If we have a tree size, resize the window's content to match
                 if let treeSize, treeSize.width > 0, treeSize.height > 0 {
@@ -339,8 +338,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     }
                 }
             }
-
-            c.showWindow(self)
         }
 
         // Setup our undo
@@ -1038,36 +1035,29 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = TerminalViewContainer {
+        let container = TerminalViewContainer {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
         }
 
+        // Set the initial content size on the container so that
+        // intrinsicContentSize returns the correct value immediately,
+        // without waiting for @FocusedValue to propagate through the
+        // SwiftUI focus chain.
+        container.initialContentSize = focusedSurface?.initialSize
+
+        window.contentView = container
+
         // If we have a default size, we want to apply it.
         if let defaultSize {
-            switch defaultSize {
-            case .frame:
-                // Frames can be applied immediately
-                defaultSize.apply(to: window)
+            defaultSize.apply(to: window)
 
-            case .contentIntrinsicSize:
-                // Content intrinsic size requires a short delay so that AppKit
-                // can layout our SwiftUI views.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak self, weak window] in
-                    guard let self, let window else { return }
-                    defaultSize.apply(to: window)
-                    if let screen = window.screen ?? NSScreen.main {
-                        let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
-                        window.setFrameOrigin(frame.origin)
-                    }
+            if case .contentIntrinsicSize = defaultSize {
+                if let screen = window.screen ?? NSScreen.main {
+                    let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
+                    window.setFrameOrigin(frame.origin)
                 }
             }
         }
-
-        // Store our initial frame so we can know our default later. This MUST
-        // be after the defaultSize call above so that we don't re-apply our frame.
-        // Note: we probably want to set this on the first frame change or something
-        // so it respects cascade.
-        initialFrame = window.frame
 
         // In various situations, macOS automatically tabs new windows. Ghostty handles
         // its own tabbing so we DONT want this behavior. This detects this scenario and undoes
@@ -1093,6 +1083,34 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // apply this based on the root config but change it later based on surface
         // config (see focused surface change callback).
         syncAppearance(.init(config))
+    }
+
+    /// Setup correct window frame before showing the window
+    override func showWindow(_ sender: Any?) {
+        guard let terminalWindow = window as? TerminalWindow else { return }
+
+        // Set the initial window position. This must happen after the window
+        // is fully set up (content view, toolbar, default size) so that
+        // decorations added by subclass awakeFromNib (e.g. toolbar for tabs
+        // style) don't change the frame after the position is restored.
+        let originChanged = terminalWindow.setInitialWindowPosition(
+            x: derivedConfig.windowPositionX,
+            y: derivedConfig.windowPositionY,
+        )
+        let restored = LastWindowPosition.shared.restore(
+            terminalWindow,
+            origin: !originChanged,
+            size: defaultSize == nil,
+        )
+
+        // If nothing is changed for the frame,
+        // we should center the window
+        if !originChanged, !restored {
+            // This doesn't work in `windowDidLoad` somehow
+            terminalWindow.center()
+        }
+
+        super.showWindow(sender)
     }
 
     // Shows the "+" button in the tab bar, responds to that click.
@@ -1173,27 +1191,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.fixTabBar()
 
         // Whenever we move save our last position for the next start.
-        if let window {
-            LastWindowPosition.shared.save(window)
-        }
+        LastWindowPosition.shared.save(window)
     }
 
     override func windowDidResize(_ notification: Notification) {
         super.windowDidResize(notification)
 
         // Whenever we resize save our last position and size for the next start.
-        if let window {
-            LastWindowPosition.shared.save(window)
-        }
+        LastWindowPosition.shared.save(window)
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
         // Whenever we get focused, use that as our last window position for
         // restart. This differs from Terminal.app but matches iTerm2 behavior
         // and I think its sensible.
-        if let window {
-            LastWindowPosition.shared.save(window)
-        }
+        LastWindowPosition.shared.save(window)
 
         // Remember our last main
         Self.lastMain = self
@@ -1538,7 +1550,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     struct DerivedConfig {
         let backgroundColor: Color
         let macosWindowButtons: Ghostty.MacOSWindowButtons
-        let macosTitlebarStyle: String
+        let macosTitlebarStyle: Ghostty.Config.MacOSTitlebarStyle
         let maximize: Bool
         let windowPositionX: Int16?
         let windowPositionY: Int16?
@@ -1546,7 +1558,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         init() {
             self.backgroundColor = Color(NSColor.windowBackgroundColor)
             self.macosWindowButtons = .visible
-            self.macosTitlebarStyle = "system"
+            self.macosTitlebarStyle = .default
             self.maximize = false
             self.windowPositionX = nil
             self.windowPositionY = nil
@@ -1645,9 +1657,6 @@ extension TerminalController {
             // Initial size as requested by the configuration (e.g. `window-width`)
             // takes next priority.
             return .contentIntrinsicSize
-        } else if let initialFrame {
-            // The initial frame we had when we started otherwise.
-            return .frame(initialFrame)
         } else {
             return nil
         }

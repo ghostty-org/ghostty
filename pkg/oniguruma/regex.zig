@@ -3,6 +3,7 @@ const c = @import("c.zig").c;
 const types = @import("types.zig");
 const errors = @import("errors.zig");
 const testEnsureInit = @import("testing.zig").ensureInit;
+const MatchParam = @import("match_param.zig").MatchParam;
 const Region = @import("region.zig").Region;
 const Error = errors.Error;
 const ErrorInfo = errors.ErrorInfo;
@@ -44,6 +45,17 @@ pub const Regex = struct {
         str: []const u8,
         options: Option,
     ) !Region {
+        return self.searchWithParam(str, options, null);
+    }
+
+    /// Search an entire string for matches. This always returns a region
+    /// which may heap allocate (C allocator).
+    pub fn searchWithParam(
+        self: *Regex,
+        str: []const u8,
+        options: Option,
+        match_param: ?*MatchParam,
+    ) !Region {
         var region: Region = .{};
 
         // As part of the searchAdvanced API call below, onig may allocate
@@ -51,7 +63,14 @@ pub const Regex = struct {
         // any errors to free that memory.
         errdefer region.deinit();
 
-        _ = try self.searchAdvanced(str, 0, str.len, &region, options);
+        _ = try self.searchAdvancedWithParam(
+            str,
+            0,
+            str.len,
+            &region,
+            options,
+            match_param,
+        );
         return region;
     }
 
@@ -64,15 +83,47 @@ pub const Regex = struct {
         region: *Region,
         options: Option,
     ) !usize {
-        const pos = try errors.convertError(c.onig_search(
-            self.value,
-            str.ptr,
-            str.ptr + str.len,
-            str.ptr + start,
-            str.ptr + end,
-            @ptrCast(region),
-            options.int(),
-        ));
+        return self.searchAdvancedWithParam(
+            str,
+            start,
+            end,
+            region,
+            options,
+            null,
+        );
+    }
+
+    /// onig_search_with_param directly
+    pub fn searchAdvancedWithParam(
+        self: *Regex,
+        str: []const u8,
+        start: usize,
+        end: usize,
+        region: *Region,
+        options: Option,
+        match_param: ?*MatchParam,
+    ) !usize {
+        const pos = try errors.convertError(if (match_param) |param|
+            c.onig_search_with_param(
+                self.value,
+                str.ptr,
+                str.ptr + str.len,
+                str.ptr + start,
+                str.ptr + end,
+                @ptrCast(region),
+                options.int(),
+                param.value,
+            )
+        else
+            c.onig_search(
+                self.value,
+                str.ptr,
+                str.ptr + str.len,
+                str.ptr + start,
+                str.ptr + end,
+                @ptrCast(region),
+                options.int(),
+            ));
 
         return @intCast(pos);
     }
@@ -90,4 +141,12 @@ test {
     try testing.expectEqual(@as(usize, 1), reg.count());
 
     try testing.expectError(Error.Mismatch, re.search("hello", .{}));
+
+    var match_param = try MatchParam.init();
+    defer match_param.deinit();
+    try match_param.setRetryLimitInSearch(1000);
+
+    var reg_param = try re.searchWithParam("hello foo bar", .{}, &match_param);
+    defer reg_param.deinit();
+    try testing.expectEqual(@as(usize, 1), reg_param.count());
 }

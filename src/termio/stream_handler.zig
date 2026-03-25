@@ -36,7 +36,7 @@ pub const StreamHandler = struct {
     /// The mailbox for notifying the renderer of things.
     renderer_mailbox: *renderer.Thread.Mailbox,
 
-    /// A handle to wake up the renderer. This hints to the renderer that that
+    /// A handle to wake up the renderer. This hints to the renderer that
     /// a repaint should happen.
     renderer_wakeup: xev.Async,
 
@@ -173,6 +173,16 @@ pub const StreamHandler = struct {
     }
 
     pub fn vt(
+        self: *StreamHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) void {
+        self.vtFallible(action, value) catch |err| {
+            log.warn("error handling VT action action={} err={}", .{ action, err });
+        };
+    }
+
+    inline fn vtFallible(
         self: *StreamHandler,
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
@@ -600,35 +610,24 @@ pub const StreamHandler = struct {
     }
 
     fn requestMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        const tag: terminal.modes.ModeTag = @bitCast(@intFromEnum(mode));
-        const code: u8 = if (self.terminal.modes.get(mode)) 1 else 2;
-
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = try std.fmt.bufPrint(
-            &msg.write_small.data,
-            "\x1B[{s}{};{}$y",
-            .{
-                if (tag.ansi) "" else "?",
-                tag.value,
-                code,
-            },
-        );
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
+        self.sendModeReport(self.terminal.modes.getReport(.fromMode(mode)));
     }
 
     fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = try std.fmt.bufPrint(
-            &msg.write_small.data,
-            "\x1B[{s}{};0$y",
-            .{
-                if (ansi) "" else "?",
-                mode_raw,
-            },
-        );
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
+        self.sendModeReport(self.terminal.modes.getReport(.{ .value = @truncate(mode_raw), .ansi = ansi }));
+    }
+
+    fn sendModeReport(self: *StreamHandler, report: terminal.modes.Report) void {
+        var data: termio.Message.WriteReq.Small.Array = undefined;
+        var writer: std.Io.Writer = .fixed(&data);
+        report.encode(&writer) catch |err| {
+            log.err("error encoding mode report err={}", .{err});
+            return;
+        };
+        self.messageWriter(.{ .write_small = .{
+            .data = data,
+            .len = @intCast(writer.buffered().len),
+        } });
     }
 
     pub fn setMode(self: *StreamHandler, mode: terminal.Mode, enabled: bool) !void {
@@ -1000,6 +999,12 @@ pub const StreamHandler = struct {
             return;
         }
 
+        // Set the title on the terminal state. We ignore any errors since
+        // we can continue to operate just fine without it.
+        self.terminal.setTitle(title) catch |err| {
+            log.warn("error setting title in terminal state: {}", .{err});
+        };
+
         @memcpy(buf[0..title.len], title);
         buf[title.len] = 0;
 
@@ -1028,7 +1033,7 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
-        // Avoid changing the shape it it is already set to avoid excess
+        // Avoid changing the shape if it is already set to avoid excess
         // cross-thread messaging.
         if (self.terminal.mouse_shape == shape) return;
 

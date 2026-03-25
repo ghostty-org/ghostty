@@ -679,13 +679,16 @@ pub const Face = struct {
             else => |f| {
                 // Glyph formats are tags, so we can
                 // output a semi-readable error here.
+                // Use @bitCast to u32 because MSVC translates C enums
+                // as signed int, while GCC/Clang uses unsigned int.
+                const tag: u32 = @bitCast(f);
                 log.err(
                     "Can't render glyph with unsupported glyph format \"{s}\"",
                     .{[4]u8{
-                        @truncate(f >> 24),
-                        @truncate(f >> 16),
-                        @truncate(f >> 8),
-                        @truncate(f >> 0),
+                        @truncate(tag >> 24),
+                        @truncate(tag >> 16),
+                        @truncate(tag >> 8),
+                        @truncate(tag >> 0),
                     }},
                 );
                 return error.UnsupportedGlyphFormat;

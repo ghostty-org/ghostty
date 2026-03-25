@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const windows = @import("os/main.zig").windows;
 const posix = std.posix;
+const assert = @import("quirks.zig").inlineAssert;
 
 const log = std.log.scoped(.pty);
 
@@ -33,6 +34,21 @@ pub const Mode = packed struct {
 
     /// ECHO on POSIX
     echo: bool = true,
+};
+
+pub const ProcessInfo = enum {
+    /// The PID of the process that controls the PTY.
+    foreground_pid,
+    /// Gets the name of the slave PTY. Returned name points to an internal buffer
+    /// so it should not be modified or freed.
+    tty_name,
+
+    pub fn Type(comptime info: ProcessInfo) type {
+        return switch (info) {
+            .foreground_pid => u64,
+            .tty_name => [:0]const u8,
+        };
+    }
 };
 
 // A pty implementation that does nothing.
@@ -78,36 +94,24 @@ const NullPty = struct {
     pub fn childPreExec(self: Pty) ChildPreExecError!void {
         _ = self;
     }
+
+    /// Get information about the process(es) attached to the PTY. Returns
+    /// `null` if there was an error getting the information or the information
+    /// is not available on a particular platform.
+    pub fn getProcessInfo(_: *Pty, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        return null;
+    }
 };
 
-/// Linux PTY creation and management. This is just a thin layer on top
-/// of Linux syscalls. The caller is responsible for detail-oriented handling
+/// Posix PTY creation and management. This is just a thin layer on top
+/// of Posix syscalls. The caller is responsible for detail-oriented handling
 /// of the returned file handles.
 const PosixPty = struct {
     pub const Error = OpenError || GetModeError || GetSizeError || SetSizeError || ChildPreExecError;
 
     pub const Fd = posix.fd_t;
 
-    // https://github.com/ziglang/zig/issues/13277
-    // Once above is fixed, use `c.TIOCSCTTY`
-    const TIOCSCTTY = if (builtin.os.tag == .macos) 536900705 else c.TIOCSCTTY;
-    const TIOCSWINSZ = if (builtin.os.tag == .macos) 2148037735 else c.TIOCSWINSZ;
-    const TIOCGWINSZ = if (builtin.os.tag == .macos) 1074295912 else c.TIOCGWINSZ;
-    extern "c" fn setsid() std.c.pid_t;
-    const c = switch (builtin.os.tag) {
-        .macos => @cImport({
-            @cInclude("sys/ioctl.h"); // ioctl and constants
-            @cInclude("util.h"); // openpty()
-        }),
-        .freebsd => @cImport({
-            @cInclude("termios.h"); // ioctl and constants
-            @cInclude("libutil.h"); // openpty()
-        }),
-        else => @cImport({
-            @cInclude("sys/ioctl.h"); // ioctl and constants
-            @cInclude("pty.h");
-        }),
-    };
+    const c = @import("pty-c");
 
     /// The file descriptors for the master and slave side of the pty.
     /// The slave side is never closed automatically by this struct
@@ -115,6 +119,14 @@ const PosixPty = struct {
     /// go wrong.
     master: Fd,
     slave: Fd,
+
+    /// Buffer for storage of slave tty name so that we don't have to recompute
+    /// it every time we need it.
+    tty_name_buf: [std.fs.max_path_bytes:0]u8 = undefined,
+    /// The name of slave tty. If `null` it has not yet been computed or
+    /// may not be available. Should not be accessed directly, but through
+    /// `self.getProcessInfo(.tty_name)`
+    tty_name: ?[:0]const u8 = null,
 
     pub const OpenError = error{OpenptyFailed};
 
@@ -141,15 +153,15 @@ const PosixPty = struct {
         // Set CLOEXEC on the master fd, only the slave fd should be inherited
         // by the child process (shell/command).
         cloexec: {
-            const flags = std.posix.fcntl(master_fd, std.posix.F.GETFD, 0) catch |err| {
+            const flags = posix.fcntl(master_fd, posix.F.GETFD, 0) catch |err| {
                 log.warn("error getting flags for master fd err={}", .{err});
                 break :cloexec;
             };
 
-            _ = std.posix.fcntl(
+            _ = posix.fcntl(
                 master_fd,
-                std.posix.F.SETFD,
-                flags | std.posix.FD_CLOEXEC,
+                posix.F.SETFD,
+                flags | posix.FD_CLOEXEC,
             ) catch |err| {
                 log.warn("error setting CLOEXEC on master fd err={}", .{err});
                 break :cloexec;
@@ -168,6 +180,8 @@ const PosixPty = struct {
         return .{
             .master = master_fd,
             .slave = slave_fd,
+            .tty_name_buf = undefined,
+            .tty_name = null,
         };
     }
 
@@ -194,7 +208,7 @@ const PosixPty = struct {
     /// Return the size of the pty.
     pub fn getSize(self: Pty) GetSizeError!winsize {
         var ws: winsize = undefined;
-        if (c.ioctl(self.master, TIOCGWINSZ, @intFromPtr(&ws)) < 0)
+        if (c.ioctl(self.master, c.TIOCGWINSZ, @intFromPtr(&ws)) < 0)
             return error.IoctlFailed;
 
         return ws;
@@ -204,7 +218,7 @@ const PosixPty = struct {
 
     /// Set the size of the pty.
     pub fn setSize(self: *Pty, size: winsize) SetSizeError!void {
-        if (c.ioctl(self.master, TIOCSWINSZ, @intFromPtr(&size)) < 0)
+        if (c.ioctl(self.master, c.TIOCSWINSZ, @intFromPtr(&size)) < 0)
             return error.IoctlFailed;
     }
 
@@ -234,10 +248,10 @@ const PosixPty = struct {
         posix.sigaction(posix.SIG.QUIT, &sa, null);
 
         // Create a new process group
-        if (setsid() < 0) return error.ProcessGroupFailed;
+        if (c.setsid() < 0) return error.ProcessGroupFailed;
 
         // Set controlling terminal
-        switch (posix.errno(c.ioctl(self.slave, TIOCSCTTY, @as(c_ulong, 0)))) {
+        switch (posix.errno(c.ioctl(self.slave, c.TIOCSCTTY, @as(c_ulong, 0)))) {
             .SUCCESS => {},
             else => |err| {
                 log.err("error setting controlling terminal errno={}", .{err});
@@ -248,6 +262,62 @@ const PosixPty = struct {
         // Can close master/slave pair now
         posix.close(self.slave);
         posix.close(self.master);
+    }
+
+    /// Get information about the process(es) attached to the PTY. Returns
+    /// `null` if there was an error getting the information or the information
+    /// is not available on a particular platform.
+    pub fn getProcessInfo(self: *PosixPty, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        return switch (info) {
+            .foreground_pid => {
+                switch (builtin.os.tag) {
+                    .linux => {
+                        const linux = std.os.linux;
+                        var pgrp: i32 = undefined;
+                        const rc = linux.tcgetpgrp(self.master, &pgrp);
+                        switch (linux.E.init(rc)) {
+                            .SUCCESS => return @intCast(pgrp),
+                            else => return null,
+                        }
+                    },
+                    else => {
+                        const rc = c.tcgetpgrp(self.master);
+                        if (rc < 0) return null;
+                        return @intCast(rc);
+                    },
+                }
+            },
+            .tty_name => {
+                if (self.tty_name) |tty_name| return tty_name;
+
+                switch (builtin.os.tag) {
+                    .macos => {
+                        // The macOS TIOCPTYGNAME ioctl does not allow us to
+                        // specify the length of the buffer passed to it, but
+                        // expects it to be at least 128 bytes long.
+                        assert(self.tty_name_buf.len >= 128);
+                        switch (posix.errno(c.ioctl(self.master, c.TIOCPTYGNAME, @intFromPtr(&self.tty_name_buf)))) {
+                            .SUCCESS => {
+                                const tty_name: [:0]const u8 = std.mem.sliceTo(&self.tty_name_buf, 0);
+                                self.tty_name = tty_name;
+                                return tty_name;
+                            },
+                            else => |err| {
+                                log.err("error getting name of slave PTY errno={t}", .{err});
+                                return null;
+                            },
+                        }
+                    },
+                    .linux => {
+                        if (c.ptsname_r(self.master, &self.tty_name_buf, self.tty_name_buf.len) != 0) return null;
+                        const tty_name: [:0]const u8 = std.mem.sliceTo(&self.tty_name_buf, 0);
+                        self.tty_name = tty_name;
+                        return tty_name;
+                    },
+                    else => return null,
+                }
+            },
+        };
     }
 };
 
@@ -398,6 +468,13 @@ const WindowsPty = struct {
         if (result != windows.S_OK) return error.ResizeFailed;
         self.size = size;
     }
+
+    /// Get information about the process(es) attached to the PTY. Returns
+    /// `null` if there was an error getting the information or the information
+    /// is not available on a particular platform.
+    pub fn getProcessInfo(_: *WindowsPty, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        return null;
+    }
 };
 
 test {
@@ -419,4 +496,11 @@ test {
     ws.ws_row *= 2;
     try pty.setSize(ws);
     try testing.expectEqual(ws, try pty.getSize());
+
+    switch (builtin.os.tag) {
+        .freebsd => try testing.expect(std.mem.startsWith(u8, pty.getProcessInfo(.tty_name).?, "/dev/")),
+        .linux => try testing.expect(std.mem.startsWith(u8, pty.getProcessInfo(.tty_name).?, "/dev/pts/")),
+        .macos => try testing.expect(std.mem.startsWith(u8, pty.getProcessInfo(.tty_name).?, "/dev/")),
+        else => try testing.expect(pty.getProcessInfo(.tty_name) == null),
+    }
 }

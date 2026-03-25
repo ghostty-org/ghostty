@@ -53,22 +53,22 @@ pub const exp = struct {
             hWritePipe: *windows.HANDLE,
             lpPipeAttributes: ?*const windows.SECURITY_ATTRIBUTES,
             nSize: windows.DWORD,
-        ) callconv(windows.WINAPI) windows.BOOL;
+        ) callconv(.winapi) windows.BOOL;
         pub extern "kernel32" fn CreatePseudoConsole(
             size: windows.COORD,
             hInput: windows.HANDLE,
             hOutput: windows.HANDLE,
             dwFlags: windows.DWORD,
             phPC: *HPCON,
-        ) callconv(windows.WINAPI) windows.HRESULT;
-        pub extern "kernel32" fn ResizePseudoConsole(hPC: HPCON, size: windows.COORD) callconv(windows.WINAPI) windows.HRESULT;
-        pub extern "kernel32" fn ClosePseudoConsole(hPC: HPCON) callconv(windows.WINAPI) void;
+        ) callconv(.winapi) windows.HRESULT;
+        pub extern "kernel32" fn ResizePseudoConsole(hPC: HPCON, size: windows.COORD) callconv(.winapi) windows.HRESULT;
+        pub extern "kernel32" fn ClosePseudoConsole(hPC: HPCON) callconv(.winapi) void;
         pub extern "kernel32" fn InitializeProcThreadAttributeList(
             lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST,
             dwAttributeCount: windows.DWORD,
             dwFlags: windows.DWORD,
             lpSize: *windows.SIZE_T,
-        ) callconv(windows.WINAPI) windows.BOOL;
+        ) callconv(.winapi) windows.BOOL;
         pub extern "kernel32" fn UpdateProcThreadAttribute(
             lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST,
             dwFlags: windows.DWORD,
@@ -77,7 +77,7 @@ pub const exp = struct {
             cbSize: windows.SIZE_T,
             lpPreviousValue: ?windows.PVOID,
             lpReturnSize: ?*windows.SIZE_T,
-        ) callconv(windows.WINAPI) windows.BOOL;
+        ) callconv(.winapi) windows.BOOL;
         pub extern "kernel32" fn PeekNamedPipe(
             hNamedPipe: windows.HANDLE,
             lpBuffer: ?windows.LPVOID,
@@ -85,7 +85,7 @@ pub const exp = struct {
             lpBytesRead: ?*windows.DWORD,
             lpTotalBytesAvail: ?*windows.DWORD,
             lpBytesLeftThisMessage: ?*windows.DWORD,
-        ) callconv(windows.WINAPI) windows.BOOL;
+        ) callconv(.winapi) windows.BOOL;
         // Duplicated here because lpCommandLine is not marked optional in zig std
         pub extern "kernel32" fn CreateProcessW(
             lpApplicationName: ?windows.LPWSTR,
@@ -98,7 +98,12 @@ pub const exp = struct {
             lpCurrentDirectory: ?windows.LPWSTR,
             lpStartupInfo: *windows.STARTUPINFOW,
             lpProcessInformation: *windows.PROCESS_INFORMATION,
-        ) callconv(windows.WINAPI) windows.BOOL;
+        ) callconv(.winapi) windows.BOOL;
+        /// https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getcomputernamea
+        pub extern "kernel32" fn GetComputerNameA(
+            lpBuffer: windows.LPSTR,
+            nSize: *windows.DWORD,
+        ) callconv(.winapi) windows.BOOL;
     };
 
     pub const PROC_THREAD_ATTRIBUTE_NUMBER = 0x0000FFFF;

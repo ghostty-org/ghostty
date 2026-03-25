@@ -68,6 +68,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .linkage = .static,
     });
     const t = target.result;
+    const is_windows = t.os.tag == .windows;
     lib.linkLibC();
 
     if (target.result.os.tag.isDarwin()) {
@@ -86,13 +87,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
             .PACKAGE_VERSION = "6.9.9",
             .VERSION = "6.9.9",
             .HAVE_ALLOCA = true,
-            .HAVE_ALLOCA_H = true,
-            .USE_CRNL_AS_LINE_TERMINATOR = false,
+            .HAVE_ALLOCA_H = !is_windows,
+            .USE_CRNL_AS_LINE_TERMINATOR = is_windows,
             .HAVE_STDINT_H = true,
-            .HAVE_SYS_TIMES_H = true,
-            .HAVE_SYS_TIME_H = true,
+            .HAVE_SYS_TIMES_H = !is_windows,
+            .HAVE_SYS_TIME_H = !is_windows,
             .HAVE_SYS_TYPES_H = true,
-            .HAVE_UNISTD_H = true,
+            .HAVE_UNISTD_H = !is_windows,
             .HAVE_INTTYPES_H = true,
             .SIZEOF_INT = t.cTypeByteSize(.int),
             .SIZEOF_LONG = t.cTypeByteSize(.long),

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-03-04 21:13-0800\n"
+"POT-Creation-Date: 2026-03-25 16:24-0700\n"
 "PO-Revision-Date: 2025-02-18 10:20+0100\n"
 "Last-Translator: Ivan Bastrakov <bastaynav@proton.me>\n"
 "Language-Team: Russian <gnu@d07.ru>\n"
@@ -244,7 +244,7 @@ msgstr "Палитра команд"
 msgid "Terminal Inspector"
 msgstr "Инспектор терминала"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1787
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
 msgid "About Ghostty"
 msgstr "О Ghostty"
 
@@ -316,15 +316,15 @@ msgstr "Все сессии терминала в этом окне будут �
 msgid "The currently running process in this split will be terminated."
 msgstr "Процесс, работающий в этой сплит-области, будет остановлен."
 
-#: src/apprt/gtk/class/surface.zig:1131
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "Команда завершилась"
 
-#: src/apprt/gtk/class/surface.zig:1132
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "Команда выполнена успешно"
 
-#: src/apprt/gtk/class/surface.zig:1133
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "Команда завершилась с ошибкой"
 
@@ -348,14 +348,14 @@ msgstr "Переименовать вкладку"
 msgid "Reloaded the configuration"
 msgstr "Конфигурация перезагружена"
 
-#: src/apprt/gtk/class/window.zig:1626
+#: src/apprt/gtk/class/window.zig:1611
 msgid "Copied to clipboard"
 msgstr "Скопировано в буфер обмена"
 
-#: src/apprt/gtk/class/window.zig:1628
+#: src/apprt/gtk/class/window.zig:1613
 msgid "Cleared clipboard"
 msgstr "Буфер обмена очищен"
 
-#: src/apprt/gtk/class/window.zig:1768
+#: src/apprt/gtk/class/window.zig:1753
 msgid "Ghostty Developers"
 msgstr "Разработчики Ghostty"

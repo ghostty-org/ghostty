@@ -27,6 +27,7 @@ const Pty = ptypkg.Pty;
 const EnvMap = std.process.EnvMap;
 const PasswdEntry = internal_os.passwd.Entry;
 const windows = internal_os.windows;
+const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.io_exec);
 
@@ -1226,6 +1227,14 @@ const Subprocess = struct {
     fn killCommandFlatpak(command: *FlatpakHostCommand) !void {
         try command.signal(c.SIGHUP, true);
     }
+
+    /// Get information about the process(es) running within the subprocess.
+    /// Returns `null` if there was an error getting the information or the
+    /// information is not available on a particular platform.
+    pub fn getProcessInfo(self: *Subprocess, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        const pty = &(self.pty orelse return null);
+        return pty.getProcessInfo(info);
+    }
 };
 
 /// The read thread sits in a loop doing the following pseudo code:
@@ -1578,6 +1587,13 @@ fn execCommand(
             break :shell try args.toOwnedSlice(alloc);
         },
     };
+}
+
+/// Get information about the process(es) running within the backend. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Exec, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.subprocess.getProcessInfo(info);
 }
 
 test "execCommand darwin: shell command" {

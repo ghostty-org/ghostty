@@ -9,6 +9,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
+const build_info = @import("../build/info.zig");
 const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
@@ -40,6 +41,7 @@ const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
+const OpenURI = @import("../portal.zig").OpenURI;
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -214,6 +216,8 @@ pub const Application = extern struct {
         /// not exist in Ghostty's environment variable.
         saved_language: ?[:0]const u8 = null,
 
+        open_uri: OpenURI = undefined,
+
         pub var offset: c_int = 0;
     };
 
@@ -327,7 +331,7 @@ pub const Application = extern struct {
                 }
             }
 
-            break :app_id ApprtApp.application_id;
+            break :app_id build_info.application_id;
         };
 
         const display: *gdk.Display = gdk.Display.getDefault() orelse {
@@ -350,7 +354,7 @@ pub const Application = extern struct {
             log.warn("error initializing windowing protocol err={}", .{err});
             break :wp .{ .none = .{} };
         };
-        errdefer wp.deinit(alloc);
+        errdefer wp.deinit();
         log.debug("windowing protocol={s}", .{@tagName(wp)});
 
         // Create our GTK Application which encapsulates our process.
@@ -381,7 +385,7 @@ pub const Application = extern struct {
             // Force the resource path to a known value so it doesn't depend
             // on the app id (which changes between debug/release and can be
             // user-configured) and force it to load in compiled resources.
-            .resource_base_path = "/com/mitchellh/ghostty",
+            .resource_base_path = build_info.resource_path,
         });
 
         // Setup our private state. More setup is done in the init
@@ -397,6 +401,7 @@ pub const Application = extern struct {
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
             .saved_language = saved_language,
+            .open_uri = .init(rt_app),
         };
 
         // Signals
@@ -431,7 +436,8 @@ pub const Application = extern struct {
         const alloc = self.allocator();
         const priv: *Private = self.private();
         priv.config.unref();
-        priv.winproto.deinit(alloc);
+        priv.winproto.deinit();
+        priv.open_uri.deinit();
         priv.global_shortcuts.unref();
         if (priv.saved_language) |language| alloc.free(language);
         if (gdk.Display.getDefault()) |display| {
@@ -740,6 +746,7 @@ pub const Application = extern struct {
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),
+            .set_tab_title => return Action.setTabTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -802,6 +809,11 @@ pub const Application = extern struct {
     /// Returns the app winproto implementation.
     pub fn winproto(self: *Self) *winprotopkg.App {
         return &self.private().winproto;
+    }
+
+    /// Returns the open URI portal implementation.
+    pub fn openUri(self: *Self) *OpenURI {
+        return &self.private().open_uri;
     }
 
     /// This will get called when there are no more open surfaces.
@@ -1286,6 +1298,11 @@ pub const Application = extern struct {
 
         // Set ourselves as the default application.
         gio.Application.setDefault(self.as(gio.Application));
+
+        // The D-Bus connection is only valid after GApplication startup.
+        self.openUri().setDbusConnection(
+            self.as(gio.Application).getDbusConnection(),
+        );
 
         // Setup our event loop
         self.startupXev();
@@ -1871,6 +1888,17 @@ pub const Application = extern struct {
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
         }
     };
+
+    pub fn openUrlFallback(self: *Application, kind: apprt.action.OpenUrl.Kind, url: []const u8) void {
+        // Fallback to the minimal cross-platform way of opening a URL.
+        // This is always a safe fallback and enables for example Windows
+        // to open URLs (GTK on Windows via WSL is a thing).
+        internal_os.open(
+            self.allocator(),
+            kind,
+            url,
+        ) catch |err| log.warn("unable to open url: {}", .{err});
+    }
 };
 
 /// All apprt action handlers
@@ -2315,16 +2343,20 @@ const Action = struct {
         self: *Application,
         value: apprt.action.OpenUrl,
     ) void {
-        // TODO: use https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html
+        if (std.mem.startsWith(u8, value.url, "/")) {
+            self.openUrlFallback(value.kind, value.url);
+            return;
+        }
+        if (std.mem.startsWith(u8, value.url, "file://")) {
+            self.openUrlFallback(value.kind, value.url);
+            return;
+        }
 
-        // Fallback to the minimal cross-platform way of opening a URL.
-        // This is always a safe fallback and enables for example Windows
-        // to open URLs (GTK on Windows via WSL is a thing).
-        internal_os.open(
-            self.allocator(),
-            value.kind,
-            value.url,
-        ) catch |err| log.warn("unable to open url: {}", .{err});
+        self.openUri().start(value) catch |err| {
+            log.err("unable to open uri err={}", .{err});
+            self.openUrlFallback(value.kind, value.url);
+            return;
+        };
     }
 
     pub fn pwd(
@@ -2542,6 +2574,30 @@ const Action = struct {
         switch (target) {
             .app => log.warn("set_title to app is unexpected", .{}),
             .surface => |surface| surface.rt_surface.gobj().setTitle(value.title),
+        }
+    }
+
+    pub fn setTabTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tab = ext.getAncestor(
+                    Tab,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a tab, ignoring set_tab_title", .{});
+                    return false;
+                };
+                tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
         }
     }
 

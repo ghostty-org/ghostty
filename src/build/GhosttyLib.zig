@@ -39,6 +39,12 @@ pub fn initStatic(
     lib.bundle_compiler_rt = true;
     lib.bundle_ubsan_rt = true;
 
+    if (deps.config.target.result.os.tag == .windows) {
+        // Zig's ubsan emits /exclude-symbols linker directives that
+        // are incompatible with the MSVC linker (LNK4229).
+        lib.bundle_ubsan_rt = false;
+    }
+
     // Add our dependencies. Get the list of all static deps so we can
     // build a combined archive if necessary.
     var lib_list = try deps.add(lib);

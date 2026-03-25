@@ -689,6 +689,8 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .cursor_key,
         .set_font_size,
+        .set_surface_title,
+        .set_tab_title,
         .search,
         .scroll_to_row,
         .scroll_page_fractional,

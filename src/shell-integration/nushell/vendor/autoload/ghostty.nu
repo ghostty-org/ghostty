@@ -12,9 +12,9 @@ export module ghostty {
     # `ssh-env`: use xterm-256color and propagate COLORTERM/TERM_PROGRAM vars
     if (has_feature "ssh-env") {
       $ssh_env.TERM = "xterm-256color"
+      $ssh_env.COLORTERM = "truecolor"
       $ssh_opts = [
-        "-o" "SetEnv COLORTERM=truecolor"
-        "-o" "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"
+        "-o" "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION"
       ]
     }
 

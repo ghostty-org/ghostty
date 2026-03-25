@@ -1071,21 +1071,6 @@ pub const Window = extern struct {
         self.syncAppearance();
     }
 
-    fn propGdkSurfaceHeight(
-        _: *gdk.Surface,
-        _: *gobject.ParamSpec,
-        self: *Self,
-    ) callconv(.c) void {
-        // X11 needs to fix blurring on resize, but winproto implementations
-        // could do anything.
-        self.private().winproto.resizeEvent() catch |err| {
-            log.warn(
-                "winproto resize event failed error={}",
-                .{err},
-            );
-        };
-    }
-
     fn propIsActive(
         _: *gtk.Window,
         _: *gobject.ParamSpec,
@@ -1111,7 +1096,7 @@ pub const Window = extern struct {
         };
     }
 
-    fn propGdkSurfaceWidth(
+    fn propGdkSurfaceDims(
         _: *gdk.Surface,
         _: *gobject.ParamSpec,
         self: *Self,
@@ -1250,7 +1235,7 @@ pub const Window = extern struct {
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
         priv.tab_bindings.unref();
-        priv.winproto.deinit(Application.default().allocator());
+        priv.winproto.deinit();
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -1282,14 +1267,14 @@ pub const Window = extern struct {
             _ = gobject.Object.signals.notify.connect(
                 gdk_surface,
                 *Self,
-                propGdkSurfaceWidth,
+                propGdkSurfaceDims,
                 self,
                 .{ .detail = "width" },
             );
             _ = gobject.Object.signals.notify.connect(
                 gdk_surface,
                 *Self,
-                propGdkSurfaceHeight,
+                propGdkSurfaceDims,
                 self,
                 .{ .detail = "height" },
             );

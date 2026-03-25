@@ -123,8 +123,7 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
 
     # Configure environment variables for remote session
     if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-env* ]]; then
-      ssh_opts+=(-o "SetEnv COLORTERM=truecolor")
-      ssh_opts+=(-o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION")
+      ssh_opts+=(-o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION")
     fi
 
     # Install terminfo on remote host if needed
@@ -180,7 +179,7 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
     fi
 
     # Execute SSH with TERM environment variable
-    TERM="$ssh_term" builtin command ssh "${ssh_opts[@]}" "$@"
+    TERM="$ssh_term" COLORTERM=truecolor builtin command ssh "${ssh_opts[@]}" "$@"
   }
 fi
 
@@ -195,20 +194,22 @@ function __ghostty_precmd() {
     _GHOSTTY_SAVE_PS1="$PS1"
     _GHOSTTY_SAVE_PS2="$PS2"
 
-    # Marks. We need to do fresh line (A) at the beginning of the prompt
-    # since if the cursor is not at the beginning of a line, the terminal
-    # will emit a newline.
-    PS1='\[\e]133;A;redraw=last;cl=line;aid='"$BASHPID"'\a\]'$PS1'\[\e]133;B\a\]'
-    PS2='\[\e]133;A;k=s\a\]'$PS2'\[\e]133;B\a\]'
+    # Use 133;P (not 133;A) inside PS1 to avoid fresh-line behavior on
+    # readline redraws (e.g., vi mode switches, Ctrl-L). The initial
+    # 133;A with fresh-line is emitted once via printf below.
+    PS1='\[\e]133;P;k=i\a\]'$PS1'\[\e]133;B\a\]'
+    PS2='\[\e]133;P;k=s\a\]'$PS2'\[\e]133;B\a\]'
 
-    # Bash doesn't redraw the leading lines in a multiline prompt so
-    # we mark the start of each line (after each newline) as a secondary
-    # prompt. This correctly handles multiline prompts by setting the first
-    # to primary and the subsequent lines to secondary.
-    if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
-      builtin local __ghostty_mark=$'\\[\\e]133;A;k=s\\a\\]'
-      PS1="${PS1//$'\n'/$'\n'$__ghostty_mark}"
-      PS1="${PS1//\\n/\\n$__ghostty_mark}"
+    # Bash doesn't redraw the leading lines in a multiline prompt so we mark
+    # the start of each line (after each newline) as a secondary prompt. This
+    # correctly handles multiline prompts by setting the first to primary and
+    # the subsequent lines to secondary.
+    #
+    # We only replace the \n prompt escape, not literal newlines ($'\n'),
+    # because literal newlines may appear inside $(...) command substitutions
+    # where inserting escape sequences would break shell syntax.
+    if [[ "$PS1" == *"\n"* ]]; then
+      PS1="${PS1//\\n/\\n$'\\[\\e]133;P;k=s\\a\\]'}"
     fi
 
     # Cursor
@@ -229,6 +230,17 @@ function __ghostty_precmd() {
   if test "$_ghostty_executing" != ""; then
     # End of current command. Report its status.
     builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
+  fi
+
+  # Fresh line and start of prompt. When ble.sh is active, emit 133;P instead
+  # of 133;A because ble.sh maintains its own cursor position tracking. 133;A's
+  # cursor movement (CR+LF when not at column 0) is invisible to ble.sh and
+  # desyncs its position state, causing display artifacts like duplicate
+  # prompts. See: https://github.com/akinomyoga/ble.sh/issues/684
+  if [[ -n "${BLE_VERSION-}" ]]; then
+    builtin printf "\e]133;P;k=i\a"
+  else
+    builtin printf "\e]133;A;redraw=last;cl=line;aid=%s\a" "$BASHPID"
   fi
 
   # unfortunately bash provides no hooks to detect cwd changes
@@ -266,38 +278,43 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
     [[ -n "$cmd" ]] && __ghostty_preexec "$cmd"
   }
 
-  # Use function substitution in 5.3+. Otherwise, use command substitution.
-  # Any output (including escape sequences) goes to the terminal.
-  if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-    # shellcheck disable=SC2016
-    builtin readonly __ghostty_ps0='${ __ghostty_preexec_hook; }'
-  else
-    # shellcheck disable=SC2016
-    builtin readonly __ghostty_ps0='$(__ghostty_preexec_hook >/dev/tty)'
-  fi
-
   __ghostty_hook() {
     builtin local ret=$?
     __ghostty_precmd "$ret"
-    if [[ "$PS0" != *"$__ghostty_ps0"* ]]; then
-      PS0=$PS0"${__ghostty_ps0}"
+
+    # Append preexec hook to PS0 if not already present.
+    # Use function substitution in 5.3+, otherwise command substitution.
+    if [[ "$PS0" != *"__ghostty_preexec_hook"* ]]; then
+      if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
+        # shellcheck disable=SC2016
+        PS0+='${ __ghostty_preexec_hook; }'
+      else
+        # shellcheck disable=SC2016
+        PS0+='$(__ghostty_preexec_hook >/dev/tty)'
+      fi
     fi
   }
 
   # Append our hook to PROMPT_COMMAND, preserving its existing type.
-  if [[ ";${PROMPT_COMMAND[*]:-};" != *";__ghostty_hook;"* ]]; then
+  #
+  # The 2>/dev/null suppresses "command not found" in subshells that inherit
+  # PROMPT_COMMAND without the function definition. This also silences any
+  # errors from inside __ghostty_hook itself, but those are all terminal escape
+  # sequences and non-actionable.
+  #
+  # shellcheck disable=SC2128,SC2178,SC2179
+  if [[ ";${PROMPT_COMMAND[*]:-};" != *";__ghostty_hook 2>/dev/null;"* ]]; then
     if [[ -z "${PROMPT_COMMAND[*]}" ]]; then
       if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
-        PROMPT_COMMAND=(__ghostty_hook)
+        PROMPT_COMMAND=("__ghostty_hook 2>/dev/null")
       else
-        # shellcheck disable=SC2178
-        PROMPT_COMMAND="__ghostty_hook"
+        PROMPT_COMMAND="__ghostty_hook 2>/dev/null"
       fi
     elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a "* ]]; then
-      PROMPT_COMMAND+=(__ghostty_hook)
+      PROMPT_COMMAND+=("__ghostty_hook 2>/dev/null")
     else
-      # shellcheck disable=SC2179
-      PROMPT_COMMAND+="; __ghostty_hook"
+      [[ "${PROMPT_COMMAND}" =~ (\;[[:space:]]*|$'\n')$ ]] || PROMPT_COMMAND+=";"
+      PROMPT_COMMAND+="__ghostty_hook 2>/dev/null"
     fi
   fi
 else

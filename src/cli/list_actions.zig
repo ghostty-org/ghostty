@@ -46,6 +46,7 @@ pub fn run(alloc: Allocator) !u8 {
         opts.docs,
         std.heap.page_allocator,
     );
+    try stdout_writer.interface.flush();
 
     return 0;
 }

@@ -64,8 +64,12 @@ fn initVt(
         .optimize = cfg.optimize,
 
         // SIMD require libc/libcpp (both) but otherwise we don't care.
+        // On MSVC, we must not use linkLibCpp because Zig passes
+        // -nostdinc++ and adds its bundled libc++/libc++abi headers
+        // which conflict with MSVC's C++ runtime. The MSVC SDK dirs
+        // added via link_libc contain both C and C++ headers.
         .link_libc = if (cfg.simd) true else null,
-        .link_libcpp = if (cfg.simd) true else null,
+        .link_libcpp = if (cfg.simd and cfg.target.result.abi != .msvc) true else null,
     });
     vt.addOptions("build_options", general_options);
     vt_options.add(b, vt);

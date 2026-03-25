@@ -11,6 +11,9 @@ zig-out/
 # macos is managed by XCode GUI
 macos/
 
+# Xcode asset catalogs
+**/*.xcassets/
+
 # produced by Icon Composer on macOS
 images/Ghostty.icon/icon.json
 

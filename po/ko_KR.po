@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-03-04 21:13-0800\n"
+"POT-Creation-Date: 2026-03-25 16:24-0700\n"
 "PO-Revision-Date: 2026-02-11 12:50+0900\n"
 "Last-Translator: GyuYong Jung <obliviscence@gmail.com>\n"
 "Language-Team: Korean <translation-team-ko@googlegroups.com>\n"
@@ -239,7 +239,7 @@ msgstr "명령 팔레트"
 msgid "Terminal Inspector"
 msgstr "터미널 인스펙터"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1787
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
 msgid "About Ghostty"
 msgstr "Ghostty 정보"
 
@@ -311,15 +311,15 @@ msgstr "이 창의 모든 터미널 세션이 종료됩니다."
 msgid "The currently running process in this split will be terminated."
 msgstr "이 분할에서 현재 실행 중인 프로세스가 종료됩니다."
 
-#: src/apprt/gtk/class/surface.zig:1131
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "명령 완료"
 
-#: src/apprt/gtk/class/surface.zig:1132
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "명령 성공"
 
-#: src/apprt/gtk/class/surface.zig:1133
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "명령 실패"
 
@@ -343,14 +343,14 @@ msgstr "탭 제목 변경"
 msgid "Reloaded the configuration"
 msgstr "설정값을 다시 불러왔습니다"
 
-#: src/apprt/gtk/class/window.zig:1626
+#: src/apprt/gtk/class/window.zig:1611
 msgid "Copied to clipboard"
 msgstr "클립보드에 복사됨"
 
-#: src/apprt/gtk/class/window.zig:1628
+#: src/apprt/gtk/class/window.zig:1613
 msgid "Cleared clipboard"
 msgstr "클립보드 지워짐"
 
-#: src/apprt/gtk/class/window.zig:1768
+#: src/apprt/gtk/class/window.zig:1753
 msgid "Ghostty Developers"
 msgstr "Ghostty 개발자들"

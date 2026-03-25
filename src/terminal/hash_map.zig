@@ -104,8 +104,8 @@ pub fn OffsetHashMap(
     };
 }
 
-/// Fork of stdlib.HashMap as of Zig 0.12 modified to to use offsets
-/// for the key/values pointer. The metadata is still a pointer to limit
+/// Fork of stdlib.HashMap as of Zig 0.12 modified to use offsets for
+/// the key/values pointer. The metadata is still a pointer to limit
 /// the amount of arithmetic required to access it. See the file comment
 /// for full details.
 fn HashMapUnmanaged(

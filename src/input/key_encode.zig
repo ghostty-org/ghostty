@@ -159,7 +159,7 @@ fn kitty(
             switch (event.key) {
                 else => {},
                 inline .enter, .backspace => |tag| {
-                    // See legacy for why we handle this this way.
+                    // See legacy for why we handle this way.
                     if (isControlUtf8(event.utf8)) break :utf8;
                     if (comptime tag == .backspace) return;
                     return try writer.writeAll(event.utf8);

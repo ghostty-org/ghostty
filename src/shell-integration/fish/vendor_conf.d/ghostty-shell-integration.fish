@@ -129,8 +129,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
             # Configure environment variables for remote session
             if contains ssh-env $features
-                set -a ssh_opts -o "SetEnv COLORTERM=truecolor"
-                set -a ssh_opts -o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"
+                set -a ssh_opts -o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION"
             end
 
             # Install terminfo on remote host if needed
@@ -198,7 +197,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
             end
 
             # Execute SSH with TERM environment variable
-            TERM="$ssh_term" command ssh $ssh_opts $argv
+            TERM="$ssh_term" COLORTERM=truecolor command ssh $ssh_opts $argv
         end
     end
 

@@ -26,7 +26,14 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
     lib.linkLibC();
-    lib.linkLibCpp();
+    // On MSVC, we must not use linkLibCpp because Zig unconditionally
+    // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+    // include paths, which conflict with MSVC's own C++ runtime headers.
+    // The MSVC SDK include directories (added via linkLibC) contain
+    // both C and C++ headers, so linkLibCpp is not needed.
+    if (target.result.abi != .msvc) {
+        lib.linkLibCpp();
+    }
     b.installArtifact(lib);
 
     // Zig module

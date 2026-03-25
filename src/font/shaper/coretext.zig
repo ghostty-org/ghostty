@@ -850,7 +850,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("ABCD");
+        s.nextSlice("ABCD");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -874,7 +874,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("ABCD   EFG");
+        s.nextSlice("ABCD   EFG");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -897,7 +897,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("A😃D");
+        s.nextSlice("A😃D");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -922,7 +922,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(bad);
+        s.nextSlice(bad);
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -955,8 +955,8 @@ test "run iterator: empty cells with background set" {
         var s = t.vtStream();
         defer s.deinit();
         // Set red background
-        try s.nextSlice("\x1b[48;2;255;0;0m");
-        try s.nextSlice("A");
+        s.nextSlice("\x1b[48;2;255;0;0m");
+        s.nextSlice("A");
 
         // Get our first row
         {
@@ -1014,7 +1014,7 @@ test "shape" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1053,7 +1053,7 @@ test "shape nerd fonts" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1086,7 +1086,7 @@ test "shape inconsolata ligs" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(">=");
+        s.nextSlice(">=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1115,7 +1115,7 @@ test "shape inconsolata ligs" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("===");
+        s.nextSlice("===");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1152,7 +1152,7 @@ test "shape monaspace ligs" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("===");
+        s.nextSlice("===");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1190,7 +1190,7 @@ test "shape left-replaced lig in last run" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("!==");
+        s.nextSlice("!==");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1228,7 +1228,7 @@ test "shape left-replaced lig in early run" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("!==X");
+        s.nextSlice("!==X");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1263,7 +1263,7 @@ test "shape U+3C9 with JB Mono" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("\u{03C9} foo");
+        s.nextSlice("\u{03C9} foo");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1300,7 +1300,7 @@ test "shape emoji width" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice("👍");
+        s.nextSlice("👍");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1390,7 +1390,7 @@ test "shape variation selector VS15" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1429,7 +1429,7 @@ test "shape variation selector VS16" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1463,9 +1463,9 @@ test "shape with empty cells in between" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A");
-    try s.nextSlice("\x1b[5C"); // 5 spaces forward
-    try s.nextSlice("B");
+    s.nextSlice("A");
+    s.nextSlice("\x1b[5C"); // 5 spaces forward
+    s.nextSlice("B");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1510,7 +1510,7 @@ test "shape Combining characters" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1560,7 +1560,7 @@ test "shape Devanagari string" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("अपार्टमेंट");
+    s.nextSlice("अपार्टमेंट");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1619,7 +1619,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1680,7 +1680,7 @@ test "shape Tai Tham letters (position.y differs from advance)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1740,7 +1740,7 @@ test "shape Javanese ligatures" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1803,7 +1803,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1874,7 +1874,7 @@ test "shape Bengali ligatures with out of order vowels" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1929,7 +1929,7 @@ test "shape box glyphs" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
+    s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1967,7 +1967,7 @@ test "shape selection boundary" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("a1b2c3d4e5");
+    s.nextSlice("a1b2c3d4e5");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2072,7 +2072,7 @@ test "shape cursor boundary" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("a1b2c3d4e5");
+    s.nextSlice("a1b2c3d4e5");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2209,7 +2209,7 @@ test "shape cursor boundary and colored emoji" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("👍🏼");
+    s.nextSlice("👍🏼");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2306,7 +2306,7 @@ test "shape cell attribute change" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(">=");
+        s.nextSlice(">=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2332,9 +2332,9 @@ test "shape cell attribute change" {
 
         var s = t.vtStream();
         defer s.deinit();
-        try s.nextSlice(">");
-        try s.nextSlice("\x1b[1m"); // Bold
-        try s.nextSlice("=");
+        s.nextSlice(">");
+        s.nextSlice("\x1b[1m"); // Bold
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2361,11 +2361,11 @@ test "shape cell attribute change" {
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3
-        try s.nextSlice("\x1b[38;2;1;2;3m");
-        try s.nextSlice(">");
+        s.nextSlice("\x1b[38;2;1;2;3m");
+        s.nextSlice(">");
         // RGB 3, 2, 1
-        try s.nextSlice("\x1b[38;2;3;2;1m");
-        try s.nextSlice("=");
+        s.nextSlice("\x1b[38;2;3;2;1m");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2392,11 +2392,11 @@ test "shape cell attribute change" {
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3 bg
-        try s.nextSlice("\x1b[48;2;1;2;3m");
-        try s.nextSlice(">");
+        s.nextSlice("\x1b[48;2;1;2;3m");
+        s.nextSlice(">");
         // RGB 3, 2, 1 bg
-        try s.nextSlice("\x1b[48;2;3;2;1m");
-        try s.nextSlice("=");
+        s.nextSlice("\x1b[48;2;3;2;1m");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2423,9 +2423,9 @@ test "shape cell attribute change" {
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3 bg
-        try s.nextSlice("\x1b[48;2;1;2;3m");
-        try s.nextSlice(">");
-        try s.nextSlice("=");
+        s.nextSlice("\x1b[48;2;1;2;3m");
+        s.nextSlice(">");
+        s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2468,7 +2468,7 @@ test "shape high plane sprite font codepoint" {
     var s = t.vtStream();
     defer s.deinit();
     // U+1FB70: Vertical One Eighth Block-2
-    try s.nextSlice("\u{1FB70}");
+    s.nextSlice("\u{1FB70}");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);

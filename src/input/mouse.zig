@@ -1,5 +1,11 @@
 const std = @import("std");
 
+/// The type of action associated with a mouse event. This is different
+/// from ButtonState because button state is simply the current state
+/// of a mouse button but an action is something that triggers via
+/// an GUI event and supports more.
+pub const Action = enum(c_int) { press, release, motion };
+
 /// The state of a mouse button.
 ///
 /// This is backed by a c_int so we can use this as-is for our embedding API.

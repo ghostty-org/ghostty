@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const lib_alloc = @import("../../lib/allocator.zig");
-const CAllocator = lib_alloc.Allocator;
+const lib = @import("../lib.zig");
+const CAllocator = lib.alloc.Allocator;
 const sgr = @import("../sgr.zig");
 const Result = @import("result.zig").Result;
 
@@ -20,8 +20,8 @@ pub const Parser = ?*ParserWrapper;
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Parser,
-) callconv(.c) Result {
-    const alloc = lib_alloc.default(alloc_);
+) callconv(lib.calling_conv) Result {
+    const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(ParserWrapper) catch
         return .out_of_memory;
     ptr.* = .{
@@ -32,7 +32,7 @@ pub fn new(
     return .success;
 }
 
-pub fn free(parser_: Parser) callconv(.c) void {
+pub fn free(parser_: Parser) callconv(lib.calling_conv) void {
     const wrapper = parser_ orelse return;
     const alloc = wrapper.alloc;
     const parser: *sgr.Parser = &wrapper.parser;
@@ -40,7 +40,7 @@ pub fn free(parser_: Parser) callconv(.c) void {
     alloc.destroy(wrapper);
 }
 
-pub fn reset(parser_: Parser) callconv(.c) void {
+pub fn reset(parser_: Parser) callconv(lib.calling_conv) void {
     const wrapper = parser_ orelse return;
     const parser: *sgr.Parser = &wrapper.parser;
     parser.idx = 0;
@@ -51,7 +51,7 @@ pub fn setParams(
     params: [*]const u16,
     seps_: ?[*]const u8,
     len: usize,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     const wrapper = parser_ orelse return .invalid_value;
     const alloc = wrapper.alloc;
     const parser: *sgr.Parser = &wrapper.parser;
@@ -87,7 +87,7 @@ pub fn setParams(
 pub fn next(
     parser_: Parser,
     result: *sgr.Attribute.C,
-) callconv(.c) bool {
+) callconv(lib.calling_conv) bool {
     const wrapper = parser_ orelse return false;
     const parser: *sgr.Parser = &wrapper.parser;
     if (parser.next()) |attr| {
@@ -101,7 +101,7 @@ pub fn next(
 pub fn unknown_full(
     unknown: sgr.Attribute.Unknown.C,
     ptr: ?*[*]const u16,
-) callconv(.c) usize {
+) callconv(lib.calling_conv) usize {
     if (ptr) |p| p.* = unknown.full_ptr;
     return unknown.full_len;
 }
@@ -109,30 +109,30 @@ pub fn unknown_full(
 pub fn unknown_partial(
     unknown: sgr.Attribute.Unknown.C,
     ptr: ?*[*]const u16,
-) callconv(.c) usize {
+) callconv(lib.calling_conv) usize {
     if (ptr) |p| p.* = unknown.partial_ptr;
     return unknown.partial_len;
 }
 
 pub fn attribute_tag(
     attr: sgr.Attribute.C,
-) callconv(.c) sgr.Attribute.Tag {
+) callconv(lib.calling_conv) sgr.Attribute.Tag {
     return attr.tag;
 }
 
 pub fn attribute_value(
     attr: *sgr.Attribute.C,
-) callconv(.c) *sgr.Attribute.CValue {
+) callconv(lib.calling_conv) *sgr.Attribute.CValue {
     return &attr.value;
 }
 
-pub fn wasm_alloc_attribute() callconv(.c) *sgr.Attribute.C {
+pub fn wasm_alloc_attribute() callconv(lib.calling_conv) *sgr.Attribute.C {
     const alloc = std.heap.wasm_allocator;
     const ptr = alloc.create(sgr.Attribute.C) catch @panic("out of memory");
     return ptr;
 }
 
-pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(.c) void {
+pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(lib.calling_conv) void {
     const alloc = std.heap.wasm_allocator;
     alloc.destroy(attr);
 }
@@ -140,7 +140,7 @@ pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(.c) void {
 test "alloc" {
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &p,
     ));
     free(p);
@@ -149,7 +149,7 @@ test "alloc" {
 test "simple params, no seps" {
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &p,
     ));
     defer free(p);

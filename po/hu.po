@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-03-04 21:13-0800\n"
-"PO-Revision-Date: 2026-02-10 18:32+0200\n"
+"POT-Creation-Date: 2026-03-25 16:24-0700\n"
+"PO-Revision-Date: 2026-02-26 21:00+0100\n"
 "Last-Translator: Balázs Szücs <bszucs1209@gmail.com>\n"
 "Language-Team: Hungarian <translation-team-hu@lists.sourceforge.net>\n"
 "Language: hu\n"
@@ -19,7 +19,7 @@ msgstr ""
 
 #: dist/linux/ghostty_nautilus.py:53
 msgid "Open in Ghostty"
-msgstr ""
+msgstr "Megnyitás a Ghostty alkalmazásban"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -183,7 +183,7 @@ msgstr "Fül"
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr ""
+msgstr "Fül címének módosítása…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
@@ -242,7 +242,7 @@ msgstr "Parancspaletta"
 msgid "Terminal Inspector"
 msgstr "Terminálvizsgáló"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1787
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
 msgid "About Ghostty"
 msgstr "A Ghostty névjegye"
 
@@ -314,15 +314,15 @@ msgstr "Ebben az ablakban minden terminál munkamenet lezárul."
 msgid "The currently running process in this split will be terminated."
 msgstr "Ebben a felosztásban a jelenleg futó folyamat lezárul."
 
-#: src/apprt/gtk/class/surface.zig:1131
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "Parancs befejeződött"
 
-#: src/apprt/gtk/class/surface.zig:1132
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "Parancs sikeres"
 
-#: src/apprt/gtk/class/surface.zig:1133
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "Parancs sikertelen"
 
@@ -340,20 +340,20 @@ msgstr "Terminál címének módosítása"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr ""
+msgstr "Fül címének módosítása"
 
 #: src/apprt/gtk/class/window.zig:1067
 msgid "Reloaded the configuration"
 msgstr "Konfiguráció frissítve"
 
-#: src/apprt/gtk/class/window.zig:1626
+#: src/apprt/gtk/class/window.zig:1611
 msgid "Copied to clipboard"
 msgstr "Vágólapra másolva"
 
-#: src/apprt/gtk/class/window.zig:1628
+#: src/apprt/gtk/class/window.zig:1613
 msgid "Cleared clipboard"
 msgstr "Vágólap törölve"
 
-#: src/apprt/gtk/class/window.zig:1768
+#: src/apprt/gtk/class/window.zig:1753
 msgid "Ghostty Developers"
 msgstr "Ghostty fejlesztők"

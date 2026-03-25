@@ -11,11 +11,11 @@ const build_options = @import("terminal_options");
 const mem = std.mem;
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = mem.Allocator;
-const LibEnum = @import("../lib/enum.zig").Enum;
+const lib = @import("lib.zig");
+const LibEnum = lib.Enum;
 const kitty_color = @import("kitty/color.zig");
 const parsers = @import("osc/parsers.zig");
 const encoding = @import("osc/encoding.zig");
-const lib = @import("../lib/main.zig");
 
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
@@ -165,7 +165,7 @@ pub const Command = union(Key) {
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
     pub const Key = LibEnum(
-        if (build_options.c_abi) .c else .zig,
+        lib.target,
         // NOTE: Order matters, see LibEnum documentation.
         &.{
             "invalid",
@@ -205,6 +205,7 @@ pub const Command = union(Key) {
             pause,
 
             test "ghostty.h Command.ProgressReport.State" {
+                if (comptime build_options.artifact == .lib) return error.SkipZigTest;
                 try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
             }
         };

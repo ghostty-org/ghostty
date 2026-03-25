@@ -76,6 +76,19 @@ pub const ModeState = struct {
         }
     }
 
+    /// Return a DECRPM report for the given mode tag. If the tag does
+    /// not correspond to a known mode, the report state is .not_recognized.
+    pub fn getReport(self: *const ModeState, tag: ModeTag) Report {
+        const mode = modeFromInt(tag.value, tag.ansi) orelse return .{
+            .tag = tag,
+            .state = .not_recognized,
+        };
+        return .{
+            .tag = tag,
+            .state = if (self.get(mode)) .set else .reset,
+        };
+    }
+
     test {
         // We have this here so that we explicitly fail when we change the
         // size of modes. The size of modes is NOT particularly important,
@@ -136,6 +149,10 @@ pub const ModeTag = packed struct(u16) {
     value: u15,
     ansi: bool = false,
 
+    pub fn fromMode(mode: Mode) ModeTag {
+        return @bitCast(@intFromEnum(mode));
+    }
+
     test "order" {
         const t: ModeTag = .{ .value = 1 };
         const int: Backing = @bitCast(t);
@@ -156,6 +173,48 @@ pub fn modeFromInt(v: u16, ansi: bool) ?Mode {
 
     return null;
 }
+
+/// A DECRPM mode report response.
+pub const Report = struct {
+    tag: ModeTag,
+    state: State,
+
+    pub const max_size = max_size: {
+        // Construct the largest possible report in terms of values.
+        const report: Report = .{
+            .tag = .{
+                .value = std.math.maxInt(u15),
+                .ansi = false,
+            },
+            .state = .permanently_reset,
+        };
+
+        var discarding: std.Io.Writer.Discarding = .init(&.{});
+        report.encode(&discarding.writer) catch unreachable;
+        break :max_size discarding.count;
+    };
+
+    /// The state of a mode as reported in a DECRPM response.
+    pub const State = enum(u8) {
+        not_recognized = 0,
+        set = 1,
+        reset = 2,
+        permanently_set = 3,
+        permanently_reset = 4,
+    };
+
+    /// Encode the DECRPM report sequence.
+    pub fn encode(
+        self: Report,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.print("\x1B[{s}{};{}$y", .{
+            if (self.tag.ansi) "" else "?",
+            self.tag.value,
+            @intFromEnum(self.state),
+        });
+    }
+};
 
 fn entryForMode(comptime mode: Mode) ModeEntry {
     @setEvalBranchQuota(10_000);
@@ -186,6 +245,9 @@ const ModeEntry = struct {
 /// The full list of available entries. For documentation see how
 /// they're used within Ghostty or google their values. It is not
 /// valuable to redocument them all here.
+///
+/// NOTE: When adding a new mode entry, also add a corresponding
+/// GHOSTTY_MODE_* macro in include/ghostty/vt/modes.h.
 const entries: []const ModeEntry = &.{
     // ANSI
     .{ .name = "disable_keyboard", .value = 2, .ansi = true }, // KAM
@@ -258,4 +320,62 @@ test ModeState {
     try testing.expect(!state.get(.cursor_keys));
     try testing.expect(state.restore(.cursor_keys));
     try testing.expect(state.get(.cursor_keys));
+}
+
+test "getReport known DEC mode" {
+    var state: ModeState = .{};
+    const report = state.getReport(.{ .value = 1 });
+    try testing.expectEqual(Report.State.reset, report.state);
+    try testing.expectEqual(false, report.tag.ansi);
+    try testing.expectEqual(@as(u15, 1), report.tag.value);
+
+    state.set(.cursor_keys, true);
+    const report2 = state.getReport(.{ .value = 1 });
+    try testing.expectEqual(Report.State.set, report2.state);
+}
+
+test "getReport known ANSI mode" {
+    var state: ModeState = .{};
+    state.set(.insert, true);
+    const report = state.getReport(.{ .value = 4, .ansi = true });
+    try testing.expectEqual(Report.State.set, report.state);
+    try testing.expectEqual(true, report.tag.ansi);
+}
+
+test "getReport unknown mode" {
+    const state: ModeState = .{};
+    const report = state.getReport(.{ .value = 9999 });
+    try testing.expectEqual(Report.State.not_recognized, report.state);
+}
+
+test "Report.encode DEC mode set" {
+    var buf: [Report.max_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const report: Report = .{ .tag = .{ .value = 1, .ansi = false }, .state = .set };
+    try report.encode(&writer);
+    try testing.expectEqualStrings("\x1B[?1;1$y", writer.buffered());
+}
+
+test "Report.encode DEC mode reset" {
+    var buf: [Report.max_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const report: Report = .{ .tag = .{ .value = 1, .ansi = false }, .state = .reset };
+    try report.encode(&writer);
+    try testing.expectEqualStrings("\x1B[?1;2$y", writer.buffered());
+}
+
+test "Report.encode ANSI mode" {
+    var buf: [Report.max_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const report: Report = .{ .tag = .{ .value = 4, .ansi = true }, .state = .set };
+    try report.encode(&writer);
+    try testing.expectEqualStrings("\x1B[4;1$y", writer.buffered());
+}
+
+test "Report.encode not recognized" {
+    var buf: [Report.max_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const report: Report = .{ .tag = .{ .value = 9999, .ansi = false }, .state = .not_recognized };
+    try report.encode(&writer);
+    try testing.expectEqualStrings("\x1B[?9999;0$y", writer.buffered());
 }

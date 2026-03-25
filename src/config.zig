@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 const file_load = @import("config/file_load.zig");
 const formatter = @import("config/formatter.zig");
+const formatter_file = @import("config/formatter_file.zig");
 pub const Config = @import("config/Config.zig");
 pub const conditional = @import("config/conditional.zig");
 pub const io = @import("config/io.zig");
@@ -10,7 +11,7 @@ pub const edit = @import("config/edit.zig");
 pub const url = @import("config/url.zig");
 
 pub const ConditionalState = conditional.State;
-pub const FileFormatter = formatter.FileFormatter;
+pub const FileFormatter = formatter_file.FileFormatter;
 pub const entryFormatter = formatter.entryFormatter;
 pub const formatEntry = formatter.formatEntry;
 pub const preferredDefaultFilePath = file_load.preferredDefaultFilePath;
@@ -44,6 +45,7 @@ pub const WindowPaddingColor = Config.WindowPaddingColor;
 pub const BackgroundImagePosition = Config.BackgroundImagePosition;
 pub const BackgroundImageFit = Config.BackgroundImageFit;
 pub const LinkPreviews = Config.LinkPreviews;
+pub const WorkingDirectory = Config.WorkingDirectory;
 
 // Alternate APIs
 pub const CApi = @import("config/CApi.zig");

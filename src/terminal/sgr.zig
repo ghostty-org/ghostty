@@ -1,14 +1,11 @@
 //! SGR (Select Graphic Rendition) attrinvbute parsing and types.
 
 const std = @import("std");
-const build_options = @import("terminal_options");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
-const lib = @import("../lib/main.zig");
+const lib = @import("lib.zig");
 const color = @import("color.zig");
 const SepList = @import("Parser.zig").Action.CSI.SepList;
-
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 /// Attribute type for SGR
 pub const Attribute = union(Tag) {
@@ -81,7 +78,7 @@ pub const Attribute = union(Tag) {
     @"256_fg": u8,
 
     pub const Tag = lib.Enum(
-        lib_target,
+        lib.target,
         &.{
             "unset",
             "unknown",
@@ -158,7 +155,7 @@ pub const Attribute = union(Tag) {
 
     /// C ABI functions.
     const c_union = lib.TaggedUnion(
-        lib_target,
+        lib.target,
         @This(),
         // Padding size for C ABI compatibility.
         // Largest variant is Unknown.C: 2 pointers + 2 usize = 32 bytes on 64-bit.

@@ -1,6 +1,6 @@
 const std = @import("std");
-const lib_alloc = @import("../../lib/allocator.zig");
-const CAllocator = lib_alloc.Allocator;
+const lib = @import("../lib.zig");
+const CAllocator = lib.alloc.Allocator;
 const osc = @import("../osc.zig");
 const Result = @import("result.zig").Result;
 
@@ -15,8 +15,8 @@ pub const Command = ?*osc.Command;
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Parser,
-) callconv(.c) Result {
-    const alloc = lib_alloc.default(alloc_);
+) callconv(lib.calling_conv) Result {
+    const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(osc.Parser) catch
         return .out_of_memory;
     ptr.* = .init(alloc);
@@ -24,7 +24,7 @@ pub fn new(
     return .success;
 }
 
-pub fn free(parser_: Parser) callconv(.c) void {
+pub fn free(parser_: Parser) callconv(lib.calling_conv) void {
     // C-built parsers always have an associated allocator.
     const parser = parser_ orelse return;
     const alloc = parser.alloc.?;
@@ -32,19 +32,19 @@ pub fn free(parser_: Parser) callconv(.c) void {
     alloc.destroy(parser);
 }
 
-pub fn reset(parser_: Parser) callconv(.c) void {
+pub fn reset(parser_: Parser) callconv(lib.calling_conv) void {
     parser_.?.reset();
 }
 
-pub fn next(parser_: Parser, byte: u8) callconv(.c) void {
+pub fn next(parser_: Parser, byte: u8) callconv(lib.calling_conv) void {
     parser_.?.next(byte);
 }
 
-pub fn end(parser_: Parser, terminator: u8) callconv(.c) Command {
+pub fn end(parser_: Parser, terminator: u8) callconv(lib.calling_conv) Command {
     return parser_.?.end(terminator);
 }
 
-pub fn commandType(command_: Command) callconv(.c) osc.Command.Key {
+pub fn commandType(command_: Command) callconv(lib.calling_conv) osc.Command.Key {
     const command = command_ orelse return .invalid;
     return command.*;
 }
@@ -67,7 +67,7 @@ pub fn commandData(
     command_: Command,
     data: CommandData,
     out: ?*anyopaque,
-) callconv(.c) bool {
+) callconv(lib.calling_conv) bool {
     if (comptime std.debug.runtime_safety) {
         _ = std.meta.intToEnum(CommandData, @intFromEnum(data)) catch {
             log.warn("commandData invalid data value={d}", .{@intFromEnum(data)});
@@ -76,6 +76,7 @@ pub fn commandData(
     }
 
     return switch (data) {
+        .invalid => false,
         inline else => |comptime_data| commandDataTyped(
             command_,
             comptime_data,
@@ -105,7 +106,7 @@ test "alloc" {
     const testing = std.testing;
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &p,
     ));
     free(p);
@@ -120,7 +121,7 @@ test "change window title" {
     const testing = std.testing;
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &p,
     ));
     defer free(p);

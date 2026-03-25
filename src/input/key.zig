@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const cimgui = @import("dcimgui");
-const OptionAsAlt = @import("config.zig").OptionAsAlt;
 
 pub const Mods = @import("key_mods.zig").Mods;
 

@@ -2682,11 +2682,22 @@ fn scrollPrompt(self: *PageList, delta: isize) void {
     // delta so that we don't land back on our current viewport.
     const start_pin = start: {
         const tl = self.getTopLeft(.viewport);
-        const adjusted: ?Pin = if (delta > 0)
-            tl.down(1)
-        else
-            tl.up(1);
-        break :start adjusted orelse return;
+
+        // If we're moving up we can just move the viewport up because
+        // promptIterator handles jumpting to the start of prompts.
+        if (delta <= 0) break :start tl.up(1) orelse return;
+
+        // If we're moving down and we're presently at some kind of
+        // prompt, we need to skip all the continuation lines because
+        // promptIterator can't know if we're cutoff or continuing.
+        var adjusted: Pin = tl.down(1) orelse return;
+        if (tl.rowAndCell().row.semantic_prompt != .none) skip: {
+            while (adjusted.rowAndCell().row.semantic_prompt == .prompt_continuation) {
+                adjusted = adjusted.down(1) orelse break :skip;
+            }
+        }
+
+        break :start adjusted;
     };
 
     // Go through prompts delta times
@@ -6864,6 +6875,55 @@ test "Screen: jump back one prompt" {
             .len = s.rows,
         }, s.scrollbar());
     }
+}
+
+test "Screen: jump forward prompt skips multiline continuation" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, null);
+    defer s.deinit();
+    try s.growRows(7);
+
+    // Multiline prompt on rows 1-3.
+    {
+        const p = s.pin(.{ .screen = .{ .y = 1 } }).?;
+        p.rowAndCell().row.semantic_prompt = .prompt;
+    }
+    {
+        const p = s.pin(.{ .screen = .{ .y = 2 } }).?;
+        p.rowAndCell().row.semantic_prompt = .prompt_continuation;
+    }
+    {
+        const p = s.pin(.{ .screen = .{ .y = 3 } }).?;
+        p.rowAndCell().row.semantic_prompt = .prompt_continuation;
+    }
+
+    // Next prompt after command output.
+    {
+        const p = s.pin(.{ .screen = .{ .y = 6 } }).?;
+        p.rowAndCell().row.semantic_prompt = .prompt;
+    }
+
+    // Starting at the first prompt line should jump to the next prompt,
+    // not to continuation lines.
+    s.scroll(.{ .row = 1 });
+    s.scroll(.{ .delta_prompt = 1 });
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(point.Point{ .screen = .{
+        .x = 0,
+        .y = 6,
+    } }, s.pointFromPin(.screen, s.pin(.{ .viewport = .{} }).?).?);
+
+    // Starting in the middle of continuation lines should also jump to
+    // the next prompt.
+    s.scroll(.{ .row = 2 });
+    s.scroll(.{ .delta_prompt = 1 });
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(point.Point{ .screen = .{
+        .x = 0,
+        .y = 6,
+    } }, s.pointFromPin(.screen, s.pin(.{ .viewport = .{} }).?).?);
 }
 
 test "PageList grow fit in capacity" {

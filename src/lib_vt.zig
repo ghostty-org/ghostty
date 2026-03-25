@@ -53,14 +53,14 @@ pub const RenderState = terminal.RenderState;
 pub const Screen = terminal.Screen;
 pub const ScreenSet = terminal.ScreenSet;
 pub const Selection = terminal.Selection;
+pub const size_report = terminal.size_report;
 pub const SizeReportStyle = terminal.SizeReportStyle;
 pub const StringMap = terminal.StringMap;
 pub const Style = terminal.Style;
 pub const Terminal = terminal.Terminal;
+pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
-pub const ReadonlyStream = terminal.ReadonlyStream;
-pub const ReadonlyHandler = terminal.ReadonlyHandler;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;
@@ -81,9 +81,16 @@ pub const input = struct {
     // We have to be careful to only import targeted files within
     // the input package because the full package brings in too many
     // other dependencies.
+    const focus = terminal.focus;
     const paste = @import("input/paste.zig");
     const key = @import("input/key.zig");
     const key_encode = @import("input/key_encode.zig");
+    const mouse_encode = @import("input/mouse_encode.zig");
+
+    // Focus-related APIs
+    pub const max_focus_encode_size = focus.max_encode_size;
+    pub const FocusEvent = focus.Event;
+    pub const encodeFocus = focus.encode;
 
     // Paste-related APIs
     pub const PasteError = paste.Error;
@@ -98,6 +105,13 @@ pub const input = struct {
     pub const KeyMods = key.Mods;
     pub const KeyEncodeOptions = key_encode.Options;
     pub const encodeKey = key_encode.encode;
+
+    // Mouse encoding
+    pub const MouseAction = @import("input/mouse.zig").Action;
+    pub const MouseButton = @import("input/mouse.zig").Button;
+    pub const MouseEncodeOptions = mouse_encode.Options;
+    pub const MouseEncodeEvent = mouse_encode.Event;
+    pub const encodeMouse = mouse_encode.encode;
 };
 
 comptime {
@@ -124,7 +138,25 @@ comptime {
         @export(&c.key_encoder_new, .{ .name = "ghostty_key_encoder_new" });
         @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
         @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
+        @export(&c.key_encoder_setopt_from_terminal, .{ .name = "ghostty_key_encoder_setopt_from_terminal" });
         @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
+        @export(&c.mouse_event_new, .{ .name = "ghostty_mouse_event_new" });
+        @export(&c.mouse_event_free, .{ .name = "ghostty_mouse_event_free" });
+        @export(&c.mouse_event_set_action, .{ .name = "ghostty_mouse_event_set_action" });
+        @export(&c.mouse_event_get_action, .{ .name = "ghostty_mouse_event_get_action" });
+        @export(&c.mouse_event_set_button, .{ .name = "ghostty_mouse_event_set_button" });
+        @export(&c.mouse_event_clear_button, .{ .name = "ghostty_mouse_event_clear_button" });
+        @export(&c.mouse_event_get_button, .{ .name = "ghostty_mouse_event_get_button" });
+        @export(&c.mouse_event_set_mods, .{ .name = "ghostty_mouse_event_set_mods" });
+        @export(&c.mouse_event_get_mods, .{ .name = "ghostty_mouse_event_get_mods" });
+        @export(&c.mouse_event_set_position, .{ .name = "ghostty_mouse_event_set_position" });
+        @export(&c.mouse_event_get_position, .{ .name = "ghostty_mouse_event_get_position" });
+        @export(&c.mouse_encoder_new, .{ .name = "ghostty_mouse_encoder_new" });
+        @export(&c.mouse_encoder_free, .{ .name = "ghostty_mouse_encoder_free" });
+        @export(&c.mouse_encoder_setopt, .{ .name = "ghostty_mouse_encoder_setopt" });
+        @export(&c.mouse_encoder_setopt_from_terminal, .{ .name = "ghostty_mouse_encoder_setopt_from_terminal" });
+        @export(&c.mouse_encoder_reset, .{ .name = "ghostty_mouse_encoder_reset" });
+        @export(&c.mouse_encoder_encode, .{ .name = "ghostty_mouse_encoder_encode" });
         @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
         @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
         @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
@@ -132,7 +164,14 @@ comptime {
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
+        @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
+        @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
+        @export(&c.style_default, .{ .name = "ghostty_style_default" });
+        @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });
+        @export(&c.cell_get, .{ .name = "ghostty_cell_get" });
+        @export(&c.row_get, .{ .name = "ghostty_row_get" });
         @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
         @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
         @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
@@ -143,6 +182,44 @@ comptime {
         @export(&c.sgr_unknown_partial, .{ .name = "ghostty_sgr_unknown_partial" });
         @export(&c.sgr_attribute_tag, .{ .name = "ghostty_sgr_attribute_tag" });
         @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
+        @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
+        @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
+        @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
+        @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
+        @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
+        @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
+        @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
+        @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
+        @export(&c.render_state_colors_get, .{ .name = "ghostty_render_state_colors_get" });
+        @export(&c.render_state_row_iterator_new, .{ .name = "ghostty_render_state_row_iterator_new" });
+        @export(&c.render_state_row_iterator_next, .{ .name = "ghostty_render_state_row_iterator_next" });
+        @export(&c.render_state_row_get, .{ .name = "ghostty_render_state_row_get" });
+        @export(&c.render_state_row_set, .{ .name = "ghostty_render_state_row_set" });
+        @export(&c.render_state_row_iterator_free, .{ .name = "ghostty_render_state_row_iterator_free" });
+        @export(&c.render_state_row_cells_new, .{ .name = "ghostty_render_state_row_cells_new" });
+        @export(&c.render_state_row_cells_next, .{ .name = "ghostty_render_state_row_cells_next" });
+        @export(&c.render_state_row_cells_select, .{ .name = "ghostty_render_state_row_cells_select" });
+        @export(&c.render_state_row_cells_get, .{ .name = "ghostty_render_state_row_cells_get" });
+        @export(&c.render_state_row_cells_free, .{ .name = "ghostty_render_state_row_cells_free" });
+        @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
+        @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+        @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+        @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+        @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+        @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+        @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
+        @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
+        @export(&c.terminal_mode_get, .{ .name = "ghostty_terminal_mode_get" });
+        @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
+        @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
+        @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+        @export(&c.grid_ref_cell, .{ .name = "ghostty_grid_ref_cell" });
+        @export(&c.grid_ref_row, .{ .name = "ghostty_grid_ref_row" });
+        @export(&c.grid_ref_graphemes, .{ .name = "ghostty_grid_ref_graphemes" });
+        @export(&c.grid_ref_style, .{ .name = "ghostty_grid_ref_style" });
+        @export(&c.build_info, .{ .name = "ghostty_build_info" });
+        @export(&c.alloc_alloc, .{ .name = "ghostty_alloc" });
+        @export(&c.alloc_free, .{ .name = "ghostty_free" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {

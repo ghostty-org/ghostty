@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-03-04 21:13-0800\n"
+"POT-Creation-Date: 2026-03-25 16:24-0700\n"
 "PO-Revision-Date: 2026-02-09 22:18+0300\n"
 "Last-Translator: Emir SARI <emir_sari@icloud.com>\n"
 "Language-Team: Turkish\n"
@@ -243,7 +243,7 @@ msgstr "Komut Paleti"
 msgid "Terminal Inspector"
 msgstr "Uçbirim Denetçisi"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1787
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
 msgid "About Ghostty"
 msgstr "Ghostty Hakkında"
 
@@ -315,15 +315,15 @@ msgstr "Bu penceredeki tüm uçbirim oturumları sonlandırılacaktır."
 msgid "The currently running process in this split will be terminated."
 msgstr "Bu bölmedeki şu anda çalışan süreç sonlandırılacaktır."
 
-#: src/apprt/gtk/class/surface.zig:1131
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "Komut Bitti"
 
-#: src/apprt/gtk/class/surface.zig:1132
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "Komut Başarılı"
 
-#: src/apprt/gtk/class/surface.zig:1133
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "Komut Başarısız"
 
@@ -347,14 +347,14 @@ msgstr "Sekme Başlığını Değiştir"
 msgid "Reloaded the configuration"
 msgstr "Yapılandırma yeniden yüklendi"
 
-#: src/apprt/gtk/class/window.zig:1626
+#: src/apprt/gtk/class/window.zig:1611
 msgid "Copied to clipboard"
 msgstr "Panoya kopyalandı"
 
-#: src/apprt/gtk/class/window.zig:1628
+#: src/apprt/gtk/class/window.zig:1613
 msgid "Cleared clipboard"
 msgstr "Pano temizlendi"
 
-#: src/apprt/gtk/class/window.zig:1768
+#: src/apprt/gtk/class/window.zig:1753
 msgid "Ghostty Developers"
 msgstr "Ghostty Geliştiricileri"

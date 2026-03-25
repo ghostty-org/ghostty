@@ -121,7 +121,7 @@ pub fn add(
     // We don't support cross-compiling to Darwin but due to the way
     // lazy dependencies work with Zig, we call this function. So we just
     // bail. The build will fail but the build would've failed anyways.
-    // And this lets other non-platform-specific targets like `lib-vt`
+    // And this lets other non-platform-specific targets like `-Demit-lib-vt`
     // cross-compile properly.
     if (!builtin.target.os.tag.isDarwin() and
         self.config.target.result.os.tag.isDarwin())
@@ -134,6 +134,33 @@ pub fn add(
 
     // Every exe needs the terminal options
     self.config.terminalOptions().add(b, step.root_module);
+
+    // C imports needed to manage/create PTYs
+    switch (target.result.os.tag) {
+        .freebsd,
+        .linux,
+        .macos,
+        => {
+            const c = b.addTranslateC(.{
+                .root_source_file = b.path("src/pty.c"),
+                .target = target,
+                .optimize = optimize,
+            });
+            switch (target.result.os.tag) {
+                .macos => {
+                    const libc = try std.zig.LibCInstallation.findNative(.{
+                        .allocator = b.allocator,
+                        .target = &target.result,
+                        .verbose = false,
+                    });
+                    c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+                },
+                else => {},
+            }
+            step.root_module.addImport("pty-c", c.createModule());
+        },
+        else => {},
+    }
 
     // Freetype. We always include this even if our font backend doesn't
     // use it because Dear Imgui uses Freetype.
@@ -372,8 +399,15 @@ pub fn add(
         step.addIncludePath(b.path("src/apprt/gtk"));
     }
 
-    // libcpp is required for various dependencies
-    step.linkLibCpp();
+    // libcpp is required for various dependencies. On MSVC, we must
+    // not use linkLibCpp because Zig unconditionally passes -nostdinc++
+    // and then adds its bundled libc++/libc++abi include paths, which
+    // conflict with MSVC's own C++ runtime headers. The MSVC SDK
+    // include directories (already added via linkLibC above) contain
+    // both C and C++ headers, so linkLibCpp is not needed.
+    if (step.rootModuleTarget().abi != .msvc) {
+        step.linkLibCpp();
+    }
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
@@ -626,9 +660,6 @@ fn addGtkNg(
             .wayland_protocols = wayland_protocols_dep.path(""),
         });
 
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/blur.xml"),
-        );
         // FIXME: replace with `zxdg_decoration_v1` once GTK merges https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/server-decoration.xml"),
@@ -636,13 +667,18 @@ fn addGtkNg(
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
         );
+        scanner.addCustomProtocol(
+            plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
+        );
         scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
+        scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
 
         scanner.generate("wl_compositor", 1);
-        scanner.generate("org_kde_kwin_blur_manager", 1);
         scanner.generate("org_kde_kwin_server_decoration_manager", 1);
         scanner.generate("org_kde_kwin_slide_manager", 1);
+        scanner.generate("kde_output_order_v1", 1);
         scanner.generate("xdg_activation_v1", 1);
+        scanner.generate("ext_background_effect_manager_v1", 1);
 
         step.root_module.addImport("wayland", b.createModule(.{
             .root_source_file = scanner.result,
@@ -657,10 +693,10 @@ fn addGtkNg(
             .optimize = optimize,
         })) |gtk4_layer_shell| {
             const layer_shell_module = gtk4_layer_shell.module("gtk4-layer-shell");
-            if (gobject_) |gobject| layer_shell_module.addImport(
-                "gtk",
-                gobject.module("gtk4"),
-            );
+            if (gobject_) |gobject| {
+                layer_shell_module.addImport("gtk", gobject.module("gtk4"));
+                layer_shell_module.addImport("gdk", gobject.module("gdk4"));
+            }
             step.root_module.addImport(
                 "gtk4-layer-shell",
                 layer_shell_module,
@@ -754,12 +790,35 @@ pub fn addSimd(
         const HWY_AVX3_DL: c_int = 1 << 7;
         const HWY_AVX3: c_int = 1 << 8;
 
+        var flags: std.ArrayListUnmanaged([]const u8) = .empty;
+
         // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
         // To workaround this we just disable AVX512 support completely.
         // The performance difference between AVX2 and AVX512 is not
         // significant for our use case and AVX512 is very rare on consumer
         // hardware anyways.
         const HWY_DISABLED_TARGETS: c_int = HWY_AVX10_2 | HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+        if (target.result.cpu.arch == .x86_64) try flags.append(
+            b.allocator,
+            b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+        );
+
+        // MSVC requires explicit std specification otherwise these
+        // are guarded, at least on Windows 2025. Doing it unconditionally
+        // doesn't cause any issues on other platforms and ensures we get
+        // C++17 support on MSVC.
+        try flags.append(
+            b.allocator,
+            "-std=c++17",
+        );
+
+        // Disable ubsan for MSVC to avoid undefined references to
+        // __ubsan_handle_* symbols that require a runtime we don't link
+        // and bundle. Hopefully we can fix this one day since ubsan is nice!
+        if (target.result.abi == .msvc) try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
 
         m.addCSourceFiles(.{
             .files = &.{
@@ -768,9 +827,7 @@ pub fn addSimd(
                 "src/simd/index_of.cpp",
                 "src/simd/vt.cpp",
             },
-            .flags = if (target.result.cpu.arch == .x86_64) &.{
-                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
-            } else &.{},
+            .flags = flags.items,
         });
     }
 }
