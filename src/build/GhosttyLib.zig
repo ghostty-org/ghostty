@@ -94,6 +94,44 @@ pub fn initShared(
     });
     _ = try deps.add(lib);
 
+    // On Windows with MSVC, building a DLL requires the full CRT library
+    // chain. linkLibC() (called via deps.add) provides msvcrt.lib, but
+    // that references symbols in vcruntime.lib and ucrt.lib. Zig's library
+    // search paths include the MSVC lib dir and the Windows SDK 'um' dir,
+    // but not the SDK 'ucrt' dir where ucrt.lib lives.
+    if (deps.config.target.result.os.tag == .windows and
+        deps.config.target.result.abi == .msvc)
+    {
+        // The CRT initialization code in msvcrt.lib calls __vcrt_initialize
+        // and __acrt_initialize, which are in the static CRT libraries.
+        lib.linkSystemLibrary("libvcruntime");
+
+        // ucrt.lib is in the Windows SDK 'ucrt' dir. Detect the SDK
+        // installation and add the UCRT library path.
+        const arch = deps.config.target.result.cpu.arch;
+        const sdk = std.zig.WindowsSdk.find(b.graph.arena, arch) catch null;
+        if (sdk) |s| {
+            if (s.windows10sdk) |w10| {
+                const arch_str: []const u8 = switch (arch) {
+                    .x86_64 => "x64",
+                    .x86 => "x86",
+                    .aarch64 => "arm64",
+                    else => "x64",
+                };
+                const ucrt_lib_path = std.fmt.allocPrint(
+                    b.graph.arena,
+                    "{s}\\Lib\\{s}\\ucrt\\{s}",
+                    .{ w10.path, w10.version, arch_str },
+                ) catch null;
+
+                if (ucrt_lib_path) |path| {
+                    lib.addLibraryPath(.{ .cwd_relative = path });
+                }
+            }
+        }
+        lib.linkSystemLibrary("libucrt");
+    }
+
     // Get our debug symbols
     const dsymutil: ?std.Build.LazyPath = dsymutil: {
         if (!deps.config.target.result.os.tag.isDarwin()) {
