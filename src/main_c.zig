@@ -64,14 +64,6 @@ pub const DllMain = if (builtin.os.tag == .windows and
     }
 }.handler else void;
 
-// Probe export: returns 1 when the DllMain CRT workaround above is
-// compiled in. The C# test suite checks for this symbol to detect when
-// the workaround becomes redundant (when Zig fixes MSVC DLL CRT init).
-// Remove this along with the DllMain block above.
-pub export fn ghostty_crt_workaround_active() callconv(.c) c_int {
-    return if (builtin.os.tag == .windows and builtin.abi == .msvc) 1 else 0;
-}
-
 // Some comptime assertions that our C API depends on.
 comptime {
     // We allow tests to reference this file because we unit test
