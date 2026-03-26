@@ -18,6 +18,7 @@ pub const GenericRenderer = @import("renderer/generic.zig").Renderer;
 pub const Metal = @import("renderer/Metal.zig");
 pub const OpenGL = @import("renderer/OpenGL.zig");
 pub const WebGL = @import("renderer/WebGL.zig");
+pub const DirectX11 = if (build_config.renderer == .directx11) @import("renderer/DirectX11.zig") else struct {};
 pub const Options = @import("renderer/Options.zig");
 pub const Overlay = @import("renderer/Overlay.zig");
 pub const Thread = @import("renderer/Thread.zig");
@@ -39,6 +40,10 @@ pub const Renderer = switch (build_config.renderer) {
     .metal => GenericRenderer(Metal),
     .opengl => GenericRenderer(OpenGL),
     .webgl => WebGL,
+    // DirectX11 does not implement GenericRenderer yet. Use OpenGL as a
+    // placeholder so shared code (Surface, message, etc.) compiles. The
+    // actual DX11 rendering is driven through DirectX11.Device directly.
+    .directx11 => GenericRenderer(OpenGL),
 };
 
 /// The health status of a renderer. These must be shared across all
