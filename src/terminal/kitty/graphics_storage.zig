@@ -230,6 +230,9 @@ pub const ImageStorage = struct {
                         .virtual => continue,
                     }
 
+                    // Skip persistent placements (fork extension: survive CSI 2J)
+                    if (entry.value_ptr.persistent) continue;
+
                     // Deinit the placement and remove it
                     const image_id = entry.key_ptr.image_id;
                     entry.value_ptr.deinit(t.screens.active);
@@ -639,6 +642,10 @@ pub const ImageStorage = struct {
 
         /// The z-index for this placement.
         z: i32 = 0,
+
+        /// When true, this placement survives CSI 2J (erase display).
+        /// Fork extension: set via K=1 in the Kitty graphics protocol.
+        persistent: bool = false,
 
         pub const Location = union(enum) {
             /// Exactly placed on a screen pin.

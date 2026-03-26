@@ -243,6 +243,7 @@ fn display(
         .columns = d.columns,
         .rows = d.rows,
         .z = d.z,
+        .persistent = d.persistent,
     };
     storage.addPlacement(
         alloc,

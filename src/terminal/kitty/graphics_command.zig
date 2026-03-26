@@ -524,6 +524,7 @@ pub const Display = struct {
     horizontal_offset: i32 = 0, // H
     vertical_offset: i32 = 0, // V
     z: i32 = 0, // z
+    persistent: bool = false, // K (fork extension: survive CSI 2J)
 
     pub const CursorMovement = enum {
         after, // 0
@@ -614,6 +615,14 @@ pub const Display = struct {
         if (kv.get('V')) |v| {
             // We can bitcast here because of how we parse it earlier.
             result.vertical_offset = @bitCast(v);
+        }
+
+        if (kv.get('K')) |v| {
+            result.persistent = switch (v) {
+                0 => false,
+                1 => true,
+                else => return error.InvalidFormat,
+            };
         }
 
         return result;
