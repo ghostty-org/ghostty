@@ -109,6 +109,7 @@ jobs:
       - test-fuzz-libghostty
       - test-lib-vt
       - test-macos
+      - test-windows
       - pinact
       - prettier
       - swiftlint
@@ -1111,6 +1112,21 @@ jobs:
 
       - name: test
         run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+
+  test-windows:
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+
+      - name: Test
+        run: zig build -Dapp-runtime=none test
 
   test-i18n:
     strategy:
