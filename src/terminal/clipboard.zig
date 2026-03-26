@@ -12,7 +12,9 @@ pub const Clipboard = enum(Backing) {
 
     // Our backing isn't as small as we can in Zig, but a full
     // C int if we're binding to C APIs.
-    const Backing = switch (build_config.app_runtime) {
+    const Backing = if (build_options.c_abi)
+        c_int
+    else switch (build_config.app_runtime) {
         .gtk => c_int,
         else => u2,
     };

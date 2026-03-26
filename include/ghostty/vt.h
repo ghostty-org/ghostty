@@ -108,6 +108,7 @@ extern "C" {
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/build_info.h>
+#include <ghostty/vt/clipboard.h>
 #include <ghostty/vt/color.h>
 #include <ghostty/vt/device.h>
 #include <ghostty/vt/focus.h>

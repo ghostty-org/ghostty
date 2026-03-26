@@ -4,6 +4,7 @@ const CAllocator = lib.alloc.Allocator;
 const buildpkg = @import("build_info.zig");
 pub const allocator = @import("allocator.zig");
 pub const cell = @import("cell.zig");
+pub const clipboard = @import("clipboard.zig");
 pub const color = @import("color.zig");
 pub const focus = @import("focus.zig");
 pub const formatter = @import("formatter.zig");
@@ -119,6 +120,8 @@ pub const paste_is_safe = paste.is_safe;
 pub const alloc_alloc = allocator.alloc;
 pub const alloc_free = allocator.free;
 
+pub const clipboard_encode_osc52_read = clipboard.encodeOSC52Read;
+
 pub const size_report_encode = size_report.encode;
 
 pub const cell_get = cell.get;
@@ -150,6 +153,7 @@ test {
     _ = allocator;
     _ = buildpkg;
     _ = cell;
+    _ = clipboard;
     _ = color;
     _ = grid_ref;
     _ = row;
