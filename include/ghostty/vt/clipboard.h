@@ -19,6 +19,16 @@
  * the function returns GHOSTTY_OUT_OF_SPACE and sets the required size
  * in the output parameter.
  *
+ * ## Examples
+ *
+ * ### Paste Safety Check
+ *
+ * @snippet c-vt-paste/src/main.c paste-safety
+ *
+ * ### Paste Encoding
+ *
+ * @snippet c-vt-paste/src/main.c paste-encode
+ *
  * @{
  */
 
@@ -67,6 +77,41 @@ GhosttyResult ghostty_clipboard_encode_osc52_read(
     GhosttyClipboard clipboard,
     const uint8_t* data,
     size_t data_len,
+    char* buf,
+    size_t buf_len,
+    size_t* out_written);
+
+/**
+ * Encode paste data for writing to the terminal.
+ *
+ * Encodes the given data for pasting into the terminal. In bracketed
+ * paste mode, the data is wrapped in bracketed paste fenceposts
+ * (`ESC[200~` ... `ESC[201~`). In non-bracketed mode, newlines are
+ * replaced with carriage returns.
+ *
+ * Unsafe control characters (NUL, ESC, DEL, etc.) are always replaced
+ * with spaces, matching xterm behavior. The input @p data buffer is
+ * modified in place. The caller must provide a mutable copy if the
+ * original data must be preserved.
+ *
+ * If the buffer is too small, the function returns GHOSTTY_OUT_OF_SPACE
+ * and writes the required buffer size to @p out_written. The caller can
+ * then retry with a sufficiently sized buffer.
+ *
+ * @param data Mutable pointer to the paste data (modified in place, may be NULL)
+ * @param data_len Length of the paste data in bytes
+ * @param bracketed Whether bracketed paste mode is active
+ * @param buf Output buffer to write the encoded sequence into (may be NULL)
+ * @param buf_len Size of the output buffer in bytes
+ * @param[out] out_written On success, the number of bytes written. On
+ *             GHOSTTY_OUT_OF_SPACE, the required buffer size.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
+ *         is too small
+ */
+GhosttyResult ghostty_clipboard_encode_paste(
+    uint8_t* data,
+    size_t data_len,
+    bool bracketed,
     char* buf,
     size_t buf_len,
     size_t* out_written);

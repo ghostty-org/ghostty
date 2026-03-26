@@ -115,6 +115,7 @@ pub const mouse_encoder_reset = mouse_encode.reset;
 pub const mouse_encoder_encode = mouse_encode.encode;
 
 pub const paste_is_safe = clipboard.paste_is_safe;
+pub const clipboard_encode_paste = clipboard.encodePaste;
 
 pub const alloc_alloc = allocator.alloc;
 pub const alloc_free = allocator.free;
