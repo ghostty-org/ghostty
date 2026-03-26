@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_config = @import("../build_config.zig");
 const build_options = @import("terminal_options");
 const Terminal = @import("Terminal.zig");
 
@@ -13,11 +12,12 @@ pub const Clipboard = enum(Backing) {
 
     // Our backing isn't as small as we can in Zig, but a full
     // C int if we're binding to C APIs.
-    const Backing = if (build_options.c_abi)
-        c_int
-    else switch (build_config.app_runtime) {
-        .gtk => c_int,
-        else => u2,
+    const Backing = switch (build_options.artifact) {
+        .lib => if (build_options.c_abi) c_int else u2,
+        .ghostty => switch (@import("../build_config.zig").app_runtime) {
+            .gtk => c_int,
+            else => u2,
+        },
     };
 
     /// Make this a valid gobject if we're in a GTK environment.
@@ -27,7 +27,7 @@ pub const Clipboard = enum(Backing) {
             .lib => break :gtk void,
         }
 
-        break :gtk switch (build_config.app_runtime) {
+        break :gtk switch (@import("../build_config.zig").app_runtime) {
             .gtk => @import("gobject").ext.defineEnum(
                 Clipboard,
                 .{ .name = "GhosttyClipboard" },
