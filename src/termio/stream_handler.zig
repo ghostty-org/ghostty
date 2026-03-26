@@ -1046,7 +1046,7 @@ pub const StreamHandler = struct {
         // iTerm also appears to do this but other terminals seem to only allow
         // certain. Let's investigate more.
 
-        const clipboard_type = terminal.Clipboard.fromOSC52Kind(kind) orelse .standard;
+        const clipboard_type: apprt.Clipboard = .fromTerminal(terminal.Clipboard.fromOSC52Kind(kind) orelse .standard);
 
         // Get clipboard contents
         if (data.len == 1 and data[0] == '?') {

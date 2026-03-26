@@ -1685,7 +1685,7 @@ pub const Surface = extern struct {
 
     pub fn clipboardRequest(
         self: *Self,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) !bool {
         return try Clipboard.request(
@@ -1697,7 +1697,7 @@ pub const Surface = extern struct {
 
     pub fn setClipboard(
         self: *Self,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) void {
@@ -3672,7 +3672,7 @@ const Clipboard = struct {
     /// Set the clipboard contents.
     pub fn set(
         self: *Surface,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) void {
@@ -3745,7 +3745,7 @@ const Clipboard = struct {
             Surface.signals.@"clipboard-write".impl.emit(
                 self,
                 null,
-                .{ apprt.Clipboard.fromTerminal(clipboard_type), text.ptr },
+                .{ clipboard_type, text.ptr },
                 null,
             );
 
@@ -3767,7 +3767,7 @@ const Clipboard = struct {
     /// doesn't contain text (allowing performable keybinds to pass through).
     pub fn request(
         self: *Surface,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) Allocator.Error!bool {
         // Get our requested clipboard
@@ -3847,7 +3847,7 @@ const Clipboard = struct {
     /// Get the specific type of clipboard for a widget.
     fn get(
         widget: *gtk.Widget,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
     ) ?*gdk.Clipboard {
         return switch (clipboard_type) {
             .standard => widget.getClipboard(),

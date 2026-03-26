@@ -659,7 +659,7 @@ pub const Surface = struct {
 
     pub fn supportsClipboard(
         self: *const Surface,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
     ) bool {
         return switch (clipboard_type) {
             .standard => true,
@@ -669,7 +669,7 @@ pub const Surface = struct {
 
     pub fn clipboardRequest(
         self: *Surface,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) !bool {
         // We need to allocate to get a pointer to store our clipboard request
@@ -732,7 +732,7 @@ pub const Surface = struct {
 
     pub fn setClipboard(
         self: *const Surface,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) !void {

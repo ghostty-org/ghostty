@@ -11,7 +11,6 @@ const gtk = @import("gtk");
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const configpkg = @import("../../../config.zig");
-const terminal = @import("../../../terminal/main.zig");
 const TitlebarStyle = configpkg.Config.GtkTitlebarStyle;
 const input = @import("../../../input.zig");
 const CoreSurface = @import("../../../Surface.zig");

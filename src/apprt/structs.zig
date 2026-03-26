@@ -45,7 +45,7 @@ pub const Clipboard = enum(Backing) {
     pub const getGObjectType = switch (build_config.app_runtime) {
         .gtk => @import("gobject").ext.defineEnum(
             Clipboard,
-            .{ .name = "GhosttyClipboard" },
+            .{ .name = "GhosttyApprtClipboard" },
         ),
 
         .none => void,
@@ -88,10 +88,10 @@ pub const ClipboardRequest = union(ClipboardRequestType) {
     paste: void,
 
     /// A request to read clipboard contents via OSC 52.
-    osc_52_read: terminal.Clipboard,
+    osc_52_read: Clipboard,
 
     /// A request to write clipboard contents via OSC 52.
-    osc_52_write: terminal.Clipboard,
+    osc_52_write: Clipboard,
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
