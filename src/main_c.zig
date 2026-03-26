@@ -24,6 +24,11 @@ const internal_os = @import("os/main.zig");
 // dereferences. Declaring DllMain causes Zig's start.zig to call it
 // during DLL_PROCESS_ATTACH/DETACH, and we forward to the CRT bootstrap
 // functions from libvcruntime and libucrt (already linked).
+//
+// This is a workaround. Zig handles MinGW DLLs correctly (via dllcrt2.obj)
+// but not MSVC. No upstream issue tracks this exact gap as of 2026-03-26.
+// Closest: Codeberg ziglang/zig #30936 (reimplement crt0 code).
+// Remove this DllMain when Zig handles MSVC DLL CRT init natively.
 pub const DllMain = if (builtin.os.tag == .windows and
     builtin.abi == .msvc) struct
 {
@@ -58,6 +63,14 @@ pub const DllMain = if (builtin.os.tag == .windows and
         }
     }
 }.handler else void;
+
+// Probe export: returns 1 when the DllMain CRT workaround above is
+// compiled in. The C# test suite checks for this symbol to detect when
+// the workaround becomes redundant (when Zig fixes MSVC DLL CRT init).
+// Remove this along with the DllMain block above.
+pub export fn ghostty_crt_workaround_active() callconv(.c) c_int {
+    return if (builtin.os.tag == .windows and builtin.abi == .msvc) 1 else 0;
+}
 
 // Some comptime assertions that our C API depends on.
 comptime {
