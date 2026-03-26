@@ -82,7 +82,6 @@ pub const input = struct {
     // the input package because the full package brings in too many
     // other dependencies.
     const focus = terminal.focus;
-    const paste = @import("input/paste.zig");
     const key = @import("input/key.zig");
     const key_encode = @import("input/key_encode.zig");
     const mouse_encode = @import("input/mouse_encode.zig");
@@ -93,10 +92,10 @@ pub const input = struct {
     pub const encodeFocus = focus.encode;
 
     // Paste-related APIs
-    pub const PasteError = paste.Error;
-    pub const PasteOptions = paste.Options;
-    pub const isSafePaste = paste.isSafe;
-    pub const encodePaste = paste.encode;
+    pub const PasteError = terminal.PasteError;
+    pub const PasteOptions = terminal.PasteOptions;
+    pub const isSafePaste = terminal.isPasteSafe;
+    pub const encodePaste = terminal.encodePaste;
 
     // Key encoding
     pub const Key = key.Key;

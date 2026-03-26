@@ -15,7 +15,6 @@ pub const key_event = @import("key_event.zig");
 pub const key_encode = @import("key_encode.zig");
 pub const mouse_event = @import("mouse_event.zig");
 pub const mouse_encode = @import("mouse_encode.zig");
-pub const paste = @import("paste.zig");
 pub const row = @import("row.zig");
 pub const sgr = @import("sgr.zig");
 pub const size_report = @import("size_report.zig");
@@ -115,7 +114,7 @@ pub const mouse_encoder_setopt_from_terminal = mouse_encode.setopt_from_terminal
 pub const mouse_encoder_reset = mouse_encode.reset;
 pub const mouse_encoder_encode = mouse_encode.encode;
 
-pub const paste_is_safe = paste.is_safe;
+pub const paste_is_safe = clipboard.paste_is_safe;
 
 pub const alloc_alloc = allocator.alloc;
 pub const alloc_free = allocator.free;
@@ -166,7 +165,6 @@ test {
     _ = key_encode;
     _ = mouse_event;
     _ = mouse_encode;
-    _ = paste;
     _ = sgr;
     _ = size_report;
     _ = style;

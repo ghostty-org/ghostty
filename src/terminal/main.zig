@@ -7,7 +7,6 @@ const render = @import("render.zig");
 const stream_terminal = @import("stream_terminal.zig");
 const style = @import("style.zig");
 pub const apc = @import("apc.zig");
-pub const Clipboard = clipboard.Clipboard;
 pub const dcs = @import("dcs.zig");
 pub const osc = @import("osc.zig");
 pub const point = @import("point.zig");
@@ -71,6 +70,13 @@ pub const EraseDisplay = csi.EraseDisplay;
 pub const EraseLine = csi.EraseLine;
 pub const TabClear = csi.TabClear;
 pub const Attribute = sgr.Attribute;
+
+// Clipboard and paste-related APIs
+pub const Clipboard = clipboard.Clipboard;
+pub const PasteOptions = clipboard.PasteOptions;
+pub const PasteError = clipboard.PasteError;
+pub const encodePaste = clipboard.encodePaste;
+pub const isPasteSafe = clipboard.isPasteSafe;
 
 pub const Options = @import("build_options.zig").Options;
 pub const options = @import("terminal_options");

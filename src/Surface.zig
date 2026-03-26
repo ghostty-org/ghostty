@@ -6024,10 +6024,10 @@ fn completeClipboardPaste(
 ) !void {
     if (data.len == 0) return;
 
-    const encode_opts: input.paste.Options = encode_opts: {
+    const encode_opts: terminal.PasteOptions = encode_opts: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        const opts: input.paste.Options = .fromTerminal(&self.io.terminal);
+        const opts: terminal.PasteOptions = .fromTerminal(&self.io.terminal);
 
         // If we have paste protection enabled, we detect unsafe pastes and return
         // an error. The error approach allows apprt to attempt to complete the paste
@@ -6054,7 +6054,7 @@ fn completeClipboardPaste(
                 if (self.config.clipboard_paste_bracketed_safe) break :unsafe false;
             }
 
-            break :unsafe !input.paste.isSafe(data);
+            break :unsafe !terminal.isPasteSafe(data);
         };
 
         if (unsafe) {
@@ -6074,12 +6074,12 @@ fn completeClipboardPaste(
     // Encode the data. In most cases this doesn't require any
     // copies, so we optimize for that case.
     var data_duped: ?[]u8 = null;
-    const vecs = input.paste.encode(data, encode_opts) catch |err| switch (err) {
+    const vecs = terminal.encodePaste(data, encode_opts) catch |err| switch (err) {
         error.MutableRequired => vecs: {
             const buf: []u8 = try self.alloc.dupe(u8, data);
             errdefer self.alloc.free(buf);
             data_duped = buf;
-            break :vecs input.paste.encode(buf, encode_opts);
+            break :vecs terminal.encodePaste(buf, encode_opts);
         },
     };
     defer if (data_duped) |v| {

@@ -122,7 +122,6 @@ extern "C" {
 #include <ghostty/vt/key.h>
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/mouse.h>
-#include <ghostty/vt/paste.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/size_report.h>
 #include <ghostty/vt/wasm.h>

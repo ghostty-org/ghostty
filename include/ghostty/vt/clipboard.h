@@ -1,7 +1,7 @@
 /**
  * @file clipboard.h
  *
- * Clipboard encoding - encode OSC 52 clipboard sequences.
+ * Clipboard encoding and paste utilities.
  */
 
 #ifndef GHOSTTY_VT_CLIPBOARD_H
@@ -9,7 +9,8 @@
 
 /** @defgroup clipboard Clipboard Encoding
  *
- * Utilities for encoding OSC 52 clipboard read response sequences.
+ * Utilities for encoding OSC 52 clipboard read response sequences
+ * and validating paste data safety.
  *
  * ## Basic Usage
  *
@@ -21,6 +22,7 @@
  * @{
  */
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <ghostty/vt/types.h>
@@ -68,6 +70,23 @@ GhosttyResult ghostty_clipboard_encode_osc52_read(
     char* buf,
     size_t buf_len,
     size_t* out_written);
+
+/**
+ * Check if paste data is safe to paste into the terminal.
+ *
+ * Data is considered unsafe if it contains:
+ * - Newlines (`\n`) which can inject commands
+ * - The bracketed paste end sequence (`\x1b[201~`) which can be used
+ *   to exit bracketed paste mode and inject commands
+ *
+ * This check is conservative and considers data unsafe regardless of
+ * current terminal state.
+ *
+ * @param data The paste data to check (must not be NULL)
+ * @param len The length of the data in bytes
+ * @return true if the data is safe to paste, false otherwise
+ */
+bool ghostty_paste_is_safe(const char* data, size_t len);
 
 #ifdef __cplusplus
 }
