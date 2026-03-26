@@ -1593,7 +1593,7 @@ pub const Window = extern struct {
 
     fn surfaceClipboardWrite(
         _: *Surface,
-        clipboard_type: terminal.Clipboard,
+        clipboard_type: apprt.Clipboard,
         text: [*:0]const u8,
         self: *Self,
     ) callconv(.c) void {

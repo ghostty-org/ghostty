@@ -29,6 +29,47 @@ pub const IMEPos = struct {
     height: f64,
 };
 
+/// The clipboard type for apprt use. This mirrors terminal.Clipboard
+/// but uses a c_int backing on GTK for GObject compatibility.
+pub const Clipboard = enum(Backing) {
+    standard = 0,
+    selection = 1,
+    primary = 2,
+
+    const Backing = switch (build_config.app_runtime) {
+        .gtk => c_int,
+        else => u2,
+    };
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk => @import("gobject").ext.defineEnum(
+            Clipboard,
+            .{ .name = "GhosttyClipboard" },
+        ),
+
+        .none => void,
+    };
+
+    /// Convert from the terminal clipboard type.
+    pub fn fromTerminal(cb: terminal.Clipboard) Clipboard {
+        return switch (cb) {
+            .standard => .standard,
+            .selection => .selection,
+            .primary => .primary,
+        };
+    }
+
+    /// Convert to the terminal clipboard type.
+    pub fn toTerminal(self: Clipboard) terminal.Clipboard {
+        return switch (self) {
+            .standard => .standard,
+            .selection => .selection,
+            .primary => .primary,
+        };
+    }
+};
+
 pub const ClipboardContent = struct {
     mime: [:0]const u8,
     data: [:0]const u8,

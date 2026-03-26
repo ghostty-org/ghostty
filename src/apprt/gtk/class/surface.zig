@@ -466,7 +466,7 @@ pub const Surface = extern struct {
                 name,
                 Self,
                 &.{
-                    terminal.Clipboard,
+                    apprt.Clipboard,
                     [*:0]const u8,
                 },
                 void,
@@ -3745,7 +3745,7 @@ const Clipboard = struct {
             Surface.signals.@"clipboard-write".impl.emit(
                 self,
                 null,
-                .{ clipboard_type, text.ptr },
+                .{ apprt.Clipboard.fromTerminal(clipboard_type), text.ptr },
                 null,
             );
 
@@ -3847,9 +3847,9 @@ const Clipboard = struct {
     /// Get the specific type of clipboard for a widget.
     fn get(
         widget: *gtk.Widget,
-        clipboard: terminal.Clipboard,
+        clipboard_type: terminal.Clipboard,
     ) ?*gdk.Clipboard {
-        return switch (clipboard) {
+        return switch (clipboard_type) {
             .standard => widget.getClipboard(),
             .selection, .primary => widget.getPrimaryClipboard(),
         };
