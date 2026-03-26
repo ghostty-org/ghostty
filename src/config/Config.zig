@@ -6747,13 +6747,27 @@ pub const Keybinds = struct {
             // Semantic prompts
             try self.set.put(
                 alloc,
-                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = -1 },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = 1 },
+            );
+
+            // Move tab
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .move_tab = -1 },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .move_tab = 1 },
+                .{ .performable = true },
             );
 
             // Search
