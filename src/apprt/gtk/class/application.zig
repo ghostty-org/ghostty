@@ -761,6 +761,7 @@ pub const Application = extern struct {
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
+            .toggle_background_opacity => return Action.toggleBackgroundOpacity(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
             .readonly => return Action.setReadonly(target, value),
@@ -775,7 +776,6 @@ pub const Application = extern struct {
             .close_all_windows,
             .float_window,
             .toggle_visibility,
-            .toggle_background_opacity,
             .cell_size,
             .render_inspector,
             .renderer_health,
@@ -2766,6 +2766,25 @@ const Action = struct {
                 };
 
                 window.toggleWindowDecorations();
+                return true;
+            },
+        }
+    }
+
+    pub fn toggleBackgroundOpacity(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring toggle_background_opacity", .{});
+                    return false;
+                };
+
+                window.toggleBackgroundOpacity();
                 return true;
             },
         }

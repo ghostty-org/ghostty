@@ -225,6 +225,9 @@ pub const Window = extern struct {
         /// config on a per-window basis.
         window_decoration: ?configpkg.WindowDecoration = null,
 
+        /// Whether background opacity has been toggled to be forced opaque.
+        force_opaque_background: bool = false,
+
         /// Binding group for our active tab.
         tab_bindings: *gobject.BindingGroup,
 
@@ -678,11 +681,11 @@ pub const Window = extern struct {
         // Remainder uses the config
         const config = if (priv.config) |v| v.get() else return;
 
-        // Only add a solid background if we're opaque.
-        self.toggleCssClass(
-            "background",
-            config.@"background-opacity" >= 1,
-        );
+        // TODO UPDATE
+        // Only add a solid background if we're opaque. This keeps GTK's
+        // understanding of the window in line with what's being rendered
+        self.toggleCssClass("background", self.private().force_opaque_background or
+            config.@"background-opacity" >= 1);
 
         // Apply class to color headerbar if window-theme is set to `ghostty` and
         // GTK version is before 4.16. The conditional is because above 4.16
@@ -907,6 +910,16 @@ pub const Window = extern struct {
             // Anything non-none to none
             .auto, .client, .server => .none,
         });
+    }
+
+    pub fn toggleBackgroundOpacity(self: *Self) void {
+        const priv: *Private = self.private();
+        priv.force_opaque_background = !priv.force_opaque_background;
+        self.syncAppearance();
+    }
+
+    fn renderSurfaceOpaque(surface: *CoreSurface, force: bool) void {
+        surface.renderer_thread.mailbox.push(.{ .force_opaque = force }, .{ .forever = {} });
     }
 
     /// Set the window decoration override for this window. If this is null,

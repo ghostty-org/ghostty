@@ -216,6 +216,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Whether or not we have custom shaders.
         has_custom_shaders: bool = false,
 
+        /// TODO
+        force_opaque_background: bool = false,
+
         /// Our shader pipelines.
         shaders: Shaders,
 
@@ -1390,7 +1393,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.terminal_state.colors.background.r,
                     self.terminal_state.colors.background.g,
                     self.terminal_state.colors.background.b,
-                    @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                    self.force_opaque_background or
+                        @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
 
                 // If we're on macOS and have glass styles, we remove
