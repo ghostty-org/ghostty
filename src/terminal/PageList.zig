@@ -994,12 +994,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
     // Various resize operations can change our total row count such
     // that our viewport pin is now in the active area and has insufficient
     // space. We need to check for this case and fix it up.
-    switch (self.viewport) {
-        .pin => if (self.pinIsActive(self.viewport_pin.*)) {
-            self.viewport = .active;
-        },
-        .active, .top => {},
-    }
+    self.fixupViewportAfterResize();
 }
 
 /// Resize the pagelist with reflow by adding or removing columns.
@@ -1121,6 +1116,10 @@ fn resizeCols(
         // log.warn("total old={} new={}", .{ self.total_rows, reflow_cursor.total_rows });
         self.total_rows = reflow_cursor.total_rows;
     }
+
+    // Reflow can move a pinned viewport into the active area before we finish
+    // padding the active rows back out with grow().
+    self.fixupViewportAfterResize();
 
     // If our total rows is less than our active rows, we need to grow.
     // This can happen if you're growing columns such that enough active
@@ -2123,12 +2122,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
 
                 // Make sure that the viewport pin isn't below the active
                 // area, since that will lead to all sorts of problems.
-                switch (self.viewport) {
-                    .pin => if (self.pinIsActive(self.viewport_pin.*)) {
-                        self.viewport = .active;
-                    },
-                    .active, .top => {},
-                }
+                self.fixupViewportAfterResize();
             },
         }
 
@@ -3066,6 +3060,15 @@ fn fixupViewport(
         .top => if (self.pinIsActive(.{ .node = self.pages.first.? })) {
             self.viewport = .active;
         },
+    }
+}
+
+fn fixupViewportAfterResize(self: *PageList) void {
+    switch (self.viewport) {
+        .pin => if (self.total_rows < self.rows or self.pinIsActive(self.viewport_pin.*)) {
+            self.viewport = .active;
+        },
+        .active, .top => {},
     }
 }
 
@@ -13671,6 +13674,51 @@ test "PageList resize grow cols with unwrap fixes viewport pin" {
     // Used to panic here, so test that we can get the bottom right.
     const br_after = s.getBottomRight(.viewport);
     try testing.expect(br_after != null);
+}
+
+test "PageList resize grow cols with unwrap fixes viewport pin before grow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, null);
+    defer s.deinit();
+
+    // Make enough history that we can pin the viewport, but not so much that
+    // unwrapping still leaves us with at least self.rows rows.
+    try s.growRows(10);
+    try testing.expectEqual(@as(usize, 30), s.totalRows());
+
+    var it = s.pageIterator(.right_down, .{ .screen = .{} }, null);
+    while (it.next()) |chunk| {
+        const page = &chunk.node.data;
+        for (chunk.start..chunk.end) |y| {
+            const rac = page.getRowAndCell(0, y);
+            if (y % 2 == 0) {
+                rac.row.wrap = true;
+            } else {
+                rac.row.wrap_continuation = true;
+            }
+            for (0..s.cols) |x| {
+                page.getRowAndCell(x, y).cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = 'A' },
+                };
+            }
+        }
+    }
+
+    // Pin in history so that after unwrap the pin lands inside the active
+    // area before resizeCols has a chance to grow the active rows back out.
+    s.scroll(.{ .pin = s.pin(.{ .screen = .{ .y = 8 } }).? });
+    try testing.expect(s.viewport == .pin);
+
+    try s.resize(.{ .cols = 4, .reflow = true });
+
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 20), s.rows);
+    try testing.expectEqual(@as(usize, 20), s.totalRows());
+    try testing.expectEqual(Viewport.active, s.viewport);
+    try testing.expect(s.getBottomRight(.viewport) != null);
 }
 
 test "PageList grow reuses non-standard page without leak" {
