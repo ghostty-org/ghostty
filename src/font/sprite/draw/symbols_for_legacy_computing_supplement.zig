@@ -102,14 +102,7 @@ pub fn draw1CD00_1CDE5(
 
         const data = @embedFile("octants.txt");
         var it = std.mem.splitScalar(u8, data, '\n');
-        while (it.next()) |raw_line| {
-            // Trim \r so this works with both LF and CRLF line endings,
-            // since git may convert octants.txt to CRLF on Windows checkouts.
-            const line = if (raw_line.len > 0 and raw_line[raw_line.len - 1] == '\r')
-                raw_line[0 .. raw_line.len - 1]
-            else
-                raw_line;
-
+        while (it.next()) |line| {
             // Skip comments
             if (line.len == 0 or line[0] == '#') continue;
 

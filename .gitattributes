@@ -1,42 +1,3 @@
-# Source code - always LF
-*.zig text eol=lf
-*.c text eol=lf
-*.h text eol=lf
-*.cpp text eol=lf
-*.m text eol=lf
-*.swift text eol=lf
-*.py text eol=lf
-*.sh text eol=lf
-
-# Config/build files - always LF
-*.zon text eol=lf
-*.nix text eol=lf
-*.md text eol=lf
-*.json text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
-*.toml text eol=lf
-CMakeLists.txt text eol=lf
-*.cmake text eol=lf
-Makefile text eol=lf
-
-# Text data files - always LF (embedded in Zig, parsed with \n split)
-*.txt text eol=lf
-
-# Windows resource files - preserve as-is (native Windows tooling)
-*.rc -text
-*.manifest -text
-
-# Binary files
-*.png binary
-*.ico binary
-*.icns binary
-*.ttf binary
-*.otf binary
-*.glsl binary
-*.blp binary
-
-# Linguist overrides
 build.zig.zon.nix linguist-generated=true
 build.zig.zon.txt linguist-generated=true
 build.zig.zon.json linguist-generated=true
@@ -51,3 +12,4 @@ src/font/nerd_font_attributes.zig linguist-generated=true
 src/font/nerd_font_codepoint_tables.py linguist-generated=true
 src/font/res/** linguist-vendored
 src/terminal/res/** linguist-vendored
+src/terminal/res/rgb.txt -text
