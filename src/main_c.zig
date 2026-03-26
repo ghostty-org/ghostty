@@ -17,6 +17,48 @@ const state = &@import("global.zig").state;
 const apprt = @import("apprt.zig");
 const internal_os = @import("os/main.zig");
 
+// On Windows, Zig's _DllMainCRTStartup does not initialize the MSVC C
+// runtime when targeting MSVC ABI. Without initialization, any C library
+// function that depends on CRT internal state (setlocale, malloc from C
+// dependencies, C++ constructors in glslang) crashes with null pointer
+// dereferences. Declaring DllMain causes Zig's start.zig to call it
+// during DLL_PROCESS_ATTACH/DETACH, and we forward to the CRT bootstrap
+// functions from libvcruntime and libucrt (already linked).
+pub const DllMain = if (builtin.os.tag == .windows and
+    builtin.abi == .msvc) struct
+{
+    const BOOL = std.os.windows.BOOL;
+    const HINSTANCE = std.os.windows.HINSTANCE;
+    const DWORD = std.os.windows.DWORD;
+    const LPVOID = std.os.windows.LPVOID;
+    const TRUE = std.os.windows.TRUE;
+    const FALSE = std.os.windows.FALSE;
+
+    const DLL_PROCESS_ATTACH: DWORD = 1;
+    const DLL_PROCESS_DETACH: DWORD = 0;
+
+    const __vcrt_initialize = @extern(*const fn () callconv(.c) c_int, .{ .name = "__vcrt_initialize" });
+    const __vcrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__vcrt_uninitialize" });
+    const __acrt_initialize = @extern(*const fn () callconv(.c) c_int, .{ .name = "__acrt_initialize" });
+    const __acrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__acrt_uninitialize" });
+
+    pub fn handler(_: HINSTANCE, fdwReason: DWORD, _: LPVOID) callconv(.winapi) BOOL {
+        switch (fdwReason) {
+            DLL_PROCESS_ATTACH => {
+                if (__vcrt_initialize() < 0) return FALSE;
+                if (__acrt_initialize() < 0) return FALSE;
+                return TRUE;
+            },
+            DLL_PROCESS_DETACH => {
+                _ = __acrt_uninitialize(1);
+                _ = __vcrt_uninitialize(1);
+                return TRUE;
+            },
+            else => return TRUE,
+        }
+    }
+}.handler else void;
+
 // Some comptime assertions that our C API depends on.
 comptime {
     // We allow tests to reference this file because we unit test
