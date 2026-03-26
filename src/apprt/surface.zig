@@ -29,11 +29,11 @@ pub const Message = union(enum) {
     set_mouse_shape: terminal.MouseShape,
 
     /// Read the clipboard and write to the pty.
-    clipboard_read: apprt.Clipboard,
+    clipboard_read: terminal.Clipboard,
 
     /// Write the clipboard contents.
     clipboard_write: struct {
-        clipboard_type: apprt.Clipboard,
+        clipboard_type: terminal.Clipboard,
         req: WriteReq,
     },
 

@@ -1,4 +1,5 @@
 const build_config = @import("../build_config.zig");
+const terminal = @import("../terminal/main.zig");
 
 /// ContentScale is the ratio between the current DPI and the platform's
 /// default DPI. This is used to determine how much certain rendered elements
@@ -28,32 +29,6 @@ pub const IMEPos = struct {
     height: f64,
 };
 
-/// The clipboard type.
-///
-/// If this is changed, you must also update ghostty.h
-pub const Clipboard = enum(Backing) {
-    standard = 0, // ctrl+c/v
-    selection = 1,
-    primary = 2,
-
-    // Our backing isn't is as small as we can in Zig, but a full
-    // C int if we're binding to C APIs.
-    const Backing = switch (build_config.app_runtime) {
-        .gtk => c_int,
-        else => u2,
-    };
-
-    /// Make this a valid gobject if we're in a GTK environment.
-    pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk => @import("gobject").ext.defineEnum(
-            Clipboard,
-            .{ .name = "GhosttyApprtClipboard" },
-        ),
-
-        .none => void,
-    };
-};
-
 pub const ClipboardContent = struct {
     mime: [:0]const u8,
     data: [:0]const u8,
@@ -72,10 +47,10 @@ pub const ClipboardRequest = union(ClipboardRequestType) {
     paste: void,
 
     /// A request to read clipboard contents via OSC 52.
-    osc_52_read: Clipboard,
+    osc_52_read: terminal.Clipboard,
 
     /// A request to write clipboard contents via OSC 52.
-    osc_52_write: Clipboard,
+    osc_52_write: terminal.Clipboard,
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {

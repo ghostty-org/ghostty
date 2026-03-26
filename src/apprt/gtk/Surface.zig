@@ -3,6 +3,7 @@ const Self = @This();
 const std = @import("std");
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
+const terminal = @import("../../terminal/main.zig");
 const CoreSurface = @import("../../Surface.zig");
 const ApprtApp = @import("App.zig");
 const Application = @import("class/application.zig").Application;
@@ -59,7 +60,7 @@ pub fn getCursorPos(self: *const Self) !apprt.CursorPos {
 
 pub fn supportsClipboard(
     self: *const Self,
-    clipboard_type: apprt.Clipboard,
+    clipboard_type: terminal.Clipboard,
 ) bool {
     _ = self;
     return switch (clipboard_type) {
@@ -72,7 +73,7 @@ pub fn supportsClipboard(
 
 pub fn clipboardRequest(
     self: *Self,
-    clipboard_type: apprt.Clipboard,
+    clipboard_type: terminal.Clipboard,
     state: apprt.ClipboardRequest,
 ) !bool {
     return try self.surface.clipboardRequest(
@@ -83,7 +84,7 @@ pub fn clipboardRequest(
 
 pub fn setClipboard(
     self: *Self,
-    clipboard_type: apprt.Clipboard,
+    clipboard_type: terminal.Clipboard,
     contents: []const apprt.ClipboardContent,
     confirm: bool,
 ) !void {

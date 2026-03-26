@@ -2138,7 +2138,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     };
 }
 
-fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) !void {
+fn clipboardWrite(self: *const Surface, data: []const u8, loc: terminal.Clipboard) !void {
     if (self.config.clipboard_write == .deny) {
         log.info("application attempted to write clipboard, but 'clipboard-write' is set to deny", .{});
         return;
@@ -2189,7 +2189,7 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
 fn copySelectionToClipboards(
     self: *Surface,
     sel: terminal.Selection,
-    clipboards: []const apprt.Clipboard,
+    clipboards: []const terminal.Clipboard,
     format: input.Binding.Action.CopyToClipboard,
 ) !void {
     // Create an arena to simplify memory management here.
@@ -2334,7 +2334,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
 
         // The selection clipboard is set if supported, otherwise the standard.
         .true => {
-            const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
+            const clipboard: terminal.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
                 .selection
             else
                 .standard;
@@ -3988,7 +3988,7 @@ pub fn mouseButtonCallback(
 
     // Middle-click pastes from our selection clipboard
     if (button == .middle and action == .press) {
-        const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
+        const clipboard: terminal.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
             .selection
         else
             .standard;
@@ -5997,7 +5997,7 @@ pub fn completeClipboardRequest(
 /// to pass through when the action cannot be performed.
 fn startClipboardRequest(
     self: *Surface,
-    loc: apprt.Clipboard,
+    loc: terminal.Clipboard,
     req: apprt.ClipboardRequest,
 ) !bool {
     switch (req) {
@@ -6099,7 +6099,7 @@ fn completeClipboardPaste(
 fn completeClipboardReadOSC52(
     self: *Surface,
     data: []const u8,
-    clipboard_type: apprt.Clipboard,
+    clipboard_type: terminal.Clipboard,
     confirmed: bool,
 ) !void {
     // We should never get here if clipboard-read is set to deny
@@ -6116,28 +6116,15 @@ fn completeClipboardReadOSC52(
     // This must hold the base64 encoded data PLUS the OSC code surrounding it.
     const enc = std.base64.standard.Encoder;
     const size = enc.calcSize(data.len);
-    var buf = try self.alloc.alloc(u8, size + 9); // const for OSC
+    const buf = try self.alloc.alloc(u8, size + 9); // const for OSC
     defer self.alloc.free(buf);
 
-    const kind: u8 = switch (clipboard_type) {
-        .standard => 'c',
-        .selection => 's',
-        .primary => 'p',
-    };
-
-    // Wrap our data with the OSC code
-    const prefix = try std.fmt.bufPrint(buf, "\x1b]52;{c};", .{kind});
-    assert(prefix.len == 7);
-    buf[buf.len - 2] = '\x1b';
-    buf[buf.len - 1] = '\\';
-
-    // Do the base64 encoding
-    const encoded = enc.encode(buf[prefix.len..], data);
-    assert(encoded.len == size);
+    var writer: std.Io.Writer = .fixed(buf);
+    try clipboard_type.encodeOSC52Read(&writer, data);
 
     self.queueIo(try termio.Message.writeReq(
         self.alloc,
-        buf,
+        writer.buffered(),
     ), .unlocked);
 }
 

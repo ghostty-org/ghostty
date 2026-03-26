@@ -25,7 +25,6 @@ pub const Runtime = @import("apprt/runtime.zig").Runtime;
 pub const Target = action.Target;
 
 pub const ContentScale = structs.ContentScale;
-pub const Clipboard = structs.Clipboard;
 pub const ClipboardContent = structs.ClipboardContent;
 pub const ClipboardRequest = structs.ClipboardRequest;
 pub const ClipboardRequestType = structs.ClipboardRequestType;

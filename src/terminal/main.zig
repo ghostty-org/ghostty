@@ -1,4 +1,5 @@
 const charsets = @import("charsets.zig");
+const clipboard = @import("clipboard.zig");
 const stream = @import("stream.zig");
 const ansi = @import("ansi.zig");
 const csi = @import("csi.zig");
@@ -6,6 +7,7 @@ const render = @import("render.zig");
 const stream_terminal = @import("stream_terminal.zig");
 const style = @import("style.zig");
 pub const apc = @import("apc.zig");
+pub const Clipboard = clipboard.Clipboard;
 pub const dcs = @import("dcs.zig");
 pub const osc = @import("osc.zig");
 pub const point = @import("point.zig");
