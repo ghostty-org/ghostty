@@ -76,6 +76,13 @@ pub const EraseLine = terminal.EraseLine;
 pub const TabClear = terminal.TabClear;
 pub const Attribute = terminal.Attribute;
 
+// Paste/clipboard APIs
+pub const Clipboard = terminal.Clipboard;
+pub const PasteOptions = terminal.PasteOptions;
+pub const PasteError = terminal.PasteError;
+pub const encodePaste = terminal.encodePaste;
+pub const isPasteSafe = terminal.isPasteSafe;
+
 /// Terminal-specific input encoding is also part of libghostty-vt.
 pub const input = struct {
     // We have to be careful to only import targeted files within
