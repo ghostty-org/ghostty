@@ -472,6 +472,8 @@ extension Ghostty {
 
         // MARK: Actions (macOS)
 
+        /// libghostty 在 AppKit 主线程上派发动作；MonoGhostty 嵌入终端依赖 MainActor 以访问 `SplitTreeProviderRegistry`。
+        @MainActor
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
             // Make sure it a target we understand so all our action handlers can assert
             switch target.tag {
@@ -1153,6 +1155,7 @@ extension Ghostty {
                 return true
         }
 
+        @MainActor
         private static func gotoSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1165,22 +1168,30 @@ extension Ghostty {
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                    guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                    let tree: SplitTree<Ghostty.SurfaceView>?
+                    if let controller = surfaceView.window?.windowController as? BaseTerminalController {
+                        tree = controller.surfaceTree
+                    } else if let provider = SplitTreeProviderRegistry.shared.provider(for: surfaceView) {
+                        tree = provider.surfaceTree
+                    } else {
+                        return false
+                    }
 
                     // If the window has no splits, the action is not performable
-                    guard controller.surfaceTree.isSplit else { return false }
+                    guard let tree, tree.isSplit else { return false }
 
                     // Convert the C API direction to our Swift type
                     guard let splitDirection = SplitFocusDirection.from(direction: direction) else { return false }
 
                     // Find the current node in the tree
-                    guard let targetNode = controller.surfaceTree.root?.node(view: surfaceView) else { return false }
+                    guard let targetNode = tree.root?.node(view: surfaceView) else { return false }
 
                     // Check if a split actually exists in the target direction before
                     // returning true. This ensures performable keybinds only consume
                     // the key event when we actually perform navigation.
                     let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
-                    guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
+                    guard tree.focusTarget(for: focusDirection, from: targetNode) != nil else {
                         return false
                     }
 
@@ -1201,6 +1212,7 @@ extension Ghostty {
                 }
         }
 
+        @MainActor
         private static func gotoWindow(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1211,7 +1223,9 @@ extension Ghostty {
             // treats each native tab group as a single "window" for navigation
             // purposes, since goto_tab handles per-tab navigation.
             let candidates: [NSWindow] = NSApplication.shared.windows.filter { window in
-                guard window.windowController is BaseTerminalController else { return false }
+                let isGhosttyTerminalWindow = window.windowController is BaseTerminalController
+                    || SplitTreeProviderRegistry.shared.windowHostsEmbeddedTerminal(window)
+                guard isGhosttyTerminalWindow else { return false }
                 guard window.isVisible, !window.isMiniaturized else { return false }
                 // For native tabs, only include the selected tab in each group
                 if let group = window.tabGroup, group.selectedWindow !== window {
@@ -1250,6 +1264,10 @@ extension Ghostty {
                     if let controller = candidate.windowController as? BaseTerminalController,
                        let surface = controller.focusedSurface {
                         Ghostty.moveFocus(to: surface)
+                    } else if SplitTreeProviderRegistry.shared.windowHostsEmbeddedTerminal(candidate),
+                              let provider = SplitTreeProviderRegistry.shared.activeEmbeddedProvider,
+                              let surface = provider.focusedSurface {
+                        Ghostty.moveFocus(to: surface)
                     }
                     return true
                 }
@@ -1259,6 +1277,7 @@ extension Ghostty {
             return false
         }
 
+        @MainActor
         private static func resizeSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1271,10 +1290,18 @@ extension Ghostty {
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                    guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                    let tree: SplitTree<Ghostty.SurfaceView>?
+                    if let controller = surfaceView.window?.windowController as? BaseTerminalController {
+                        tree = controller.surfaceTree
+                    } else if let provider = SplitTreeProviderRegistry.shared.provider(for: surfaceView) {
+                        tree = provider.surfaceTree
+                    } else {
+                        return false
+                    }
 
                     // If the window has no splits, the action is not performable
-                    guard controller.surfaceTree.isSplit else { return false }
+                    guard let tree, tree.isSplit else { return false }
 
                     guard let resizeDirection = SplitResizeDirection.from(direction: resize.direction) else { return false }
                     NotificationCenter.default.post(
@@ -1314,6 +1341,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleSplitZoom(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1325,10 +1353,18 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                let tree: SplitTree<Ghostty.SurfaceView>?
+                if let controller = surfaceView.window?.windowController as? BaseTerminalController {
+                    tree = controller.surfaceTree
+                } else if let provider = SplitTreeProviderRegistry.shared.provider(for: surfaceView) {
+                    tree = provider.surfaceTree
+                } else {
+                    return false
+                }
 
                 // If the window has no splits, the action is not performable
-                guard controller.surfaceTree.isSplit else { return false }
+                guard let tree, tree.isSplit else { return false }
 
                 NotificationCenter.default.post(
                     name: Notification.didToggleSplitZoom,
@@ -1522,6 +1558,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleBackgroundOpacity(
             _ app: ghostty_app_t,
             target: ghostty_target_s
@@ -1533,10 +1570,13 @@ extension Ghostty {
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface,
-                    let surfaceView = self.surfaceView(from: surface),
-                    let controller = surfaceView.window?.windowController as? BaseTerminalController else { return }
+                    let surfaceView = self.surfaceView(from: surface) else { return }
 
-                controller.toggleBackgroundOpacity()
+                if let controller = surfaceView.window?.windowController as? BaseTerminalController {
+                    controller.toggleBackgroundOpacity()
+                } else if let provider = SplitTreeProviderRegistry.shared.provider(for: surfaceView) {
+                    provider.toggleBackgroundOpacity()
+                }
 
             default:
                 assertionFailure()
@@ -1605,6 +1645,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setTabTitle(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1620,11 +1661,16 @@ extension Ghostty {
                 let titleOverride = title.isEmpty ? nil : title
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard let window = surfaceView.window,
-                      let controller = window.windowController as? BaseTerminalController
-                else { return false }
-                controller.titleOverride = titleOverride
-                return true
+                guard let window = surfaceView.window else { return false }
+                if let controller = window.windowController as? BaseTerminalController {
+                    controller.titleOverride = titleOverride
+                    return true
+                }
+                if let provider = SplitTreeProviderRegistry.shared.provider(for: surfaceView) {
+                    provider.titleOverride = titleOverride
+                    return true
+                }
+                return false
 
             default:
                 assertionFailure()
@@ -1651,6 +1697,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func promptTitle(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1677,20 +1724,30 @@ extension Ghostty {
             case .tab:
                 switch target.tag {
                 case GHOSTTY_TARGET_APP:
-                    guard let window = NSApp.mainWindow ?? NSApp.keyWindow,
-                          let controller = window.windowController as? BaseTerminalController
-                    else { return false }
-                    controller.promptTabTitle()
-                    return true
+                    if let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                       let controller = window.windowController as? BaseTerminalController {
+                        controller.promptTabTitle()
+                        return true
+                    }
+                    if let provider = SplitTreeProviderRegistry.shared.providerForKeyWindow() {
+                        provider.promptTabTitle()
+                        return true
+                    }
+                    return false
 
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                    guard let window = surfaceView.window,
-                          let controller = window.windowController as? BaseTerminalController
-                    else { return false }
-                    controller.promptTabTitle()
-                    return true
+                    if let window = surfaceView.window,
+                       let controller = window.windowController as? BaseTerminalController {
+                        controller.promptTabTitle()
+                        return true
+                    }
+                    if let provider = SplitTreeProviderRegistry.shared.provider(for: surfaceView) {
+                        provider.promptTabTitle()
+                        return true
+                    }
+                    return false
 
                 default:
                     assertionFailure()
