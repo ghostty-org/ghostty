@@ -129,3 +129,32 @@ pub const CellGrid = struct {
         return &self.cells[row * self.cols + col];
     }
 };
+
+test "CellInstance size matches HLSL input layout" {
+    // bg_color(16) + fg_color(16) + glyph_index(4) = 36 bytes.
+    try @import("std").testing.expectEqual(@sizeOf(CellInstance), 36);
+}
+
+test "setCell bounds checking" {
+    // Can't allocate a real CellGrid without a D3D11 device, but
+    // we can verify the bounds logic with a manually constructed grid.
+    var cells = [_]CellInstance{.{ .bg_color = .{ 0, 0, 0, 1 }, .fg_color = .{ 1, 1, 1, 1 }, .glyph_index = 0 }} ** 4;
+    var grid = CellGrid{
+        .cols = 2,
+        .rows = 2,
+        .cells = &cells,
+        .instance_buffer = undefined,
+        .allocator = undefined,
+    };
+
+    // In-bounds: should set the cell.
+    grid.setCell(0, 0, .{ .bg_color = .{ 1, 0, 0, 1 }, .fg_color = .{ 0, 0, 0, 1 }, .glyph_index = 42 });
+    try @import("std").testing.expectEqual(grid.cells[0].glyph_index, 42);
+
+    // Out-of-bounds: should be a no-op.
+    grid.setCell(5, 5, .{ .bg_color = .{ 1, 0, 0, 1 }, .fg_color = .{ 0, 0, 0, 1 }, .glyph_index = 99 });
+
+    // getCell out-of-bounds returns null.
+    try @import("std").testing.expect(grid.getCell(5, 5) == null);
+    try @import("std").testing.expect(grid.getCell(0, 0) != null);
+}

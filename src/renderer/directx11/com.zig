@@ -59,3 +59,7 @@ pub const IUnknown = extern struct {
 
 /// Stub vtable entry for COM methods not yet wrapped.
 pub const Reserved = *const fn () callconv(.winapi) void;
+
+test {
+    _ = @import("com_test.zig");
+}
