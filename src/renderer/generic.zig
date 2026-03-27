@@ -1388,13 +1388,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.scrollbar_dirty = true;
                 }
 
+                // Opacity from 0 to 1.
+                const opacity = if (self.force_opaque_background) 1 else self.config.background_opacity;
+
                 // Update our background color
                 self.uniforms.bg_color = .{
                     self.terminal_state.colors.background.r,
                     self.terminal_state.colors.background.g,
                     self.terminal_state.colors.background.b,
-                    self.force_opaque_background or
-                        @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                    @intFromFloat(@round(opacity * 255.0)),
                 };
 
                 // If we're on macOS and have glass styles, we remove
