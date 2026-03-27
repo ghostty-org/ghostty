@@ -678,12 +678,26 @@ pub const Window = extern struct {
             );
         }
 
+        // Update all surfaces to reflect forced opaqueness value.
+        const numPages = priv.tab_view.getNPages();
+        for (0..@intCast(numPages)) |i| {
+            const pageChild = priv.tab_view
+                .getNthPage(@intCast(i))
+                .getChild();
+            const tab = gobject.ext.cast(Tab, pageChild) orelse continue;
+            const surfaceTree = tab.getSurfaceTree() orelse continue;
+            var it = surfaceTree.iterator();
+            while (it.next()) |entry| {
+                const surface = entry.view.core() orelse continue;
+                surface.setForceOpaqueBackground(priv.force_opaque_background);
+            }
+        }
+
         // Remainder uses the config
         const config = if (priv.config) |v| v.get() else return;
 
-        // TODO UPDATE
-        // Only add a solid background if we're opaque. This keeps GTK's
-        // understanding of the window in line with what's being rendered
+        // Only add the solid background class if we're opaque. This keeps
+        // GTK's understanding of the window in line with what's being rendered
         self.toggleCssClass("background", self.private().force_opaque_background or
             config.@"background-opacity" >= 1);
 
@@ -916,10 +930,6 @@ pub const Window = extern struct {
         const priv: *Private = self.private();
         priv.force_opaque_background = !priv.force_opaque_background;
         self.syncAppearance();
-    }
-
-    fn renderSurfaceOpaque(surface: *CoreSurface, force: bool) void {
-        surface.renderer_thread.mailbox.push(.{ .force_opaque = force }, .{ .forever = {} });
     }
 
     /// Set the window decoration override for this window. If this is null,
