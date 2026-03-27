@@ -29,9 +29,7 @@ pub const Device = struct {
         RenderTargetViewFailed,
     };
 
-    pub fn init(panel_native_ptr: *anyopaque, width: u32, height: u32, scale: f32) InitError!Device {
-        _ = scale;
-
+    pub fn init(panel_native_ptr: *anyopaque, width: u32, height: u32) InitError!Device {
         log.info("init called: panel=0x{x}, size={}x{}", .{ @intFromPtr(panel_native_ptr), width, height });
 
         // Cast the opaque pointer to ISwapChainPanelNative.

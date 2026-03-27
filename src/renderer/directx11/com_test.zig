@@ -44,8 +44,8 @@ test "D3D11_VIEWPORT size" {
 }
 
 test "D3D11_BUFFER_DESC size" {
-    // D3D11_BUFFER_DESC is 20 bytes (5 u32 fields).
-    try std.testing.expectEqual(@sizeOf(d3d11.D3D11_BUFFER_DESC), 20);
+    // D3D11_BUFFER_DESC is 24 bytes (6 u32 fields).
+    try std.testing.expectEqual(@sizeOf(d3d11.D3D11_BUFFER_DESC), 24);
 }
 
 test "D3D11_INPUT_ELEMENT_DESC size" {
@@ -102,6 +102,7 @@ test "ISwapChainPanelNative IID" {
     try std.testing.expectEqual(iid.data1, 0xf92f19d2);
     try std.testing.expectEqual(iid.data2, 0x3ade);
     try std.testing.expectEqual(iid.data3, 0x45a6);
+    try std.testing.expectEqualSlices(u8, &iid.data4, &[_]u8{ 0xa2, 0x0c, 0xf6, 0xf1, 0xea, 0x90, 0x55, 0x4b });
 }
 
 test "ID3D11Texture2D IID" {

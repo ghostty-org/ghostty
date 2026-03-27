@@ -46,8 +46,12 @@ pub const CellGrid = struct {
         }
 
         // Create dynamic GPU instance buffer.
+        const byte_width = std.math.cast(u32, count * @sizeOf(CellInstance)) orelse {
+            allocator.free(cells);
+            return InitError.BufferCreationFailed;
+        };
         const buf_desc = d3d11.D3D11_BUFFER_DESC{
-            .ByteWidth = @as(u32, @intCast(count * @sizeOf(CellInstance))),
+            .ByteWidth = byte_width,
             .Usage = .DYNAMIC,
             .BindFlags = d3d11.D3D11_BIND_VERTEX_BUFFER,
             .CPUAccessFlags = d3d11.D3D11_CPU_ACCESS_WRITE,

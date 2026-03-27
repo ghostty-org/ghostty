@@ -138,7 +138,7 @@ pub const ID3D11DeviceChild = extern struct {
 };
 
 // =============================================================================
-// ID3D11Resource — 8 methods total (7 ID3D11DeviceChild + 1 own)
+// ID3D11Resource — 10 methods total (7 ID3D11DeviceChild + 3 own)
 // =============================================================================
 pub const ID3D11Resource = extern struct {
     vtable: *const VTable,

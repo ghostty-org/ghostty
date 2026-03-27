@@ -51,15 +51,18 @@ pub const Pipeline = struct {
             log.err("CreateVertexShader failed: hr=0x{x}", .{@as(u32, @bitCast(hr))});
             return InitError.VertexShaderFailed;
         }
+        const vs_obj = vs.?;
+        errdefer _ = vs_obj.Release();
 
         // Create pixel shader.
         var ps: ?*d3d11.ID3D11PixelShader = null;
         hr = device.CreatePixelShader(ps_bytecode.ptr, ps_bytecode.len, null, &ps);
         if (com.FAILED(hr) or ps == null) {
             log.err("CreatePixelShader failed: hr=0x{x}", .{@as(u32, @bitCast(hr))});
-            _ = vs.?.vtable.Release(vs.?);
             return InitError.PixelShaderFailed;
         }
+        const ps_obj = ps.?;
+        errdefer _ = ps_obj.Release();
 
         // Create input layout matching CellInstance (all per-instance data).
         const input_elements = [_]d3d11.D3D11_INPUT_ELEMENT_DESC{
@@ -102,10 +105,10 @@ pub const Pipeline = struct {
         );
         if (com.FAILED(hr) or layout == null) {
             log.err("CreateInputLayout failed: hr=0x{x}", .{@as(u32, @bitCast(hr))});
-            _ = ps.?.vtable.Release(ps.?);
-            _ = vs.?.vtable.Release(vs.?);
             return InitError.InputLayoutFailed;
         }
+        const layout_obj = layout.?;
+        errdefer _ = layout_obj.Release();
 
         // Create constant buffer for per-frame uniforms.
         const cb_desc = d3d11.D3D11_BUFFER_DESC{
@@ -121,16 +124,13 @@ pub const Pipeline = struct {
         hr = device.CreateBuffer(&cb_desc, null, &cb);
         if (com.FAILED(hr) or cb == null) {
             log.err("CreateBuffer (constant) failed: hr=0x{x}", .{@as(u32, @bitCast(hr))});
-            _ = layout.?.vtable.Release(layout.?);
-            _ = ps.?.vtable.Release(ps.?);
-            _ = vs.?.vtable.Release(vs.?);
             return InitError.ConstantBufferFailed;
         }
 
         return Pipeline{
-            .vertex_shader = vs.?,
-            .pixel_shader = ps.?,
-            .input_layout = layout.?,
+            .vertex_shader = vs_obj,
+            .pixel_shader = ps_obj,
+            .input_layout = layout_obj,
             .constant_buffer = cb.?,
         };
     }

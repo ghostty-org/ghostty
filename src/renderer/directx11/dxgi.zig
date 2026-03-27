@@ -363,7 +363,7 @@ pub const IDXGIAdapter = extern struct {
 };
 
 // =============================================================================
-// IDXGIFactory — 11 methods total (7 IDXGIObject + 4 own)
+// IDXGIFactory — 12 methods total (7 IDXGIObject + 5 own)
 // =============================================================================
 pub const IDXGIFactory = extern struct {
     vtable: *const VTable,
@@ -378,16 +378,17 @@ pub const IDXGIFactory = extern struct {
         SetPrivateDataInterface: Reserved,
         GetPrivateData: Reserved,
         GetParent: Reserved,
-        // IDXGIFactory (slots 7-10)
+        // IDXGIFactory (slots 7-11)
         EnumAdapters: Reserved,
         MakeWindowAssociation: Reserved,
         GetWindowAssociation: Reserved,
         CreateSwapChain: Reserved,
+        CreateSoftwareAdapter: Reserved,
     };
 };
 
 // =============================================================================
-// IDXGIFactory1 — 13 methods total (11 IDXGIFactory + 2 own)
+// IDXGIFactory1 — 14 methods total (12 IDXGIFactory + 2 own)
 // =============================================================================
 pub const IDXGIFactory1 = extern struct {
     vtable: *const VTable,
@@ -402,12 +403,13 @@ pub const IDXGIFactory1 = extern struct {
         SetPrivateDataInterface: Reserved,
         GetPrivateData: Reserved,
         GetParent: Reserved,
-        // IDXGIFactory (slots 7-10)
+        // IDXGIFactory (slots 7-11)
         EnumAdapters: Reserved,
         MakeWindowAssociation: Reserved,
         GetWindowAssociation: Reserved,
         CreateSwapChain: Reserved,
-        // IDXGIFactory1 (slots 11-12)
+        CreateSoftwareAdapter: Reserved,
+        // IDXGIFactory1 (slots 12-13)
         EnumAdapters1: Reserved,
         IsCurrent: Reserved,
     };
@@ -442,7 +444,7 @@ pub const IDXGIFactory2 = extern struct {
         MakeWindowAssociation: Reserved,
         GetWindowAssociation: Reserved,
         CreateSwapChain: Reserved,
-        CreateSoftwareAdapter: Reserved, // <-- was missing, shifted all slots by 1!
+        CreateSoftwareAdapter: Reserved,
         // IDXGIFactory1 (slots 12-13)
         EnumAdapters1: Reserved,
         IsCurrent: Reserved,
@@ -489,10 +491,10 @@ pub const ISwapChainPanelNative = extern struct {
     vtable: *const VTable,
 
     pub const IID = GUID{
-        .data1 = 0x63aad0b8,
-        .data2 = 0x7c24,
-        .data3 = 0x40ff,
-        .data4 = .{ 0x85, 0xa8, 0x64, 0x0d, 0x94, 0x4c, 0xc3, 0x25 },
+        .data1 = 0xf92f19d2,
+        .data2 = 0x3ade,
+        .data3 = 0x45a6,
+        .data4 = .{ 0xa2, 0x0c, 0xf6, 0xf1, 0xea, 0x90, 0x55, 0x4b },
     };
 
     pub const VTable = extern struct {
