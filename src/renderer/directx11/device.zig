@@ -65,7 +65,7 @@ pub const Device = struct {
 
         // QueryInterface device -> IDXGIDevice
         var dxgi_device_opt: ?*anyopaque = null;
-        hr = dev.vtable.QueryInterface(dev, &dxgi.IDXGIDevice.IID, &dxgi_device_opt);
+        hr = dev.QueryInterface(&dxgi.IDXGIDevice.IID, &dxgi_device_opt);
         if (com.FAILED(hr) or dxgi_device_opt == null) {
             log.err("QI for IDXGIDevice failed: hr=0x{x}", .{@as(u32, @bitCast(hr))});
             return InitError.QueryInterfaceFailed;

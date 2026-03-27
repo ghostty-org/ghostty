@@ -583,6 +583,10 @@ pub const ID3D11Device = extern struct {
         return self.vtable.CreatePixelShader(self, shader_bytecode, bytecode_length, class_linkage, pixel_shader);
     }
 
+    pub inline fn QueryInterface(self: *ID3D11Device, riid: *const GUID, ppvObject: *?*anyopaque) HRESULT {
+        return self.vtable.QueryInterface(self, riid, ppvObject);
+    }
+
     pub inline fn Release(self: *ID3D11Device) u32 {
         return self.vtable.Release(self);
     }
