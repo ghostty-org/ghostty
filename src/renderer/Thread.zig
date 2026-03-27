@@ -476,6 +476,10 @@ fn drainMailbox(self: *Thread) !void {
                 self.flags.has_inspector = v;
             },
 
+            .force_opaque_background => |v| {
+                self.renderer.force_opaque_background = v;
+            },
+
             .macos_display_id => |v| {
                 if (@hasDecl(rendererpkg.Renderer, "setMacOSDisplayID")) {
                     try self.renderer.setMacOSDisplayID(v);

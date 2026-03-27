@@ -64,6 +64,9 @@ pub const Message = union(enum) {
     /// Activate or deactivate the inspector.
     inspector: bool,
 
+    /// Force the background to be fully opaque, overriding configuration.
+    force_opaque_background: bool,
+
     /// The macOS display ID has changed for the window.
     macos_display_id: u32,
 

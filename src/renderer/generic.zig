@@ -216,7 +216,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Whether or not we have custom shaders.
         has_custom_shaders: bool = false,
 
-        /// TODO
+        /// Force the background to be opaque, regardless of the value in config.
         force_opaque_background: bool = false,
 
         /// Our shader pipelines.
