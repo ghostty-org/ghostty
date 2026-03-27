@@ -2413,6 +2413,19 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
     self.queueRender() catch unreachable;
 }
 
+/// Force the background to render as fully opaque, overriding the configured
+/// background-opacity. Pass false to restore normal opacity.
+pub fn setForceOpaqueBackground(self: *Surface, force: bool) void {
+    _ = self.renderer_thread.mailbox.push(
+        .{ .force_opaque_background = force },
+        .{ .forever = {} },
+    );
+    self.queueRender() catch |err| {
+        // Not a big deal if this fails, there will just be a noticeable delay.
+        log.warn("failed to notify renderer after setting force opaque background err={}", .{err});
+    };
+}
+
 /// This queues a render operation with the renderer thread. The render
 /// isn't guaranteed to happen immediately but it will happen as soon as
 /// practical.
