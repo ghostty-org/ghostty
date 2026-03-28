@@ -31,6 +31,7 @@ pub const windows = @import("windows.zig");
 pub const macos = @import("macos.zig");
 pub const shell = @import("shell.zig");
 pub const uri = @import("uri.zig");
+pub const power = @import("power.zig");
 
 // Functions and types
 pub const CFReleaseThread = @import("cf_release_thread.zig");
@@ -74,6 +75,7 @@ test {
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;
+        _ = power;
     } else if (comptime builtin.os.tag.isDarwin()) {
         _ = mach;
         _ = macos;
