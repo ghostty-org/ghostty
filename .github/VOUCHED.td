@@ -140,6 +140,7 @@ mischief
 mitchellh
 miupa
 molechowski
+mrconnorkenway
 mrmage
 mtak
 natesmyth
