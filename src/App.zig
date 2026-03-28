@@ -15,6 +15,7 @@ const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
+const internal_os = @import("os/main.zig");
 
 const log = std.log.scoped(.app);
 
@@ -58,6 +59,12 @@ font_grid_set: font.SharedGridSet,
 // will kill Ghostty.
 last_notification_time: ?std.time.Instant = null,
 last_notification_digest: u64 = 0,
+
+/// Timestamp of last power state check for polling.
+last_power_check: ?std.time.Instant = null,
+
+/// Last observed power state to detect transitions.
+last_power_state: ?configpkg.ConditionalState.Power = null,
 
 /// The conditional state of the configuration. See the equivalent field
 /// in the Surface struct for more information. In this case, this applies
@@ -129,6 +136,57 @@ pub fn destroy(self: *App) void {
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
     // Drain our mailbox
     try self.drainMailbox(rt_app);
+    try self.pollPowerState(rt_app);
+}
+
+fn pollPowerState(self: *App, rt_app: *apprt.App) !void {
+    const config = rt_app.config;
+    const power_mode = config.@"power-mode";
+
+    switch (power_mode) {
+        .off => return,
+        .performance => {
+            if (self.config_conditional_state.power != .ac) {
+                self.config_conditional_state.power = .ac;
+                _ = try rt_app.performAction(.app, .reload_config, .{ .soft = true });
+            }
+            return;
+        },
+        .efficiency => {
+            if (self.config_conditional_state.power != .critical) {
+                self.config_conditional_state.power = .critical;
+                _ = try rt_app.performAction(.app, .reload_config, .{ .soft = true });
+            }
+            return;
+        },
+        .auto => {},
+    }
+
+    // Check if enough time has elapsed since last poll
+    const now = std.time.Instant.now() catch return;
+    if (self.last_power_check) |last| {
+        const elapsed_ns = now.since(last);
+        const interval_ns: u64 = @as(u64, config.@"power-poll-interval") * std.time.ns_per_s;
+        if (elapsed_ns < interval_ns) return;
+    }
+    self.last_power_check = now;
+
+    // Poll power state
+    const info = internal_os.power.getPowerInfo(config.@"power-critical-threshold");
+    const new_state: configpkg.ConditionalState.Power = switch (info.state) {
+        .ac => .ac,
+        .battery => .battery,
+        .critical => .critical,
+    };
+
+    // Only trigger reload if state actually changed
+    if (self.last_power_state) |last_state| {
+        if (last_state == new_state) return;
+    }
+    self.last_power_state = new_state;
+    self.config_conditional_state.power = new_state;
+
+    _ = try rt_app.performAction(.app, .reload_config, .{ .soft = true });
 }
 
 /// Update the configuration associated with the app. This can only be
