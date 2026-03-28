@@ -2012,6 +2012,32 @@ keybind: Keybinds = .{},
 /// This setting is only supported currently on macOS.
 @"window-vsync": bool = true,
 
+/// Controls whether Ghostty adapts behavior based on power state.
+///
+/// `auto`: Detect power state via OS APIs and apply conditional defaults
+/// for reduced power consumption on battery. `performance`: Always use
+/// full performance settings regardless of power state. `efficiency`:
+/// Always use power-saving settings regardless of power state. `off`:
+/// Disable power detection entirely. No polling occurs. This is the
+/// default because desktop machines without batteries should not pay
+/// the cost of periodic polling.
+@"power-mode": PowerMode = .off,
+
+/// Battery percentage at or below which the power state transitions
+/// to "critical". Only relevant when power-mode is "auto".
+/// Set to 0 to disable the critical state entirely.
+@"power-critical-threshold": u8 = 20,
+
+/// How often to poll for power state changes, in seconds.
+/// Only relevant when power-mode is "auto".
+@"power-poll-interval": u16 = 30,
+
+/// Draw interval in milliseconds for animation frames.
+/// Lower values produce smoother animations but consume more power.
+/// Default: 8 (approximately 120 FPS).
+/// Common values: 16 (60 FPS), 32 (30 FPS).
+@"draw-interval": u16 = 8,
+
 /// If true, new windows will inherit the working directory of the
 /// previously focused window. If no window was previously focused, the default
 /// working directory will be used (the `working-directory` option).
@@ -4685,6 +4711,11 @@ pub fn finalize(self: *Config) !void {
 
     self.@"faint-opacity" = std.math.clamp(self.@"faint-opacity", 0.0, 1.0);
 
+    // Clamp power-related config values
+    self.@"power-critical-threshold" = @min(self.@"power-critical-threshold", 99);
+    self.@"power-poll-interval" = @max(5, @min(self.@"power-poll-interval", 300));
+    self.@"draw-interval" = @max(2, @min(self.@"draw-interval", 100));
+
     // Finalize key remapping set for efficient lookups
     self.@"key-remap".finalize();
 }
@@ -5223,6 +5254,17 @@ pub const CustomShaderAnimation = enum(c_int) {
     false,
     true,
     always,
+};
+
+pub const PowerMode = enum {
+    /// Detect power state and apply conditional defaults.
+    auto,
+    /// Always use full performance settings (force power=ac).
+    performance,
+    /// Always use power-saving settings (force power=critical).
+    efficiency,
+    /// Disable power detection entirely.
+    off,
 };
 
 /// Valid values for macos-non-native-fullscreen
