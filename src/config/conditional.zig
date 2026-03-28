@@ -13,7 +13,11 @@ pub const State = struct {
     /// The target OS of the current build.
     os: std.Target.Os.Tag = builtin.target.os.tag,
 
+    /// The power state of the device.
+    power: Power = .ac,
+
     pub const Theme = enum { light, dark };
+    pub const Power = enum { ac, battery, critical };
 
     /// Tests the conditional against the state and returns true if it matches.
     pub fn match(self: State, cond: Conditional) bool {
@@ -90,5 +94,52 @@ test "conditional enum match" {
         .key = .theme,
         .op = .ne,
         .value = "light",
+    }));
+}
+
+test "conditional power match" {
+    const testing = std.testing;
+    const state: State = .{ .power = .battery };
+    try testing.expect(state.match(.{
+        .key = .power,
+        .op = .eq,
+        .value = "battery",
+    }));
+    try testing.expect(!state.match(.{
+        .key = .power,
+        .op = .eq,
+        .value = "ac",
+    }));
+    try testing.expect(state.match(.{
+        .key = .power,
+        .op = .ne,
+        .value = "critical",
+    }));
+}
+
+test "conditional power and theme independence" {
+    const testing = std.testing;
+    const state: State = .{ .theme = .dark, .power = .critical };
+    try testing.expect(state.match(.{
+        .key = .theme,
+        .op = .eq,
+        .value = "dark",
+    }));
+    try testing.expect(state.match(.{
+        .key = .power,
+        .op = .eq,
+        .value = "critical",
+    }));
+
+    const state2: State = .{ .theme = .light, .power = .critical };
+    try testing.expect(state2.match(.{
+        .key = .theme,
+        .op = .eq,
+        .value = "light",
+    }));
+    try testing.expect(state2.match(.{
+        .key = .power,
+        .op = .eq,
+        .value = "critical",
     }));
 }
