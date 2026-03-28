@@ -16,7 +16,6 @@ const App = @import("../App.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
-const DRAW_INTERVAL = 8; // 120 FPS
 const CURSOR_BLINK_INTERVAL = 600;
 
 /// Whether calls to `drawFrame` must be done from the app thread.
@@ -111,10 +110,12 @@ flags: packed struct {
 
 pub const DerivedConfig = struct {
     custom_shader_animation: configpkg.CustomShaderAnimation,
+    draw_interval_ms: u16,
 
     pub fn init(config: *const configpkg.Config) DerivedConfig {
         return .{
             .custom_shader_animation = config.@"custom-shader-animation",
+            .draw_interval_ms = config.@"draw-interval",
         };
     }
 };
@@ -326,7 +327,7 @@ fn syncDrawTimer(self: *Thread) void {
     self.draw_h.run(
         &self.loop,
         &self.draw_c,
-        DRAW_INTERVAL,
+        self.config.draw_interval_ms,
         Thread,
         self,
         drawCallback,
@@ -587,7 +588,7 @@ fn drawCallback(
 
     // Only continue if we're still active
     if (t.draw_active) {
-        t.draw_h.run(&t.loop, &t.draw_c, DRAW_INTERVAL, Thread, t, drawCallback);
+        t.draw_h.run(&t.loop, &t.draw_c, t.config.draw_interval_ms, Thread, t, drawCallback);
     }
 
     return .disarm;
