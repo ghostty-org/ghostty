@@ -4716,6 +4716,39 @@ pub fn finalize(self: *Config) !void {
     self.@"power-poll-interval" = @max(5, @min(self.@"power-poll-interval", 300));
     self.@"draw-interval" = @max(2, @min(self.@"draw-interval", 100));
 
+    // Inject auto-mode power defaults as conditional replay steps.
+    // Prepended so user-defined conditional blocks override them.
+    if (self.@"power-mode" == .auto) {
+        const arena_alloc = self._arena.?.allocator();
+
+        // Create condition slices for battery and critical states
+        const battery_conds: []const Conditional = try arena_alloc.dupe(
+            Conditional,
+            &.{.{ .key = .power, .op = .eq, .value = "battery" }},
+        );
+        const critical_conds: []const Conditional = try arena_alloc.dupe(
+            Conditional,
+            &.{.{ .key = .power, .op = .eq, .value = "critical" }},
+        );
+
+        // Build the default steps to prepend
+        const auto_steps: []const Replay.Step = &.{
+            .{ .conditional_arg = .{ .conditions = battery_conds, .arg = "draw-interval=16" } },
+            .{ .conditional_arg = .{ .conditions = battery_conds, .arg = "custom-shader-animation=false" } },
+            .{ .conditional_arg = .{ .conditions = critical_conds, .arg = "draw-interval=32" } },
+            .{ .conditional_arg = .{ .conditions = critical_conds, .arg = "custom-shader-animation=false" } },
+            .{ .conditional_arg = .{ .conditions = critical_conds, .arg = "cursor-style-blink=false" } },
+            .{ .conditional_arg = .{ .conditions = critical_conds, .arg = "background-blur=false" } },
+        };
+
+        // Prepend: insert auto_steps before existing replay steps
+        try self._replay_steps.insertSlice(arena_alloc, 0, auto_steps);
+
+        // Mark power as a used conditional key so changeConditionalState
+        // knows to re-evaluate when power state changes.
+        self._conditional_set.insert(.power);
+    }
+
     // Finalize key remapping set for efficient lookups
     self.@"key-remap".finalize();
 }
