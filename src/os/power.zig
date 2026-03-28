@@ -11,12 +11,72 @@ pub const PowerInfo = struct {
 };
 
 /// Get the current power info with a given critical threshold.
-/// On non-Linux platforms, always returns .ac with null battery.
+/// On non-Linux/macOS platforms, always returns .ac with null battery.
 pub fn getPowerInfo(critical_threshold: u8) PowerInfo {
-    if (comptime builtin.os.tag != .linux) {
-        return .{ .state = .ac, .battery_percent = null };
+    if (comptime builtin.os.tag == .linux) {
+        return getPowerInfoFromPath("/sys/class/power_supply", critical_threshold);
+    } else if (comptime builtin.os.tag == .macos) {
+        return getMacOSPowerInfo(critical_threshold);
     }
-    return getPowerInfoFromPath("/sys/class/power_supply", critical_threshold);
+    return .{ .state = .ac, .battery_percent = null };
+}
+
+fn getMacOSPowerInfo(critical_threshold: u8) PowerInfo {
+    if (comptime builtin.os.tag != .macos) unreachable;
+
+    const c = @cImport({
+        @cInclude("IOKit/ps/IOPowerSources.h");
+        @cInclude("IOKit/ps/IOPSKeys.h");
+    });
+
+    const fallback: PowerInfo = .{ .state = .ac, .battery_percent = null };
+
+    const info = c.IOPSCopyPowerSourcesInfo() orelse return fallback;
+    defer c.CFRelease(info);
+
+    const list = c.IOPSCopyPowerSourcesList(info) orelse return fallback;
+    defer c.CFRelease(list);
+
+    const count = c.CFArrayGetCount(list);
+    if (count == 0) return fallback;
+
+    // Check providing power source type
+    const source_type = c.IOPSGetProvidingPowerSourceType(info);
+    const is_battery = if (source_type) |st|
+        c.CFStringCompare(st, c.CFSTR("Battery Power"), 0) == c.kCFCompareEqualTo
+    else
+        false;
+
+    // Get capacity from first power source
+    var battery_percent: ?u8 = null;
+    {
+        const ps = c.CFArrayGetValueAtIndex(list, 0);
+        const desc = c.IOPSGetPowerSourceDescription(info, ps); // "Get" — do NOT CFRelease
+        if (desc) |d| {
+            const cap_key = c.CFSTR(c.kIOPSCurrentCapacityKey);
+            if (c.CFDictionaryGetValue(d, cap_key)) |cap_val| {
+                var cap: c_int = 0;
+                if (c.CFNumberGetValue(@ptrCast(cap_val), c.kCFNumberIntType, &cap)) {
+                    if (cap >= 0 and cap <= 100) {
+                        battery_percent = @intCast(@as(u32, @bitCast(cap)));
+                    }
+                }
+            }
+        }
+    }
+
+    if (!is_battery) {
+        return .{ .state = .ac, .battery_percent = battery_percent };
+    }
+
+    // On battery — check critical threshold
+    if (battery_percent) |cap| {
+        if (critical_threshold > 0 and cap <= critical_threshold) {
+            return .{ .state = .critical, .battery_percent = cap };
+        }
+    }
+
+    return .{ .state = .battery, .battery_percent = battery_percent };
 }
 
 /// Get power info by reading from a sysfs-like directory structure.
