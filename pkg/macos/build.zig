@@ -37,6 +37,8 @@ pub fn build(b: *std.Build) !void {
     if (target.result.os.tag == .macos) {
         lib.linkFramework("Carbon");
         module.linkFramework("Carbon", .{});
+        lib.linkFramework("IOKit");
+        module.linkFramework("IOKit", .{});
     }
 
     if (target.result.os.tag.isDarwin()) {
