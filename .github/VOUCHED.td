@@ -55,6 +55,7 @@ crayxt
 craziestowl
 curtismoncoq
 d-dudas
+-daedaevibin
 daiimus
 damyanbogoev
 danulqua
