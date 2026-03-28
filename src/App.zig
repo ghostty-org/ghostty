@@ -66,6 +66,10 @@ last_power_check: ?std.time.Instant = null,
 /// Last observed power state to detect transitions.
 last_power_state: ?configpkg.ConditionalState.Power = null,
 
+/// Power-related config cached from the last updateConfig call.
+/// Stored here because the apprt doesn't expose config directly.
+power_config: PowerConfig = .{},
+
 /// The conditional state of the configuration. See the equivalent field
 /// in the Surface struct for more information. In this case, this applies
 /// to the app-level config and as a default for new surfaces.
@@ -75,6 +79,12 @@ config_conditional_state: configpkg.ConditionalState,
 /// never goes true again. This can be used by surfaces to determine
 /// if they are the first surface.
 first: bool = true,
+
+pub const PowerConfig = struct {
+    power_mode: Config.PowerMode = .off,
+    critical_threshold: u8 = 20,
+    poll_interval: u16 = 30,
+};
 
 pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
@@ -140,10 +150,7 @@ pub fn tick(self: *App, rt_app: *apprt.App) !void {
 }
 
 fn pollPowerState(self: *App, rt_app: *apprt.App) !void {
-    const config = rt_app.config;
-    const power_mode = config.@"power-mode";
-
-    switch (power_mode) {
+    switch (self.power_config.power_mode) {
         .off => return,
         .performance => {
             if (self.config_conditional_state.power != .ac) {
@@ -166,13 +173,13 @@ fn pollPowerState(self: *App, rt_app: *apprt.App) !void {
     const now = std.time.Instant.now() catch return;
     if (self.last_power_check) |last| {
         const elapsed_ns = now.since(last);
-        const interval_ns: u64 = @as(u64, config.@"power-poll-interval") * std.time.ns_per_s;
+        const interval_ns: u64 = @as(u64, self.power_config.poll_interval) * std.time.ns_per_s;
         if (elapsed_ns < interval_ns) return;
     }
     self.last_power_check = now;
 
     // Poll power state
-    const info = internal_os.power.getPowerInfo(config.@"power-critical-threshold");
+    const info = internal_os.power.getPowerInfo(self.power_config.critical_threshold);
     const new_state: configpkg.ConditionalState.Power = switch (info.state) {
         .ac => .ac,
         .battery => .battery,
@@ -193,6 +200,13 @@ fn pollPowerState(self: *App, rt_app: *apprt.App) !void {
 /// called from the main thread. The caller owns the config memory. The
 /// memory can be freed immediately when this returns.
 pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void {
+    // Cache power-related config for use in tick() polling.
+    self.power_config = .{
+        .power_mode = config.@"power-mode",
+        .critical_threshold = config.@"power-critical-threshold",
+        .poll_interval = config.@"power-poll-interval",
+    };
+
     // Go through and update all of the surface configurations.
     for (self.surfaces.items) |surface| {
         try surface.core().handleMessage(.{ .change_config = config });
