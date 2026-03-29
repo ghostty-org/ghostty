@@ -40,6 +40,7 @@ class AppDelegate: NSObject,
 
     @IBOutlet private var menuUndo: NSMenuItem?
     @IBOutlet private var menuRedo: NSMenuItem?
+    @IBOutlet private var menuCut: NSMenuItem?
     @IBOutlet private var menuCopy: NSMenuItem?
     @IBOutlet private var menuPaste: NSMenuItem?
     @IBOutlet private var menuPasteSelection: NSMenuItem?
@@ -1158,6 +1159,7 @@ extension AppDelegate {
     @MainActor private func saveRestorableMenuItems() {
         [
             menuUndo, menuRedo,
+            menuCut,
             menuCopy, menuPaste, menuSelectAll,
         ]
             .compactMap { $0 }
@@ -1199,6 +1201,7 @@ extension AppDelegate {
 
         syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
         syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
+        syncMenuShortcut(config, action: nil, menuItem: self.menuCut)
         syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
         syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
@@ -1247,7 +1250,7 @@ extension AppDelegate {
         reloadDockMenu()
     }
 
-    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
+    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem: NSMenuItem?) {
         menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
     }
 
@@ -1360,7 +1363,8 @@ extension AppDelegate: NSMenuItemValidation {
                 item.title = "Redo"
             }
             return undoManager.canRedo
-
+        case menuCut?.action:
+            return false
         default:
             return true
         }
