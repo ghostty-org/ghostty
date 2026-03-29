@@ -25,6 +25,7 @@
                 <outlet property="menuCloseWindow" destination="W5w-UZ-crk" id="6ff-BT-ENV"/>
                 <outlet property="menuCommandPalette" destination="et6-de-Mh7" id="53t-cu-dm5"/>
                 <outlet property="menuCopy" destination="Jqf-pv-Zcu" id="bKd-1C-oy9"/>
+                <outlet property="menuCut" destination="H0A-Vb-3cx" id="fby-cu-YhH"/>
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
                 <outlet property="menuEqualizeSplits" destination="3gH-VD-vL9" id="SiZ-ce-FOF"/>
                 <outlet property="menuFind" destination="nwE-0w-30h" id="idg-Nc-apE"/>
@@ -234,6 +235,11 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4O9-zO-zB9"/>
+                            <menuItem title="Cut" keyEquivalent="x" id="H0A-Vb-3cx">
+                                <connections>
+                                    <action selector="cut:" target="-1" id="iOR-ZB-8ZI"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Copy" keyEquivalent="c" id="Jqf-pv-Zcu">
                                 <connections>
                                     <action selector="copy:" target="-1" id="B4F-hg-R4T"/>
