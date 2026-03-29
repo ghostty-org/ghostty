@@ -170,9 +170,9 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         => try prepareContext(null),
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // For embedded (libghostty), the host app must create an
+            // OpenGL context and make it current before creating a surface.
+            try prepareContext(null);
         },
     }
 
@@ -196,7 +196,6 @@ pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
@@ -209,9 +208,24 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // For embedded (libghostty), make the GL context current on
+            // the renderer thread and load GL function pointers.
+            if (comptime builtin.os.tag == .windows) {
+                const platform = surface.platform.windows;
+                if (platform.hglrc != null) {
+                    const win32 = struct {
+                        extern "opengl32" fn wglMakeCurrent(?*anyopaque, ?*anyopaque) callconv(.winapi) i32;
+                        extern "user32" fn GetDC(?*anyopaque) callconv(.winapi) ?*anyopaque;
+                    };
+                    // Get a fresh HDC on this thread (HDC from another thread may be invalid)
+                    const hdc = win32.GetDC(@ptrCast(platform.hwnd));
+                    if (hdc == null) return error.WGLMakeCurrentFailed;
+                    if (win32.wglMakeCurrent(hdc, platform.hglrc) == 0) return error.WGLMakeCurrentFailed;
+                    try prepareContext(null);
+                } else {
+                    return error.WGLMakeCurrentFailed;
+                }
+            }
         },
     }
 }
@@ -250,8 +264,6 @@ pub fn displayRealized(self: *const OpenGL) void {
 }
 
 /// Actions taken before doing anything in `drawFrame`.
-///
-/// Right now there's nothing we need to do for OpenGL.
 pub fn drawFrameStart(self: *OpenGL) void {
     _ = self;
 }
@@ -261,6 +273,16 @@ pub fn drawFrameStart(self: *OpenGL) void {
 /// Right now there's nothing we need to do for OpenGL.
 pub fn drawFrameEnd(self: *OpenGL) void {
     _ = self;
+    // On Windows, we need to swap buffers after drawing since there's
+    // no apprt-level swap (unlike GTK which handles this).
+    if (comptime builtin.os.tag == .windows) {
+        const win32 = struct {
+            extern "gdi32" fn SwapBuffers(?*anyopaque) callconv(.winapi) i32;
+            extern "opengl32" fn wglGetCurrentDC() callconv(.winapi) ?*anyopaque;
+        };
+        const hdc = win32.wglGetCurrentDC();
+        if (hdc != null) _ = win32.SwapBuffers(hdc);
+    }
 }
 
 pub fn initShaders(
@@ -278,6 +300,28 @@ pub fn initShaders(
 /// Get the current size of the runtime surface.
 pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
     _ = self;
+    if (comptime builtin.os.tag == .windows) {
+        // On Windows, get actual window client rect size and update GL viewport
+        const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+        const win32 = struct {
+            extern "opengl32" fn wglGetCurrentDC() callconv(.winapi) ?*anyopaque;
+            extern "user32" fn WindowFromDC(?*anyopaque) callconv(.winapi) ?*anyopaque;
+            extern "user32" fn GetClientRect(?*anyopaque, *RECT) callconv(.winapi) i32;
+        };
+        const hdc = win32.wglGetCurrentDC();
+        if (hdc) |dc| {
+            const hwnd = win32.WindowFromDC(dc);
+            if (hwnd) |w| {
+                var rect: RECT = undefined;
+                if (win32.GetClientRect(w, &rect) != 0) {
+                    const width: u32 = @intCast(rect.right - rect.left);
+                    const height: u32 = @intCast(rect.bottom - rect.top);
+                    gl.glad.context.Viewport.?(0, 0, @intCast(width), @intCast(height));
+                    return .{ .width = width, .height = height };
+                }
+            }
+        }
+    }
     var viewport: [4]gl.c.GLint = undefined;
     gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
     return .{
