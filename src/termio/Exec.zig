@@ -234,6 +234,9 @@ pub fn focusGained(
 ) !void {
     _ = self;
 
+    // termios timer is not yet implemented on Windows
+    if (comptime builtin.os.tag == .windows) return;
+
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
 
