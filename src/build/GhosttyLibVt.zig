@@ -47,6 +47,9 @@ pub fn initWasm(
     // There is no entrypoint for this wasm module.
     exe.entry = .disabled;
 
+    // Export the function table so the host can add callback entries.
+    exe.export_table = true;
+
     return .{
         .step = &exe.step,
         .artifact = b.addInstallArtifact(exe, .{}),
