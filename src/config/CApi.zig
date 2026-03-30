@@ -111,6 +111,14 @@ export fn ghostty_config_trigger(
     };
 }
 
+export fn ghostty_config_trigger_unbond(
+    self: *Config,
+    trigger: inputpkg.Binding.Trigger.C,
+) bool {
+    const t = inputpkg.Binding.Trigger.evalC(trigger);
+    return self.keybind.set.getDisabled(t) != null;
+}
+
 fn config_trigger_(
     self: *Config,
     str: []const u8,

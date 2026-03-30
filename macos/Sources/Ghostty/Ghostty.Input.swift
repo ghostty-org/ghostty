@@ -45,6 +45,30 @@ extension Ghostty {
             modifiers: EventModifiers(nsFlags: Ghostty.eventModifierFlags(mods: trigger.mods)))
     }
 
+    /// Map the KeyboardShortcut to `ghostty_input_trigger_s`
+    /// which is basically reversed from ``keyboardShortcut(for:)``
+    static func ghosttyTrigger(_ keyboardShortcut: KeyboardShortcut) -> ghostty_input_trigger_s? {
+
+        let flags = NSEvent.ModifierFlags(swiftUIFlags: keyboardShortcut.modifiers)
+        let mods = ghosttyMods(flags)
+        if let physicalKey = Self.keyToEquivalent.first(where: { $0.value == keyboardShortcut.key })?.key {
+            return ghostty_input_trigger_s(
+                tag: GHOSTTY_TRIGGER_PHYSICAL,
+                key: .init(physical: physicalKey),
+                mods: mods,
+            )
+        } else {
+            guard let unicodeValue = keyboardShortcut.key.character.unicodeScalars.first?.value else {
+                return nil
+            }
+            return ghostty_input_trigger_s(
+                tag: GHOSTTY_TRIGGER_UNICODE,
+                key: .init(unicode: unicodeValue),
+                mods: mods,
+            )
+        }
+    }
+
     // MARK: Mods
 
     /// Returns the event modifier flags set for the Ghostty mods enum.

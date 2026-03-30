@@ -1983,6 +1983,17 @@ pub const Trigger = struct {
         };
     }
 
+    pub fn evalC(c: C) Trigger {
+        return .{
+            .key = switch (c.tag) {
+                .physical => .{ .physical = c.key.physical },
+                .unicode => .{ .unicode = @as(u21, @intCast(@as(u32, c.key.unicode))) },
+                .catch_all => .catch_all,
+            },
+            .mods = c.mods,
+        };
+    }
+
     /// Format implementation for fmt package.
     pub fn format(
         self: Trigger,
@@ -1999,6 +2010,22 @@ pub const Trigger = struct {
             .physical => |k| try writer.print("{t}", .{k}),
             .unicode => |c| try writer.print("{u}", .{c}),
             .catch_all => try writer.writeAll("catch_all"),
+        }
+    }
+
+    test "evalC roundtrip" {
+        const cases = [_]struct { input: []const u8, mods: key.Mods }{
+            .{ .input = "a", .mods = .{} },
+            .{ .input = "ctrl+a", .mods = .{ .ctrl = true } },
+            .{ .input = "shift+up", .mods = .{ .shift = true } },
+            .{ .input = "super+c", .mods = .{ .super = true } },
+        };
+
+        inline for (cases) |case| {
+            const zig = try Trigger.parse(case.input);
+            const c = zig.cval();
+            const back = evalC(c);
+            try std.testing.expectEqual(zig, back);
         }
     }
 };
@@ -2023,6 +2050,14 @@ pub const Set = struct {
 
     /// The set of bindings.
     bindings: HashMap = .{},
+
+    /// The set of bindings that are set to `unbind`.
+    disabled_bindings: std.ArrayHashMapUnmanaged(
+        Trigger,
+        Leaf,
+        Context(Trigger),
+        true,
+    ) = .{},
 
     /// The reverse mapping of action to binding. Note that multiple
     /// bindings can map to the same action and this map will only have
@@ -2252,6 +2287,7 @@ pub const Set = struct {
         };
 
         self.bindings.deinit(alloc);
+        self.disabled_bindings.deinit(alloc);
         self.reverse.deinit(alloc);
         self.* = undefined;
     }
@@ -2432,6 +2468,14 @@ pub const Set = struct {
             .binding => |b| switch (b.action) {
                 .unbind => {
                     set.remove(alloc, b.trigger);
+                    // move it to disabled_bindings if this is a root
+                    if (set == root) {
+                        try set.disabled_bindings.put(alloc, b.trigger, .{
+                            .action = b.action,
+                            .flags = .{},
+                        });
+                    }
+                    // then return pervious error
                     return error.SequenceUnbind;
                 },
 
@@ -2478,6 +2522,8 @@ pub const Set = struct {
     ) Allocator.Error!void {
         // unbind should never go into the set, it should be handled prior
         assert(action != .unbind);
+        // Remove previous unbinds
+        _ = self.disabled_bindings.swapRemove(t);
 
         // This is true if we're going to track this entry as
         // a reverse mapping. There are certain scenarios we don't.
@@ -2604,6 +2650,11 @@ pub const Set = struct {
     /// Get a binding for a given trigger.
     pub fn get(self: Set, t: Trigger) ?Entry {
         return self.bindings.getEntry(t);
+    }
+
+    /// Get a disabled binding for a given trigger.
+    pub fn getDisabled(self: Set, t: Trigger) ?Leaf {
+        return self.disabled_bindings.get(t);
     }
 
     /// Get a trigger for the given action. An action can have multiple
@@ -2748,6 +2799,7 @@ pub const Set = struct {
     pub fn clone(self: *const Set, alloc: Allocator) !Set {
         var result: Set = .{
             .bindings = try self.bindings.clone(alloc),
+            .disabled_bindings = try self.disabled_bindings.clone(alloc),
             .reverse = try self.reverse.clone(alloc),
         };
 
@@ -3549,7 +3601,7 @@ test "set: parseAndPut unconsumed binding" {
     }
 }
 
-test "set: parseAndPut removed binding" {
+test "set: parseAndPut move unbind to disabled" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -3568,6 +3620,10 @@ test "set: parseAndPut removed binding" {
 
     // Sets up the chain parent properly
     try testing.expect(s.chain_parent == null);
+
+    // disabled_binding should be set
+    const a_entry = s.getDisabled(.{ .key = .{ .unicode = 'a' } });
+    try testing.expect(a_entry.?.action == .unbind);
 }
 
 test "set: put sets chain_parent" {
@@ -3688,6 +3744,9 @@ test "set: sequence unbind clears chain_parent" {
 
     // After unbind, chain_parent should be cleared
     try testing.expect(s.chain_parent == null);
+
+    // disabled_binding should NOT be set
+    try testing.expect(s.disabled_bindings.count() == 0);
 }
 
 test "set: sequence unbind with remaining leaves clears chain_parent" {
@@ -3709,6 +3768,9 @@ test "set: sequence unbind with remaining leaves clears chain_parent" {
     try testing.expect(a_entry.value_ptr.* == .leader);
     const inner_set = a_entry.value_ptr.*.leader;
     try testing.expect(inner_set.get(.{ .key = .{ .unicode = 'c' } }) != null);
+
+    // disabled_binding should NOT be set
+    try testing.expect(s.disabled_bindings.count() == 0);
 }
 
 test "set: direct remove clears chain_parent" {
@@ -3945,6 +4007,9 @@ test "set: parseAndPut unbind sequence unbinds leader" {
         const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         try testing.expect(current.get(t) == null);
     }
+
+    // disabled_binding should NOT be set
+    try testing.expect(s.disabled_bindings.count() == 0);
 }
 
 test "set: parseAndPut unbind sequence unbinds leader if not set" {
@@ -3960,6 +4025,9 @@ test "set: parseAndPut unbind sequence unbinds leader if not set" {
         const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         try testing.expect(current.get(t) == null);
     }
+
+    // disabled_binding should NOT be set
+    try testing.expect(s.disabled_bindings.count() == 0);
 }
 
 test "set: parseAndPut sequence preserves reverse mapping" {
@@ -4241,6 +4309,43 @@ test "set: parseAndPut chain with unbind is error" {
     const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
     try testing.expect(entry == .leaf);
     try testing.expect(entry.leaf.action == .new_window);
+}
+
+test "set: save and clone unbind triggers" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=unbind");
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "b=unbind");
+    try s.parseAndPut(alloc, "super+c=unbind");
+
+    // New binding should still exist
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf);
+    try testing.expect(entry.leaf.action == .new_window);
+
+    // disabled_binding should be set
+
+    try testing.expect(s.disabled_bindings.count() == 2);
+
+    try testing.expect(s.getDisabled(.{ .key = .{ .unicode = 'b' } }).?.action == .unbind);
+
+    try testing.expect(s.getDisabled(.{ .key = .{ .unicode = 'c' }, .mods = .{ .super = true } }).?.action == .unbind);
+
+    var cloned = try s.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    // Clone should have the same result
+
+    try testing.expect(cloned.disabled_bindings.count() == 2);
+
+    try testing.expect(cloned.getDisabled(.{ .key = .{ .unicode = 'b' } }).?.action == .unbind);
+
+    try testing.expect(cloned.getDisabled(.{ .key = .{ .unicode = 'c' }, .mods = .{ .super = true } }).?.action == .unbind);
 }
 
 test "set: getEvent physical" {

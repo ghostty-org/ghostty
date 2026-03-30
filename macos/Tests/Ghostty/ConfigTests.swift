@@ -5,6 +5,11 @@ import SwiftUI
 @Suite
 struct ConfigTests {
     // MARK: - Boolean Properties
+    @Test
+    func unbind() async throws {
+        let config = try TemporaryConfig("keybind=cmd+c=unbind")
+        #expect(config.isKeyboardShortcutUnbound(KeyboardShortcut("c", modifiers: .command)) == true)
+    }
 
     @Test func initialWindowDefaultsToTrue() throws {
         let config = try TemporaryConfig("")

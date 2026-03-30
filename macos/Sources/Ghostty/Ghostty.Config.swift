@@ -122,6 +122,16 @@ extension Ghostty {
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
             return Ghostty.keyboardShortcut(for: trigger)
         }
+
+        /// Check whether a keyboard shortcut is unbound in the config by `keybind=a=unbind`
+        func isKeyboardShortcutUnbound(_ keyboardShortcut: KeyboardShortcut) -> Bool {
+            guard
+                let cfg = self.config,
+                let trigger = Ghostty.ghosttyTrigger(keyboardShortcut)
+            else { return false }
+
+            return ghostty_config_trigger_unbond(cfg, trigger)
+        }
 #endif
 
         // MARK: - Configuration Values
