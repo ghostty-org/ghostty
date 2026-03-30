@@ -4,36 +4,49 @@ extension Ghostty {
     /// The manager that's responsible for updating shortcuts of Ghostty's app menu
     @MainActor
     class MenuShortcutManager {
-
-        /// Ghostty menu items indexed by their normalized shortcut. This avoids traversing
+        /// Ghostty action indexed by the action of their belonging menu item
+        private var ghosttyActionsBySelector: [Selector: String] = [:]
+        /// Ghostty menu action indexed by their normalized shortcut. This avoids traversing
         /// the entire menu tree on every key equivalent event.
         ///
-        /// We store a weak reference so this cache can never be the owner of menu items.
-        /// If multiple items map to the same shortcut, the most recent one wins.
-        private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
+        /// If multiple action map to the same shortcut, the most recent one wins.
+        private var configuredShortcuts: [MenuShortcutKey: Selector] = [:]
 
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
-        func reset() {
-            menuItemsByShortcut.removeAll(keepingCapacity: true)
+        func resetRegisteredGhosttyActions() {
+            ghosttyActionsBySelector.removeAll(keepingCapacity: true)
         }
 
+        /// Registers a single menu shortcut for the given action. The action string is the same
+        /// action string used for the Ghostty configuration.
+        func register(action ghosttyAction: String?, menuItem: NSMenuItem?) {
+            guard let selector = menuItem?.action else {
+                return
+            }
+            ghosttyActionsBySelector[selector] = ghosttyAction
+        }
+
+        /// Map the keyboard shortcut of every menu item (including submenu's) in this menu based on previously register action
+        func updateShortcut(in menu: NSMenu?, config: Ghostty.Config) {
+            /// Reset our shortcut index since we're about to rebuild all menu bindings.
+            configuredShortcuts.removeAll()
+
+            updateShortcutRecursively(in: menu, config: config)
+        }
+    }
+}
+
+extension Ghostty.MenuShortcutManager {
         /// Syncs a single menu shortcut for the given action. The action string is the same
         /// action string used for the Ghostty configuration.
-        func syncMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem: NSMenuItem?) {
-            guard let menu = menuItem else { return }
+        private func syncMenuShortcutFrom(_ config: Ghostty.Config, action: String, menuItem menu: NSMenuItem) -> Bool {
 
-            guard let action, let shortcut = config.keyboardShortcut(for: action) else {
-                // No shortcut, clear the menu item
-                menu.keyEquivalent = ""
-                menu.keyEquivalentModifierMask = []
-                return
+            guard let shortcut = config.keyboardShortcut(for: action) else {
+                return false
             }
 
             let keyEquivalent = shortcut.key.character.description
             let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
-            menu.keyEquivalent = keyEquivalent
-            menu.keyEquivalentModifierMask = modifierMask
-
             // Build a direct lookup for key-equivalent dispatch so we don't need to
             // linearly walk the full menu hierarchy at event time.
             guard let key = MenuShortcutKey(
@@ -42,11 +55,15 @@ extension Ghostty {
                 keyEquivalent: keyEquivalent.lowercased(),
                 modifiers: modifierMask
             ) else {
-                return
+                return false
             }
 
+            menu.keyEquivalent = keyEquivalent
+            menu.keyEquivalentModifierMask = modifierMask
+
             // Later registrations intentionally override earlier ones for the same key.
-            menuItemsByShortcut[key] = .init(menu)
+            configuredShortcuts[key] = menu.action
+            return true
         }
 
         /// Attempts to perform a menu key equivalent only for menu items that represent
@@ -62,13 +79,11 @@ extension Ghostty {
 
             // If we don't have an entry for this key combo, no Ghostty-owned
             // menu shortcut exists for this event.
-            guard let weakItem = menuItemsByShortcut[key] else {
+            guard let action = configuredShortcuts[key] else {
                 return false
             }
 
-            // Weak references can be nil if a menu item was deallocated after sync.
-            guard let item = weakItem.value else {
-                menuItemsByShortcut.removeValue(forKey: key)
+            guard let item = NSApp.mainMenu?.findItem(with: action) else {
                 return false
             }
 
@@ -89,6 +104,46 @@ extension Ghostty {
 
             parentMenu.performActionForItem(at: index)
             return true
+        }
+}
+
+// MARK: - Recursively process all of the menu items
+
+private extension Ghostty.MenuShortcutManager {
+    /// Map the keyboard shortcut of every menu item recursively in this menu based on previously register action
+    func updateShortcutRecursively(in menu: NSMenu?, config: Ghostty.Config) {
+        guard let menu else {
+            return
+        }
+
+        for item in menu.items {
+            updateItemShortcut(item: item, config: config)
+            updateShortcutRecursively(in: item.submenu, config: config)
+        }
+        menu.update()
+    }
+}
+
+// MARK: - Process a single menu item
+
+private extension Ghostty.MenuShortcutManager {
+    /// Update shortcuts in the following order
+    ///
+    /// 1. Ghostty configuration
+    /// 2. Xib
+    /// 3. Remove unbound defined in Ghostty configuration
+    /// 4. Check conflicts between xib and Ghostty configuration
+    func updateItemShortcut(item: NSMenuItem, config: Ghostty.Config) {
+        guard let selector = item.action else {
+            return
+        }
+
+        if let action = ghosttyActionsBySelector[selector] {
+            if !syncMenuShortcutFrom(config, action: action, menuItem: item) {
+                // No shortcut, clear the menu item
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
         }
     }
 }
@@ -120,5 +175,20 @@ extension Ghostty.MenuShortcutManager {
             guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
             self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
         }
+    }
+}
+
+private extension NSMenu {
+    /// Expensive operation, but it will be deleted later
+    func findItem(with action: Selector) -> NSMenuItem? {
+        for item in items {
+            if item.action == action {
+                return item
+            }
+            if let item = item.submenu?.findItem(with: action) {
+                return item
+            }
+        }
+        return nil
     }
 }
