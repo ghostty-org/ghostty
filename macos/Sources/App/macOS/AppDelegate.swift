@@ -1153,8 +1153,13 @@ extension AppDelegate {
     @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
 
-        menuShortcutManager.reset()
+        menuShortcutManager.resetRegisteredGhosttyActions()
 
+        registerGhosttyActions(config)
+        menuShortcutManager.updateShortcut(in: NSApp.mainMenu, config: config)
+    }
+
+    @MainActor private func registerGhosttyActions(_ config: Ghostty.Config) {
         syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
         syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
         syncMenuShortcut(config, action: "reload_config", menuItem: self.menuReloadConfig)
@@ -1221,7 +1226,7 @@ extension AppDelegate {
     }
 
     @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
-        menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
+        menuShortcutManager.register(action: action, menuItem: menuItem)
     }
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
