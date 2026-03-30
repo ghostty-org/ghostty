@@ -235,4 +235,21 @@ struct ConfigTests {
         let shortcut2 = try #require(config2.keyboardShortcut(for: "goto_split:left"))
         #expect(shortcut2 == .init("ä", modifiers: [.command]))
     }
+
+    // MARK: - Unbind
+
+    @Test
+    func unbind() async throws {
+        let config = try TemporaryConfig("keybind=cmd+c=unbind")
+        #expect(config.isKeyboardShortcutUnbound(KeyboardShortcut("c", modifiers: .command)))
+
+        try config.reload("keybind=cmd+c=new_window")
+        #expect(!config.isKeyboardShortcutUnbound(KeyboardShortcut("c", modifiers: .command)))
+        try config.reload("""
+            keybind=cmd+c=unbind
+            keybind=super+h=unbind
+            """)
+        #expect(config.isKeyboardShortcutUnbound(KeyboardShortcut("c", modifiers: .command)))
+        #expect(config.isKeyboardShortcutUnbound(KeyboardShortcut("h", modifiers: .command)))
+    }
 }
