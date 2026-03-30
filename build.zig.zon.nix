@@ -315,7 +315,7 @@ in
       };
     }
     {
-      name = "N-V-__8AAAzZywE3s51XfsLbP9eyEw57ae9swYB9aGB6fCMs";
+      name = "N-V-__8AAEXUywEb8JCSytwiCVUsFb2CwHjOB59jhyRhOhsj";
       path = fetchZigArtifact {
         name = "wuffs";
         url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz";
