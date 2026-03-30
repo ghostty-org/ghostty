@@ -1598,6 +1598,19 @@ pub const CAPI = struct {
         return surface.core_surface.child_exited;
     }
 
+    /// Returns the PID of the foreground process running in the surface,
+    /// or 0 if the process is not available.
+    export fn ghostty_surface_child_pid(surface: *Surface) u64 {
+        return surface.core_surface.getProcessInfo(.foreground_pid) orelse 0;
+    }
+
+    /// Returns the TTY device name of the surface (e.g. "/dev/ttys003"),
+    /// or null if not available.
+    export fn ghostty_surface_tty_name(surface: *Surface) ?[*:0]const u8 {
+        const name = surface.core_surface.getProcessInfo(.tty_name) orelse return null;
+        return name.ptr;
+    }
+
     /// Returns true if the surface has a selection.
     export fn ghostty_surface_has_selection(surface: *Surface) bool {
         return surface.core_surface.hasSelection();

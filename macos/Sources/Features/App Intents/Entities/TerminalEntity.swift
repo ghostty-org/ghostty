@@ -14,6 +14,12 @@ struct TerminalEntity: AppEntity {
     @Property(title: "Kind")
     var kind: Kind
 
+    @Property(title: "PID")
+    var pid: Int?
+
+    @Property(title: "TTY")
+    var tty: String?
+
     var screenshot: NSImage?
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation {
@@ -49,6 +55,8 @@ struct TerminalEntity: AppEntity {
         self.id = view.id
         self.title = view.title
         self.workingDirectory = view.pwd
+        self.pid = view.surfaceModel?.childPID
+        self.tty = view.surfaceModel?.ttyName
         if let nsImage = ImageRenderer(content: view.screenshot()).nsImage {
             self.screenshot = nsImage
         }

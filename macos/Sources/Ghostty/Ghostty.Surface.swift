@@ -82,6 +82,20 @@ extension Ghostty {
             event.withCValue { keyIsBinding($0) }
         }
 
+        /// The PID of the foreground process, or nil if not available.
+        @MainActor
+        var childPID: Int? {
+            let pid = ghostty_surface_child_pid(surface)
+            return pid != 0 ? Int(pid) : nil
+        }
+
+        /// The TTY device name (e.g. "/dev/ttys003"), or nil if not available.
+        @MainActor
+        var ttyName: String? {
+            guard let ptr = ghostty_surface_tty_name(surface) else { return nil }
+            return String(cString: ptr)
+        }
+
         /// Whether the terminal has captured mouse input.
         ///
         /// When the mouse is captured, the terminal application is receiving mouse events
