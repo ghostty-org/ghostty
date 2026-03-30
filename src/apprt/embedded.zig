@@ -428,6 +428,21 @@ pub const PlatformTag = enum(c_int) {
     }
 };
 
+pub const SurfaceIOMode = enum(c_int) {
+    exec = 0,
+    manual = 1,
+
+    test "ghostty.h SurfaceIOMode" {
+        try lib.checkGhosttyHEnum(SurfaceIOMode, "GHOSTTY_SURFACE_IO_");
+    }
+};
+
+pub const IOWriteCallback = *const fn (
+    ?*anyopaque,
+    [*]const u8,
+    usize,
+) callconv(.c) void;
+
 pub const EnvVar = extern struct {
     /// The name of the environment variable.
     key: [*:0]const u8,
@@ -440,6 +455,9 @@ pub const Surface = struct {
     app: *App,
     platform: Platform,
     userdata: ?*anyopaque = null,
+    io_mode: SurfaceIOMode = .exec,
+    io_write_cb: ?IOWriteCallback = null,
+    io_write_userdata: ?*anyopaque = null,
     core_surface: CoreSurface,
     content_scale: apprt.ContentScale,
     size: apprt.SurfaceSize,
@@ -491,13 +509,30 @@ pub const Surface = struct {
 
         /// Context for the new surface
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Surface IO mode.
+        io_mode: SurfaceIOMode = .exec,
+
+        /// Callback for outbound terminal writes in manual mode.
+        io_write_cb: ?IOWriteCallback = null,
+
+        /// Userdata for the outbound terminal write callback.
+        io_write_userdata: ?*anyopaque = null,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+        if (opts.io_mode == .manual and opts.io_write_cb == null) {
+            log.warn("manual IO mode requires io_write_cb", .{});
+            return error.ManualIOModeRequiresWriteCallback;
+        }
+
         self.* = .{
             .app = app,
             .platform = try .init(opts.platform_tag, opts.platform),
             .userdata = opts.userdata,
+            .io_mode = opts.io_mode,
+            .io_write_cb = opts.io_write_cb,
+            .io_write_userdata = opts.io_write_userdata,
             .core_surface = undefined,
             .content_scale = .{
                 .x = @floatCast(opts.scale_factor),
@@ -665,6 +700,18 @@ pub const Surface = struct {
 
     pub fn rtApp(self: *const Surface) *App {
         return self.app;
+    }
+
+    pub fn ioMode(self: *const Surface) SurfaceIOMode {
+        return self.io_mode;
+    }
+
+    pub fn ioWriteCallback(self: *const Surface) ?IOWriteCallback {
+        return self.io_write_cb;
+    }
+
+    pub fn ioWriteUserdata(self: *const Surface) ?*anyopaque {
+        return self.io_write_userdata;
     }
 
     pub fn close(self: *const Surface, process_alive: bool) void {
@@ -1017,6 +1064,9 @@ pub const Surface = struct {
             .font_size = font_size,
             .working_directory = working_directory,
             .context = context,
+            .io_mode = self.io_mode,
+            .io_write_cb = self.io_write_cb,
+            .io_write_userdata = self.io_write_userdata,
         };
     }
 
@@ -1668,6 +1718,22 @@ pub const CAPI = struct {
     /// Returns true if the surface process has exited.
     export fn ghostty_surface_process_exited(surface: *Surface) bool {
         return surface.core_surface.child_exited;
+    }
+
+    /// Feed output bytes into a manual-mode surface.
+    export fn ghostty_surface_process_output(
+        surface: *Surface,
+        ptr: [*]const u8,
+        len: usize,
+    ) void {
+        if (len == 0) return;
+
+        if (surface.ioMode() != .manual) {
+            log.warn("ghostty_surface_process_output ignored for exec surface", .{});
+            return;
+        }
+
+        surface.core_surface.io.processOutput(ptr[0..len]);
     }
 
     /// Returns true if the surface has a selection.

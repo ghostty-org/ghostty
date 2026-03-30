@@ -444,6 +444,17 @@ typedef enum {
   GHOSTTY_SURFACE_CONTEXT_SPLIT = 2,
 } ghostty_surface_context_e;
 
+typedef enum {
+  GHOSTTY_SURFACE_IO_EXEC = 0,
+  GHOSTTY_SURFACE_IO_MANUAL = 1,
+} ghostty_surface_io_mode_e;
+
+// Outbound IO callback for manual surface mode. The buffer is only valid for
+// the duration of the callback.
+typedef void (*ghostty_io_write_cb)(void* userdata,
+                                    const char* bytes,
+                                    uintptr_t len);
+
 typedef struct {
   ghostty_platform_e platform_tag;
   ghostty_platform_u platform;
@@ -457,6 +468,9 @@ typedef struct {
   const char* initial_input;
   bool wait_after_command;
   ghostty_surface_context_e context;
+  ghostty_surface_io_mode_e io_mode;
+  ghostty_io_write_cb io_write_cb;
+  void* io_write_userdata;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -1087,6 +1101,9 @@ ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t, gho
 void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
 bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
 bool ghostty_surface_process_exited(ghostty_surface_t);
+// Feed backend output into a manual-mode surface. This is ignored for exec
+// surfaces.
+void ghostty_surface_process_output(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_refresh(ghostty_surface_t);
 void ghostty_surface_draw(ghostty_surface_t);
 void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
