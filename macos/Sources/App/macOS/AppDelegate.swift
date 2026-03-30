@@ -154,7 +154,7 @@ class AppDelegate: NSObject,
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage?
 
-    @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
+    @MainActor private var menuShortcutManager = Ghostty.MenuShortcutManager(nil)
 
     override init() {
 #if DEBUG
@@ -209,6 +209,8 @@ class AppDelegate: NSObject,
         if UserDefaults.ghostty.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
             toggleSecureInput(self)
         }
+
+        menuShortcutManager = .init(NSApp.mainMenu)
 
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)

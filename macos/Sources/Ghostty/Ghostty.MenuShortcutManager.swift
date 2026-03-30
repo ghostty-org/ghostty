@@ -12,6 +12,15 @@ extension Ghostty {
         ///
         /// If multiple action map to the same shortcut, the most recent one wins.
         private var configuredShortcuts: [MenuShortcutKey: Selector] = [:]
+        /// Original shortcut configured in xib indexed by their action
+        private var originalMenuShortcutByAction: [Selector: MenuShortcutKey] = [:]
+
+        /// Save initial/default keyboard shortcut of every menu item recursively in this menu
+        ///
+        /// - Important: This should only be called once per app launch
+        init(_ menu: NSMenu?) {
+            saveOriginalMenuItemShortcutsRecursively(in: menu)
+        }
 
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
         func resetRegisteredGhosttyActions() {
@@ -82,6 +91,21 @@ extension Ghostty.MenuShortcutManager {
 // MARK: - Recursively process all of the menu items
 
 private extension Ghostty.MenuShortcutManager {
+    /// Save initial/default keyboard shortcut of every menu item recursively in this menu
+    ///
+    /// - Important: This should only be called once per app launch
+    func saveOriginalMenuItemShortcutsRecursively(in menu: NSMenu?) {
+        guard let menu else {
+            return
+        }
+        for item in menu.items {
+            if let action = item.action, let shortcut = MenuShortcutKey(keyEquivalent: item.keyEquivalent, modifiers: item.keyEquivalentModifierMask) {
+                originalMenuShortcutByAction[action] = shortcut
+            }
+            saveOriginalMenuItemShortcutsRecursively(in: item.submenu)
+        }
+    }
+
     /// Map the keyboard shortcut of every menu item recursively in this menu based on previously register action
     func updateShortcutRecursively(in menu: NSMenu?, config: Ghostty.Config) {
         guard let menu else {
@@ -110,13 +134,23 @@ private extension Ghostty.MenuShortcutManager {
             return
         }
 
-        if let action = ghosttyActionsBySelector[selector] {
-            if !syncMenuShortcutFrom(config, action: action, menuItem: item) {
-                // No shortcut, clear the menu item
-                item.keyEquivalent = ""
-                item.keyEquivalentModifierMask = []
-            }
+        if let action = ghosttyActionsBySelector[selector],
+            syncMenuShortcutFrom(config, action: action, menuItem: item) {
+            // Overrode by Ghostty configuration
+            return
         }
+
+        // Restore to the original shortcut first,
+        // so we can then use the original one to check whether it's unbound
+        restoreMenuItemShortcut(item: item)
+
+        if let key = MenuShortcutKey(item), config.isKeyboardShortcutUnbound(key: key) {
+            // This is unbind by the user
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        // Restored to the original shortcut
     }
 
     /// Syncs a single menu shortcut for the given action. The action string is the same
@@ -139,6 +173,18 @@ private extension Ghostty.MenuShortcutManager {
         // Later registrations intentionally override earlier ones for the same key.
         configuredShortcuts[key] = menu.action
         return true
+    }
+
+    /// Restore the shortcut of the item to the original one registered when first launched
+    func restoreMenuItemShortcut(item: NSMenuItem) {
+        guard
+            let action = item.action,
+            let key = originalMenuShortcutByAction[action]
+        else {
+            return
+        }
+        item.keyEquivalent = key.keyEquivalent
+        item.keyEquivalentModifierMask = key.modifierFlags
     }
 }
 
@@ -213,5 +259,14 @@ private extension NSMenu {
             }
         }
         return nil
+    }
+}
+
+private extension Ghostty.Config {
+    func isKeyboardShortcutUnbound(key: Ghostty.MenuShortcutManager.MenuShortcutKey) -> Bool {
+        guard let swiftUIShortcut = key.swiftUIShortcut else {
+            return false
+        }
+        return isKeyboardShortcutUnbound(swiftUIShortcut)
     }
 }
