@@ -319,6 +319,31 @@ private:
 #endif
 }
 
+- (void)layout {
+    [super layout];
+#if GHOSTTIES_CEF_AVAILABLE
+    // Auto Layout–driven resizes don't always trigger setFrameSize: (e.g. when
+    // the superview's constraint constants change but the frame origin stays
+    // the same). Calling WasResized() here ensures CEF's compositor stays in
+    // sync with the actual view bounds after every layout pass.
+    if (_browser) {
+        _browser->GetHost()->WasResized();
+    }
+#endif
+}
+
+- (void)viewDidEndLiveResize {
+    [super viewDidEndLiveResize];
+#if GHOSTTIES_CEF_AVAILABLE
+    // Final notification after the user finishes dragging the window edge.
+    // Guarantees the compositor settles on the correct size even if
+    // intermediate WasResized() calls were coalesced during the drag.
+    if (_browser) {
+        _browser->GetHost()->WasResized();
+    }
+#endif
+}
+
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
 #if GHOSTTIES_CEF_AVAILABLE

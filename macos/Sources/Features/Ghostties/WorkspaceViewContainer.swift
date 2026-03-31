@@ -149,6 +149,17 @@ class WorkspaceViewContainer: NSView {
     /// Whether the browser panel is currently visible (expanded).
     private var isBrowserVisible = false
 
+    /// Drag handle between terminal and browser cards for resizing.
+    private lazy var browserDragHandle: BrowserDragHandleView = {
+        let handle = BrowserDragHandleView()
+        handle.translatesAutoresizingMaskIntoConstraints = false
+        handle.isHidden = true  // shown only when browser panel is visible
+        handle.onDrag = { [weak self] delta in
+            self?.handleBrowserDrag(delta: delta)
+        }
+        return handle
+    }()
+
     /// Browser shadow host constraints for the 3-column layout.
     private var browserWidthConstraint: NSLayoutConstraint!
     private var browserShadowHostTopConstraint: NSLayoutConstraint!
@@ -365,6 +376,9 @@ class WorkspaceViewContainer: NSView {
             shadowHostTrailingConstraint.isActive = true
         }
 
+        // Show/hide the drag handle with the browser panel.
+        browserDragHandle.isHidden = !visible
+
         // Update globe button tint: accent color when open, secondary when closed.
         browserToggleButton.contentTintColor = visible
             ? NSColor(red: 0.788, green: 0.451, blue: 0.314, alpha: 1)  // terracotta
@@ -397,6 +411,33 @@ class WorkspaceViewContainer: NSView {
         browserShadowHost.layer?.shadowOpacity = visible ? 0.15 : 0
 
         invalidateIntrinsicContentSize()
+    }
+
+    /// Handle a horizontal drag delta from the browser drag handle.
+    /// Negative delta = dragging left (browser grows), positive = dragging right (browser shrinks).
+    private func handleBrowserDrag(delta: CGFloat) {
+        let inset = WorkspaceLayout.terminalInset
+        let sidebarWidth = sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0
+
+        // Total non-resizable horizontal space: sidebar + insets (leading + gap + trailing).
+        let fixedWidth = sidebarWidth + inset * 3
+
+        // Available space for terminal + browser combined.
+        let totalResizable = bounds.width - fixedWidth
+
+        // Current browser width and proposed new width.
+        let currentBrowserWidth = browserWidthConstraint.constant
+        // Dragging left (negative delta) grows the browser.
+        let proposedBrowserWidth = currentBrowserWidth - delta
+
+        // Minimum terminal width — ensure terminal never gets too narrow.
+        let minTerminalWidth: CGFloat = 300
+
+        // Clamp: browser must be >= browserMinWidth and terminal must be >= minTerminalWidth.
+        let maxBrowserWidth = totalResizable - minTerminalWidth
+        let clampedWidth = min(max(proposedBrowserWidth, WorkspaceLayout.browserMinWidth), max(maxBrowserWidth, WorkspaceLayout.browserMinWidth))
+
+        browserWidthConstraint.constant = clampedWidth
     }
 
     /// Embed a browser manager's active tab view into `browserPanelView.contentArea`.
@@ -599,6 +640,7 @@ class WorkspaceViewContainer: NSView {
                     shadowHostTrailingConstraint.isActive = true
                     isBrowserVisible = false
                     browserToggleButton.contentTintColor = .secondaryLabelColor
+                    browserDragHandle.isHidden = true
                 }
                 sidebarWidthConstraint.animator().constant = WorkspaceLayout.sidebarWidth
                 sidebarHostingView.animator().alphaValue = 1
@@ -746,11 +788,12 @@ class WorkspaceViewContainer: NSView {
         // Canvas layer — the warm background visible behind the floating card.
         wantsLayer = true
 
-        // Z-order: background material → overlay background → sidebar → terminal → browser.
+        // Z-order: background material → overlay background → sidebar → terminal → drag handle → browser.
         addSubview(backgroundEffectView)
         addSubview(sidebarOverlayBackground)
         addSubview(sidebarHostingView)
         addSubview(terminalShadowHost)
+        addSubview(browserDragHandle)
         addSubview(browserShadowHost)
 
         sidebarHostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -879,6 +922,12 @@ class WorkspaceViewContainer: NSView {
             browserPanelView.leadingAnchor.constraint(equalTo: browserShadowHost.leadingAnchor),
             browserPanelView.trailingAnchor.constraint(equalTo: browserShadowHost.trailingAnchor),
             browserPanelView.bottomAnchor.constraint(equalTo: browserShadowHost.bottomAnchor),
+
+            // Drag handle sits in the 8pt gap between terminal and browser.
+            browserDragHandle.topAnchor.constraint(equalTo: terminalShadowHost.topAnchor),
+            browserDragHandle.bottomAnchor.constraint(equalTo: terminalShadowHost.bottomAnchor),
+            browserDragHandle.leadingAnchor.constraint(equalTo: terminalShadowHost.trailingAnchor),
+            browserDragHandle.trailingAnchor.constraint(equalTo: browserShadowHost.leadingAnchor),
         ])
 
         // Terminal floating card: top corners rounded when in card mode (pinned/closed).
@@ -987,4 +1036,66 @@ extension WorkspaceViewContainer: NSTextFieldDelegate {
 /// material only in hover mode.
 private class TransparentHostingView<Content: View>: NSHostingView<Content> {
     override var isOpaque: Bool { false }
+}
+
+// MARK: - Browser Drag Handle
+
+/// Invisible drag handle that sits in the gap between the terminal and browser cards.
+/// Changes the cursor to a left-right resize arrow on hover and reports horizontal
+/// drag deltas via the `onDrag` closure.
+private class BrowserDragHandleView: NSView {
+    /// Called during mouseDragged with the horizontal delta (positive = rightward).
+    var onDrag: ((CGFloat) -> Void)?
+
+    /// Track the last mouse X position during a drag.
+    private var lastDragX: CGFloat = 0
+
+    /// Tracking area for cursor changes on hover.
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        // Transparent — the handle is invisible but responds to mouse events.
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        if let area = hoverTrackingArea {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        lastDragX = event.locationInWindow.x
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentX = event.locationInWindow.x
+        let delta = currentX - lastDragX
+        lastDragX = currentX
+        onDrag?(delta)
+    }
 }
