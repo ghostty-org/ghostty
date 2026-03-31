@@ -37,35 +37,6 @@ extension Ghostty {
 }
 
 extension Ghostty.MenuShortcutManager {
-        /// Syncs a single menu shortcut for the given action. The action string is the same
-        /// action string used for the Ghostty configuration.
-        private func syncMenuShortcutFrom(_ config: Ghostty.Config, action: String, menuItem menu: NSMenuItem) -> Bool {
-
-            guard let shortcut = config.keyboardShortcut(for: action) else {
-                return false
-            }
-
-            let keyEquivalent = shortcut.key.character.description
-            let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
-            // Build a direct lookup for key-equivalent dispatch so we don't need to
-            // linearly walk the full menu hierarchy at event time.
-            guard let key = MenuShortcutKey(
-                // We don't want to check missing `shift` for Ghostty configured shortcuts,
-                // because we know it's there when it needs to be
-                keyEquivalent: keyEquivalent.lowercased(),
-                modifiers: modifierMask
-            ) else {
-                return false
-            }
-
-            menu.keyEquivalent = keyEquivalent
-            menu.keyEquivalentModifierMask = modifierMask
-
-            // Later registrations intentionally override earlier ones for the same key.
-            configuredShortcuts[key] = menu.action
-            return true
-        }
-
         /// Attempts to perform a menu key equivalent only for menu items that represent
         /// Ghostty keybind actions. This is important because it lets our surface dispatch
         /// bindings through the menu so they flash but also lets our surface override macOS built-ins
@@ -145,6 +116,35 @@ private extension Ghostty.MenuShortcutManager {
                 item.keyEquivalentModifierMask = []
             }
         }
+    }
+
+    /// Syncs a single menu shortcut for the given action. The action string is the same
+    /// action string used for the Ghostty configuration.
+    func syncMenuShortcutFrom(_ config: Ghostty.Config, action: String, menuItem menu: NSMenuItem) -> Bool {
+
+        guard let shortcut = config.keyboardShortcut(for: action) else {
+            return false
+        }
+
+        let keyEquivalent = shortcut.key.character.description
+        let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
+        // Build a direct lookup for key-equivalent dispatch so we don't need to
+        // linearly walk the full menu hierarchy at event time.
+        guard let key = MenuShortcutKey(
+            // We don't want to check missing `shift` for Ghostty configured shortcuts,
+            // because we know it's there when it needs to be
+            keyEquivalent: keyEquivalent.lowercased(),
+            modifiers: modifierMask
+        ) else {
+            return false
+        }
+
+        menu.keyEquivalent = keyEquivalent
+        menu.keyEquivalentModifierMask = modifierMask
+
+        // Later registrations intentionally override earlier ones for the same key.
+        configuredShortcuts[key] = menu.action
+        return true
     }
 }
 
