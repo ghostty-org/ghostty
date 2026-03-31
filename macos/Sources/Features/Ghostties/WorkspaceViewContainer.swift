@@ -149,6 +149,12 @@ class WorkspaceViewContainer: NSView {
     /// Whether the browser panel is currently visible (expanded).
     private var isBrowserVisible = false
 
+    /// Fraction of the resizable width (terminal + browser) that the browser gets.
+    /// Range 0.0–1.0; default comes from `WorkspaceLayout.browserSplitRatio`.
+    /// Updated when the user drags the divider; used by `layout()` to keep
+    /// the split proportional during window resizes.
+    private var browserSplitRatio: CGFloat = WorkspaceLayout.browserSplitRatio
+
     /// Drag handle between terminal and browser cards for resizing.
     private lazy var browserDragHandle: BrowserDragHandleView = {
         let handle = BrowserDragHandleView()
@@ -287,8 +293,28 @@ class WorkspaceViewContainer: NSView {
         }
     }
 
+    /// Total horizontal space available to the terminal + browser combined.
+    /// Subtracts sidebar (when pinned) and the three inset gaps (leading, gap, trailing).
+    private var resizableWidth: CGFloat {
+        let sidebarWidth = sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0
+        let inset = WorkspaceLayout.terminalInset
+        // Three inset slots: leading of terminal, gap between panels, trailing of browser.
+        return bounds.width - sidebarWidth - inset * 3
+    }
+
     override func layout() {
         super.layout()
+
+        // Keep the terminal/browser split proportional when the window resizes.
+        if isBrowserVisible {
+            let available = resizableWidth
+            let minTerminal: CGFloat = 300
+            let maxBrowser = available - minTerminal
+            let desired = available * browserSplitRatio
+            let clamped = min(max(desired, WorkspaceLayout.browserMinWidth), max(maxBrowser, WorkspaceLayout.browserMinWidth))
+            browserWidthConstraint.constant = clamped
+        }
+
         // Explicit shadow paths eliminate per-frame offscreen rendering.
         // Without these, Core Animation rasterizes the entire layer to compute
         // the shadow shape every frame — expensive for a terminal that redraws at 60fps.
@@ -365,8 +391,6 @@ class WorkspaceViewContainer: NSView {
     private func animateBrowserPanel(visible: Bool) {
         isBrowserVisible = visible
 
-        let inset = WorkspaceLayout.terminalInset
-
         // Swap trailing constraints: terminal trails to browser or to window edge.
         if visible {
             shadowHostTrailingConstraint.isActive = false
@@ -390,14 +414,12 @@ class WorkspaceViewContainer: NSView {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
             if visible {
-                // Expand browser to share width with terminal.
-                let availableWidth = bounds.width
-                    - (sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0)
-                    - inset * (sidebarMode == .pinned ? 3 : 3)  // leading + gap + trailing
-                let browserWidth = max(
-                    WorkspaceLayout.browserMinWidth,
-                    availableWidth * (1 - WorkspaceLayout.browserSplitRatio)
-                )
+                // Expand browser using the stored split ratio.
+                let available = resizableWidth
+                let minTerminal: CGFloat = 300
+                let maxBrowser = available - minTerminal
+                let desired = available * browserSplitRatio
+                let browserWidth = min(max(desired, WorkspaceLayout.browserMinWidth), max(maxBrowser, WorkspaceLayout.browserMinWidth))
                 browserWidthConstraint.animator().constant = browserWidth
                 browserShadowHost.animator().alphaValue = 1
             } else {
@@ -416,14 +438,8 @@ class WorkspaceViewContainer: NSView {
     /// Handle a horizontal drag delta from the browser drag handle.
     /// Negative delta = dragging left (browser grows), positive = dragging right (browser shrinks).
     private func handleBrowserDrag(delta: CGFloat) {
-        let inset = WorkspaceLayout.terminalInset
-        let sidebarWidth = sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0
-
-        // Total non-resizable horizontal space: sidebar + insets (leading + gap + trailing).
-        let fixedWidth = sidebarWidth + inset * 3
-
         // Available space for terminal + browser combined.
-        let totalResizable = bounds.width - fixedWidth
+        let totalResizable = resizableWidth
 
         // Current browser width and proposed new width.
         let currentBrowserWidth = browserWidthConstraint.constant
@@ -438,6 +454,11 @@ class WorkspaceViewContainer: NSView {
         let clampedWidth = min(max(proposedBrowserWidth, WorkspaceLayout.browserMinWidth), max(maxBrowserWidth, WorkspaceLayout.browserMinWidth))
 
         browserWidthConstraint.constant = clampedWidth
+
+        // Persist the ratio so the split scales proportionally on window resize.
+        if totalResizable > 0 {
+            browserSplitRatio = clampedWidth / totalResizable
+        }
     }
 
     /// Embed a browser manager's active tab view into `browserPanelView.contentArea`.
