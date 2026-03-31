@@ -1,5 +1,6 @@
 #import "CEFBridge.h"
 #import <AppKit/AppKit.h>
+#include <atomic>
 
 #if __has_include("include/cef_app.h")
 #define CEF_AVAILABLE 1
@@ -32,12 +33,16 @@ static NSTimer *_messageLoopTimer = nil;
 class GhosttiesBrowserProcessHandler : public CefBrowserProcessHandler {
 public:
     void OnScheduleMessagePumpWork(int64_t delay_ms) override {
-        // Dispatch to the main thread's run loop. If delay is 0, process
-        // immediately. Otherwise, schedule after the delay.
+        // Coalesce rapid zero-delay callbacks to avoid flooding the main queue
+        // (CefDoMessageLoopWork can re-schedule with delay=0, creating a spin loop
+        // that starves AppKit and causes the beach ball).
         if (delay_ms <= 0) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                CefDoMessageLoopWork();
-            });
+            if (!work_pending_.exchange(true)) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    work_pending_ = false;
+                    CefDoMessageLoopWork();
+                });
+            }
         } else {
             dispatch_after(
                 dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC),
@@ -47,6 +52,8 @@ public:
         }
     }
 
+private:
+    std::atomic<bool> work_pending_{false};
     IMPLEMENT_REFCOUNTING(GhosttiesBrowserProcessHandler);
 };
 

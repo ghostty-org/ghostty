@@ -322,41 +322,42 @@ class WorkspaceViewContainer: NSView {
     // MARK: - Browser Toggle
 
     /// Toggle browser panel visibility via keyboard shortcut (Cmd+B) or globe button.
+    /// Shows the browser as a side panel next to the terminal (Dia Browser style).
     /// If no browser session exists yet, creates one via the coordinator.
     @objc func toggleBrowser() {
-        // If the active session is already a browser, switch back to the last terminal session.
-        if let activeId = coordinator.activeSessionId, coordinator.isSessionBrowser(activeId) {
-            for (id, _) in coordinator.sessionTrees {
-                if coordinator.statuses[id]?.isAlive == true {
-                    coordinator.focusSession(id: id)
-                    return
+        if isBrowserVisible {
+            // Collapse the side panel.
+            animateBrowserPanel(visible: false)
+        } else {
+            // Ensure we have a browser session with a CEFBrowserView.
+            // Check for an existing live browser session first.
+            let existingManager: BrowserTabManager? = coordinator.browserManagers.values.first { manager in
+                coordinator.browserManagers.contains { (id, m) in
+                    m === manager && coordinator.statuses[id]?.isAlive == true
                 }
             }
-            return
-        }
 
-        // Check if there's an existing browser session to switch to.
-        for (id, _) in coordinator.browserManagers {
-            if coordinator.statuses[id]?.isAlive == true {
-                coordinator.focusSession(id: id)
-                return
+            if let manager = existingManager {
+                embedBrowserInPanel(manager)
+                animateBrowserPanel(visible: true)
+            } else if let project = WorkspaceStore.shared.projects.first {
+                // Create a new browser session — this will call showBrowserContent,
+                // which embeds into the side panel and animates it open.
+                Task { @MainActor in
+                    await coordinator.createQuickSession(for: project, template: .browser)
+                }
             }
         }
+    }
 
-        // No browser session exists — create one in the first available project.
-        if let project = WorkspaceStore.shared.projects.first {
-            Task { @MainActor in
-                await coordinator.createQuickSession(for: project, template: .browser)
-            }
-            return
-        }
-        // Fallback: old toggle behavior if no projects exist.
-        isBrowserVisible.toggle()
+    /// Animate the browser side panel open or closed.
+    private func animateBrowserPanel(visible: Bool) {
+        isBrowserVisible = visible
 
         let inset = WorkspaceLayout.terminalInset
 
         // Swap trailing constraints: terminal trails to browser or to window edge.
-        if isBrowserVisible {
+        if visible {
             shadowHostTrailingConstraint.isActive = false
             shadowHostTrailingToBrowser.isActive = true
         } else {
@@ -365,7 +366,7 @@ class WorkspaceViewContainer: NSView {
         }
 
         // Update globe button tint: accent color when open, secondary when closed.
-        browserToggleButton.contentTintColor = isBrowserVisible
+        browserToggleButton.contentTintColor = visible
             ? NSColor(red: 0.788, green: 0.451, blue: 0.314, alpha: 1)  // terracotta
             : .secondaryLabelColor
 
@@ -374,7 +375,7 @@ class WorkspaceViewContainer: NSView {
             context.duration = reduceMotion ? 0 : 0.2
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
-            if self.isBrowserVisible {
+            if visible {
                 // Expand browser to share width with terminal.
                 let availableWidth = bounds.width
                     - (sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0)
@@ -393,48 +394,20 @@ class WorkspaceViewContainer: NSView {
         }
 
         // Shadow + corner radius (non-animatable).
-        browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
+        browserShadowHost.layer?.shadowOpacity = visible ? 0.15 : 0
 
         invalidateIntrinsicContentSize()
     }
 
-    // MARK: - Browser Session Content
+    /// Embed a browser manager's active tab view into `browserPanelView.contentArea`.
+    private func embedBrowserInPanel(_ manager: BrowserTabManager) {
+        // Remove any existing content from the panel's content area.
+        for subview in browserPanelView.contentArea.subviews {
+            subview.removeFromSuperview()
+        }
 
-    /// Whether a browser session is currently occupying the terminal area.
-    private var isBrowserSessionActive = false
-
-    /// The current browser content view embedded in the terminal area.
-    private weak var activeBrowserContentView: NSView?
-
-    /// Show a browser session's content in the terminal area (replaces terminal).
-    /// Called by SessionCoordinator when switching to a browser session.
-    func showBrowserContent(_ manager: BrowserTabManager, bridge: BrowserSessionBridge?) {
-        isBrowserSessionActive = true
-        terminalContainer.isHidden = true
-
-        activeBrowserContentView?.removeFromSuperview()
-
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.wantsLayer = true
-        terminalShadowHost.addSubview(container)
-
-        NSLayoutConstraint.activate([
-            container.topAnchor.constraint(equalTo: terminalShadowHost.topAnchor),
-            container.leadingAnchor.constraint(equalTo: terminalShadowHost.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: terminalShadowHost.trailingAnchor),
-            container.bottomAnchor.constraint(equalTo: terminalShadowHost.bottomAnchor),
-        ])
-        activeBrowserContentView = container
-
-        let navBar = BrowserNavigationBar()
-        navBar.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(navBar)
-
-        // Wire the bridge to this navigation bar.
-        bridge?.navigationBar = navBar
-
-        // Wire navigation bar actions.
+        // Wire the navigation bar actions.
+        let navBar = browserPanelView.navigationBar
         navBar.backButton.target = self
         navBar.backButton.action = #selector(browserGoBack)
         navBar.forwardButton.target = self
@@ -445,51 +418,58 @@ class WorkspaceViewContainer: NSView {
         navBar.devToolsButton.action = #selector(browserToggleDevTools)
         navBar.urlField.delegate = self
 
-        // Tab bar omitted for now — single-tab MVP.
-
-        let contentArea = NSView()
-        contentArea.translatesAutoresizingMaskIntoConstraints = false
-        contentArea.wantsLayer = true
-        container.addSubview(contentArea)
-
-        let navHeight: CGFloat = WorkspaceLayout.terminalTitleBarHeight
-        NSLayoutConstraint.activate([
-            navBar.topAnchor.constraint(equalTo: container.topAnchor),
-            navBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            navBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            navBar.heightAnchor.constraint(equalToConstant: navHeight),
-
-            contentArea.topAnchor.constraint(equalTo: navBar.bottomAnchor),
-            contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-
+        // Wire the bridge to this navigation bar.
+        let bridge = coordinator.bridge(for: manager)
+        bridge?.navigationBar = navBar
 
         // Embed the active tab's browser view.
         if let activeTabId = manager.activeTabId,
            let browserView = manager.browserViews[activeTabId] as? NSView {
             browserView.translatesAutoresizingMaskIntoConstraints = false
-            contentArea.addSubview(browserView)
+            browserPanelView.contentArea.addSubview(browserView)
             NSLayoutConstraint.activate([
-                browserView.topAnchor.constraint(equalTo: contentArea.topAnchor),
-                browserView.leadingAnchor.constraint(equalTo: contentArea.leadingAnchor),
-                browserView.trailingAnchor.constraint(equalTo: contentArea.trailingAnchor),
-                browserView.bottomAnchor.constraint(equalTo: contentArea.bottomAnchor),
+                browserView.topAnchor.constraint(equalTo: browserPanelView.contentArea.topAnchor),
+                browserView.leadingAnchor.constraint(equalTo: browserPanelView.contentArea.leadingAnchor),
+                browserView.trailingAnchor.constraint(equalTo: browserPanelView.contentArea.trailingAnchor),
+                browserView.bottomAnchor.constraint(equalTo: browserPanelView.contentArea.bottomAnchor),
             ])
+            // Force layout so CEFBrowserView gets its real size, then tell CEF to resize.
+            browserPanelView.contentArea.layoutSubtreeIfNeeded()
+            if let cefView = browserView as? CEFBrowserView {
+                cefView.setFrameSize(browserPanelView.contentArea.bounds.size)
+            }
         }
 
         _activeBrowserManager = manager
     }
 
-    /// Restore terminal display (when switching from a browser session to a terminal session).
+    // MARK: - Browser Session Content
+
+    /// Show a browser session's content in the side panel (terminal stays visible).
+    /// Called by SessionCoordinator when switching to or creating a browser session.
+    func showBrowserContent(_ manager: BrowserTabManager, bridge: BrowserSessionBridge?) {
+        embedBrowserInPanel(manager)
+
+        // Wire the bridge if provided (overrides the one found in embedBrowserInPanel).
+        if let bridge = bridge {
+            bridge.navigationBar = browserPanelView.navigationBar
+        }
+
+        // Open the side panel if it isn't already visible.
+        if !isBrowserVisible {
+            animateBrowserPanel(visible: true)
+        }
+    }
+
+    /// Restore terminal-only display (collapse browser side panel).
+    /// Called by SessionCoordinator when switching from a browser session to a terminal session.
     func showTerminalContent() {
-        guard isBrowserSessionActive else { return }
-        isBrowserSessionActive = false
-        activeBrowserContentView?.removeFromSuperview()
-        activeBrowserContentView = nil
+        // Terminal is always visible in side-by-side mode, so nothing to un-hide.
+        // Collapse the browser panel if it's open.
+        if isBrowserVisible {
+            animateBrowserPanel(visible: false)
+        }
         _activeBrowserManager = nil
-        terminalContainer.isHidden = false
     }
 
     /// Weak reference to the active browser manager for navigation actions.
@@ -933,7 +913,7 @@ class WorkspaceViewContainer: NSView {
         browserShadowHost.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
         browserShadowHost.layer?.cornerCurve = .continuous
         browserShadowHost.layer?.backgroundColor = hasCardInset ? cardBackgroundCGColor : nil
-        browserShadowHost.layer?.masksToBounds = true
+        browserShadowHost.layer?.masksToBounds = false
         browserShadowHost.alphaValue = 0  // hidden initially
 
         // Canvas background — visible behind the floating card in pinned and closed modes.

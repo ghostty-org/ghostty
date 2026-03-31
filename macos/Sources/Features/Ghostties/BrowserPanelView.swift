@@ -25,6 +25,11 @@ final class BrowserPanelView: NSView {
     }
 
     private func setup() {
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
+        layer?.cornerCurve = .continuous
+
         addSubview(navigationBar)
         addSubview(contentArea)
 

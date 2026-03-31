@@ -389,6 +389,9 @@ private:
 #if GHOSTTIES_CEF_AVAILABLE
 - (void)_browserDidCreate:(CefRefPtr<CefBrowser>)browser {
     _browser = browser;
+    // The view may have already been resized by Auto Layout before the async
+    // CreateBrowser completed. Sync CEF's internal size to the current bounds.
+    _browser->GetHost()->WasResized();
 }
 
 - (void)_browserDidClose {

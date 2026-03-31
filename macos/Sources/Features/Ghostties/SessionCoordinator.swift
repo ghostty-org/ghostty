@@ -257,6 +257,11 @@ final class SessionCoordinator: ObservableObject {
         browserManagers[id] != nil
     }
 
+    /// Returns the bridge for a given browser tab manager, if one exists.
+    func bridge(for manager: BrowserTabManager) -> BrowserSessionBridge? {
+        browserBridges.values.first { $0.tabManager === manager }
+    }
+
     /// Show the given browser manager's content in the workspace container.
     private func showBrowserInContainer(_ manager: BrowserTabManager) {
         guard let container = containerView as? WorkspaceViewContainer else { return }
