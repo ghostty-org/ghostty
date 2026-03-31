@@ -1,5 +1,32 @@
 # Session Notes — Ghostties
 
+## Mar 30, 2026 (Session 12)
+
+### Housekeeping — CEF Phase 2 commit, skills update, cleanup
+
+Light session focused on getting uncommitted work pushed and tools up to date.
+
+**Committed & Pushed**
+- CEF Phase 2: dynamic loading, helper process, BrowserSessionBridge, build/embed scripts, entitlements (`624428640`)
+- Impeccable design skills (21 skills from pbakaus/impeccable) + gitignore editor dirs (`40fda3027`)
+- Removed accidentally committed agent worktrees + gitignored `.claude/worktrees/` (`e440741a5`)
+
+**Tools & Plugins**
+- Verified all 5 plugins at latest versions (compound-engineering v2.31.1, design v1.0.0, clangd-lsp, swift-lsp, cli-anything)
+- Installed/updated impeccable.style skills via `npx skills add pbakaus/impeccable` — 21 skills including new: arrange, overdrive, typeset
+- Reconnected Figma MCP (was needing auth)
+- Paper MCP still disconnected (app not running)
+
+**Cleanup**
+- Dropped 4 stale stashes (all from v1.3 merge era / dead floating-card branch)
+- Identified 10 leftover agent worktree branches for future cleanup
+
+**WIP (not committed — another agent running)**
+- SessionCoordinator.swift, WorkspaceViewContainer.swift, CEFBrowserView.mm have unstaged changes
+
+**Key commands**
+- `npx -y skills add pbakaus/impeccable --yes` — install impeccable skills non-interactively
+
 ## Mar 24, 2026 (Session 11)
 
 ### Template Injection, Menu Bar, Sidebar Overhaul + CEF Browser Brainstorm
