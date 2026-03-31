@@ -28,3 +28,7 @@ vgcore.*
 
 vendor/cef/
 vendor/cef-build/
+default.profraw
+.continue/
+.kiro/
+.windsurf/
