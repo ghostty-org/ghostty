@@ -37,45 +37,45 @@ extension Ghostty {
 }
 
 extension Ghostty.MenuShortcutManager {
-        /// Attempts to perform a menu key equivalent only for menu items that represent
-        /// Ghostty keybind actions. This is important because it lets our surface dispatch
-        /// bindings through the menu so they flash but also lets our surface override macOS built-ins
-        /// like Cmd+H.
-        func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
-            // Convert this event into the same normalized lookup key we use when
-            // syncing menu shortcuts from configuration.
-            guard let key = MenuShortcutKey(event: event) else {
-                return false
-            }
-
-            // If we don't have an entry for this key combo, no Ghostty-owned
-            // menu shortcut exists for this event.
-            guard let action = configuredShortcuts[key] else {
-                return false
-            }
-
-            guard let item = NSApp.mainMenu?.findItem(with: action) else {
-                return false
-            }
-
-            guard let parentMenu = item.menu else {
-                return false
-            }
-
-            // Keep enablement state fresh in case menu validation hasn't run yet.
-            parentMenu.update()
-            guard item.isEnabled else {
-                return false
-            }
-
-            let index = parentMenu.index(of: item)
-            guard index >= 0 else {
-                return false
-            }
-
-            parentMenu.performActionForItem(at: index)
-            return true
+    /// Attempts to perform a menu key equivalent only for menu items that represent
+    /// Ghostty keybind actions. This is important because it lets our surface dispatch
+    /// bindings through the menu so they flash but also lets our surface override macOS built-ins
+    /// like Cmd+H.
+    func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
+        // Convert this event into the same normalized lookup key we use when
+        // syncing menu shortcuts from configuration.
+        guard let key = MenuShortcutKey(event: event) else {
+            return false
         }
+
+        // If we don't have an entry for this key combo, no Ghostty-owned
+        // menu shortcut exists for this event.
+        guard let action = configuredShortcuts[key] else {
+            return false
+        }
+
+        guard let item = NSApp.mainMenu?.findItem(with: action) else {
+            return false
+        }
+
+        guard let parentMenu = item.menu else {
+            return false
+        }
+
+        // Keep enablement state fresh in case menu validation hasn't run yet.
+        parentMenu.update()
+        guard item.isEnabled else {
+            return false
+        }
+
+        let index = parentMenu.index(of: item)
+        guard index >= 0 else {
+            return false
+        }
+
+        parentMenu.performActionForItem(at: index)
+        return true
+    }
 }
 
 // MARK: - Recursively process all of the menu items
