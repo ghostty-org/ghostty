@@ -166,17 +166,41 @@ private:
 @implementation CEFBrowserView
 
 - (instancetype)initWithFrame:(NSRect)frame url:(nullable NSString *)url {
-    self = [super initWithFrame:frame];
+    // Ensure non-zero frame — CEF's compositor aborts on zero-sized views.
+    NSRect initialFrame = frame;
+    if (initialFrame.size.width < 1) initialFrame.size.width = 800;
+    if (initialFrame.size.height < 1) initialFrame.size.height = 600;
+
+    self = [super initWithFrame:initialFrame];
     if (!self) return nil;
 
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.wantsLayer = YES;
-    self.pendingURL = url ?: @"about:blank";
     self.browserCreated = NO;
+    self.pendingURL = nil;
 
 #if GHOSTTIES_CEF_AVAILABLE
     [CEFBridgeManager initializeIfNeeded];
+    if (![CEFBridgeManager isInitialized]) {
+        return self;  // CEF failed to init — return stub view
+    }
+
     _client = new GhosttiesCefClient(self);
+
+    // Create browser immediately — Chromium's ProfileManager expects a browser
+    // window shortly after CefInitialize or it shuts down the process.
+    CefWindowInfo windowInfo;
+    CefRect cefRect(0, 0, (int)initialFrame.size.width, (int)initialFrame.size.height);
+    windowInfo.SetAsChild((__bridge CefWindowHandle)self, cefRect);
+
+    CefBrowserSettings settings;
+    NSString *urlStr = url ?: @"about:blank";
+    CefString cefURL([urlStr UTF8String]);
+
+    [CEFBridgeManager startMessageLoopIfNeeded];
+    CefBrowserHost::CreateBrowser(windowInfo, _client, cefURL, settings,
+                                  nullptr, nullptr);
+    self.browserCreated = YES;
 #else
     NSLog(@"[CEFBrowserView] CEF headers not available — running in stub mode.");
 #endif
@@ -284,6 +308,11 @@ private:
 - (void)setFrameSize:(NSSize)newSize {
     [super setFrameSize:newSize];
 #if GHOSTTIES_CEF_AVAILABLE
+    // If browser hasn't been created yet and we now have real bounds, create it.
+    if (!self.browserCreated && self.window && _client
+        && newSize.width > 0 && newSize.height > 0) {
+        [self viewDidMoveToWindow];
+    }
     if (_browser) {
         _browser->GetHost()->WasResized();
     }
@@ -293,14 +322,14 @@ private:
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
 #if GHOSTTIES_CEF_AVAILABLE
-    // Create the browser on first window attachment (CEF needs a real window handle).
-    if (!self.browserCreated && self.window && _client) {
+    // Create the browser on first window attachment (CEF needs a real window handle
+    // AND non-zero bounds — Chromium's compositor aborts on zero-sized views).
+    if (!self.browserCreated && self.window && _client
+        && self.bounds.size.width > 0 && self.bounds.size.height > 0) {
         self.browserCreated = YES;
 
         CefWindowInfo windowInfo;
         NSRect bounds = self.bounds;
-        if (bounds.size.width < 1) bounds.size.width = 800;
-        if (bounds.size.height < 1) bounds.size.height = 600;
         CefRect cefRect(0, 0, (int)bounds.size.width, (int)bounds.size.height);
         windowInfo.SetAsChild((__bridge CefWindowHandle)self, cefRect);
 
@@ -312,6 +341,10 @@ private:
         } else {
             cefURL = CefString("about:blank");
         }
+
+        // Start the message loop right before CreateBrowser — it needs to
+        // pump events for the async browser creation + helper IPC to work.
+        [CEFBridgeManager startMessageLoopIfNeeded];
 
         CefBrowserHost::CreateBrowser(windowInfo, _client, cefURL, settings,
                                       nullptr, nullptr);
@@ -356,8 +389,6 @@ private:
 #if GHOSTTIES_CEF_AVAILABLE
 - (void)_browserDidCreate:(CefRefPtr<CefBrowser>)browser {
     _browser = browser;
-    // Start the CEF message loop now that a browser exists.
-    [CEFBridgeManager startMessageLoopIfNeeded];
 }
 
 - (void)_browserDidClose {

@@ -351,8 +351,6 @@ class WorkspaceViewContainer: NSView {
             return
         }
         // Fallback: old toggle behavior if no projects exist.
-
-        // Fallback: old toggle behavior if no projects exist.
         isBrowserVisible.toggle()
 
         let inset = WorkspaceLayout.terminalInset
@@ -414,10 +412,8 @@ class WorkspaceViewContainer: NSView {
         isBrowserSessionActive = true
         terminalContainer.isHidden = true
 
-        // Remove any existing browser content.
         activeBrowserContentView?.removeFromSuperview()
 
-        // Create a container for browser content within the terminal shadow host.
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.wantsLayer = true
@@ -431,7 +427,6 @@ class WorkspaceViewContainer: NSView {
         ])
         activeBrowserContentView = container
 
-        // Add the navigation bar at the top.
         let navBar = BrowserNavigationBar()
         navBar.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(navBar)
@@ -450,36 +445,26 @@ class WorkspaceViewContainer: NSView {
         navBar.devToolsButton.action = #selector(browserToggleDevTools)
         navBar.urlField.delegate = self
 
-        // Add tab bar between nav bar and content area.
-        let tabBar = BrowserTabBar()
-        tabBar.translatesAutoresizingMaskIntoConstraints = false
-        tabBar.tabManager = manager
-        container.addSubview(tabBar)
+        // Tab bar omitted for now — single-tab MVP.
 
-        // Add the content area below the tab bar.
         let contentArea = NSView()
         contentArea.translatesAutoresizingMaskIntoConstraints = false
         contentArea.wantsLayer = true
         container.addSubview(contentArea)
 
         let navHeight: CGFloat = WorkspaceLayout.terminalTitleBarHeight
-        let tabBarHeight: CGFloat = 24
         NSLayoutConstraint.activate([
             navBar.topAnchor.constraint(equalTo: container.topAnchor),
             navBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             navBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             navBar.heightAnchor.constraint(equalToConstant: navHeight),
 
-            tabBar.topAnchor.constraint(equalTo: navBar.bottomAnchor),
-            tabBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tabBar.heightAnchor.constraint(equalToConstant: tabBarHeight),
-
-            contentArea.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            contentArea.topAnchor.constraint(equalTo: navBar.bottomAnchor),
             contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+
 
         // Embed the active tab's browser view.
         if let activeTabId = manager.activeTabId,
@@ -494,7 +479,6 @@ class WorkspaceViewContainer: NSView {
             ])
         }
 
-        // Store the manager for URL field actions.
         _activeBrowserManager = manager
     }
 

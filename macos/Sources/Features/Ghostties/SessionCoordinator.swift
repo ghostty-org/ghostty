@@ -223,11 +223,13 @@ final class SessionCoordinator: ObservableObject {
         project: Project
     ) -> Bool {
         CEFBridgeManager.initializeIfNeeded()
+        guard CEFBridgeManager.isInitialized else { return false }
 
         let manager = BrowserTabManager()
         let tab = manager.createTab(url: "https://www.google.com")
 
-        let browserView = CEFBrowserView(frame: .zero, url: tab.url)
+        let browserView = CEFBrowserView(frame: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                         url: tab.url)
         manager.registerBrowserView(browserView, for: tab.id)
 
         let bridge = BrowserSessionBridge(

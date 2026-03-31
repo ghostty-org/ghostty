@@ -1,13 +1,11 @@
 #import "CEFBridge.h"
 #import <AppKit/AppKit.h>
 
-// CEF headers are only available after the framework is downloaded.
-// When absent, all methods operate in stub mode and log a warning.
 #if __has_include("include/cef_app.h")
 #define CEF_AVAILABLE 1
 #import "include/cef_app.h"
 #import "include/cef_browser.h"
-#import "include/cef_command_line.h"
+#import "include/cef_browser_process_handler.h"
 #import "include/wrapper/cef_helpers.h"
 #import "include/wrapper/cef_library_loader.h"
 #else
@@ -21,6 +19,51 @@
 static BOOL _isInitialized = NO;
 static int _remoteDebuggingPort = 0;
 static NSTimer *_messageLoopTimer = nil;
+
+// ---------------------------------------------------------------------------
+// CefApp implementation for external message pump integration
+// ---------------------------------------------------------------------------
+
+#if CEF_AVAILABLE
+
+/// Handles scheduling of message pump work from CEF's internal threads.
+/// When CEF needs processing time, it calls OnScheduleMessagePumpWork
+/// which dispatches to the main thread for our timer to handle.
+class GhosttiesBrowserProcessHandler : public CefBrowserProcessHandler {
+public:
+    void OnScheduleMessagePumpWork(int64_t delay_ms) override {
+        // Dispatch to the main thread's run loop. If delay is 0, process
+        // immediately. Otherwise, schedule after the delay.
+        if (delay_ms <= 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                CefDoMessageLoopWork();
+            });
+        } else {
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC),
+                dispatch_get_main_queue(), ^{
+                    CefDoMessageLoopWork();
+                });
+        }
+    }
+
+    IMPLEMENT_REFCOUNTING(GhosttiesBrowserProcessHandler);
+};
+
+class GhosttiesApp : public CefApp {
+public:
+    GhosttiesApp() : browser_handler_(new GhosttiesBrowserProcessHandler()) {}
+
+    CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
+        return browser_handler_;
+    }
+
+private:
+    CefRefPtr<GhosttiesBrowserProcessHandler> browser_handler_;
+    IMPLEMENT_REFCOUNTING(GhosttiesApp);
+};
+
+#endif // CEF_AVAILABLE
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -80,6 +123,7 @@ static NSTimer *_messageLoopTimer = nil;
 
     CefSettings settings;
     settings.no_sandbox = true;
+    settings.external_message_pump = true;
 
     CefString(&settings.framework_dir_path) = [frameworkPath UTF8String];
     CefString(&settings.browser_subprocess_path) = [helperPath UTF8String];
@@ -93,15 +137,13 @@ static NSTimer *_messageLoopTimer = nil;
     CefString(&settings.cache_path) = [cacheDir UTF8String];
     CefString(&settings.locale) = "en-US";
 
-    // CEF's own log file (for diagnosing subprocess issues).
+    // CEF's own log file.
     CefString(&settings.log_file) = "/tmp/ghostties-cef-internal.log";
-    settings.log_severity = LOGSEVERITY_INFO;
+    settings.log_severity = LOGSEVERITY_WARNING;
 
     settings.remote_debugging_port = 0;
 
-    // ---- Main args (with Chromium switches) ----------------------------
-    // Pass --use-mock-keychain to suppress the macOS Keychain password
-    // prompt that crashes ad-hoc signed apps.
+    // ---- Main args ------------------------------------------------------
 
     static const char *fakeArgv[] = {
         "Ghostties",
@@ -110,8 +152,12 @@ static NSTimer *_messageLoopTimer = nil;
     };
     CefMainArgs mainArgs(2, const_cast<char**>(fakeArgv));
 
-    CefRefPtr<CefApp> cefApp = nullptr;
-    bool success = CefInitialize(mainArgs, settings, cefApp, nullptr);
+    // ---- Initialize with our CefApp ------------------------------------
+    // GhosttiesApp provides the BrowserProcessHandler which implements
+    // OnScheduleMessagePumpWork for external_message_pump integration.
+
+    CefRefPtr<GhosttiesApp> app(new GhosttiesApp());
+    bool success = CefInitialize(mainArgs, settings, app, nullptr);
     if (!success) {
         NSLog(@"[CEFBridge] CefInitialize failed.");
         return;
@@ -119,11 +165,12 @@ static NSTimer *_messageLoopTimer = nil;
 
     _remoteDebuggingPort = settings.remote_debugging_port;
 
-    // ---- Message loop timer (60 Hz) ------------------------------------
-    // Pumps CEF's event loop. Must run before CreateBrowser so helpers can
-    // establish IPC with the main process.
+    // ---- Backup timer (4 Hz) -------------------------------------------
+    // The primary message pump is driven by OnScheduleMessagePumpWork above.
+    // This low-frequency timer is a safety net to ensure events are processed
+    // even if a callback is missed.
 
-    _messageLoopTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
+    _messageLoopTimer = [NSTimer timerWithTimeInterval:0.25
                                                 target:self
                                               selector:@selector(_messageLoopTick:)
                                               userInfo:nil
@@ -142,23 +189,13 @@ static NSTimer *_messageLoopTimer = nil;
     NSLog(@"[CEFBridge] CEF initialized (debug port: %d).", _remoteDebuggingPort);
 
 #else
-    // Stub mode — CEF framework not present.
     NSLog(@"[CEFBridge] CEF headers not available — running in stub mode.");
 #endif
 }
 
 + (void)startMessageLoopIfNeeded {
-    if (_messageLoopTimer) return;
-    if (!_isInitialized) return;
-
-    _messageLoopTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
-                                                target:self
-                                              selector:@selector(_messageLoopTick:)
-                                              userInfo:nil
-                                               repeats:YES];
-    [[NSRunLoop mainRunLoop] addTimer:_messageLoopTimer
-                              forMode:NSRunLoopCommonModes];
-    NSLog(@"[CEFBridge] Message loop started.");
+    // With external_message_pump, the pump is driven by OnScheduleMessagePumpWork.
+    // This is a no-op but kept for API compatibility.
 }
 
 + (void)shutdown {
