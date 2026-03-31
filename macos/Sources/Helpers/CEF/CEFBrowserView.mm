@@ -1,5 +1,6 @@
 #import "CEFBrowserView.h"
 #import "CEFBridge.h"
+#import <AppKit/AppKit.h>
 
 // CEF headers are only available after running scripts/download-cef.sh.
 // When absent, the view compiles in stub mode — all methods are no-ops.
@@ -12,6 +13,20 @@
 #import "include/cef_display_handler.h"
 #import "include/cef_load_handler.h"
 #import "include/wrapper/cef_helpers.h"
+#endif
+
+// Forward-declare private methods so C++ handlers can call them.
+@interface CEFBrowserView ()
+- (void)_didChangeURL:(NSString *)url;
+- (void)_didChangeTitle:(NSString *)title;
+- (void)_didChangeLoadingState:(BOOL)loading canGoBack:(BOOL)back canGoForward:(BOOL)forward;
+#if GHOSTTIES_CEF_AVAILABLE
+- (void)_browserDidCreate:(CefRefPtr<CefBrowser>)browser;
+- (void)_browserDidClose;
+#endif
+@end
+
+#if GHOSTTIES_CEF_AVAILABLE
 
 #pragma mark - GhosttiesDisplayHandler
 
@@ -141,6 +156,8 @@ private:
 @property (nonatomic, readwrite) BOOL canGoForward;
 @property (nonatomic, readwrite, nullable) NSString *currentURL;
 @property (nonatomic, readwrite, nullable) NSString *currentTitle;
+@property (nonatomic, copy, nullable) NSString *pendingURL;
+@property (nonatomic) BOOL browserCreated;
 
 @end
 
@@ -154,31 +171,14 @@ private:
 
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.wantsLayer = YES;
+    self.pendingURL = url ?: @"about:blank";
+    self.browserCreated = NO;
 
 #if GHOSTTIES_CEF_AVAILABLE
-    // Lazy-init the CEF runtime on first browser creation.
     [CEFBridgeManager initializeIfNeeded];
-
     _client = new GhosttiesCefClient(self);
-
-    CefWindowInfo windowInfo;
-    windowInfo.SetAsChild((__bridge CefWindowHandle)self, 0, 0,
-                          (int)frame.size.width, (int)frame.size.height);
-
-    CefBrowserSettings settings;
-
-    CefString cefURL;
-    if (url.length > 0) {
-        cefURL = CefString([url UTF8String]);
-    } else {
-        cefURL = CefString("about:blank");
-    }
-
-    CefBrowserHost::CreateBrowser(windowInfo, _client, cefURL, settings,
-                                  nullptr, nullptr);
 #else
-    NSLog(@"[CEFBrowserView] CEF headers not available — running in stub mode. "
-          @"Run scripts/download-cef.sh to enable the embedded browser.");
+    NSLog(@"[CEFBrowserView] CEF headers not available — running in stub mode.");
 #endif
 
     return self;
@@ -245,7 +245,8 @@ private:
     if (!_browser) return;
 
     CefWindowInfo devToolsWindowInfo;
-    devToolsWindowInfo.SetAsPopup(nullptr, "DevTools");
+    // No parent_view → CEF creates a standalone window for DevTools.
+    CefString(&devToolsWindowInfo.window_name) = "DevTools";
 
     CefBrowserSettings devToolsSettings;
     CefPoint inspectPoint;
@@ -292,6 +293,31 @@ private:
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
 #if GHOSTTIES_CEF_AVAILABLE
+    // Create the browser on first window attachment (CEF needs a real window handle).
+    if (!self.browserCreated && self.window && _client) {
+        self.browserCreated = YES;
+
+        CefWindowInfo windowInfo;
+        NSRect bounds = self.bounds;
+        if (bounds.size.width < 1) bounds.size.width = 800;
+        if (bounds.size.height < 1) bounds.size.height = 600;
+        CefRect cefRect(0, 0, (int)bounds.size.width, (int)bounds.size.height);
+        windowInfo.SetAsChild((__bridge CefWindowHandle)self, cefRect);
+
+        CefBrowserSettings settings;
+
+        CefString cefURL;
+        if (self.pendingURL.length > 0) {
+            cefURL = CefString([self.pendingURL UTF8String]);
+        } else {
+            cefURL = CefString("about:blank");
+        }
+
+        CefBrowserHost::CreateBrowser(windowInfo, _client, cefURL, settings,
+                                      nullptr, nullptr);
+        self.pendingURL = nil;
+    }
+
     if (_browser && self.window) {
         _browser->GetHost()->WasResized();
     }
@@ -330,6 +356,8 @@ private:
 #if GHOSTTIES_CEF_AVAILABLE
 - (void)_browserDidCreate:(CefRefPtr<CefBrowser>)browser {
     _browser = browser;
+    // Start the CEF message loop now that a browser exists.
+    [CEFBridgeManager startMessageLoopIfNeeded];
 }
 
 - (void)_browserDidClose {

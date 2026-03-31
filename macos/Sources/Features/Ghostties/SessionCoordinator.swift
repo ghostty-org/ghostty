@@ -32,6 +32,13 @@ final class SessionCoordinator: ObservableObject {
     /// live version); call `snapshotActiveTree()` to sync before reading.
     private(set) var sessionTrees: [UUID: SplitTree<Ghostty.SurfaceView>] = [:]
 
+    /// Browser tab managers for browser-kind sessions. A session is either in
+    /// sessionTrees (terminal) OR browserManagers (browser), never both.
+    private(set) var browserManagers: [UUID: BrowserTabManager] = [:]
+
+    /// Bridges CEF callbacks to the browser UI. Keyed by session ID.
+    private var browserBridges: [UUID: BrowserSessionBridge] = [:]
+
     /// Per-window runtime status. Views should prefer `WorkspaceStore.shared.globalStatuses`
     /// for cross-window visibility; this local copy is kept for backward compatibility.
     @Published private(set) var statuses: [UUID: SessionStatus] = [:]
@@ -110,6 +117,11 @@ final class SessionCoordinator: ObservableObject {
         template: AgentTemplate,
         project: Project
     ) async -> Bool {
+        // Browser sessions bypass the terminal path entirely.
+        if template.kind == .browser {
+            return createBrowserSession(session: session, template: template, project: project)
+        }
+
         guard let ghosttyApp = ghostty.app else { return false }
 
         // Build the full command string and resolve the binary path, both off
@@ -201,6 +213,62 @@ final class SessionCoordinator: ObservableObject {
         return await createSession(session: session, template: template, project: project)
     }
 
+    // MARK: - Browser Sessions
+
+    /// Create a browser session. Instead of a Ghostty surface, this initializes CEF
+    /// and shows a browser panel in the terminal area.
+    private func createBrowserSession(
+        session: AgentSession,
+        template: AgentTemplate,
+        project: Project
+    ) -> Bool {
+        CEFBridgeManager.initializeIfNeeded()
+
+        let manager = BrowserTabManager()
+        let tab = manager.createTab(url: "https://www.google.com")
+
+        let browserView = CEFBrowserView(frame: .zero, url: tab.url)
+        manager.registerBrowserView(browserView, for: tab.id)
+
+        let bridge = BrowserSessionBridge(
+            sessionId: session.id,
+            tabManager: manager,
+            coordinator: self
+        )
+        browserView.delegate = bridge
+        bridge.activeTabId = tab.id
+        browserBridges[session.id] = bridge
+
+        snapshotActiveTree()
+
+        browserManagers[session.id] = manager
+        setStatus(.running, for: session.id)
+        activeSessionId = session.id
+        lastActiveSessionPerProject[session.projectId] = session.id
+
+        showBrowserInContainer(manager)
+        return true
+    }
+
+    /// Whether a session is a browser session (not a terminal session).
+    func isSessionBrowser(_ id: UUID) -> Bool {
+        browserManagers[id] != nil
+    }
+
+    /// Show the given browser manager's content in the workspace container.
+    private func showBrowserInContainer(_ manager: BrowserTabManager) {
+        guard let container = containerView as? WorkspaceViewContainer else { return }
+        container.showBrowserContent(manager, bridge: browserBridges.values.first {
+            $0.tabManager === manager
+        })
+    }
+
+    /// Restore the terminal display in the workspace container.
+    private func showTerminalInContainer() {
+        guard let container = containerView as? WorkspaceViewContainer else { return }
+        container.showTerminalContent()
+    }
+
     // MARK: - Session Switching
 
     /// Switch the terminal area to show a specific session.
@@ -209,12 +277,25 @@ final class SessionCoordinator: ObservableObject {
     /// This is the "vertical tab" behavior — clicking a session in the sidebar
     /// replaces the terminal content with the target session's full split tree.
     func focusSession(id: UUID) {
+        // Browser session path.
+        if let manager = browserManagers[id] {
+            snapshotActiveTree()
+            activeSessionId = id
+            showBrowserInContainer(manager)
+            if let session = WorkspaceStore.shared.sessions.first(where: { $0.id == id }) {
+                lastActiveSessionPerProject[session.projectId] = id
+            }
+            return
+        }
+
         guard let tree = sessionTrees[id] else { return }
 
         // Snapshot the outgoing session's tree first.
         snapshotActiveTree()
 
         activeSessionId = id
+        // Restore terminal display if coming from a browser session.
+        showTerminalInContainer()
         showSession(tree, focusView: tree.first)
 
         // Record this session as the last active one for its project.
@@ -230,14 +311,16 @@ final class SessionCoordinator: ObservableObject {
     func focusLastSession(forProject projectId: UUID) {
         // Try the remembered session first.
         if let lastId = lastActiveSessionPerProject[projectId],
-           sessionTrees[lastId] != nil {
+           sessionTrees[lastId] != nil || browserManagers[lastId] != nil {
             focusSession(id: lastId)
             return
         }
 
         // Fall back to the first running session in this project.
         let projectSessions = WorkspaceStore.shared.sessions(for: projectId)
-        if let running = projectSessions.first(where: { sessionTrees[$0.id] != nil }) {
+        if let running = projectSessions.first(where: {
+            sessionTrees[$0.id] != nil || browserManagers[$0.id] != nil
+        }) {
             focusSession(id: running.id)
         }
     }
@@ -246,11 +329,23 @@ final class SessionCoordinator: ObservableObject {
 
     /// Check if a session has a live surface.
     func isRunning(id: UUID) -> Bool {
-        sessionTrees[id] != nil && statuses[id] == .running
+        (sessionTrees[id] != nil || browserManagers[id] != nil) && statuses[id] == .running
     }
 
     /// Close a session's surface tree. All processes in the tree are terminated.
     func closeSession(id: UUID) {
+        // Browser session path.
+        if let manager = browserManagers[id] {
+            manager.closeAllTabs()
+            browserManagers.removeValue(forKey: id)
+            browserBridges.removeValue(forKey: id)
+            setStatus(.killed, for: id)
+            if activeSessionId == id {
+                switchToNextSession()
+            }
+            return
+        }
+
         guard let tree = sessionTrees[id] else { return }
 
         // Remove from our tracking first, then close surfaces via the controller.
@@ -273,6 +368,8 @@ final class SessionCoordinator: ObservableObject {
     /// Clean up runtime state for a session (after removing from the store).
     func clearRuntime(id: UUID) {
         sessionTrees.removeValue(forKey: id)
+        browserManagers.removeValue(forKey: id)
+        browserBridges.removeValue(forKey: id)
         statuses.removeValue(forKey: id)
         outputSubscriptions.removeValue(forKey: id)
         lastOutputTimestamps.removeValue(forKey: id)
@@ -321,12 +418,20 @@ final class SessionCoordinator: ObservableObject {
 
     /// Switch to the next available running session, or show nothing.
     private func switchToNextSession() {
+        // Try terminal sessions first.
         if let (nextId, nextTree) = sessionTrees.first(where: { statuses[$0.key] == .running }) {
             activeSessionId = nextId
+            showTerminalInContainer()
             showSession(nextTree, focusView: nextTree.first)
-        } else {
-            activeSessionId = nil
+            return
         }
+        // Try browser sessions.
+        if let (nextId, nextManager) = browserManagers.first(where: { statuses[$0.key] == .running }) {
+            activeSessionId = nextId
+            showBrowserInContainer(nextManager)
+            return
+        }
+        activeSessionId = nil
     }
 
     /// Close all sessions belonging to a project. Called before the project is
@@ -334,7 +439,7 @@ final class SessionCoordinator: ObservableObject {
     func closeAllSessions(forProject projectId: UUID) {
         let projectSessions = WorkspaceStore.shared.sessions.filter { $0.projectId == projectId }
         for session in projectSessions {
-            if sessionTrees[session.id] != nil {
+            if sessionTrees[session.id] != nil || browserManagers[session.id] != nil {
                 closeSession(id: session.id)
             }
             clearRuntime(id: session.id)
@@ -592,7 +697,7 @@ final class SessionCoordinator: ObservableObject {
 
     @objc private func menuBarDidRequestFocus(_ notification: Notification) {
         guard let sessionId = notification.userInfo?["sessionId"] as? UUID,
-              sessionTrees[sessionId] != nil else { return }
+              sessionTrees[sessionId] != nil || browserManagers[sessionId] != nil else { return }
         focusSession(id: sessionId)
         // Bring this coordinator's window to the front.
         if let window = containerView?.window {
@@ -635,6 +740,14 @@ final class SessionCoordinator: ObservableObject {
     /// - No recent output + NOT at prompt + likely prompting → needsAttention
     /// - No recent output + NOT at shell prompt → waiting
     func indicatorState(for sessionId: UUID) -> SessionIndicatorState {
+        // Browser sessions: map tab loading state to indicator.
+        if let manager = browserManagers[sessionId] {
+            guard let activeTab = manager.tabs.first(where: { $0.id == manager.activeTabId }) else {
+                return .idle
+            }
+            return activeTab.isLoading ? .processing : .idle
+        }
+
         let status = statuses[sessionId]
             ?? WorkspaceStore.shared.globalStatuses[sessionId]
             ?? .exited

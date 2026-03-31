@@ -3,3 +3,4 @@
 #import "ObjCExceptionCatcher.h"
 #import "VibrantLayer.h"
 #import "CEFBridge.h"
+#import "CEFBrowserView.h"

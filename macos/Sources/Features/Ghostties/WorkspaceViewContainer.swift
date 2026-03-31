@@ -322,7 +322,37 @@ class WorkspaceViewContainer: NSView {
     // MARK: - Browser Toggle
 
     /// Toggle browser panel visibility via keyboard shortcut (Cmd+B) or globe button.
+    /// If no browser session exists yet, creates one via the coordinator.
     @objc func toggleBrowser() {
+        // If the active session is already a browser, switch back to the last terminal session.
+        if let activeId = coordinator.activeSessionId, coordinator.isSessionBrowser(activeId) {
+            for (id, _) in coordinator.sessionTrees {
+                if coordinator.statuses[id]?.isAlive == true {
+                    coordinator.focusSession(id: id)
+                    return
+                }
+            }
+            return
+        }
+
+        // Check if there's an existing browser session to switch to.
+        for (id, _) in coordinator.browserManagers {
+            if coordinator.statuses[id]?.isAlive == true {
+                coordinator.focusSession(id: id)
+                return
+            }
+        }
+
+        // No browser session exists — create one in the first available project.
+        if let project = WorkspaceStore.shared.projects.first {
+            Task { @MainActor in
+                await coordinator.createQuickSession(for: project, template: .browser)
+            }
+            return
+        }
+        // Fallback: old toggle behavior if no projects exist.
+
+        // Fallback: old toggle behavior if no projects exist.
         isBrowserVisible.toggle()
 
         let inset = WorkspaceLayout.terminalInset
@@ -368,6 +398,145 @@ class WorkspaceViewContainer: NSView {
         browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
 
         invalidateIntrinsicContentSize()
+    }
+
+    // MARK: - Browser Session Content
+
+    /// Whether a browser session is currently occupying the terminal area.
+    private var isBrowserSessionActive = false
+
+    /// The current browser content view embedded in the terminal area.
+    private weak var activeBrowserContentView: NSView?
+
+    /// Show a browser session's content in the terminal area (replaces terminal).
+    /// Called by SessionCoordinator when switching to a browser session.
+    func showBrowserContent(_ manager: BrowserTabManager, bridge: BrowserSessionBridge?) {
+        isBrowserSessionActive = true
+        terminalContainer.isHidden = true
+
+        // Remove any existing browser content.
+        activeBrowserContentView?.removeFromSuperview()
+
+        // Create a container for browser content within the terminal shadow host.
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.wantsLayer = true
+        terminalShadowHost.addSubview(container)
+
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: terminalShadowHost.topAnchor),
+            container.leadingAnchor.constraint(equalTo: terminalShadowHost.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: terminalShadowHost.trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: terminalShadowHost.bottomAnchor),
+        ])
+        activeBrowserContentView = container
+
+        // Add the navigation bar at the top.
+        let navBar = BrowserNavigationBar()
+        navBar.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(navBar)
+
+        // Wire the bridge to this navigation bar.
+        bridge?.navigationBar = navBar
+
+        // Wire navigation bar actions.
+        navBar.backButton.target = self
+        navBar.backButton.action = #selector(browserGoBack)
+        navBar.forwardButton.target = self
+        navBar.forwardButton.action = #selector(browserGoForward)
+        navBar.reloadButton.target = self
+        navBar.reloadButton.action = #selector(browserReload)
+        navBar.devToolsButton.target = self
+        navBar.devToolsButton.action = #selector(browserToggleDevTools)
+        navBar.urlField.delegate = self
+
+        // Add tab bar between nav bar and content area.
+        let tabBar = BrowserTabBar()
+        tabBar.translatesAutoresizingMaskIntoConstraints = false
+        tabBar.tabManager = manager
+        container.addSubview(tabBar)
+
+        // Add the content area below the tab bar.
+        let contentArea = NSView()
+        contentArea.translatesAutoresizingMaskIntoConstraints = false
+        contentArea.wantsLayer = true
+        container.addSubview(contentArea)
+
+        let navHeight: CGFloat = WorkspaceLayout.terminalTitleBarHeight
+        let tabBarHeight: CGFloat = 24
+        NSLayoutConstraint.activate([
+            navBar.topAnchor.constraint(equalTo: container.topAnchor),
+            navBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            navBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            navBar.heightAnchor.constraint(equalToConstant: navHeight),
+
+            tabBar.topAnchor.constraint(equalTo: navBar.bottomAnchor),
+            tabBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            tabBar.heightAnchor.constraint(equalToConstant: tabBarHeight),
+
+            contentArea.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+
+        // Embed the active tab's browser view.
+        if let activeTabId = manager.activeTabId,
+           let browserView = manager.browserViews[activeTabId] as? NSView {
+            browserView.translatesAutoresizingMaskIntoConstraints = false
+            contentArea.addSubview(browserView)
+            NSLayoutConstraint.activate([
+                browserView.topAnchor.constraint(equalTo: contentArea.topAnchor),
+                browserView.leadingAnchor.constraint(equalTo: contentArea.leadingAnchor),
+                browserView.trailingAnchor.constraint(equalTo: contentArea.trailingAnchor),
+                browserView.bottomAnchor.constraint(equalTo: contentArea.bottomAnchor),
+            ])
+        }
+
+        // Store the manager for URL field actions.
+        _activeBrowserManager = manager
+    }
+
+    /// Restore terminal display (when switching from a browser session to a terminal session).
+    func showTerminalContent() {
+        guard isBrowserSessionActive else { return }
+        isBrowserSessionActive = false
+        activeBrowserContentView?.removeFromSuperview()
+        activeBrowserContentView = nil
+        _activeBrowserManager = nil
+        terminalContainer.isHidden = false
+    }
+
+    /// Weak reference to the active browser manager for navigation actions.
+    private weak var _activeBrowserManager: BrowserTabManager?
+
+    @objc private func browserGoBack() {
+        guard let tabId = _activeBrowserManager?.activeTabId,
+              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        view.goBack()
+    }
+
+    @objc private func browserGoForward() {
+        guard let tabId = _activeBrowserManager?.activeTabId,
+              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        view.goForward()
+    }
+
+    @objc private func browserReload() {
+        guard let tabId = _activeBrowserManager?.activeTabId,
+              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        if view.isLoading {
+            view.stopLoading()
+        } else {
+            view.reload()
+        }
+    }
+
+    @objc private func browserToggleDevTools() {
+        guard let tabId = _activeBrowserManager?.activeTabId,
+              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        view.showDevTools()
     }
 
     /// Minimum interval between transitions to prevent rapid oscillation
@@ -812,6 +981,37 @@ class WorkspaceViewContainer: NSView {
                 self?.titleLabel.stringValue = name
             }
             .store(in: &cancellables)
+    }
+}
+
+// MARK: - Browser URL Field Delegate
+
+extension WorkspaceViewContainer: NSTextFieldDelegate {
+    func control(_ control: NSControl, textShouldEndEditing fieldEditor: NSText) -> Bool {
+        true
+    }
+
+    /// Handle Enter key in the browser URL field.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(insertNewline(_:)) {
+            guard let field = control as? NSTextField else { return false }
+            var urlString = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !urlString.isEmpty else { return true }
+
+            // Add https:// if no scheme present.
+            if !urlString.contains("://") {
+                urlString = "https://\(urlString)"
+            }
+
+            if let tabId = _activeBrowserManager?.activeTabId,
+               let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView {
+                view.loadURL(urlString)
+            }
+            // Resign first responder so keyboard goes back to the browser.
+            field.window?.makeFirstResponder(nil)
+            return true
+        }
+        return false
     }
 }
 

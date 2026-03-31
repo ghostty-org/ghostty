@@ -1,4 +1,5 @@
 #import "CEFBridge.h"
+#import <AppKit/AppKit.h>
 
 // CEF headers are only available after the framework is downloaded.
 // When absent, all methods operate in stub mode and log a warning.
@@ -6,7 +7,9 @@
 #define CEF_AVAILABLE 1
 #import "include/cef_app.h"
 #import "include/cef_browser.h"
+#import "include/cef_command_line.h"
 #import "include/wrapper/cef_helpers.h"
+#import "include/wrapper/cef_library_loader.h"
 #else
 #define CEF_AVAILABLE 0
 #endif
@@ -53,13 +56,24 @@ static NSTimer *_messageLoopTimer = nil;
              @"CEFBridgeManager.initializeIfNeeded must be called on the main thread");
 
 #if CEF_AVAILABLE
+    // ---- Load framework dynamically ------------------------------------
+    static CefScopedLibraryLoader sLibraryLoader;
+    static BOOL sLibraryLoaded = NO;
+    if (!sLibraryLoaded) {
+        if (!sLibraryLoader.LoadInMain()) {
+            NSLog(@"[CEFBridge] Failed to load CEF framework.");
+            return;
+        }
+        sLibraryLoaded = YES;
+    }
+
     // ---- Framework paths ------------------------------------------------
 
     NSBundle *mainBundle = [NSBundle mainBundle];
     NSString *frameworkPath = [mainBundle.privateFrameworksPath
         stringByAppendingPathComponent:@"Chromium Embedded Framework.framework"];
-    NSString *helperPath = [[mainBundle.bundlePath
-        stringByAppendingPathComponent:@"Contents/Helpers/Ghostties Helper.app/Contents/MacOS/Ghostties Helper"]
+    NSString *helperPath = [[mainBundle.privateFrameworksPath
+        stringByAppendingPathComponent:@"Ghostties Helper.app/Contents/MacOS/Ghostties Helper"]
         stringByStandardizingPath];
 
     // ---- CefSettings ----------------------------------------------------
@@ -67,18 +81,34 @@ static NSTimer *_messageLoopTimer = nil;
     CefSettings settings;
     settings.no_sandbox = true;
 
-    CefString(&settings.framework_dir_path).FromNSString(frameworkPath);
-    CefString(&settings.browser_subprocess_path).FromNSString(helperPath);
+    CefString(&settings.framework_dir_path) = [frameworkPath UTF8String];
+    CefString(&settings.browser_subprocess_path) = [helperPath UTF8String];
 
-    // Auto-assign a free port for remote debugging.
+    // Cache directory — required by CEF for subprocess data exchange.
+    NSString *cacheDir = [NSTemporaryDirectory()
+        stringByAppendingPathComponent:@"ghostties-cef"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:cacheDir
+                             withIntermediateDirectories:YES attributes:nil error:nil];
+    CefString(&settings.root_cache_path) = [cacheDir UTF8String];
+    CefString(&settings.cache_path) = [cacheDir UTF8String];
+    CefString(&settings.locale) = "en-US";
+
+    // CEF's own log file (for diagnosing subprocess issues).
+    CefString(&settings.log_file) = "/tmp/ghostties-cef-internal.log";
+    settings.log_severity = LOGSEVERITY_INFO;
+
     settings.remote_debugging_port = 0;
-    settings.log_severity = LOGSEVERITY_WARNING;
 
-    // ---- Main args ------------------------------------------------------
+    // ---- Main args (with Chromium switches) ----------------------------
+    // Pass --use-mock-keychain to suppress the macOS Keychain password
+    // prompt that crashes ad-hoc signed apps.
 
-    CefMainArgs mainArgs(0, nullptr);
-
-    // ---- Initialize -----------------------------------------------------
+    static const char *fakeArgv[] = {
+        "Ghostties",
+        "--use-mock-keychain",
+        nullptr
+    };
+    CefMainArgs mainArgs(2, const_cast<char**>(fakeArgv));
 
     CefRefPtr<CefApp> cefApp = nullptr;
     bool success = CefInitialize(mainArgs, settings, cefApp, nullptr);
@@ -90,6 +120,8 @@ static NSTimer *_messageLoopTimer = nil;
     _remoteDebuggingPort = settings.remote_debugging_port;
 
     // ---- Message loop timer (60 Hz) ------------------------------------
+    // Pumps CEF's event loop. Must run before CreateBrowser so helpers can
+    // establish IPC with the main process.
 
     _messageLoopTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
                                                 target:self
@@ -113,6 +145,20 @@ static NSTimer *_messageLoopTimer = nil;
     // Stub mode — CEF framework not present.
     NSLog(@"[CEFBridge] CEF headers not available — running in stub mode.");
 #endif
+}
+
++ (void)startMessageLoopIfNeeded {
+    if (_messageLoopTimer) return;
+    if (!_isInitialized) return;
+
+    _messageLoopTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
+                                                target:self
+                                              selector:@selector(_messageLoopTick:)
+                                              userInfo:nil
+                                               repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:_messageLoopTimer
+                              forMode:NSRunLoopCommonModes];
+    NSLog(@"[CEFBridge] Message loop started.");
 }
 
 + (void)shutdown {
