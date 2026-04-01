@@ -1,0 +1,43 @@
+name: Build GhosttyKit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build xcframework
+        run: zig build -Demit-xcframework=true -Dxcframework-target=universal -Demit-macos-app=false
+
+      - name: Compress xcframework
+        run: |
+          cd macos
+          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework/
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_DATE: ${{ github.run_id }}
+        run: |
+          TAG="build-$(date -u +%Y-%m-%d)"
+          COMMIT=$(git rev-parse --short HEAD)
+
+          if gh release view "$TAG" &> /dev/null; then
+            gh release delete "$TAG" --yes
+            git push --delete origin "$TAG" 2>/dev/null || true
+          fi
+
+          gh release create "$TAG" \
+            --title "GhosttyKit $(date -u +%Y-%m-%d)" \
+            --latest \
+            --notes "Built from commit ${COMMIT} on $(date -u +%Y-%m-%d)" \
+            macos/GhosttyKit.xcframework.tar.gz
