@@ -28,28 +28,28 @@ struct NormalizedMenuShortcutKeyTests {
     @Test func preservesShortcutModifiers() {
         let key = Key(keyEquivalent: "c", modifiers: [.shift, .control, .option, .command])
         let allMods: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
-        #expect(key?.modifiersRawValue == allMods.rawValue)
+        #expect(key?.modifierFlags == allMods)
     }
 
     @Test func uppercaseLetterInsertsShift() {
         // "A" is uppercase and case-sensitive, so .shift should be added
         let key = Key(keyEquivalent: "A", modifiers: .command)
-        let expected = NSEvent.ModifierFlags([.command, .shift]).rawValue
-        #expect(key?.modifiersRawValue == expected)
+        let expected = NSEvent.ModifierFlags([.command, .shift])
+        #expect(key?.modifierFlags == expected)
     }
 
     @Test func lowercaseLetterDoesNotInsertShift() {
         let key = Key(keyEquivalent: "a", modifiers: .command)
-        let expected = NSEvent.ModifierFlags.command.rawValue
-        #expect(key?.modifiersRawValue == expected)
+        let expected = NSEvent.ModifierFlags.command
+        #expect(key?.modifierFlags == expected)
     }
 
     @Test func nonCaseSensitiveCharacterDoesNotInsertShift() {
         // "1" is not case-sensitive (uppercased == lowercased is false for digits,
         // but "1".uppercased() == "1".lowercased() == "1" so isCaseSensitive is false)
         let key = Key(keyEquivalent: "1", modifiers: .command)
-        let expected = NSEvent.ModifierFlags.command.rawValue
-        #expect(key?.modifiersRawValue == expected)
+        let expected = NSEvent.ModifierFlags.command
+        #expect(key?.modifierFlags == expected)
     }
 
     // MARK: - Equality / Hashing
