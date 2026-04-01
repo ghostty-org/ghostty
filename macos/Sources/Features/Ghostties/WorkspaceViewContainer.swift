@@ -480,6 +480,9 @@ class WorkspaceViewContainer: NSView {
         navBar.devToolsButton.action = #selector(browserToggleDevTools)
         navBar.urlField.delegate = self
 
+        // Wire the tab bar to this manager.
+        browserPanelView.tabBar.tabManager = manager
+
         // Wire the bridge to this navigation bar.
         let bridge = coordinator.bridge(for: manager)
         bridge?.navigationBar = navBar
@@ -562,7 +565,16 @@ class WorkspaceViewContainer: NSView {
     @objc private func browserToggleDevTools() {
         guard let tabId = _activeBrowserManager?.activeTabId,
               let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
-        view.showDevTools()
+
+        if browserPanelView.isDevToolsVisible {
+            // Close inline DevTools and collapse the panel area.
+            view.closeDevTools()
+            browserPanelView.hideDevTools()
+        } else {
+            // Expand the inline DevTools area, then tell CEF to render into it.
+            browserPanelView.showDevTools()
+            view.showInlineDevTools(browserPanelView.devToolsArea)
+        }
     }
 
     /// Minimum interval between transitions to prevent rapid oscillation

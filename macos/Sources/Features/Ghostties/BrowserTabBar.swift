@@ -95,10 +95,12 @@ final class BrowserTabBar: NSView {
             return
         }
 
-        // Observe tabs and activeTabId changes
+        // Both BrowserTabBar and BrowserTabManager are @MainActor, so the
+        // publishers already fire on the main actor — no .receive(on:) needed.
+        // (Using RunLoop.main here caused a crash in debug builds due to a
+        // Combine/@MainActor isolation conflict.)
         manager.$tabs
             .combineLatest(manager.$activeTabId)
-            .receive(on: RunLoop.main)
             .sink { [weak self] tabs, activeId in
                 self?.rebuildTabs(tabs: tabs, activeId: activeId)
             }

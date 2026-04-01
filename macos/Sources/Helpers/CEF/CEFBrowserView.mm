@@ -184,6 +184,7 @@ private:
 @property (nonatomic, readwrite, nullable) NSString *currentTitle;
 @property (nonatomic, copy, nullable) NSString *pendingURL;
 @property (nonatomic) BOOL browserCreated;
+@property (nonatomic, readwrite) BOOL isDevToolsOpen;
 
 @end
 
@@ -303,14 +304,43 @@ private:
 
     _browser->GetHost()->ShowDevTools(devToolsWindowInfo, _client,
                                       devToolsSettings, inspectPoint);
+    self.isDevToolsOpen = YES;
 #else
     NSLog(@"[CEFBrowserView] showDevTools: stub — CEF not available");
 #endif
 }
 
+- (void)showInlineDevTools:(NSView *)parentView {
+#if GHOSTTIES_CEF_AVAILABLE
+    if (!_browser) return;
+
+    NSRect parentBounds = parentView.bounds;
+    if (parentBounds.size.width < 1) parentBounds.size.width = 400;
+    if (parentBounds.size.height < 1) parentBounds.size.height = 200;
+
+    CefWindowInfo devToolsWindowInfo;
+    CefRect cefRect(0, 0,
+                    (int)parentBounds.size.width,
+                    (int)parentBounds.size.height);
+    devToolsWindowInfo.SetAsChild((__bridge CefWindowHandle)parentView, cefRect);
+
+    CefBrowserSettings devToolsSettings;
+    CefPoint inspectPoint;
+
+    _browser->GetHost()->ShowDevTools(devToolsWindowInfo, _client,
+                                      devToolsSettings, inspectPoint);
+    self.isDevToolsOpen = YES;
+#else
+    NSLog(@"[CEFBrowserView] showInlineDevTools: stub — CEF not available");
+#endif
+}
+
 - (void)closeDevTools {
 #if GHOSTTIES_CEF_AVAILABLE
-    if (_browser) _browser->GetHost()->CloseDevTools();
+    if (_browser) {
+        _browser->GetHost()->CloseDevTools();
+        self.isDevToolsOpen = NO;
+    }
 #else
     NSLog(@"[CEFBrowserView] closeDevTools: stub — CEF not available");
 #endif
