@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 extension Ghostty {
     /// The manager that's responsible for updating shortcuts of Ghostty's app menu
@@ -126,21 +127,14 @@ private extension Ghostty.MenuShortcutManager {
             return false
         }
 
-        let keyEquivalent = shortcut.key.character.description
-        let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
         // Build a direct lookup for key-equivalent dispatch so we don't need to
         // linearly walk the full menu hierarchy at event time.
-        guard let key = MenuShortcutKey(
-            // We don't want to check missing `shift` for Ghostty configured shortcuts,
-            // because we know it's there when it needs to be
-            keyEquivalent: keyEquivalent.lowercased(),
-            modifiers: modifierMask
-        ) else {
+        guard let key = MenuShortcutKey(shortcut) else {
             return false
         }
 
-        menu.keyEquivalent = keyEquivalent
-        menu.keyEquivalentModifierMask = modifierMask
+        menu.keyEquivalent = key.keyEquivalent
+        menu.keyEquivalentModifierMask = key.modifierFlags
 
         // Later registrations intentionally override earlier ones for the same key.
         configuredShortcuts[key] = menu.action
@@ -154,7 +148,11 @@ extension Ghostty.MenuShortcutManager {
         private static let shortcutModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
 
         let keyEquivalent: String
-        let modifiersRawValue: UInt
+        private let modifiersRawValue: UInt
+
+        var modifierFlags: NSEvent.ModifierFlags {
+            NSEvent.ModifierFlags(rawValue: modifiersRawValue)
+        }
 
         init?(keyEquivalent: String, modifiers: NSEvent.ModifierFlags) {
             let normalized = keyEquivalent.lowercased()
@@ -174,6 +172,31 @@ extension Ghostty.MenuShortcutManager {
         init?(event: NSEvent) {
             guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
             self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
+        }
+
+        /// Create from a `NSMenuItem`
+        ///
+        /// - Important: This will check whether the `keyEquivalent` is uppercased by `.shift` modifier.
+        init?(_ menuItem: NSMenuItem) {
+            self.init(
+                keyEquivalent: menuItem.keyEquivalent,
+                modifiers: menuItem.keyEquivalentModifierMask,
+            )
+        }
+
+        /// Create from a swiftUI `KeyboardShortcut`
+        init?(_ shortcut: KeyboardShortcut) {
+            let keyEquivalent = shortcut.key.character.description
+            let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
+            self.init(keyEquivalent: keyEquivalent, modifiers: modifierMask)
+        }
+
+        var swiftUIShortcut: KeyboardShortcut? {
+            guard let character = keyEquivalent.first else { return nil }
+            return KeyboardShortcut(
+                KeyEquivalent(character),
+                modifiers: .init(nsFlags: modifierFlags)
+            )
         }
     }
 }

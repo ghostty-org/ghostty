@@ -84,6 +84,8 @@ extension Ghostty {
     /// A map from the Ghostty key enum to the keyEquivalent string for shortcuts. Note that
     /// not all ghostty key enum values are represented here because not all of them can be
     /// mapped to a KeyEquivalent.
+    ///
+    /// - Important: `KeyEquivalent` here should NOT be uppercased by any means
     static let keyToEquivalent: [ghostty_input_key_e: KeyEquivalent] = [
         // Function keys
         GHOSTTY_KEY_ARROW_UP: .upArrow,
