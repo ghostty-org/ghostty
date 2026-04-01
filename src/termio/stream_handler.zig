@@ -38,7 +38,7 @@ pub const StreamHandler = struct {
 
     /// A handle to wake up the renderer. This hints to the renderer that
     /// a repaint should happen.
-    renderer_wakeup: xev.Async,
+    renderer_wakeup: *xev.Async,
 
     /// The default cursor state. This is used with CSI q. This is
     /// set to true when we're currently in the default cursor state.
