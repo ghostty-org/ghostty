@@ -61,7 +61,7 @@ struct MenuShortcutManagerTests {
     }
 
     @Test
-    func unreferencedItemShouldBeResetIfUnbound() async throws {
+    func unreferencedItemShouldBeResetIfOverrodeOrUnbound() async throws {
         let config = try TemporaryConfig("keybind=super+h=goto_split:left")
 
         let hideItem = NSMenuItem(title: "Hide Ghostty", action: "hide:", keyEquivalent: "h")
@@ -100,5 +100,16 @@ struct MenuShortcutManagerTests {
 
         #expect(goToLeftItem.keyEquivalent == "l")
         #expect(goToLeftItem.keyEquivalentModifierMask == .command)
+
+        try config.reload("""
+            keybind=super+l=goto_split:left
+            """)
+        await manager.resetRegisteredGhosttyActions()
+        await manager.register(action: "goto_split:left", menuItem: goToLeftItem)
+
+        await manager.updateShortcut(in: menu, config: config)
+
+        #expect(hideItem.keyEquivalent == "h")
+        #expect(hideItem.keyEquivalentModifierMask == .command)
     }
 }

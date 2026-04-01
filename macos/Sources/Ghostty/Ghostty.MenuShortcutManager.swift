@@ -42,6 +42,8 @@ extension Ghostty {
             configuredShortcuts.removeAll()
 
             updateShortcutRecursively(in: menu, config: config)
+
+            checkConflictsRecursively(in: menu)
         }
     }
 }
@@ -118,6 +120,21 @@ private extension Ghostty.MenuShortcutManager {
         }
         menu.update()
     }
+
+    /// Shortcuts in Ghostty configuration should have higher priority than default shortcuts
+    ///
+    /// We run this to do a final check for every menu item
+    func checkConflictsRecursively(in menu: NSMenu?) {
+        guard let menu else {
+            return
+        }
+
+        for item in menu.items {
+            checkConflicts(item: item)
+            checkConflictsRecursively(in: item.submenu)
+        }
+        menu.update()
+    }
 }
 
 // MARK: - Process a single menu item
@@ -185,6 +202,22 @@ private extension Ghostty.MenuShortcutManager {
         }
         item.keyEquivalent = key.keyEquivalent
         item.keyEquivalentModifierMask = key.modifierFlags
+    }
+
+    func checkConflicts(item: NSMenuItem) {
+        guard
+            let key = MenuShortcutKey(item),
+            // There should be an existing shortcut first
+            let existed = configuredShortcuts[key],
+            // Then we check if the action is the same
+            existed != item.action
+        else {
+            return
+        }
+        // User configured shortcut has conflicts with default one,
+        // clear the default one
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
     }
 }
 
