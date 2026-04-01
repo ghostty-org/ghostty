@@ -313,19 +313,29 @@ private:
         && newSize.width > 0 && newSize.height > 0) {
         [self viewDidMoveToWindow];
     }
-    if (_browser) {
-        _browser->GetHost()->WasResized();
-    }
+    [self _syncCefChildBounds];
 #endif
 }
 
 - (void)layout {
     [super layout];
 #if GHOSTTIES_CEF_AVAILABLE
-    // Auto Layout–driven resizes don't always trigger setFrameSize: (e.g. when
-    // the superview's constraint constants change but the frame origin stays
-    // the same). Calling WasResized() here ensures CEF's compositor stays in
-    // sync with the actual view bounds after every layout pass.
+    [self _syncCefChildBounds];
+#endif
+}
+
+/// Resize CEF's internal child view to match our bounds and notify the compositor.
+- (void)_syncCefChildBounds {
+#if GHOSTTIES_CEF_AVAILABLE
+    // CEF inserts its own NSView as a child. It doesn't auto-resize with us,
+    // so we must explicitly set its frame to fill our bounds.
+    for (NSView *child in self.subviews) {
+        if (child != self && ![child isKindOfClass:[NSTextField class]]) {
+            if (!NSEqualRects(child.frame, self.bounds)) {
+                child.frame = self.bounds;
+            }
+        }
+    }
     if (_browser) {
         _browser->GetHost()->WasResized();
     }
@@ -414,9 +424,8 @@ private:
 #if GHOSTTIES_CEF_AVAILABLE
 - (void)_browserDidCreate:(CefRefPtr<CefBrowser>)browser {
     _browser = browser;
-    // The view may have already been resized by Auto Layout before the async
-    // CreateBrowser completed. Sync CEF's internal size to the current bounds.
-    _browser->GetHost()->WasResized();
+    // Sync CEF's internal child view and compositor to our current bounds.
+    [self _syncCefChildBounds];
 }
 
 - (void)_browserDidClose {
