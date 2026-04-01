@@ -21,20 +21,65 @@ pub const Options = struct {
     }
 };
 
+/// Original frame dimensions (from the website animation)
+const orig_frame_width: usize = 100;
+const orig_frame_height: usize = 41;
+
+/// Minimum terminal size to show anything meaningful
+const min_width: usize = 20;
+const min_height: usize = 8;
+
+/// A single grapheme with its style
+const StyledGrapheme = struct {
+    bytes: []const u8,
+    style: vaxis.Style,
+};
+
 const Boo = struct {
+    gpa: Allocator,
     frame: u8,
     framerate: u32, // 30 fps
-    // We know the size of this at compile time, but we heap allocate the slice to prevent the
-    // binary from increasing too much in size
-    buffer: [frame_width * frame_height]vaxis.Cell = undefined,
 
     ghostty_style: vaxis.Style,
     outline_style: vaxis.Style,
 
-    // Width of a single frame
-    const frame_width = 100;
-    // Height of a single frame
-    const frame_height = 41;
+    // Dynamic buffer - allocated based on terminal size
+    buffer: []vaxis.Cell = &.{},
+    buffer_size: usize = 0,
+
+    // Current render dimensions (may differ from original)
+    render_width: usize = 0,
+    render_height: usize = 0,
+
+    // Parsed frame data: array of lines, each line is array of styled graphemes
+    parsed_frame: [][]StyledGrapheme = &.{},
+
+    fn init(self: *Boo, gpa: Allocator) void {
+        self.gpa = gpa;
+        self.frame = 0;
+        self.framerate = 1000 / 30;
+        self.ghostty_style = .{};
+        self.outline_style = .{ .fg = .{ .index = 4 } };
+    }
+
+    fn deinit(self: *Boo) void {
+        if (self.buffer.len > 0) {
+            self.gpa.free(self.buffer);
+            self.buffer = &.{};
+        }
+        self.freeParsedFrame();
+    }
+
+    fn freeParsedFrame(self: *Boo) void {
+        for (self.parsed_frame) |line| {
+            for (line) |g| {
+                self.gpa.free(g.bytes);
+            }
+            self.gpa.free(line);
+        }
+        self.gpa.free(self.parsed_frame);
+        self.parsed_frame = &.{};
+    }
 
     fn widget(self: *Boo) vxfw.Widget {
         return .{
@@ -70,22 +115,38 @@ const Boo = struct {
         const self: *Boo = @ptrCast(@alignCast(ptr));
         const max = ctx.max.size();
 
-        // Warn for screen size
-        if (max.width < frame_width or max.height < frame_height) {
-            const text: vxfw.Text = .{ .text = "Screen must be at least 100w x 41h" };
+        // Check minimum size
+        if (max.width < min_width or max.height < min_height) {
+            const text: vxfw.Text = .{ .text = "Terminal too small for +boo (min: 20w x 8h)" };
             const center: vxfw.Center = .{ .child = text.widget() };
             return center.draw(ctx);
         }
 
-        // Calculate x and y offsets to center the animation frame
-        const offset_y = (max.height - frame_height) / 2;
-        const offset_x = (max.width - frame_width) / 2;
+        // Calculate render dimensions with adaptive scaling
+        const render_w = @min(max.width, orig_frame_width);
+        const render_h = @min(max.height, orig_frame_height);
+
+        // Resize buffer if needed
+        const needed = render_w * render_h;
+        if (self.buffer_size != needed) {
+            if (self.buffer.len > 0) self.gpa.free(self.buffer);
+            self.buffer = try self.gpa.alloc(vaxis.Cell, needed);
+            self.buffer_size = needed;
+            @memset(self.buffer, .{});
+        }
+
+        self.render_width = render_w;
+        self.render_height = render_h;
+
+        // Calculate offsets to center the animation
+        const offset_y: i32 = @intCast((max.height - render_h) / 2);
+        const offset_x: i32 = @intCast((max.width - render_w) / 2);
 
         // Create the animation surface
         const child: vxfw.Surface = .{
-            .size = .{ .width = @intCast(frame_width), .height = @intCast(frame_height) },
+            .size = .{ .width = @intCast(render_w), .height = @intCast(render_h) },
             .widget = self.widget(),
-            .buffer = &self.buffer,
+            .buffer = self.buffer,
             .children = &.{},
         };
 
@@ -104,32 +165,66 @@ const Boo = struct {
         };
     }
 
-    /// Updates our internal buffer with the current frame, then advances the frame index
-    fn updateFrame(self: *Boo) void {
-        const frame = frames[self.frame];
-        // A frame is characters with html spans. When we encounter a span, we use the outline style
-        // until the span ends. That is, when we find a '<', we parse until '>'. Then we use the
-        // outline styule until the next '<', and skip until the next '>'
+    /// Parse a raw frame string into styled graphemes, handling HTML spans
+    fn parseFrame(self: *Boo, frame: []const u8) Allocator.Error!void {
+        self.freeParsedFrame();
 
-        const State = enum {
-            normal,
-            span,
-            in_tag,
-            in_closing_tag,
-        };
+        // Count lines first
+        var line_count: usize = 0;
+        {
+            var it = std.mem.splitScalar(u8, frame, '\n');
+            while (it.next()) |_| line_count += 1;
+        }
 
-        var cell_idx: usize = 0;
+        self.parsed_frame = try self.gpa.alloc([]StyledGrapheme, line_count);
 
         var line_iter = std.mem.splitScalar(u8, frame, '\n');
+        var line_idx: usize = 0;
+
         while (line_iter.next()) |line| {
-            var state: State = .normal;
+            // Count graphemes first (excluding HTML tags)
+            var grapheme_count: usize = 0;
+            {
+                var state: enum { normal, span, in_tag, in_closing_tag } = .normal;
+                var cp_iter: std.unicode.Utf8Iterator = .{ .bytes = line, .i = 0 };
+                while (cp_iter.nextCodepointSlice()) |char| {
+                    switch (state) {
+                        .normal => if (std.mem.eql(u8, "<", char)) {
+                            state = .in_tag;
+                            continue;
+                        },
+                        .span => if (std.mem.eql(u8, "<", char)) {
+                            state = .in_tag;
+                            continue;
+                        },
+                        .in_tag => {
+                            if (std.mem.eql(u8, "/", char))
+                                state = .in_closing_tag
+                            else if (std.mem.eql(u8, ">", char))
+                                state = .span;
+                            continue;
+                        },
+                        .in_closing_tag => {
+                            if (std.mem.eql(u8, ">", char)) state = .normal;
+                            continue;
+                        },
+                    }
+                    grapheme_count += 1;
+                }
+            }
+
+            const graphemes = try self.gpa.alloc(StyledGrapheme, grapheme_count);
+
+            // Now actually parse with styles
+            var state: enum { normal, span, in_tag, in_closing_tag } = .normal;
             var style = self.ghostty_style;
+            var gi: usize = 0;
+
             var cp_iter: std.unicode.Utf8Iterator = .{ .bytes = line, .i = 0 };
             while (cp_iter.nextCodepointSlice()) |char| {
                 switch (state) {
                     .normal => if (std.mem.eql(u8, "<", char)) {
                         state = .in_tag;
-                        // We will be entering a span
                         style = self.outline_style;
                         continue;
                     },
@@ -139,8 +234,6 @@ const Boo = struct {
                         continue;
                     },
                     .in_tag => {
-                        // If we encounter a '/', we are a closing tag
-                        // If we parse all the way to a '>' we are an opening tag: we are now in a span
                         if (std.mem.eql(u8, "/", char))
                             state = .in_closing_tag
                         else if (std.mem.eql(u8, ">", char))
@@ -148,26 +241,153 @@ const Boo = struct {
                         continue;
                     },
                     .in_closing_tag => {
-                        // If we are closing a tag, we will enter the normal state
                         if (std.mem.eql(u8, ">", char)) state = .normal;
                         continue;
                     },
                 }
-                self.buffer[cell_idx] = .{
-                    .char = .{
-                        .grapheme = char,
-                        .width = 1,
-                    },
+                // Store a copy of the grapheme bytes
+                const copy = try self.gpa.dupe(u8, char);
+                graphemes[gi] = .{
+                    .bytes = copy,
                     .style = style,
                 };
-                cell_idx += 1;
+                gi += 1;
             }
+
+            self.parsed_frame[line_idx] = graphemes;
+            line_idx += 1;
         }
-        std.debug.assert(cell_idx == self.buffer.len);
+    }
+
+    /// Updates our internal buffer with the current frame, then advances the frame index
+    fn updateFrame(self: *Boo) void {
+        const frame = frames[self.frame];
+
+        // Parse frame if not already parsed
+        if (self.parsed_frame.len == 0) {
+            self.parseFrame(frame) catch return;
+        }
+
+        const src_w = orig_frame_width;
+        const src_h = self.parsed_frame.len;
+        const dst_w = self.render_width;
+        const dst_h = self.render_height;
+
+        if (dst_w < src_w or dst_h < src_h) {
+            // Scaled render
+            self.updateFrameScaled(src_w, src_h, dst_w, dst_h);
+        } else {
+            // Full size: direct copy
+            self.updateFrameFull(dst_w);
+        }
 
         // Lastly, update the frame index
         self.frame += 1;
         if (self.frame == frames.len) self.frame = 0;
+    }
+
+    /// Full size render - direct copy from parsed frame
+    fn updateFrameFull(self: *Boo, dst_w: usize) void {
+        var cell_idx: usize = 0;
+        const lines_to_render = @min(self.render_height, self.parsed_frame.len);
+
+        var y: usize = 0;
+        while (y < lines_to_render) : (y += 1) {
+            const line = self.parsed_frame[y];
+            const chars_to_render = @min(line.len, dst_w);
+
+            var x: usize = 0;
+            while (x < chars_to_render) : (x += 1) {
+                self.buffer[cell_idx] = .{
+                    .char = .{
+                        .grapheme = line[x].bytes,
+                        .width = 1,
+                    },
+                    .style = line[x].style,
+                };
+                cell_idx += 1;
+            }
+
+            // Pad remaining width
+            while (x < dst_w) : (x += 1) {
+                self.buffer[cell_idx] = .{
+                    .char = .{ .grapheme = " ", .width = 1 },
+                    .style = .{},
+                };
+                cell_idx += 1;
+            }
+        }
+
+        // Fill remaining rows if render height > parsed lines
+        while (cell_idx < self.buffer_size) : (cell_idx += 1) {
+            self.buffer[cell_idx] = .{
+                .char = .{ .grapheme = " ", .width = 1 },
+                .style = .{},
+            };
+        }
+    }
+
+    /// Scaled render - sample from source to fit destination
+    fn updateFrameScaled(self: *Boo, src_w: usize, src_h: usize, dst_w: usize, dst_h: usize) void {
+        var cell_idx: usize = 0;
+
+        const x_scale: f32 = @as(f32, @floatFromInt(src_w)) / @as(f32, @floatFromInt(dst_w));
+        const y_scale: f32 = @as(f32, @floatFromInt(src_h)) / @as(f32, @floatFromInt(dst_h));
+
+        var dy: usize = 0;
+        while (dy < dst_h) : (dy += 1) {
+            const sy: usize = @min(
+                @as(usize, @intFromFloat(@floor(@as(f32, @floatFromInt(dy)) * y_scale))),
+                src_h -| 1,
+            );
+
+            if (sy >= self.parsed_frame.len) {
+                var dx: usize = 0;
+                while (dx < dst_w) : (dx += 1) {
+                    self.buffer[cell_idx] = .{
+                        .char = .{ .grapheme = " ", .width = 1 },
+                        .style = .{},
+                    };
+                    cell_idx += 1;
+                }
+                continue;
+            }
+
+            const line = self.parsed_frame[sy];
+
+            var dx: usize = 0;
+            while (dx < dst_w) : (dx += 1) {
+                if (line.len == 0) {
+                    self.buffer[cell_idx] = .{
+                        .char = .{ .grapheme = " ", .width = 1 },
+                        .style = .{},
+                    };
+                    cell_idx += 1;
+                    continue;
+                }
+
+                const sx: usize = @min(
+                    @as(usize, @intFromFloat(@floor(@as(f32, @floatFromInt(dx)) * x_scale))),
+                    line.len -| 1,
+                );
+
+                if (sx < line.len) {
+                    self.buffer[cell_idx] = .{
+                        .char = .{
+                            .grapheme = line[sx].bytes,
+                            .width = 1,
+                        },
+                        .style = line[sx].style,
+                    };
+                } else {
+                    self.buffer[cell_idx] = .{
+                        .char = .{ .grapheme = " ", .width = 1 },
+                        .style = .{},
+                    };
+                }
+                cell_idx += 1;
+            }
+        }
     }
 };
 
@@ -198,11 +418,8 @@ pub fn run(gpa: Allocator) !u8 {
     defer app.deinit();
 
     var boo: Boo = undefined;
-    boo.frame = 0;
-    boo.framerate = 1000 / 30;
-    boo.ghostty_style = .{};
-    boo.outline_style = .{ .fg = .{ .index = 4 } };
-    @memset(&boo.buffer, .{});
+    boo.init(gpa);
+    defer boo.deinit();
 
     try app.run(boo.widget(), .{});
 
@@ -219,7 +436,6 @@ var frames: []const []const u8 = undefined;
 fn decompressFrames(gpa: Allocator) !void {
     var src: std.Io.Reader = .fixed(framedata);
 
-    // var buf: [std.compress.flate.max_window_len]u8 = undefined;
     var decompress: std.compress.flate.Decompress = .init(&src, .raw, &.{});
 
     var out: std.Io.Writer.Allocating = .init(gpa);
