@@ -91,8 +91,10 @@ class GhosttiesLifeSpanHandler : public CefLifeSpanHandler {
 public:
     explicit GhosttiesLifeSpanHandler(CEFBrowserView *view) : view_(view) {}
 
-    // Intercept popups (new windows) — load in the same browser instead of
-    // opening the system browser. This keeps auth flows inside Ghostties.
+    // Intercept user-initiated popups (target=_blank links, window.open) —
+    // navigate the current browser instead of opening a system browser window.
+    // Non-user-gesture popups (iframes, OAuth callbacks) are allowed through
+    // to avoid frame timeout errors.
     bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
                        CefRefPtr<CefFrame> frame,
                        int popup_id,
@@ -106,9 +108,13 @@ public:
                        CefBrowserSettings& settings,
                        CefRefPtr<CefDictionaryValue>& extra_info,
                        bool* no_javascript_access) override {
-        // Load the popup URL in the current browser's main frame.
-        browser->GetMainFrame()->LoadURL(target_url);
-        return true;  // Cancel the popup — we handle it inline.
+        // Only redirect explicit user clicks (target=_blank links).
+        // Let programmatic popups (OAuth, iframes) proceed normally.
+        if (user_gesture && !target_url.empty()) {
+            browser->GetMainFrame()->LoadURL(target_url);
+            return true;
+        }
+        return false;  // Allow the popup to open normally.
     }
 
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
