@@ -119,6 +119,7 @@ pub const Action = union(Key) {
     progress_report: osc.Command.ProgressReport,
     start_hyperlink: StartHyperlink,
     clipboard_contents: ClipboardContents,
+    kitty_clipboard: KittyClipboard,
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
     set_attribute: sgr.Attribute,
@@ -216,6 +217,7 @@ pub const Action = union(Key) {
             "progress_report",
             "start_hyperlink",
             "clipboard_contents",
+            "kitty_clipboard",
             "mouse_shape",
             "configure_charset",
             "set_attribute",
@@ -379,6 +381,17 @@ pub const Action = union(Key) {
                 .kind = self.kind,
                 .data = .init(self.data),
             };
+        }
+    };
+
+    pub const KittyClipboard = struct {
+        metadata: []const u8,
+        payload: ?[]const u8,
+
+        pub const C = void;
+
+        pub fn cval(_: KittyClipboard) KittyClipboard.C {
+            return {};
         }
     };
 
@@ -2057,10 +2070,16 @@ pub fn Stream(comptime H: type) type {
                 .conemu_output_environment_variable,
                 .conemu_run_process,
                 .kitty_text_sizing,
-                .kitty_clipboard_protocol,
                 .context_signal,
                 => {
                     log.debug("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .kitty_clipboard_protocol => |v| {
+                    self.handler.vt(.kitty_clipboard, .{
+                        .metadata = v.metadata,
+                        .payload = v.payload,
+                    });
                 },
 
                 .invalid => {
@@ -3446,4 +3465,102 @@ test "stream: tab clear with overflowing param" {
     // This is the exact input from the fuzz crash (minus the mode byte):
     // CSI with a huge numeric param that saturates to 65535, followed by 'g'.
     s.nextSlice("\x1b[388888888888888888888888888888888888g\x1b[0m");
+}
+
+test "stream: OSC 5522 kitty clipboard dispatch" {
+    const H = struct {
+        metadata: ?[]const u8 = null,
+        payload: ?[]const u8 = null,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            switch (action) {
+                .kitty_clipboard => {
+                    self.metadata = value.metadata;
+                    self.payload = value.payload;
+                },
+                else => {},
+            }
+        }
+    };
+
+    const alloc = testing.allocator;
+    var s: Stream(H) = .init(.{});
+    s.parser.osc_parser = .init(alloc);
+    defer s.parser.osc_parser.deinit();
+
+    // Basic read request with MIME and password
+    s.nextSlice("\x1b]5522;type=read:mime=dGV4dC9wbGFpbg==:password=c2VjcmV0\x1b\\");
+    try testing.expect(s.handler.metadata != null);
+    try testing.expectEqualStrings("type=read:mime=dGV4dC9wbGFpbg==:password=c2VjcmV0", s.handler.metadata.?);
+    try testing.expect(s.handler.payload == null);
+}
+
+test "stream: OSC 5522 kitty clipboard with payload" {
+    const H = struct {
+        metadata: ?[]const u8 = null,
+        payload: ?[]const u8 = null,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            switch (action) {
+                .kitty_clipboard => {
+                    self.metadata = value.metadata;
+                    self.payload = value.payload;
+                },
+                else => {},
+            }
+        }
+    };
+
+    const alloc = testing.allocator;
+    var s: Stream(H) = .init(.{});
+    s.parser.osc_parser = .init(alloc);
+    defer s.parser.osc_parser.deinit();
+
+    s.nextSlice("\x1b]5522;type=wdata:mime=aW1hZ2UvcG5n;SGVsbG8=\x1b\\");
+    try testing.expect(s.handler.metadata != null);
+    try testing.expectEqualStrings("type=wdata:mime=aW1hZ2UvcG5n", s.handler.metadata.?);
+    try testing.expectEqualStrings("SGVsbG8=", s.handler.payload.?);
+}
+
+test "stream: DECSET/DECRST mode 5522" {
+    const H = struct {
+        mode: ?modes.Mode = null,
+        set: bool = false,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            switch (action) {
+                .set_mode => {
+                    self.mode = value.mode;
+                    self.set = true;
+                },
+                .reset_mode => {
+                    self.mode = value.mode;
+                    self.set = false;
+                },
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{});
+
+    s.nextSlice("\x1b[?5522h");
+    try testing.expectEqual(modes.Mode.kitty_clipboard_protocol, s.handler.mode.?);
+    try testing.expect(s.handler.set);
+
+    s.nextSlice("\x1b[?5522l");
+    try testing.expectEqual(modes.Mode.kitty_clipboard_protocol, s.handler.mode.?);
+    try testing.expect(!s.handler.set);
 }

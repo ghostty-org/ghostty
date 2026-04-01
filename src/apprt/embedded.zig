@@ -1982,6 +1982,26 @@ pub const CAPI = struct {
         };
     }
 
+    /// Get the request type for a clipboard request state pointer. This
+    /// lets embedders branch on the request type to handle kitty clipboard
+    /// protocol requests differently.
+    export fn ghostty_clipboard_request_type(
+        state: *apprt.ClipboardRequest,
+    ) apprt.ClipboardRequestType {
+        return state.*;
+    }
+
+    /// Get the MIME type for a kitty_mime_read clipboard request. Returns
+    /// null for other request types.
+    export fn ghostty_clipboard_request_mime(
+        state: *apprt.ClipboardRequest,
+    ) ?[*:0]const u8 {
+        return switch (state.*) {
+            .kitty_mime_read => |*v| &v.mime,
+            else => null,
+        };
+    }
+
     /// Complete a clipboard read request started via the read callback.
     /// This can only be called once for a given request. Once it is called
     /// with a request the request pointer will be invalidated.

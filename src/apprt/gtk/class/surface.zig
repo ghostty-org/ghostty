@@ -3774,6 +3774,14 @@ const Clipboard = struct {
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
     ) Allocator.Error!bool {
+        // Kitty clipboard protocol MIME requests are not yet implemented
+        // on GTK. Return false so the caller falls back to normal paste.
+        // TODO: implement via gdk.Clipboard.getFormats() + readAsync()
+        switch (state) {
+            .kitty_mime_list, .kitty_mime_read => return false,
+            else => {},
+        }
+
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
@@ -3876,7 +3884,7 @@ const Clipboard = struct {
                 .request = &req,
                 .@"can-remember" = switch (req) {
                     .osc_52_read, .osc_52_write => true,
-                    .paste => false,
+                    .paste, .kitty_mime_list, .kitty_mime_read => false,
                 },
                 .@"clipboard-contents" = contents_buf,
             },
@@ -3913,7 +3921,7 @@ const Clipboard = struct {
         if (remember) switch (req.*) {
             .osc_52_read => surface.config.clipboard_read = .allow,
             .osc_52_write => surface.config.clipboard_write = .allow,
-            .paste => {},
+            .paste, .kitty_mime_list, .kitty_mime_read => {},
         };
 
         // Get our text
@@ -3952,7 +3960,10 @@ const Clipboard = struct {
         if (remember) switch (req.*) {
             .osc_52_read => surface.config.clipboard_read = .deny,
             .osc_52_write => surface.config.clipboard_write = .deny,
-            .paste => @panic("paste should not be able to be remembered"),
+            .paste,
+            .kitty_mime_list,
+            .kitty_mime_read,
+            => @panic("should not be able to be remembered"),
         };
     }
 

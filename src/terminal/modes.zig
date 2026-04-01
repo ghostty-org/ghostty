@@ -292,6 +292,7 @@ const entries: []const ModeEntry = &.{
     .{ .name = "grapheme_cluster", .value = 2027 },
     .{ .name = "report_color_scheme", .value = 2031 },
     .{ .name = "in_band_size_reports", .value = 2048 },
+    .{ .name = "kitty_clipboard_protocol", .value = 5522 },
 };
 
 test {
@@ -304,6 +305,8 @@ test modeFromInt {
     try testing.expect(modeFromInt(9, true) == null);
     try testing.expect(modeFromInt(9, false).? == .mouse_event_x10);
     try testing.expect(modeFromInt(14, true) == null);
+    try testing.expect(modeFromInt(5522, false).? == .kitty_clipboard_protocol);
+    try testing.expect(modeFromInt(5522, true) == null);
 }
 
 test ModeState {

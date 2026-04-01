@@ -700,3 +700,106 @@ test "OSC: 5522: example 15" {
     try testing.expectEqual(.OK, cmd.kitty_clipboard_protocol.readOption(.status).?);
     try testing.expectEqual(.read, cmd.kitty_clipboard_protocol.readOption(.type).?);
 }
+
+// Adversarial tests for malformed input that an attacker might send
+
+test "OSC: 5522: malformed - option with no equals" {
+    const testing = std.testing;
+    const req: OSC = .{ .metadata = "type", .payload = null, .terminator = .st };
+    try testing.expect(req.readOption(.type) == null);
+}
+
+test "OSC: 5522: malformed - option with only colon separator" {
+    const testing = std.testing;
+    const req: OSC = .{ .metadata = ":::", .payload = null, .terminator = .st };
+    try testing.expect(req.readOption(.type) == null);
+    try testing.expect(req.readOption(.mime) == null);
+}
+
+test "OSC: 5522: malformed - embedded null bytes in metadata" {
+    const testing = std.testing;
+    const req: OSC = .{
+        .metadata = "type=read\x00:password=evil",
+        .payload = null,
+        .terminator = .st,
+    };
+    // Null byte makes value "read\x00" which won't match "read" exactly
+    try testing.expect(req.readOption(.type) == null);
+}
+
+test "OSC: 5522: malformed - duplicate keys takes first" {
+    const testing = std.testing;
+    const req: OSC = .{
+        .metadata = "type=read:type=write",
+        .payload = null,
+        .terminator = .st,
+    };
+    try testing.expectEqual(Operation.read, req.readOption(.type).?);
+}
+
+test "OSC: 5522: malformed - whitespace-only value" {
+    const testing = std.testing;
+    const req: OSC = .{
+        .metadata = "type=   ",
+        .payload = null,
+        .terminator = .st,
+    };
+    try testing.expect(req.readOption(.type) == null);
+}
+
+test "OSC: 5522: malformed - key prefix collision" {
+    const testing = std.testing;
+    // "pwfoo" must not match key "pw" — next char after "pw" is 'f', not '='
+    const req: OSC = .{
+        .metadata = "pwfoo=bar",
+        .payload = null,
+        .terminator = .st,
+    };
+    try testing.expect(req.readOption(.pw) == null);
+}
+
+test "OSC: 5522: very long metadata" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var p: Parser = .init(alloc);
+    defer p.deinit();
+
+    var input: std.ArrayList(u8) = .empty;
+    defer input.deinit(alloc);
+    try input.appendSlice(alloc, "5522;type=read:mime=");
+    try input.appendNTimes(alloc, 'A', 10000);
+    for (input.items) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .kitty_clipboard_protocol);
+    try testing.expectEqual(Operation.read, cmd.kitty_clipboard_protocol.readOption(.type).?);
+    const mime = cmd.kitty_clipboard_protocol.readOption(.mime).?;
+    try testing.expectEqual(@as(usize, 10000), mime.len);
+}
+
+test "OSC: 5522: password with all valid base64 chars" {
+    const testing = std.testing;
+    const req: OSC = .{
+        .metadata = "password=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/==",
+        .payload = null,
+        .terminator = .st,
+    };
+    try testing.expectEqualStrings(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/==",
+        req.readOption(.password).?,
+    );
+}
+
+test "OSC: 5522: injection attempt - terminator in metadata" {
+    const testing = std.testing;
+    // Metadata with embedded ST — downstream base64 decode will reject,
+    // but the option parser itself returns the raw value including escapes
+    const req: OSC = .{
+        .metadata = "type=read:password=abc\x1b\\evil",
+        .payload = null,
+        .terminator = .st,
+    };
+    const pw = req.readOption(.password).?;
+    try testing.expect(std.mem.indexOf(u8, pw, "\x1b") != null);
+}

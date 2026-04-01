@@ -265,6 +265,7 @@ fn new_(
         .color_scheme = &Effects.colorSchemeTrampoline,
         .device_attributes = &Effects.deviceAttributesTrampoline,
         .enquiry = &Effects.enquiryTrampoline,
+        .kitty_clipboard = null,
         .xtversion = &Effects.xtversionTrampoline,
         .title_changed = &Effects.titleChangedTrampoline,
         .size = &Effects.sizeTrampoline,

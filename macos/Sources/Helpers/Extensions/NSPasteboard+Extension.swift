@@ -26,11 +26,34 @@ extension NSPasteboard.PasteboardType {
     }
 }
 
+extension NSPasteboard.PasteboardType {
+    /// Convert a pasteboard type to a MIME type string.
+    var mimeType: String? {
+        UTType(rawValue)?.preferredMIMEType
+    }
+}
+
 extension NSPasteboard {
     /// The pasteboard to used for Ghostty selection.
     static var ghosttySelection: NSPasteboard = {
         NSPasteboard(name: .init("com.mitchellh.ghostty.selection"))
     }()
+
+    /// Get all available MIME types on this pasteboard.
+    func availableMimeTypes() -> [String] {
+        var mimes: [String] = []
+        for type in types ?? [] {
+            guard let mime = type.mimeType, !mimes.contains(mime) else { continue }
+            mimes.append(mime)
+        }
+        return mimes
+    }
+
+    /// Get the raw data for a specific MIME type.
+    func data(forMimeType mime: String) -> Data? {
+        guard let type = PasteboardType(mimeType: mime) else { return nil }
+        return data(forType: type)
+    }
 
     /// Gets the contents of the pasteboard as a string following a specific set of semantics.
     /// Does these things in order:

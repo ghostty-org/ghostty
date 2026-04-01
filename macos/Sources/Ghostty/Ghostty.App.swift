@@ -334,6 +334,27 @@ extension Ghostty {
             // Get our pasteboard
             guard let pasteboard = NSPasteboard.ghostty(location) else { return false }
 
+            // Check the request type to handle kitty clipboard protocol
+            switch ghostty_clipboard_request_type(state) {
+            case GHOSTTY_CLIPBOARD_REQUEST_KITTY_MIME_LIST:
+                let mimes = pasteboard.availableMimeTypes()
+                guard !mimes.isEmpty else { return false }
+                completeClipboardRequest(surface, data: mimes.joined(separator: "\n"), state: state)
+                return true
+
+            case GHOSTTY_CLIPBOARD_REQUEST_KITTY_MIME_READ:
+                guard let mimePtr = ghostty_clipboard_request_mime(state),
+                      let mime = String(cString: mimePtr, encoding: .utf8),
+                      let data = pasteboard.data(forMimeType: mime) else {
+                    return false
+                }
+                completeClipboardRequest(surface, data: data.base64EncodedString(), state: state)
+                return true
+
+            default:
+                break
+            }
+
             // Return false if there is no text-like clipboard content so
             // performable paste bindings can pass through to the terminal.
             guard let str = pasteboard.getOpinionatedStringContents() else { return false }

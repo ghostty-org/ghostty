@@ -330,6 +330,7 @@ pub const StreamHandler = struct {
             .progress_report => self.progressReport(value),
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+            .kitty_clipboard => try self.kittyClipboard(value.metadata, value.payload),
             .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
@@ -1067,6 +1068,23 @@ pub const StreamHandler = struct {
                     data,
                 ),
                 .clipboard_type = clipboard_type,
+            },
+        });
+    }
+
+    fn kittyClipboard(
+        self: *StreamHandler,
+        metadata: []const u8,
+        payload: ?[]const u8,
+    ) !void {
+        // We only handle read requests from the application — those have
+        // no payload by protocol. Write operations (which would have a
+        // payload) are not yet implemented.
+        _ = payload;
+        self.surfaceMessageWriter(.{
+            .kitty_clipboard_read = .{
+                .alloc = self.alloc,
+                .metadata = try self.alloc.dupe(u8, metadata),
             },
         });
     }

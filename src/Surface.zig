@@ -169,6 +169,33 @@ search: ?Search = null,
 /// Used to rate limit BEL handling.
 last_bell_time: ?std.time.Instant = null,
 
+/// Kitty clipboard protocol paste state (mode 5522). Set when a paste
+/// event triggers an unsolicited MIME list, cleared on use or timeout.
+kitty_paste: ?KittyPaste = null,
+
+/// State for a pending kitty clipboard protocol paste event.
+const KittyPaste = struct {
+    /// Single-use password for this paste event. Raw bytes, base64-encoded
+    /// when sent in OSC sequences.
+    password: [16]u8,
+
+    /// The clipboard location that was pasted from.
+    clipboard: apprt.Clipboard,
+
+    /// When this password was issued. Per spec, passwords MUST be
+    /// invalidated after a short timeout to prevent a stashed password
+    /// from authorizing reads of future clipboard contents.
+    issued_at: std.time.Instant,
+
+    /// Password validity window. Long enough for interactive app response,
+    /// short enough to bound exposure if the app stashes the password.
+    pub const timeout_ns = 5 * std.time.ns_per_s;
+
+    pub fn expired(self: KittyPaste, now: std.time.Instant) bool {
+        return now.since(self.issued_at) > timeout_ns;
+    }
+};
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -1042,6 +1069,11 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 defer v.alloc.free(v.data);
                 try self.clipboardWrite(v.data, w.clipboard_type);
             },
+        },
+
+        .kitty_clipboard_read => |v| {
+            defer v.alloc.free(v.metadata);
+            try self.handleKittyClipboardRead(v.metadata);
         },
 
         .pwd_change => |w| {
@@ -5986,6 +6018,16 @@ pub fn completeClipboardRequest(
             .mime = "text/plain",
             .data = data,
         }}, !confirmed),
+
+        .kitty_mime_list => |clipboard| try self.completeKittyMimeList(
+            data,
+            clipboard,
+        ),
+
+        .kitty_mime_read => |v| try self.completeKittyMimeRead(
+            data,
+            std.mem.sliceTo(&v.mime, 0),
+        ),
     }
 }
 
@@ -6001,7 +6043,25 @@ fn startClipboardRequest(
     req: apprt.ClipboardRequest,
 ) !bool {
     switch (req) {
-        .paste => {}, // always allowed
+        .paste => {
+            // If kitty clipboard protocol mode (5522) is enabled, paste
+            // events send an unsolicited MIME type list instead of the
+            // actual paste data. The app then requests specific MIME types.
+            const kitty_mode = kitty_mode: {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                break :kitty_mode self.io.terminal.modes.get(.kitty_clipboard_protocol);
+            };
+            if (kitty_mode) {
+                // If the apprt doesn't support MIME listing (returns false),
+                // fall through to normal paste rather than silently dropping.
+                if (try self.rt_surface.clipboardRequest(
+                    loc,
+                    .{ .kitty_mime_list = loc },
+                )) return true;
+            }
+        },
+
         .osc_52_read => if (self.config.clipboard_read == .deny) {
             log.info(
                 "application attempted to read clipboard, but 'clipboard-read' is set to deny",
@@ -6009,6 +6069,8 @@ fn startClipboardRequest(
             );
             return false;
         },
+
+        .kitty_mime_list, .kitty_mime_read => {},
 
         // No clipboard write code paths travel through this function
         .osc_52_write => unreachable,
@@ -6139,6 +6201,162 @@ fn completeClipboardReadOSC52(
         self.alloc,
         buf,
     ), .unlocked);
+}
+
+/// Complete a kitty MIME list request by sending an unsolicited OSC 5522
+/// MIME type listing with a single-use password.
+fn completeKittyMimeList(
+    self: *Surface,
+    data: []const u8,
+    clipboard: apprt.Clipboard,
+) !void {
+    var password: [16]u8 = undefined;
+    std.crypto.random.bytes(&password);
+    self.kitty_paste = .{
+        .password = password,
+        .clipboard = clipboard,
+        .issued_at = std.time.Instant.now() catch {
+            // Platforms without a monotonic clock can't safely implement
+            // the spec's MUST-timeout requirement, so don't issue a password.
+            self.kitty_paste = null;
+            return;
+        },
+    };
+
+    const buf = try input.kitty_clipboard.encodeMimeList(
+        self.alloc,
+        &password,
+        data,
+    );
+    self.queueIo(.{ .write_alloc = .{ .alloc = self.alloc, .data = buf } }, .unlocked);
+}
+
+/// Complete a kitty MIME read request by sending OSC 5522 data packets.
+/// The data is already base64-encoded by the apprt.
+fn completeKittyMimeRead(
+    self: *Surface,
+    data: []const u8,
+    mime: []const u8,
+) !void {
+    // write_alloc takes ownership — avoids the dupe-then-free that
+    // writeReq would do for MB-scale image payloads.
+    const buf = try input.kitty_clipboard.encodeMimeData(
+        self.alloc,
+        mime,
+        data,
+    );
+    self.queueIo(.{ .write_alloc = .{ .alloc = self.alloc, .data = buf } }, .unlocked);
+}
+
+/// Handle an OSC 5522 read request from the application. Validates the
+/// password against a pending paste event and initiates a clipboard read
+/// for the requested MIME type.
+fn handleKittyClipboardRead(
+    self: *Surface,
+    metadata: []const u8,
+) !void {
+    const osc = terminal.osc;
+    const KCP = osc.Command.KittyClipboardProtocol;
+    const req: KCP = .{
+        .metadata = metadata,
+        .payload = null,
+        .terminator = .st,
+    };
+
+    const kc = input.kitty_clipboard;
+
+    const op = req.readOption(.type) orelse {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EINVAL) }, .unlocked);
+        return;
+    };
+
+    // We only handle read requests; write operations aren't supported yet.
+    if (op != .read) {
+        self.queueIo(.{ .write_stable = kc.encodeError(.ENOSYS) }, .unlocked);
+        return;
+    }
+
+    // Decode the requested MIME type first. If this fails, the password
+    // is not consumed — the app can retry with a different MIME.
+    const b64 = std.base64.standard;
+    const mime_b64 = req.readOption(.mime) orelse {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EINVAL) }, .unlocked);
+        return;
+    };
+    comptime assert(kc.mime_max_len == apprt.ClipboardRequest.KittyMimeRead.mime_max_len);
+    var mime_buf: [kc.mime_max_len]u8 = undefined;
+    const mime_len = b64.Decoder.calcSizeForSlice(mime_b64) catch {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EINVAL) }, .unlocked);
+        return;
+    };
+    if (mime_len > mime_buf.len) {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EINVAL) }, .unlocked);
+        return;
+    }
+    b64.Decoder.decode(mime_buf[0..mime_len], mime_b64) catch {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EINVAL) }, .unlocked);
+        return;
+    };
+    const mime = mime_buf[0..mime_len];
+
+    // Validate the password against a pending paste event. Without a
+    // valid password, treat this like a regular clipboard read (subject
+    // to clipboard-read policy).
+    const paste: KittyPaste = paste: {
+        const p = self.kitty_paste orelse break :paste null;
+        const now = std.time.Instant.now() catch break :paste null;
+        if (p.expired(now)) {
+            self.kitty_paste = null;
+            break :paste null;
+        }
+        break :paste p;
+    } orelse {
+        if (self.config.clipboard_read == .deny) {
+            self.queueIo(.{ .write_stable = kc.encodeError(.EPERM) }, .unlocked);
+            return;
+        }
+        // TODO: implement non-password-authenticated reads with user prompt
+        self.queueIo(.{ .write_stable = kc.encodeError(.ENOSYS) }, .unlocked);
+        return;
+    };
+
+    const pw_b64 = req.readOption(.password) orelse req.readOption(.pw) orelse {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EPERM) }, .unlocked);
+        return;
+    };
+
+    var pw_decoded: [16]u8 = undefined;
+    const pw_len = b64.Decoder.calcSizeForSlice(pw_b64) catch {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EPERM) }, .unlocked);
+        return;
+    };
+    if (pw_len != 16) {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EPERM) }, .unlocked);
+        return;
+    }
+    b64.Decoder.decode(&pw_decoded, pw_b64) catch {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EPERM) }, .unlocked);
+        return;
+    };
+    if (!std.crypto.timing_safe.eql([16]u8, pw_decoded, paste.password)) {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EPERM) }, .unlocked);
+        return;
+    }
+
+    // Password and MIME both validated. Invalidate the password (single-use).
+    self.kitty_paste = null;
+
+    const started = self.rt_surface.clipboardRequest(
+        paste.clipboard,
+        .{ .kitty_mime_read = .init(paste.clipboard, mime) },
+    ) catch |err| {
+        log.warn("failed to start kitty MIME read err={}", .{err});
+        self.queueIo(.{ .write_stable = kc.encodeError(.EIO) }, .unlocked);
+        return;
+    };
+    if (!started) {
+        self.queueIo(.{ .write_stable = kc.encodeError(.EIO) }, .unlocked);
+    }
 }
 
 fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const u8) !void {
@@ -6636,4 +6854,65 @@ test "Surface: rectangle selection logic" {
         9, 2, // expected end
         true, //rectangle selection
     );
+}
+
+test "KittyPaste: timeout constant is 5 seconds" {
+    // The spec says passwords MUST be invalidated after a short timeout.
+    // 5s was chosen as long enough for an interactive app to respond, short
+    // enough to bound the window where a stashed password could authorize
+    // reads of future clipboard contents. Pinned so a change trips a test.
+    try std.testing.expectEqual(5 * std.time.ns_per_s, KittyPaste.timeout_ns);
+}
+
+test "KittyPaste: expiry boundary" {
+    const now = std.time.Instant.now() catch return error.SkipZigTest;
+
+    // std.time.Instant is opaque per-platform but we can reach into the
+    // timestamp on each one: posix has timespec{sec,nsec}, windows/wasi/uefi
+    // have a u64. Construct issued-ago Instants by subtracting whole seconds.
+    const secondsAgo = struct {
+        fn f(base: std.time.Instant, secs: u64) std.time.Instant {
+            var past = base;
+            switch (@import("builtin").os.tag) {
+                .windows => {
+                    // QPC ticks; QPF varies but is at least 10MHz. Subtracting
+                    // secs * 10MHz undershoots on faster clocks — past appears
+                    // *less* old, which is the conservative direction for the
+                    // 5min/10min cases below. Skip the tight 4s/6s boundary.
+                    past.timestamp -= secs * 10_000_000;
+                },
+                .wasi, .uefi => past.timestamp -= secs * std.time.ns_per_s,
+                else => past.timestamp.sec -= @intCast(secs),
+            }
+            return past;
+        }
+    }.f;
+
+    const make = struct {
+        fn p(at: std.time.Instant) KittyPaste {
+            return .{
+                .password = [_]u8{0} ** 16,
+                .clipboard = .standard,
+                .issued_at = at,
+            };
+        }
+    }.p;
+
+    // Fresh: not expired
+    try std.testing.expect(!make(now).expired(now));
+
+    // 5 minutes ago: well past timeout
+    try std.testing.expect(make(secondsAgo(now, 300)).expired(now));
+
+    // 10 minutes ago: definitely expired
+    try std.testing.expect(make(secondsAgo(now, 600)).expired(now));
+
+    // The tight boundary depends on second-granularity arithmetic, so it's
+    // posix-only where we have direct timespec.sec control.
+    if (@import("builtin").os.tag != .windows) {
+        // 4s ago: under the 5s timeout
+        try std.testing.expect(!make(secondsAgo(now, 4)).expired(now));
+        // 6s ago: over
+        try std.testing.expect(make(secondsAgo(now, 6)).expired(now));
+    }
 }
