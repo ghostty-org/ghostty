@@ -1,5 +1,64 @@
 # Session Notes — Ghostties
 
+## Mar 27–Apr 1, 2026 (Session 13)
+
+### CEF Browser Phase 3 — Crash Fix, Side-by-Side, Code Review
+
+Extended session across multiple days. Picked up the browser work from Session 12, fixed the crash that blocked all CEF functionality, built the side-by-side layout, and ran a full multi-agent code review.
+
+**Crash Investigation & Fix**
+- Browser crashed on every Cmd+B trigger (SIGABRT)
+- Tried: CefSettings fixes (cache_path, locale), timer deferral, @MainActor fix, zero-bounds guard
+- Root cause: CEF requires `external_message_pump = true` + a `CefApp` subclass with `CefBrowserProcessHandler::OnScheduleMessagePumpWork` to integrate with AppKit's run loop
+- Additional fix: atomic coalescing (`std::atomic<bool>`) in message pump to prevent main queue flooding (beach ball)
+- Commit: `d6e24080f`, `2c187c224`
+
+**Side-by-Side Layout**
+- Terminal and browser as two floating cards (Dia Browser style)
+- Drag-to-resize handle between panels
+- Percentage-based split ratio (scales with window resize)
+- Commits: `2c187c224`, `3a0b3c69a`, `bdb323d37`
+
+**Browser Features**
+- Viewport fill fix (`_syncCefChildBounds` + `WasResized()` on layout)
+- Popup interception (user-gesture links stay in Ghostties)
+- Network entitlements for localhost dev servers
+- Inline DevTools panel (toggles below browser content)
+- Browser tab bar wired in
+- Commits: `acd3aeaf1`, `10e466f51`, `5d2fe5f4b`, `67a597600`, `ea37e5eac`
+
+**Code Review (5 agents: security, performance, architecture, patterns, simplicity)**
+- P1: URL scheme filtering (block file://, javascript://, data://), cache moved from /tmp to ~/Library/Application Support/
+- P2: Timer 4Hz→30Hz, WasResized guard, closeBrowser on tab close, dead code removal (~84 LOC), unified macro, popup hardening, removed network.server entitlement
+- P3: activeCEFView helper, layout constants, terracotta token, truncatedTitle removal, unused properties
+- Commit: `6fae35504`
+
+**Compound Documentation**
+- Created `docs/solutions/integration-issues/cef-browser-macos-integration.md`
+- Updated with review findings (security hardening, performance, expanded checklist)
+- Commits: `11e4f926f`, `adbc167dd`
+
+**New Files Created**
+- `macos/Helpers/CEF/GhosttiesHelper.cc` — helper process entry point
+- `macos/GhosttiesHelper.entitlements` — helper entitlements
+- `macos/Resources/CEF/helper-Info.plist` — helper Info.plist template
+- `scripts/embed-cef.sh` — post-build: copies framework, builds helpers, codesigns
+- `scripts/build-cef-wrapper.sh` — pre-build: compiles libcef_dll_wrapper.a
+- `macos/Sources/Features/Ghostties/BrowserSessionBridge.swift` — CEF delegate bridge
+- `docs/solutions/integration-issues/cef-browser-macos-integration.md` — compound doc
+
+**Key Commits**
+- `d6e24080f` — CEF crash fix (external message pump + CefApp)
+- `2c187c224` — side-by-side panel + throttled pump
+- `6fae35504` — all code review fixes (security, performance, dead code)
+- `adbc167dd` — updated compound doc
+
+**Key Commands**
+- `/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project macos/Ghostties.xcodeproj -scheme Ghostties -configuration Debug build` — build when xcode-select points to CommandLineTools
+- `bash scripts/download-cef.sh` — download CEF framework (~300MB)
+
+---
+
 ## Mar 30, 2026 (Session 12)
 
 ### Housekeeping — CEF Phase 2 commit, skills update, cleanup
