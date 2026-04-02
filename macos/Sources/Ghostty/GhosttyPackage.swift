@@ -246,6 +246,90 @@ extension Ghostty.SplitFocusDirection {
 #endif
 
 extension Ghostty {
+    /// Why clipboard confirmation wording may differ (paste flows only today).
+    enum ClipboardConfirmReason: Int {
+        case none = 0
+        case mixedScriptUrl = 1
+
+        static func from(_ reason: ghostty_clipboard_confirm_reason_e) -> ClipboardConfirmReason {
+            switch reason {
+            case GHOSTTY_CLIPBOARD_CONFIRM_REASON_MIXED_SCRIPT_URL:
+                return .mixedScriptUrl
+            default:
+                return .none
+            }
+        }
+    }
+
+    struct PasteHomoglyphURLHighlight {
+        let urlLine: String
+        let suspiciousUtf8RangesInURL: [(Int, Int)]
+
+        func attributedLine() -> AttributedString {
+            var attr = AttributedString(urlLine)
+            for (a, b) in suspiciousUtf8RangesInURL {
+                guard let strRange = Self.utf8ByteStringRange(
+                    in: urlLine,
+                    utf8Start: size_t(a),
+                    utf8End: size_t(b)
+                ),
+                    let aRange = Range(strRange, in: attr) else { continue }
+                attr[aRange].underlineStyle = Text.LineStyle(pattern: .solid)
+                attr[aRange].foregroundColor = .red
+            }
+            return attr
+        }
+
+        static func make(fullPaste: String, report: ghostty_paste_homoglyph_report_t) -> PasteHomoglyphURLHighlight? {
+            let us = Int(report.url_start)
+            let ue = Int(report.url_end)
+            guard us >= 0, ue <= fullPaste.utf8.count, us < ue else { return nil }
+            guard let absRange = utf8ByteStringRange(
+                in: fullPaste,
+                utf8Start: size_t(us),
+                utf8End: size_t(ue)
+            ) else { return nil }
+            let urlLine = String(fullPaste[absRange])
+            let maxSpans = Int(GHOSTTY_PASTE_HOMOGLYPH_REPORT_MAX_SPANS)
+            let count = min(Int(report.span_written), maxSpans)
+            var ranges: [(Int, Int)] = []
+            ranges.reserveCapacity(count)
+            for i in 0..<count {
+                let sp = span(from: report, at: i)
+                let relS = Int(sp.start) - us
+                let relE = Int(sp.end) - us
+                guard relS >= 0, relE <= urlLine.utf8.count, relS < relE else { continue }
+                ranges.append((relS, relE))
+            }
+            return PasteHomoglyphURLHighlight(urlLine: urlLine, suspiciousUtf8RangesInURL: ranges)
+        }
+
+        private static func span(from report: ghostty_paste_homoglyph_report_t, at i: Int) -> ghostty_paste_homoglyph_span_t {
+            var copy = report
+            return withUnsafePointer(to: &copy) { p in
+                let raw = UnsafeRawPointer(p)
+                let off = 4 * MemoryLayout<size_t>.stride
+                return raw.advanced(by: off).assumingMemoryBound(to: ghostty_paste_homoglyph_span_t.self)[i]
+            }
+        }
+
+        private static func utf8ByteStringRange(
+            in string: String,
+            utf8Start: size_t,
+            utf8End: size_t
+        ) -> Range<String.Index>? {
+            let u8 = string.utf8
+            let a = Int(utf8Start)
+            let b = Int(utf8End)
+            guard a >= 0, b <= u8.count, a < b else { return nil }
+            let si = u8.index(u8.startIndex, offsetBy: a)
+            let ei = u8.index(u8.startIndex, offsetBy: b)
+            guard let start = String.Index(si, within: string),
+                  let end = String.Index(ei, within: string) else { return nil }
+            return start..<end
+        }
+    }
+
     /// The type of a clipboard request
     enum ClipboardRequest {
         /// A direct paste of clipboard contents
@@ -257,13 +341,37 @@ extension Ghostty {
         /// An application is attempting to write to the clipboard using OSC 52
         case osc_52_write(OSPasteboard?)
 
-        /// The text to show in the clipboard confirmation prompt for a given request type
-        func text() -> String {
+        /// Window title for the confirmation sheet
+        func windowTitle(confirmReason: ClipboardConfirmReason = .none) -> String {
             switch self {
             case .paste:
-                return """
-                Pasting this text to the terminal may be dangerous as it looks like some commands may be executed.
-                """
+                switch confirmReason {
+                case .none:
+                    return "Warning: Potentially Unsafe Paste"
+                case .mixedScriptUrl:
+                    return "Warning: Potentially Unsafe URL Paste"
+                }
+            case .osc_52_read, .osc_52_write:
+                return "Authorize Clipboard Access"
+            }
+        }
+
+        /// The text to show in the clipboard confirmation prompt for a given request type
+        func text(confirmReason: ClipboardConfirmReason = .none) -> String {
+            switch self {
+            case .paste:
+                switch confirmReason {
+                case .none:
+                    return """
+                    Pasting this text to the terminal may be dangerous as it looks like some commands may be executed.
+                    """
+                case .mixedScriptUrl:
+                    return """
+                    The pasted URL contains characters that may be trying to impersonate a trusted domain by using similar-looking glyphs. We suggest you verify the content at the pasted URL before proceeding.
+
+                    The current clipboard contents are shown below.
+                    """
+                }
             case .osc_52_read:
                 return """
                 An application is attempting to read from the clipboard.
@@ -427,6 +535,8 @@ extension Ghostty.Notification {
     static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
     static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
+    static let ConfirmClipboardConfirmReasonKey = confirmClipboard.rawValue + ".confirmReason"
+    static let ConfirmClipboardHomoglyphPayloadKey = confirmClipboard.rawValue + ".homoglyphPayload"
 
     /// Notification sent to the active split view to resize the split.
     static let didResizeSplit = Notification.Name("com.mitchellh.ghostty.didResizeSplit")

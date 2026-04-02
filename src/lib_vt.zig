@@ -168,6 +168,9 @@ comptime {
         @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
         @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
+        @export(&c.paste_homoglyph_suspicious_spans, .{ .name = "ghostty_paste_homoglyph_suspicious_spans" });
+        @export(&c.paste_homoglyph_first_url_range, .{ .name = "ghostty_paste_homoglyph_first_url_range" });
+        @export(&c.paste_homoglyph_first_url_report, .{ .name = "ghostty_paste_homoglyph_first_url_report" });
         @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
         @export(&c.style_default, .{ .name = "ghostty_style_default" });
         @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });

@@ -12,13 +12,25 @@ class ClipboardConfirmationController: NSWindowController {
     let surface: ghostty_surface_t
     let contents: String
     let request: Ghostty.ClipboardRequest
+    let confirmReason: Ghostty.ClipboardConfirmReason
+    let homoglyphHighlight: Ghostty.PasteHomoglyphURLHighlight?
     let state: UnsafeMutableRawPointer?
     weak private var delegate: ClipboardConfirmationViewDelegate?
 
-    init(surface: ghostty_surface_t, contents: String, request: Ghostty.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
+    init(
+        surface: ghostty_surface_t,
+        contents: String,
+        request: Ghostty.ClipboardRequest,
+        confirmReason: Ghostty.ClipboardConfirmReason = .none,
+        homoglyphHighlight: Ghostty.PasteHomoglyphURLHighlight? = nil,
+        state: UnsafeMutableRawPointer?,
+        delegate: ClipboardConfirmationViewDelegate
+    ) {
         self.surface = surface
         self.contents = contents
         self.request = request
+        self.confirmReason = confirmReason
+        self.homoglyphHighlight = homoglyphHighlight
         self.state = state
         self.delegate = delegate
         super.init(window: nil)
@@ -33,16 +45,13 @@ class ClipboardConfirmationController: NSWindowController {
     override func windowDidLoad() {
         guard let window = window else { return }
 
-        switch request {
-        case .paste:
-            window.title = "Warning: Potentially Unsafe Paste"
-        case .osc_52_read, .osc_52_write:
-            window.title = "Authorize Clipboard Access"
-        }
+        window.title = request.windowTitle(confirmReason: confirmReason)
 
         window.contentView = NSHostingView(rootView: ClipboardConfirmationView(
             contents: contents,
             request: request,
+            confirmReason: confirmReason,
+            homoglyphHighlight: homoglyphHighlight,
             delegate: delegate
         ))
     }

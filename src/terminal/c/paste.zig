@@ -1,12 +1,17 @@
 const std = @import("std");
 const lib = @import("../lib.zig");
 const paste = @import("../../input/paste.zig");
+const paste_homoglyph = @import("../../input/paste_homoglyph.zig");
 const Result = @import("result.zig").Result;
 
 pub fn is_safe(data: ?[*]const u8, len: usize) callconv(lib.calling_conv) bool {
     const slice: []const u8 = if (data) |v| v[0..len] else &.{};
     return paste.isSafe(slice);
 }
+
+pub const homoglyph_suspicious_spans = paste_homoglyph.homoglyphSuspiciousSpans;
+pub const homoglyph_first_url_range = paste_homoglyph.homoglyphFirstUrlRange;
+pub const homoglyph_first_url_report = paste_homoglyph.homoglyphFirstUrlReport;
 
 pub fn encode(
     data: ?[*]u8,

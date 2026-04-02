@@ -34,6 +34,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include "ghostty/vt/paste_homoglyph_report.h"
 #include <ghostty/vt/types.h>
 
 #ifdef __cplusplus
@@ -91,6 +92,21 @@ GHOSTTY_API GhosttyResult ghostty_paste_encode(
     char* buf,
     size_t buf_len,
     size_t* out_written);
+
+GHOSTTY_API size_t ghostty_paste_homoglyph_suspicious_spans(const char* data,
+                                                            size_t len,
+                                                            ghostty_paste_homoglyph_span_t* out,
+                                                            size_t max_out);
+
+
+GHOSTTY_API int ghostty_paste_homoglyph_first_url_range(const char* data,
+                                                        size_t len,
+                                                        size_t* out_start,
+                                                        size_t* out_end);
+
+GHOSTTY_API int ghostty_paste_homoglyph_first_url_report(const char* data,
+                                                         size_t len,
+                                                         ghostty_paste_homoglyph_report_t* out);
 
 #ifdef __cplusplus
 }

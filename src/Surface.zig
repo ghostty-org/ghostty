@@ -5986,8 +5986,9 @@ fn writeScreenFile(
 ///   - For OSC 52 reads and writes no prompt is shown to the user if
 ///     `confirmed` is true.
 ///
-/// If `confirmed` is false then this may return either an UnsafePaste or
-/// UnauthorizedPaste error, depending on the type of clipboard request.
+/// If `confirmed` is false then this may return UnsafePaste,
+/// SuspiciousHomoglyphPaste, or UnauthorizedPaste, depending on the type of
+/// clipboard request and paste contents.
 pub fn completeClipboardRequest(
     self: *Surface,
     req: apprt.ClipboardRequest,
@@ -6081,6 +6082,16 @@ fn completeClipboardPaste(
         if (unsafe) {
             log.info("potentially unsafe paste detected, rejecting until confirmation", .{});
             return error.UnsafePaste;
+        }
+
+        const homoglyph_unsafe = homoglyph: {
+            if (!self.config.clipboard_paste_protection) break :homoglyph false;
+            if (allow_unsafe) break :homoglyph false;
+            break :homoglyph input.paste_homoglyph.mixedScriptUrlRisk(data);
+        };
+        if (homoglyph_unsafe) {
+            log.info("mixed-script URL in paste detected, rejecting until confirmation", .{});
+            return error.SuspiciousHomoglyphPaste;
         }
 
         // With the lock held, we must scroll to the bottom.

@@ -64,6 +64,8 @@ pub const App = struct {
             [*:0]const u8,
             *apprt.ClipboardRequest,
             apprt.ClipboardRequestType,
+            apprt.ClipboardConfirmReason,
+            ?*const input.paste_homoglyph.GhosttyPasteHomoglyphReport,
         ) callconv(.c) void,
 
         /// Write the clipboard value.
@@ -709,16 +711,43 @@ pub const Surface = struct {
             str,
             confirmed,
         ) catch |err| switch (err) {
-            error.UnsafePaste,
-            error.UnauthorizedPaste,
-            => {
+            error.UnsafePaste => {
                 self.app.opts.confirm_read_clipboard(
                     self.userdata,
                     str.ptr,
                     state,
-                    state.*,
+                    std.meta.activeTag(state.*),
+                    .none,
+                    null,
                 );
-
+                return;
+            },
+            error.SuspiciousHomoglyphPaste => {
+                var hg_report: input.paste_homoglyph.GhosttyPasteHomoglyphReport = undefined;
+                const hg_ptr: ?*const input.paste_homoglyph.GhosttyPasteHomoglyphReport =
+                    if (input.paste_homoglyph.homoglyphFirstUrlReport(str.ptr, str.len, &hg_report) != 0)
+                        &hg_report
+                    else
+                        null;
+                self.app.opts.confirm_read_clipboard(
+                    self.userdata,
+                    str.ptr,
+                    state,
+                    std.meta.activeTag(state.*),
+                    .mixed_script_url,
+                    hg_ptr,
+                );
+                return;
+            },
+            error.UnauthorizedPaste => {
+                self.app.opts.confirm_read_clipboard(
+                    self.userdata,
+                    str.ptr,
+                    state,
+                    std.meta.activeTag(state.*),
+                    .none,
+                    null,
+                );
                 return;
             },
 
