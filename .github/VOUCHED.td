@@ -71,6 +71,7 @@ dmehala
 doprz
 douglance
 douglas
+douglas-macgregor
 drepper
 dzhlobo
 ekaterinepapava
