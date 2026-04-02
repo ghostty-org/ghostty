@@ -36,9 +36,9 @@ final class BrowserTabBar: NSView {
         setup()
     }
 
+    @available(*, unavailable)
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
+        fatalError("init(coder:) has not been implemented")
     }
 
     // MARK: - Setup
@@ -162,7 +162,7 @@ final class BrowserTabBar: NSView {
         let button = NSButton()
         button.bezelStyle = .inline
         button.isBordered = false
-        button.title = truncatedTitle(tab.title)
+        button.title = tab.title
         button.font = NSFont.systemFont(ofSize: 11)
         button.alignment = .left
         button.tag = tab.id.hashValue
@@ -251,14 +251,4 @@ final class BrowserTabBar: NSView {
         tabManager?.createTab()
     }
 
-    // MARK: - Helpers
-
-    private func truncatedTitle(_ title: String) -> String {
-        // NSButton handles truncation visually via the width constraint,
-        // but we set a reasonable max character count as a safety net.
-        if title.count > 20 {
-            return String(title.prefix(18)) + "..."
-        }
-        return title
-    }
 }

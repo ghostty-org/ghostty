@@ -234,8 +234,7 @@ final class SessionCoordinator: ObservableObject {
 
         let bridge = BrowserSessionBridge(
             sessionId: session.id,
-            tabManager: manager,
-            coordinator: self
+            tabManager: manager
         )
         browserView.delegate = bridge
         bridge.activeTabId = tab.id

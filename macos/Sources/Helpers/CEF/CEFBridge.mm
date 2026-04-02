@@ -3,14 +3,14 @@
 #include <atomic>
 
 #if __has_include("include/cef_app.h")
-#define CEF_AVAILABLE 1
+#define GHOSTTIES_CEF_AVAILABLE 1
 #import "include/cef_app.h"
 #import "include/cef_browser.h"
 #import "include/cef_browser_process_handler.h"
 #import "include/wrapper/cef_helpers.h"
 #import "include/wrapper/cef_library_loader.h"
 #else
-#define CEF_AVAILABLE 0
+#define GHOSTTIES_CEF_AVAILABLE 0
 #endif
 
 // ---------------------------------------------------------------------------
@@ -18,14 +18,13 @@
 // ---------------------------------------------------------------------------
 
 static BOOL _isInitialized = NO;
-static int _remoteDebuggingPort = 0;
 static NSTimer *_messageLoopTimer = nil;
 
 // ---------------------------------------------------------------------------
 // CefApp implementation for external message pump integration
 // ---------------------------------------------------------------------------
 
-#if CEF_AVAILABLE
+#if GHOSTTIES_CEF_AVAILABLE
 
 /// Handles scheduling of message pump work from CEF's internal threads.
 /// When CEF needs processing time, it calls OnScheduleMessagePumpWork
@@ -70,7 +69,7 @@ private:
     IMPLEMENT_REFCOUNTING(GhosttiesApp);
 };
 
-#endif // CEF_AVAILABLE
+#endif // GHOSTTIES_CEF_AVAILABLE
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -93,10 +92,6 @@ private:
     return _isInitialized;
 }
 
-+ (int)remoteDebuggingPort {
-    return _remoteDebuggingPort;
-}
-
 #pragma mark - Lifecycle
 
 + (void)initializeIfNeeded {
@@ -105,7 +100,7 @@ private:
     NSAssert([NSThread isMainThread],
              @"CEFBridgeManager.initializeIfNeeded must be called on the main thread");
 
-#if CEF_AVAILABLE
+#if GHOSTTIES_CEF_AVAILABLE
     // ---- Load framework dynamically ------------------------------------
     static CefScopedLibraryLoader sLibraryLoader;
     static BOOL sLibraryLoaded = NO;
@@ -136,16 +131,30 @@ private:
     CefString(&settings.browser_subprocess_path) = [helperPath UTF8String];
 
     // Cache directory — required by CEF for subprocess data exchange.
-    NSString *cacheDir = [NSTemporaryDirectory()
-        stringByAppendingPathComponent:@"ghostties-cef"];
-    [[NSFileManager defaultManager] createDirectoryAtPath:cacheDir
-                             withIntermediateDirectories:YES attributes:nil error:nil];
+    // Use ~/Library/Application Support/com.seansmithdesign.ghostties/CEF/
+    // instead of /tmp so data persists and isn't world-readable.
+    NSArray<NSString *> *appSupportPaths = NSSearchPathForDirectoriesInDomains(
+        NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    NSString *appSupportBase = appSupportPaths.firstObject
+        ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    NSString *cacheDir = [[appSupportBase
+        stringByAppendingPathComponent:@"com.seansmithdesign.ghostties"]
+        stringByAppendingPathComponent:@"CEF"];
+    NSError *cacheDirError = nil;
+    if (![[NSFileManager defaultManager] createDirectoryAtPath:cacheDir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:&cacheDirError]) {
+        NSLog(@"[CEFBridge] Failed to create cache directory %@: %@",
+              cacheDir, cacheDirError.localizedDescription);
+    }
     CefString(&settings.root_cache_path) = [cacheDir UTF8String];
     CefString(&settings.cache_path) = [cacheDir UTF8String];
     CefString(&settings.locale) = "en-US";
 
-    // CEF's own log file.
-    CefString(&settings.log_file) = "/tmp/ghostties-cef-internal.log";
+    // CEF's own log file — stored alongside the cache.
+    NSString *logFile = [cacheDir stringByAppendingPathComponent:@"ghostties-cef-internal.log"];
+    CefString(&settings.log_file) = [logFile UTF8String];
     settings.log_severity = LOGSEVERITY_WARNING;
 
     settings.remote_debugging_port = 0;
@@ -170,14 +179,12 @@ private:
         return;
     }
 
-    _remoteDebuggingPort = settings.remote_debugging_port;
-
-    // ---- Backup timer (4 Hz) -------------------------------------------
+    // ---- Backup timer (30 Hz) ------------------------------------------
     // The primary message pump is driven by OnScheduleMessagePumpWork above.
-    // This low-frequency timer is a safety net to ensure events are processed
+    // This timer is a safety net to ensure events are processed
     // even if a callback is missed.
 
-    _messageLoopTimer = [NSTimer timerWithTimeInterval:0.25
+    _messageLoopTimer = [NSTimer timerWithTimeInterval:1.0/30.0
                                                 target:self
                                               selector:@selector(_messageLoopTick:)
                                               userInfo:nil
@@ -193,16 +200,11 @@ private:
                                                object:nil];
 
     _isInitialized = YES;
-    NSLog(@"[CEFBridge] CEF initialized (debug port: %d).", _remoteDebuggingPort);
+    NSLog(@"[CEFBridge] CEF initialized.");
 
 #else
     NSLog(@"[CEFBridge] CEF headers not available — running in stub mode.");
 #endif
-}
-
-+ (void)startMessageLoopIfNeeded {
-    // With external_message_pump, the pump is driven by OnScheduleMessagePumpWork.
-    // This is a no-op but kept for API compatibility.
 }
 
 + (void)shutdown {
@@ -214,19 +216,18 @@ private:
     [_messageLoopTimer invalidate];
     _messageLoopTimer = nil;
 
-#if CEF_AVAILABLE
+#if GHOSTTIES_CEF_AVAILABLE
     CefShutdown();
     NSLog(@"[CEFBridge] CEF shut down.");
 #endif
 
     _isInitialized = NO;
-    _remoteDebuggingPort = 0;
 }
 
 #pragma mark - Private
 
 + (void)_messageLoopTick:(NSTimer *)timer {
-#if CEF_AVAILABLE
+#if GHOSTTIES_CEF_AVAILABLE
     CefDoMessageLoopWork();
 #endif
 }

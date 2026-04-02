@@ -15,6 +15,34 @@
 #import "include/wrapper/cef_helpers.h"
 #endif
 
+// ---------------------------------------------------------------------------
+// URL scheme allowlist — only http, https, and about are permitted.
+// ---------------------------------------------------------------------------
+
+static BOOL GhosttiesIsAllowedScheme(NSString *urlString) {
+    if (!urlString || urlString.length == 0) return NO;
+    NSString *lower = [urlString lowercaseString];
+    return [lower hasPrefix:@"https://"]
+        || [lower hasPrefix:@"http://"]
+        || [lower hasPrefix:@"about:"];
+}
+
+#if GHOSTTIES_CEF_AVAILABLE
+static bool GhosttiesIsAllowedSchemeCef(const CefString &url) {
+    if (url.empty()) return false;
+    std::string s = url.ToString();
+    // Convert only the scheme portion to lowercase for comparison.
+    std::string lower;
+    lower.reserve(8);
+    for (size_t i = 0; i < s.size() && i < 8; ++i) {
+        lower += static_cast<char>(tolower(static_cast<unsigned char>(s[i])));
+    }
+    return lower.compare(0, 8, "https://") == 0
+        || lower.compare(0, 7, "http://") == 0
+        || lower.compare(0, 6, "about:") == 0;
+}
+#endif
+
 // Forward-declare private methods so C++ handlers can call them.
 @interface CEFBrowserView ()
 - (void)_didChangeURL:(NSString *)url;
@@ -91,10 +119,9 @@ class GhosttiesLifeSpanHandler : public CefLifeSpanHandler {
 public:
     explicit GhosttiesLifeSpanHandler(CEFBrowserView *view) : view_(view) {}
 
-    // Intercept user-initiated popups (target=_blank links, window.open) —
-    // navigate the current browser instead of opening a system browser window.
-    // Non-user-gesture popups (iframes, OAuth callbacks) are allowed through
-    // to avoid frame timeout errors.
+    // Intercept all popups — user-gesture popups navigate the current browser
+    // instead of opening a new window; non-user-gesture popups are blocked
+    // entirely to prevent uncontrolled popup windows.
     bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
                        CefRefPtr<CefFrame> frame,
                        int popup_id,
@@ -108,13 +135,18 @@ public:
                        CefBrowserSettings& settings,
                        CefRefPtr<CefDictionaryValue>& extra_info,
                        bool* no_javascript_access) override {
-        // Only redirect explicit user clicks (target=_blank links).
-        // Let programmatic popups (OAuth, iframes) proceed normally.
+        // Redirect explicit user clicks (target=_blank links) to current browser.
         if (user_gesture && !target_url.empty()) {
+            // Block disallowed schemes (file://, javascript://, data://, etc.).
+            if (!GhosttiesIsAllowedSchemeCef(target_url)) {
+                NSLog(@"[CEFBrowserView] Blocked popup with disallowed scheme: %s",
+                      target_url.ToString().c_str());
+                return true;  // Cancel the popup.
+            }
             browser->GetMainFrame()->LoadURL(target_url);
             return true;
         }
-        return false;  // Allow the popup to open normally.
+        return true;  // Block all non-user-gesture popups.
     }
 
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
@@ -182,7 +214,6 @@ private:
 @property (nonatomic, readwrite) BOOL canGoForward;
 @property (nonatomic, readwrite, nullable) NSString *currentURL;
 @property (nonatomic, readwrite, nullable) NSString *currentTitle;
-@property (nonatomic, copy, nullable) NSString *pendingURL;
 @property (nonatomic) BOOL browserCreated;
 @property (nonatomic, readwrite) BOOL isDevToolsOpen;
 
@@ -204,7 +235,6 @@ private:
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.wantsLayer = YES;
     self.browserCreated = NO;
-    self.pendingURL = nil;
 
 #if GHOSTTIES_CEF_AVAILABLE
     [CEFBridgeManager initializeIfNeeded];
@@ -224,7 +254,6 @@ private:
     NSString *urlStr = url ?: @"about:blank";
     CefString cefURL([urlStr UTF8String]);
 
-    [CEFBridgeManager startMessageLoopIfNeeded];
     CefBrowserHost::CreateBrowser(windowInfo, _client, cefURL, settings,
                                   nullptr, nullptr);
     self.browserCreated = YES;
@@ -249,6 +278,10 @@ private:
 
 - (void)loadURL:(NSString *)url {
 #if GHOSTTIES_CEF_AVAILABLE
+    if (!GhosttiesIsAllowedScheme(url)) {
+        NSLog(@"[CEFBrowserView] Blocked loadURL with disallowed scheme: %@", url);
+        return;
+    }
     if (_browser && _browser->GetMainFrame()) {
         _browser->GetMainFrame()->LoadURL(CefString([url UTF8String]));
     }
@@ -290,25 +323,6 @@ private:
 }
 
 #pragma mark - DevTools
-
-- (void)showDevTools {
-#if GHOSTTIES_CEF_AVAILABLE
-    if (!_browser) return;
-
-    CefWindowInfo devToolsWindowInfo;
-    // No parent_view → CEF creates a standalone window for DevTools.
-    CefString(&devToolsWindowInfo.window_name) = "DevTools";
-
-    CefBrowserSettings devToolsSettings;
-    CefPoint inspectPoint;
-
-    _browser->GetHost()->ShowDevTools(devToolsWindowInfo, _client,
-                                      devToolsSettings, inspectPoint);
-    self.isDevToolsOpen = YES;
-#else
-    NSLog(@"[CEFBrowserView] showDevTools: stub — CEF not available");
-#endif
-}
 
 - (void)showInlineDevTools:(NSView *)parentView {
 #if GHOSTTIES_CEF_AVAILABLE
@@ -364,20 +378,12 @@ private:
 - (void)setFrameSize:(NSSize)newSize {
     [super setFrameSize:newSize];
 #if GHOSTTIES_CEF_AVAILABLE
-    // If browser hasn't been created yet and we now have real bounds, create it.
-    if (!self.browserCreated && self.window && _client
-        && newSize.width > 0 && newSize.height > 0) {
-        [self viewDidMoveToWindow];
-    }
     [self _syncCefChildBounds];
 #endif
 }
 
 - (void)layout {
     [super layout];
-#if GHOSTTIES_CEF_AVAILABLE
-    [self _syncCefChildBounds];
-#endif
 }
 
 /// Resize CEF's internal child view to match our bounds and notify the compositor.
@@ -385,14 +391,16 @@ private:
 #if GHOSTTIES_CEF_AVAILABLE
     // CEF inserts its own NSView as a child. It doesn't auto-resize with us,
     // so we must explicitly set its frame to fill our bounds.
+    BOOL boundsChanged = NO;
     for (NSView *child in self.subviews) {
         if (child != self && ![child isKindOfClass:[NSTextField class]]) {
             if (!NSEqualRects(child.frame, self.bounds)) {
                 child.frame = self.bounds;
+                boundsChanged = YES;
             }
         }
     }
-    if (_browser) {
+    if (boundsChanged && _browser) {
         _browser->GetHost()->WasResized();
     }
 #endif
@@ -413,35 +421,6 @@ private:
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
 #if GHOSTTIES_CEF_AVAILABLE
-    // Create the browser on first window attachment (CEF needs a real window handle
-    // AND non-zero bounds — Chromium's compositor aborts on zero-sized views).
-    if (!self.browserCreated && self.window && _client
-        && self.bounds.size.width > 0 && self.bounds.size.height > 0) {
-        self.browserCreated = YES;
-
-        CefWindowInfo windowInfo;
-        NSRect bounds = self.bounds;
-        CefRect cefRect(0, 0, (int)bounds.size.width, (int)bounds.size.height);
-        windowInfo.SetAsChild((__bridge CefWindowHandle)self, cefRect);
-
-        CefBrowserSettings settings;
-
-        CefString cefURL;
-        if (self.pendingURL.length > 0) {
-            cefURL = CefString([self.pendingURL UTF8String]);
-        } else {
-            cefURL = CefString("about:blank");
-        }
-
-        // Start the message loop right before CreateBrowser — it needs to
-        // pump events for the async browser creation + helper IPC to work.
-        [CEFBridgeManager startMessageLoopIfNeeded];
-
-        CefBrowserHost::CreateBrowser(windowInfo, _client, cefURL, settings,
-                                      nullptr, nullptr);
-        self.pendingURL = nil;
-    }
-
     if (_browser && self.window) {
         _browser->GetHost()->WasResized();
     }

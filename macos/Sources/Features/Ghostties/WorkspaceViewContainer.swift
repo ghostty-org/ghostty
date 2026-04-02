@@ -308,8 +308,7 @@ class WorkspaceViewContainer: NSView {
         // Keep the terminal/browser split proportional when the window resizes.
         if isBrowserVisible {
             let available = resizableWidth
-            let minTerminal: CGFloat = 300
-            let maxBrowser = available - minTerminal
+            let maxBrowser = available - WorkspaceLayout.terminalMinWidth
             let desired = available * browserSplitRatio
             let clamped = min(max(desired, WorkspaceLayout.browserMinWidth), max(maxBrowser, WorkspaceLayout.browserMinWidth))
             browserWidthConstraint.constant = clamped
@@ -405,7 +404,7 @@ class WorkspaceViewContainer: NSView {
 
         // Update globe button tint: accent color when open, secondary when closed.
         browserToggleButton.contentTintColor = visible
-            ? NSColor(red: 0.788, green: 0.451, blue: 0.314, alpha: 1)  // terracotta
+            ? WorkspaceLayout.waitingTerracottaNS
             : .secondaryLabelColor
 
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -416,8 +415,7 @@ class WorkspaceViewContainer: NSView {
             if visible {
                 // Expand browser using the stored split ratio.
                 let available = resizableWidth
-                let minTerminal: CGFloat = 300
-                let maxBrowser = available - minTerminal
+                let maxBrowser = available - WorkspaceLayout.terminalMinWidth
                 let desired = available * browserSplitRatio
                 let browserWidth = min(max(desired, WorkspaceLayout.browserMinWidth), max(maxBrowser, WorkspaceLayout.browserMinWidth))
                 browserWidthConstraint.animator().constant = browserWidth
@@ -447,10 +445,8 @@ class WorkspaceViewContainer: NSView {
         let proposedBrowserWidth = currentBrowserWidth - delta
 
         // Minimum terminal width — ensure terminal never gets too narrow.
-        let minTerminalWidth: CGFloat = 300
-
-        // Clamp: browser must be >= browserMinWidth and terminal must be >= minTerminalWidth.
-        let maxBrowserWidth = totalResizable - minTerminalWidth
+        // Clamp: browser must be >= browserMinWidth and terminal must be >= terminalMinWidth.
+        let maxBrowserWidth = totalResizable - WorkspaceLayout.terminalMinWidth
         let clampedWidth = min(max(proposedBrowserWidth, WorkspaceLayout.browserMinWidth), max(maxBrowserWidth, WorkspaceLayout.browserMinWidth))
 
         browserWidthConstraint.constant = clampedWidth
@@ -540,21 +536,24 @@ class WorkspaceViewContainer: NSView {
     /// Weak reference to the active browser manager for navigation actions.
     private weak var _activeBrowserManager: BrowserTabManager?
 
+    /// The CEFBrowserView for the active tab, if any.
+    private var activeCEFView: CEFBrowserView? {
+        guard let tabId = _activeBrowserManager?.activeTabId else { return nil }
+        return _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView
+    }
+
     @objc private func browserGoBack() {
-        guard let tabId = _activeBrowserManager?.activeTabId,
-              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        guard let view = activeCEFView else { return }
         view.goBack()
     }
 
     @objc private func browserGoForward() {
-        guard let tabId = _activeBrowserManager?.activeTabId,
-              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        guard let view = activeCEFView else { return }
         view.goForward()
     }
 
     @objc private func browserReload() {
-        guard let tabId = _activeBrowserManager?.activeTabId,
-              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        guard let view = activeCEFView else { return }
         if view.isLoading {
             view.stopLoading()
         } else {
@@ -563,8 +562,7 @@ class WorkspaceViewContainer: NSView {
     }
 
     @objc private func browserToggleDevTools() {
-        guard let tabId = _activeBrowserManager?.activeTabId,
-              let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView else { return }
+        guard let view = activeCEFView else { return }
 
         if browserPanelView.isDevToolsVisible {
             // Close inline DevTools and collapse the panel area.
@@ -1049,10 +1047,14 @@ extension WorkspaceViewContainer: NSTextFieldDelegate {
                 urlString = "https://\(urlString)"
             }
 
-            if let tabId = _activeBrowserManager?.activeTabId,
-               let view = _activeBrowserManager?.browserViews[tabId] as? CEFBrowserView {
-                view.loadURL(urlString)
+            // Only allow http, https, and about schemes.
+            let lower = urlString.lowercased()
+            guard lower.hasPrefix("https://") || lower.hasPrefix("http://") || lower.hasPrefix("about:") else {
+                NSLog("[WorkspaceViewContainer] Blocked URL with disallowed scheme: %@", urlString)
+                return true
             }
+
+            activeCEFView?.loadURL(urlString)
             // Resign first responder so keyboard goes back to the browser.
             field.window?.makeFirstResponder(nil)
             return true

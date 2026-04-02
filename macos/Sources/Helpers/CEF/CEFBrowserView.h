@@ -30,8 +30,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)goForward;
 - (void)reload;
 - (void)stopLoading;
-/// Open DevTools in a standalone popup window (original behavior).
-- (void)showDevTools;
 /// Open DevTools inline inside the given parent view.
 - (void)showInlineDevTools:(NSView *)parentView;
 /// Close DevTools (works for both popup and inline).

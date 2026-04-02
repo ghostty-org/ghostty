@@ -10,15 +10,13 @@ final class BrowserSessionBridge: NSObject, CEFBrowserViewDelegate {
     let sessionId: UUID
     weak var tabManager: BrowserTabManager?
     weak var navigationBar: BrowserNavigationBar?
-    weak var coordinator: SessionCoordinator?
 
     /// The tab ID currently associated with this bridge's CEFBrowserView.
     var activeTabId: UUID?
 
-    init(sessionId: UUID, tabManager: BrowserTabManager, coordinator: SessionCoordinator) {
+    init(sessionId: UUID, tabManager: BrowserTabManager) {
         self.sessionId = sessionId
         self.tabManager = tabManager
-        self.coordinator = coordinator
         super.init()
     }
 

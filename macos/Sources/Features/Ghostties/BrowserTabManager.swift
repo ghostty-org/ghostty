@@ -38,6 +38,7 @@ final class BrowserTabManager: ObservableObject {
     func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let wasActive = id == activeTabId
+        (browserViews[id] as? CEFBrowserView)?.closeBrowser()
         tabs.remove(at: index)
         browserViews.removeValue(forKey: id)
 
@@ -60,8 +61,9 @@ final class BrowserTabManager: ObservableObject {
 
     /// Close all tabs. Used during session cleanup.
     func closeAllTabs() {
-        // Close browser views — CEFBrowserView.closeBrowser() will be called
-        // here at runtime. For now, just clear the references.
+        for (_, view) in browserViews {
+            (view as? CEFBrowserView)?.closeBrowser()
+        }
         browserViews.removeAll()
         tabs.removeAll()
         activeTabId = nil
