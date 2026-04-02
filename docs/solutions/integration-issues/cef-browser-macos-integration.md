@@ -137,25 +137,52 @@ Non-obvious requirements discovered:
 9. **Helper uses CefExecuteProcess, not CefInitialize** — with real argc/argv
 10. **WasResized() on every layout change** — CEF doesn't auto-follow parent
 
+## Security Hardening (from code review)
+
+### 6. URL Scheme Filtering
+
+**Added:** `GhosttiesIsAllowedScheme()` helper in CEFBrowserView.mm. Only `http://`, `https://`, and `about:` are allowed. Blocks `file://`, `javascript://`, `data://` at three enforcement points: `loadURL:`, `OnBeforePopup`, and the Swift URL bar handler.
+
+### 7. Cache Directory Security
+
+**Moved** CEF cache from `/tmp/ghostties-cef` (world-readable) to `~/Library/Application Support/com.seansmithdesign.ghostties/CEF/` (user-only). Log file moved alongside.
+
+### 8. Popup Hardening
+
+All non-user-gesture popups are now blocked (`return true`). Only explicit user clicks redirect to the main frame. Prevents popup storms and uncontrolled windows from malicious pages.
+
+### 9. Entitlement Minimization
+
+Removed `network.server` from all entitlements (remote debugging disabled). Only `network.client` retained.
+
+## Performance Fixes (from code review)
+
+- **Backup timer bumped from 4Hz to 30Hz** — eliminates 250ms latency spikes on interactive content
+- **`WasResized()` guarded behind actual bounds change** — halves compositor work during resize
+- **Explicit `closeBrowser()` in closeAllTabs/closeTab** — deterministic Chromium process cleanup
+
 ## Prevention Checklist
 
 Before embedding CEF in a macOS app:
 
 - [ ] `external_message_pump = true` in CefSettings
 - [ ] CefApp subclass with OnScheduleMessagePumpWork (atomic coalescing)
-- [ ] Backup timer (4Hz) via NSRunLoop
+- [ ] Backup timer (30Hz) via NSRunLoop
 - [ ] CefScopedLibraryLoader before CefInitialize
 - [ ] Non-zero initial frame (min 1x1, default 800x600)
 - [ ] CreateBrowser called immediately after CefInitialize
-- [ ] `root_cache_path` and `cache_path` set to writable directory
+- [ ] `root_cache_path` and `cache_path` in `~/Library/Application Support/` (NOT /tmp)
 - [ ] `locale` set explicitly (e.g., "en-US")
 - [ ] All 5 helper .app bundles in Contents/Frameworks/
 - [ ] Helpers ad-hoc codesigned with entitlements
-- [ ] `network.client` + `network.server` on main app
+- [ ] `network.client` on main app (NOT `network.server` unless needed)
 - [ ] `xattr -dr com.apple.quarantine` on downloaded framework
 - [ ] NSApplicationWillTerminateNotification observer for CefShutdown
 - [ ] Weak references (`__weak`) in C++ handler classes
 - [ ] All handler callbacks dispatch to main queue
+- [ ] URL scheme allowlist (block `file://`, `javascript://`, `data://`)
+- [ ] Block non-user-gesture popups
+- [ ] Explicit `closeBrowser()` on tab close (don't rely on ARC dealloc)
 
 ## Common Pitfalls
 
@@ -165,8 +192,11 @@ Before embedding CEF in a macOS app:
 | `dispatch_async` without coalescing | Beach ball (queue flood) | Atomic `work_pending_` flag |
 | `CreateBrowser` deferred to later | App exits after 5s, no error | Call in init or viewDidMoveToWindow |
 | Missing helper .app variants | Specific features silently fail | Create all 5 from embed script |
-| Only `WasResized()` in `setFrameSize:` | Viewport stale after live resize | Also call in `layout` + `viewDidEndLiveResize` |
-| `OnBeforePopup` returns true always | OAuth breaks, frame timeouts | Filter on `user_gesture` flag |
+| `WasResized()` without bounds check | Doubled compositor work | Guard behind `boundsChanged` flag |
+| `OnBeforePopup` returns false for all | Uncontrolled popup windows | Block non-user-gesture, redirect user-gesture |
+| No URL scheme filtering | `file://` reads local files | Allowlist `http/https/about` only |
+| Cache in /tmp | World-readable cookies/history | Use `~/Library/Application Support/` |
+| Tab close without `closeBrowser()` | Leaked Chromium processes | Call explicitly before removing reference |
 
 ## Testing Strategy
 
