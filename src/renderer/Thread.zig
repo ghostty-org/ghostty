@@ -481,6 +481,18 @@ fn drainMailbox(self: *Thread) !void {
                     try self.renderer.setMacOSDisplayID(v);
                 }
             },
+
+            .screenshot => |v| {
+                // Append to the pending list; all will be fulfilled in
+                // drawFrameEnd (after present, before swap).
+                self.renderer.api.pending_screenshots.append(
+                    self.renderer.alloc,
+                    v,
+                ) catch {
+                    log.err("failed to queue screenshot request", .{});
+                    v.deinit();
+                };
+            },
         }
     }
 }

@@ -1998,6 +1998,20 @@ pub const CAPI = struct {
         );
     }
 
+    /// Request a screenshot of the next rendered frame. The screenshot
+    /// is written as a PNG to the given null-terminated path. This is
+    /// safe to call from any thread; the actual capture is deferred to
+    /// the renderer thread.
+    export fn ghostty_surface_screenshot(
+        ptr: *Surface,
+        path: [*:0]const u8,
+    ) void {
+        const slice = std.mem.sliceTo(path, 0);
+        ptr.core_surface.requestScreenshot(slice) catch |err| {
+            log.err("screenshot request failed err={}", .{err});
+        };
+    }
+
     export fn ghostty_surface_inspector(ptr: *Surface) ?*Inspector {
         return ptr.initInspector() catch |err| {
             log.err("error initializing inspector err={}", .{err});

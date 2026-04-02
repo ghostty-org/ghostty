@@ -67,6 +67,12 @@ pub const Message = union(enum) {
     /// The macOS display ID has changed for the window.
     macos_display_id: u32,
 
+    /// Request a screenshot of the next rendered frame. The renderer
+    /// captures the framebuffer after drawing and writes it as a PNG
+    /// to the given path. The path is heap-allocated and owned by the
+    /// message; the renderer frees it after use.
+    screenshot: Screenshot,
+
     pub const SearchMatches = struct {
         arena: ArenaAllocator,
         matches: []const terminal.highlight.Flattened,
@@ -75,6 +81,16 @@ pub const Message = union(enum) {
     pub const SearchMatch = struct {
         arena: ArenaAllocator,
         match: terminal.highlight.Flattened,
+    };
+
+    pub const Screenshot = struct {
+        /// Heap-allocated, null-terminated output path.
+        path: [:0]const u8,
+        alloc: Allocator,
+
+        pub fn deinit(self: Screenshot) void {
+            self.alloc.free(self.path);
+        }
     };
 
     /// Initialize a change_config message.
@@ -104,6 +120,8 @@ pub const Message = union(enum) {
                 v.alloc.destroy(v.impl);
                 v.alloc.destroy(v.thread);
             },
+
+            .screenshot => |v| v.deinit(),
 
             else => {},
         }

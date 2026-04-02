@@ -2440,6 +2440,20 @@ fn queueRender(self: *Surface) !void {
     try self.renderer_thread.wakeup.notify();
 }
 
+/// Request a screenshot of the next rendered frame. The renderer thread
+/// will capture the framebuffer and write it as a PNG to `path`. Safe
+/// to call from any thread.
+pub fn requestScreenshot(self: *Surface, path: [:0]const u8) !void {
+    const duped = try self.alloc.dupeZ(u8, path);
+    _ = self.renderer_thread.mailbox.push(.{
+        .screenshot = .{
+            .path = duped,
+            .alloc = self.alloc,
+        },
+    }, .{ .forever = {} });
+    try self.queueRender();
+}
+
 pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();

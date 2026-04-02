@@ -45,6 +45,11 @@ blending: configpkg.Config.AlphaBlending,
 /// The most recently presented target, in case we need to present it again.
 last_target: ?Target = null,
 
+/// Pending screenshot requests. drawFrameEnd captures the framebuffer
+/// once and writes a PNG to each requested path before swapping buffers.
+pending_screenshots: std.ArrayListUnmanaged(rendererpkg.Message.Screenshot) = .empty,
+
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -258,9 +263,23 @@ pub fn drawFrameStart(self: *OpenGL) void {
 
 /// Actions taken after `drawFrame` is done.
 ///
-/// Right now there's nothing we need to do for OpenGL.
+/// If screenshots were requested, capture the framebuffer once and write
+/// to each path before swapping.
 pub fn drawFrameEnd(self: *OpenGL) void {
-    _ = self;
+    if (self.pending_screenshots.items.len > 0) {
+        if (self.last_target) |target| {
+            const screenshot = @import("screenshot.zig");
+            // Capture pixels once, write to all requested paths.
+            screenshot.captureOpenGLMulti(
+                self.alloc,
+                @intCast(target.width),
+                @intCast(target.height),
+                self.pending_screenshots.items,
+            );
+        }
+        for (self.pending_screenshots.items) |ss| ss.deinit();
+        self.pending_screenshots.clearRetainingCapacity();
+    }
 }
 
 pub fn initShaders(

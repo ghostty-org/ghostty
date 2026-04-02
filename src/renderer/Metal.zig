@@ -61,13 +61,20 @@ max_texture_size: u32,
 /// We start an AutoreleasePool before `drawFrame` and end it afterwards.
 autorelease_pool: ?*objc.AutoreleasePool = null,
 
+/// The most recently presented target, used for screenshots.
+last_target: ?Target = null,
+
+/// Pending screenshot requests. Fulfilled in drawFrameEnd by reading
+/// the IOSurface backing the last presented target.
+pending_screenshots: std.ArrayListUnmanaged(rendererpkg.Message.Screenshot) = .empty,
+
+alloc: std.mem.Allocator,
+
 pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
     comptime switch (builtin.os.tag) {
         .macos, .ios => {},
         else => @compileError("unsupported platform for Metal"),
     };
-
-    _ = alloc;
 
     // Choose our MTLDevice and create a MTLCommandQueue for that device.
     const device = try chooseDevice();
@@ -152,6 +159,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
         .blending = opts.config.blending,
         .default_storage_mode = default_storage_mode,
         .max_texture_size = max_texture_size,
+        .alloc = alloc,
     };
 }
 
@@ -187,6 +195,20 @@ pub fn drawFrameStart(self: *Metal) void {
 ///
 /// Right now we use this to end our AutoreleasePool.
 pub fn drawFrameEnd(self: *Metal) void {
+    if (self.pending_screenshots.items.len > 0) {
+        if (self.last_target) |target| {
+            @import("screenshot.zig").captureIOSurface(
+                self.alloc,
+                target.surface,
+                @intCast(target.width),
+                @intCast(target.height),
+                self.pending_screenshots.items,
+            );
+        }
+        for (self.pending_screenshots.items) |ss| ss.deinit();
+        self.pending_screenshots.clearRetainingCapacity();
+    }
+
     assert(self.autorelease_pool != null);
     self.autorelease_pool.?.deinit();
     self.autorelease_pool = null;
@@ -251,6 +273,7 @@ pub fn initTarget(self: *const Metal, width: usize, height: usize) !Target {
 
 /// Present the provided target.
 pub inline fn present(self: *Metal, target: Target, sync: bool) !void {
+    self.last_target = target;
     if (sync) {
         self.layer.setSurfaceSync(target.surface);
     } else {
