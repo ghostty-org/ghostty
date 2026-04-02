@@ -31,11 +31,30 @@ struct ClipboardConfirmationView: View {
     /// The type of the clipboard request
     let request: Ghostty.ClipboardRequest
 
+    /// When request is paste, selects between default unsafe-paste copy and mixed-script URL copy.
+    let confirmReason: Ghostty.ClipboardConfirmReason
+
+    let homoglyphHighlight: Ghostty.PasteHomoglyphURLHighlight?
+
     /// Optional delegate to get results. If this is nil, then this view will never close on its own.
     weak var delegate: ClipboardConfirmationViewDelegate?
 
     /// Used to track if we should rehide on disappear
     @State private var cursorHiddenCount: UInt = 0
+
+    init(
+        contents: String,
+        request: Ghostty.ClipboardRequest,
+        confirmReason: Ghostty.ClipboardConfirmReason,
+        homoglyphHighlight: Ghostty.PasteHomoglyphURLHighlight? = nil,
+        delegate: ClipboardConfirmationViewDelegate?
+    ) {
+        self.contents = contents
+        self.request = request
+        self.confirmReason = confirmReason
+        self.homoglyphHighlight = homoglyphHighlight
+        self.delegate = delegate
+    }
 
     var body: some View {
         VStack {
@@ -46,14 +65,33 @@ struct ClipboardConfirmationView: View {
                     .padding()
                     .frame(alignment: .center)
 
-                Text(request.text())
+                Text(request.text(confirmReason: confirmReason))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let highlight = homoglyphHighlight {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Suspicious URL (non-ascii characters are red and underlined)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(highlight.attributedLine())
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             TextEditor(text: .constant(contents))
                 .focusable(false)
                 .font(.system(.body, design: .monospaced))
+                .padding(.top, homoglyphHighlight != nil ? 2 : 0)
 
             HStack {
                 Spacer()

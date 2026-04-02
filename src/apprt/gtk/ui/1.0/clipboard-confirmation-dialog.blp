@@ -9,6 +9,7 @@ template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
 
   notify::blur => $notify_blur();
   notify::request => $notify_request();
+  notify::confirm-reason => $notify_confirm_reason();
   heading: _("Authorize Clipboard Access");
   // Not localized because this is a placeholder users never see.
   body: "If you see this text, there is a bug in Ghostty. Please report it.";
