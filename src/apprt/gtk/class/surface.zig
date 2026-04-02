@@ -549,6 +549,12 @@ pub const Surface = extern struct {
         };
     };
 
+    const PreeditKeyEvent = struct {
+        keyval: c_uint,
+        keycode: c_uint,
+        mods: gdk.ModifierType,
+    };
+
     const Private = struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
@@ -637,6 +643,15 @@ pub const Surface = extern struct {
         im_composing: bool = false,
         im_buf: [128]u8 = undefined,
         im_len: u7 = 0,
+
+        /// Current event controller key, updated on each key event.
+        /// Used for replaying key events when IME switches.
+        ec_key_current: ?*gtk.EventControllerKey = null,
+
+        /// Buffer for key events during preedit composition.
+        /// When input method switches (e.g., via Caps Lock), these events
+        /// are replayed so they execute as commands in apps like Neovim.
+        im_preedit_keys: std.ArrayListUnmanaged(PreeditKeyEvent) = .empty,
 
         /// True when we have a precision scroll in progress
         precision_scroll: bool = false,
@@ -1222,6 +1237,9 @@ pub const Surface = extern struct {
         const key_event = gobject.ext.cast(gdk.KeyEvent, event) orelse return false;
         const priv = self.private();
 
+        // Store ec_key for potential replay when IME switches
+        priv.ec_key_current = ec_key;
+
         // The block below is all related to input method handling. See the function
         // comment for some high level details and then the comments within
         // the block for more specifics.
@@ -1278,6 +1296,17 @@ pub const Surface = extern struct {
             //     self.im_len,
             //     self.im_composing,
             // });
+
+            // If we were composing before IME processing, save this key event.
+            // If IME switches (e.g., via Caps Lock), we'll replay these events
+            // so they execute as commands in apps like Neovim normal mode.
+            if (priv.in_keyevent == .composing and action == .press) {
+                priv.im_preedit_keys.append(self.allocator, .{
+                    .keyval = keyval,
+                    .keycode = keycode,
+                    .mods = gtk_mods,
+                }) catch {};
+            }
 
             // If the input method handled the event, you would think we would
             // never proceed with key encoding for Ghostty but that is not the
@@ -3089,6 +3118,9 @@ pub const Surface = extern struct {
         const priv = self.private();
         priv.im_composing = false;
 
+        // Clear saved preedit key events since preedit ended
+        priv.im_preedit_keys.clearRetainingCapacity();
+
         // End our preedit state in Ghostty core
         const surface = priv.core_surface orelse return;
         surface.preeditCallback(null) catch |err| {
@@ -3119,7 +3151,40 @@ pub const Surface = extern struct {
             // If we're not in a key event then this commit is from
             // some other source (i.e. on-screen keyboard, tablet, etc.)
             // and we want to commit the text to the core surface.
-            .false => {},
+            //
+            // However, if we were composing (im_composing is true), this
+            // likely means the input method was switched (e.g., via Caps Lock)
+            // and we should discard the preedit text rather than inserting it.
+            // This prevents unwanted text insertion in terminal apps like Neovim
+            // when switching input methods during composition.
+            .false => {
+                if (priv.im_composing) {
+                    priv.im_composing = false;
+                    if (priv.core_surface) |surface| {
+                        surface.preeditCallback(null) catch |err| {
+                            log.warn("error clearing preedit on IM switch: {}", .{err});
+                        };
+                    }
+
+                    // Replay saved key events so they execute as commands
+                    // in apps like Neovim normal mode
+                    const ec_key = priv.ec_key_current orelse return;
+                    const keys_to_replay = priv.im_preedit_keys.toOwnedSlice(self.allocator()) catch null;
+                    if (keys_to_replay) |keys| {
+                        defer self.allocator().free(keys);
+                        for (keys) |key_info| {
+                            _ = self.keyEvent(
+                                .press,
+                                ec_key,
+                                key_info.keyval,
+                                key_info.keycode,
+                                key_info.mods,
+                            );
+                        }
+                    }
+                    return;
+                }
+            },
 
             // If we're in a composing state and in a key event then this
             // key event is resulting in a commit of multiple keypresses
@@ -3153,6 +3218,9 @@ pub const Surface = extern struct {
 
         // Committing ends composing state
         priv.im_composing = false;
+
+        // Clear saved preedit key events since commit was successful
+        priv.im_preedit_keys.clearRetainingCapacity();
 
         // We can't set our preedit on our surface unless we're realized.
         // We do this now because we want to still keep our input method

@@ -225,6 +225,11 @@ extension Ghostty {
         // This is set to non-null during keyDown to accumulate insertText contents
         private var keyTextAccumulator: [String]?
 
+        // Accumulates key events during preedit state. When input method switches
+        // (e.g., via Caps Lock), these events are replayed to the terminal so
+        // they can be executed as commands in apps like Neovim normal mode.
+        private var preeditKeyEvents: [NSEvent] = []
+
         // True when we've consumed a left mouse-down only to move focus and
         // should suppress the matching mouse-up from being reported.
         private var suppressNextLeftMouseUp: Bool = false
@@ -1162,6 +1167,12 @@ extension Ghostty {
             // `interpretKeyEvents` may dispatch it.
             self.lastPerformKeyEvent = nil
 
+            // If we're already in preedit state, save this key event so it can be
+            // replayed if the input method is switched (e.g., via Caps Lock).
+            if markedTextBefore {
+                preeditKeyEvents.append(event)
+            }
+
             self.interpretKeyEvents([translationEvent])
 
             // If our keyboard changed from this we just assume an input method
@@ -1179,6 +1190,10 @@ extension Ghostty {
                 // If we have text, then we've composed a character, send that down.
                 // These never have "composing" set to true because these are the
                 // result of a composition.
+                
+                // Clear saved preedit key events since composition succeeded
+                preeditKeyEvents.removeAll(keepingCapacity: true)
+                
                 for text in list {
                     _ = keyAction(
                         action,
@@ -1863,6 +1878,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     func unmarkText() {
         if self.markedText.length > 0 {
             self.markedText.mutableString.setString("")
+            preeditKeyEvents.removeAll(keepingCapacity: true)
             syncPreedit()
         }
     }
@@ -1983,6 +1999,10 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return
         }
 
+        // Check if we had marked text before clearing it.
+        // This helps us detect input method switches (e.g., via Caps Lock).
+        let hadMarkedText = markedText.length > 0
+
         // If insertText is called, our preedit must be over.
         unmarkText()
 
@@ -1991,6 +2011,21 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         if var acc = keyTextAccumulator {
             acc.append(chars)
             keyTextAccumulator = acc
+            return
+        }
+
+        // If we're not in a keyDown event (keyTextAccumulator is nil) but we
+        // had marked text, this likely means the input method was switched
+        // (e.g., via Caps Lock). Instead of inserting the text, replay the
+        // saved key events so they can be executed as commands in apps like
+        // Neovim normal mode.
+        if hadMarkedText {
+            let eventsToReplay = preeditKeyEvents
+            preeditKeyEvents.removeAll(keepingCapacity: true)
+
+            for savedEvent in eventsToReplay {
+                self.keyDown(with: savedEvent)
+            }
             return
         }
 
