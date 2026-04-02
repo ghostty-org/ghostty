@@ -183,6 +183,55 @@ pub const Parser = struct {
         return terminator;
     }
 
+    /// Decode tmux control mode octal escaping in place. tmux encodes
+    /// bytes less than ASCII 32 and `\` itself as `\ooo` (backslash +
+    /// three octal digits). The decoded output is always <= the input
+    /// length, so this can safely write back into the same buffer.
+    fn decodeEscapedOutput(data: []u8) []const u8 {
+        var read_idx: usize = 0;
+        var write_idx: usize = 0;
+
+        while (read_idx < data.len) {
+            // Pass through non escape bytes as is.
+            if (data[read_idx] != '\\') {
+                data[write_idx] = data[read_idx];
+                read_idx += 1;
+                write_idx += 1;
+                continue;
+            }
+
+            read_idx += 1; // consume '\'
+
+            // Try to decode three octal digits following the backslash.
+            // If fewer than 3 bytes remain or any digit is non-octal,
+            // emit '?' as a visible replacement rather than silently
+            // dropping %output payload
+            var value: u8 = 0;
+            var ok = false;
+
+            // after consuming '\' read_idx is at the first potential octal digit, we need +2 after it.
+            if (read_idx + 2 < data.len) {
+                var i: usize = 0;
+                while (i < 3) : (i += 1) {
+                    const digit = data[read_idx];
+                    if (digit < '0' or digit > '7') break;
+
+                    // tmux encodes bytes < 32 and '\' (92 = \134),
+                    // so the max decoded value is 92. No overflow.
+                    value = value * 8 + (digit - '0');
+                    read_idx += 1;
+                }
+
+                ok = i == 3;
+            }
+
+            data[write_idx] = if (ok) value else '?';
+            write_idx += 1;
+        }
+
+        return data[0..write_idx];
+    }
+
     fn parseNotification(self: *Parser) ParseError!?Notification {
         assert(self.state == .notification);
 
@@ -236,7 +285,7 @@ pub const Parser = struct {
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
             ) catch unreachable;
-            const data = line[@intCast(starts[2])..@intCast(ends[2])];
+            const data = decodeEscapedOutput(line[@intCast(starts[2])..@intCast(ends[2])]);
 
             // Important: do not clear buffer here since name points to it
             self.state = .idle;
@@ -722,6 +771,41 @@ test "tmux output" {
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("foo bar baz", n.output.data);
+}
+
+test "tmux decode octal escape" {
+    const testing = std.testing;
+
+    var input = [_]u8{ '\\', '0', '3', '3', '[', '?', '2', '0', '0', '4', 'h' };
+    const got = Parser.decodeEscapedOutput(input[0..]);
+    const expected = [_]u8{ 0x1b, '[', '?', '2', '0', '0', '4', 'h' };
+
+    try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux decode malformed escape" {
+    const testing = std.testing;
+
+    var input = [_]u8{ '\\', '0', 'x', '3' };
+    const got = Parser.decodeEscapedOutput(input[0..]);
+    const expected = [_]u8{ '?', 'x', '3' };
+
+    try testing.expectEqualSlices(u8, expected[0..], got);
+}
+
+test "tmux output decodes escapes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 \\033ktitle\\033\\134") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    const expected = [_]u8{ 0x1b, 'k', 't', 'i', 't', 'l', 'e', 0x1b, '\\' };
+
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualSlices(u8, expected[0..], n.output.data);
 }
 
 test "tmux session-changed" {
