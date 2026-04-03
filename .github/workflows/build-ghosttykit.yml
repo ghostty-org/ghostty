@@ -18,7 +18,7 @@ jobs:
           version: 0.15.2
 
       - name: Build xcframework
-        run: zig build -Demit-xcframework=true -Dxcframework-target=universal -Demit-macos-app=false
+        run: zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Dxcframework-target=universal -Demit-macos-app=false
 
       - name: Compress xcframework
         run: |
