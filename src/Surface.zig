@@ -3160,7 +3160,9 @@ fn encodeKey(
 ) !?termio.Message.WriteReq {
     const write_req: termio.Message.WriteReq = req: {
         // Build our encoding options, which requires the lock.
+        self.renderer_state.mutex.lock();
         const encoding_opts = self.encodeKeyOpts();
+        self.renderer_state.mutex.unlock();
 
         // Try to write the input into a small array. This fits almost
         // every scenario. Larger situations can happen due to long
@@ -3229,8 +3231,6 @@ fn encodeKey(
 }
 
 fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
     const t = &self.io.terminal;
 
     var opts: input.key_encode.Options = .fromTerminal(t);
@@ -3510,22 +3510,26 @@ pub fn scrollCallback(
                 // When we send mouse events as cursor keys we always
                 // clear the selection.
                 try self.setSelection(null);
-
-                const seq = if (self.io.terminal.modes.get(.cursor_keys)) seq: {
-                    // cursor key: application mode
-                    break :seq switch (y.direction()) {
-                        .up_right => "\x1bOA",
-                        .down_left => "\x1bOB",
-                    };
-                } else seq: {
-                    // cursor key: normal mode
-                    break :seq switch (y.direction()) {
-                        .up_right => "\x1b[A",
-                        .down_left => "\x1b[B",
-                    };
-                };
+                const encoding_opts = self.encodeKeyOpts();
+                var data: termio.Message.WriteReq.Small.Array = undefined;
+                var writer: std.Io.Writer = .fixed(&data);
+                try input.key_encode.encode(
+                    &writer,
+                    .{
+                        .key = switch (y.direction()) {
+                            .up_right => .arrow_up,
+                            .down_left => .arrow_down,
+                        },
+                        .mods = self.mouse.mods,
+                    },
+                    encoding_opts,
+                );
+                const write_req: termio.Message = .{ .write_small = .{
+                    .data = data,
+                    .len = @intCast(writer.buffered().len)
+                }};
                 for (0..y.magnitude()) |_| {
-                    self.queueIo(.{ .write_stable = seq }, .locked);
+                    self.queueIo(write_req, .locked);
                 }
             }
 
