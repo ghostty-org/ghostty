@@ -552,6 +552,14 @@ extension Ghostty {
             )
         }
 
+        var splitResizeLimit: Double {
+            guard let config = self.config else { return 0.1 }
+            var v: Double = 0.1
+            let key = "split-resize-limit"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         #if canImport(AppKit)
         var quickTerminalPosition: QuickTerminalPosition {
             guard let config = self.config else { return .top }

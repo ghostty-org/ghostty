@@ -1101,6 +1101,17 @@ palette: Palette = .{},
 /// Available since: 1.3.0
 @"split-preserve-zoom": SplitPreserveZoom = .{},
 
+/// The minimum ratio for any split, clamped to this value during resize
+/// operations. This prevents a split from becoming too small when resizing.
+///
+/// A value of `0.1` means no split can be smaller than 10% of the total
+/// container size. A value of `0` disables this limit entirely, allowing
+/// splits to be resized freely (though they may still be constrained by
+/// minimum window sizes). The value is clamped to the range `0` to `0.5`.
+///
+/// Default: `0.1`
+@"split-resize-limit": f64 = 0.1,
+
 /// The foreground and background color for search matches. This only applies
 /// to non-focused search matches, also known as candidate matches.
 ///
@@ -4653,6 +4664,9 @@ pub fn finalize(self: *Config) !void {
 
     // Clamp our split opacity
     self.@"unfocused-split-opacity" = @min(1.0, @max(0.15, self.@"unfocused-split-opacity"));
+
+    // Clamp our split resize limit
+    self.@"split-resize-limit" = @min(0.5, @max(0, self.@"split-resize-limit"));
 
     // Clamp our contrast
     self.@"minimum-contrast" = @min(21, @max(1, self.@"minimum-contrast"));

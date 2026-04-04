@@ -24,6 +24,9 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits.
     let onEqualize: () -> Void
 
+    /// The minimum ratio (0 to 0.5) for a split during resize.
+    let splitResizeLimit: CGFloat
+
     /// The minimum size (in points) of a split
     let minSize: CGFloat = 10
 
@@ -73,6 +76,7 @@ struct SplitView<L: View, R: View>: View {
         _ direction: SplitViewDirection,
         _ split: Binding<CGFloat>,
         dividerColor: Color,
+        splitResizeLimit: CGFloat = 0.1,
         resizeIncrements: NSSize = .init(width: 1, height: 1),
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
@@ -81,6 +85,7 @@ struct SplitView<L: View, R: View>: View {
         self.direction = direction
         self._split = split
         self.dividerColor = dividerColor
+        self.splitResizeLimit = splitResizeLimit
         self.resizeIncrements = resizeIncrements
         self.left = left()
         self.right = right()
@@ -90,14 +95,15 @@ struct SplitView<L: View, R: View>: View {
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
         return DragGesture()
             .onChanged { gesture in
+                let maxRatio = 1 - splitResizeLimit
                 switch direction {
                 case .horizontal:
                     let new = min(max(minSize, gesture.location.x), size.width - minSize)
-                    split = new / size.width
+                    split = min(max(splitResizeLimit, new / size.width), maxRatio)
 
                 case .vertical:
                     let new = min(max(minSize, gesture.location.y), size.height - minSize)
-                    split = new / size.height
+                    split = min(max(splitResizeLimit, new / size.height), maxRatio)
                 }
             }
     }

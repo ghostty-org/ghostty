@@ -711,7 +711,7 @@ class BaseTerminalController: NSWindowController,
 
         // Perform the resize using the new SplitTree resize method
         do {
-            surfaceTree = try surfaceTree.resizing(node: targetNode, by: amount, in: spatialDirection, with: bounds)
+            surfaceTree = try surfaceTree.resizing(node: targetNode, by: amount, in: spatialDirection, with: bounds, minRatio: ghostty.config.splitResizeLimit)
         } catch {
             Ghostty.logger.warning("failed to resize split: \(error)")
         }

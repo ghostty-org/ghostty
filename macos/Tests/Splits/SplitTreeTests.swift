@@ -223,6 +223,68 @@ struct SplitTreeTests {
         #expect(abs(s.ratio - expectedRatio) < 0.001)
     }
 
+    // MARK: - Resize with minRatio
+
+    @Test func resizingClampsToMinRatio() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+
+        // Resize right by 450px (would push ratio to 0.95 without limit)
+        let resized = try tree.resizing(
+            node: .leaf(view: view1), by: 450, in: .right, with: bounds, minRatio: 0.2)
+
+        guard case .split(let s) = resized.root else {
+            Issue.record("unexpected node type")
+            return
+        }
+        // Should be clamped to 0.8 (1 - minRatio)
+        #expect(abs(s.ratio - 0.8) < 0.001)
+    }
+
+    @Test func resizingClampsToMinRatioNegativeDirection() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+
+        // Resize left by 450px (would push ratio to 0.05 without limit)
+        let resized = try tree.resizing(
+            node: .leaf(view: view1), by: 450, in: .left, with: bounds, minRatio: 0.2)
+
+        guard case .split(let s) = resized.root else {
+            Issue.record("unexpected node type")
+            return
+        }
+        // Should be clamped to 0.2 (minRatio)
+        #expect(abs(s.ratio - 0.2) < 0.001)
+    }
+
+    @Test func resizingWithZeroMinRatioAllowsFullRange() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .right)
+
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 500)
+
+        // Resize right by 450px with no limit
+        let resized = try tree.resizing(
+            node: .leaf(view: view1), by: 450, in: .right, with: bounds, minRatio: 0)
+
+        guard case .split(let s) = resized.root else {
+            Issue.record("unexpected node type")
+            return
+        }
+        // Should reach 0.95 with no clamping
+        #expect(abs(s.ratio - 0.95) < 0.001)
+    }
+
     // MARK: - Codable
 
     @Test func encodingAndDecodingPreservesTree() throws {

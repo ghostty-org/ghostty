@@ -256,7 +256,7 @@ extension SplitTree {
     ///   - bounds: The bounds used to construct the spatial tree representation
     /// - Returns: A new SplitTree with the adjusted split ratios
     /// - Throws: SplitError.viewNotFound if the node is not found in the tree or no suitable parent split exists
-    func resizing(node: Node, by pixels: UInt16, in direction: Spatial.Direction, with bounds: CGRect) throws -> Self {
+    func resizing(node: Node, by pixels: UInt16, in direction: Spatial.Direction, with bounds: CGRect, minRatio: Double = 0.1) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
 
         // Find the path to the target node
@@ -301,19 +301,21 @@ extension SplitTree {
         let pixelOffset = Double(pixels)
         let newRatio: Double
 
+        let maxRatio = 1 - minRatio
+
         switch (split.direction, direction) {
         case (.horizontal, .left):
             // Moving left boundary: decrease left side
-            newRatio = Swift.max(0.1, Swift.min(0.9, split.ratio - (pixelOffset / splitSlot.bounds.width)))
+            newRatio = Swift.max(minRatio, Swift.min(maxRatio, split.ratio - (pixelOffset / splitSlot.bounds.width)))
         case (.horizontal, .right):
             // Moving right boundary: increase left side
-            newRatio = Swift.max(0.1, Swift.min(0.9, split.ratio + (pixelOffset / splitSlot.bounds.width)))
+            newRatio = Swift.max(minRatio, Swift.min(maxRatio, split.ratio + (pixelOffset / splitSlot.bounds.width)))
         case (.vertical, .up):
             // Moving top boundary: decrease top side
-            newRatio = Swift.max(0.1, Swift.min(0.9, split.ratio - (pixelOffset / splitSlot.bounds.height)))
+            newRatio = Swift.max(minRatio, Swift.min(maxRatio, split.ratio - (pixelOffset / splitSlot.bounds.height)))
         case (.vertical, .down):
             // Moving bottom boundary: increase top side
-            newRatio = Swift.max(0.1, Swift.min(0.9, split.ratio + (pixelOffset / splitSlot.bounds.height)))
+            newRatio = Swift.max(minRatio, Swift.min(maxRatio, split.ratio + (pixelOffset / splitSlot.bounds.height)))
         default:
             // Direction doesn't match split type - shouldn't happen due to earlier logic
             throw SplitError.viewNotFound

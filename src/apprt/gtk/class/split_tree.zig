@@ -311,11 +311,17 @@ pub const SplitTree = extern struct {
             .up, .down => .vertical,
         };
 
+        const app = Application.default();
+        const config_obj = app.getConfig();
+        defer config_obj.unref();
+        const limit: f16 = @floatCast(config_obj.get().@"split-resize-limit");
+
         var new_tree = try old_tree.resize(
-            Application.default().allocator(),
+            app.allocator(),
             active,
             layout,
             @floatCast(ratio),
+            limit,
         );
         defer new_tree.deinit();
         self.setTree(&new_tree);

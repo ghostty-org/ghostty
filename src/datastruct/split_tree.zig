@@ -833,10 +833,12 @@ pub fn SplitTree(comptime V: type) type {
             from: Node.Handle,
             layout: Split.Layout,
             ratio: f16,
+            min_ratio: f16,
         ) Allocator.Error!Self {
             assert(ratio >= -1 and ratio <= 1);
             assert(!std.math.isNan(ratio));
             assert(!std.math.isInf(ratio));
+            assert(min_ratio >= 0 and min_ratio <= 0.5);
 
             // Fast path empty trees.
             if (self.isEmpty()) return .empty;
@@ -875,10 +877,11 @@ pub fn SplitTree(comptime V: type) type {
                 break :full_ratio current * scale;
             };
 
-            // Set the final new ratio, clamping it to [0, 1]
+            // Set the final new ratio, clamping it to [min_ratio, 1 - min_ratio]
+            const max_ratio: f16 = 1 - min_ratio;
             result.resizeInPlace(
                 parent_handle,
-                @min(@max(full_ratio + ratio, 0), 1),
+                @min(@max(full_ratio + ratio, min_ratio), max_ratio),
             );
             return result;
         }
@@ -2133,6 +2136,7 @@ test "SplitTree: resize" {
             },
             .horizontal, // resize right
             0.25,
+            0, // no min_ratio limit
         );
         defer resized.deinit();
         const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
@@ -2159,6 +2163,7 @@ test "SplitTree: resize" {
             },
             .horizontal, // resize left
             -0.25,
+            0, // no min_ratio limit
         );
         defer resized.deinit();
         const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
@@ -2169,6 +2174,74 @@ test "SplitTree: resize" {
             \\+---++-------------+
             \\
         );
+    }
+}
+
+test "SplitTree: resize with min_ratio clamp" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var v1: TestTree.View = .{ .label = "A" };
+    var t1: TestTree = try .init(alloc, &v1);
+    defer t1.deinit();
+    var v2: TestTree.View = .{ .label = "B" };
+    var t2: TestTree = try .init(alloc, &v2);
+    defer t2.deinit();
+
+    // A | B horizontal
+    var split = try t1.split(
+        alloc,
+        .root, // at root
+        .right, // split right
+        0.5,
+        &t2, // insert t2
+    );
+    defer split.deinit();
+
+    // Resize with a large ratio that would exceed min_ratio limit
+    {
+        var resized = try split.resize(
+            alloc,
+            at: {
+                var it = split.iterator();
+                break :at while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .horizontal,
+            0.45, // would push to 0.95 without limit
+            0.2, // min_ratio = 0.2
+        );
+        defer resized.deinit();
+
+        // The ratio should be clamped to 0.8 (1 - min_ratio)
+        const ratio = resized.nodes[TestTree.Node.Handle.root.idx()].split.ratio;
+        try testing.expect(ratio <= 0.8 + 0.001);
+    }
+
+    // Resize in the negative direction with min_ratio limit
+    {
+        var resized = try split.resize(
+            alloc,
+            at: {
+                var it = split.iterator();
+                break :at while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .horizontal,
+            -0.45, // would push to 0.05 without limit
+            0.2, // min_ratio = 0.2
+        );
+        defer resized.deinit();
+
+        // The ratio should be clamped to 0.2 (min_ratio)
+        const ratio = resized.nodes[TestTree.Node.Handle.root.idx()].split.ratio;
+        try testing.expect(ratio >= 0.2 - 0.001);
     }
 }
 
