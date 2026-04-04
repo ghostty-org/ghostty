@@ -255,6 +255,9 @@ pub const Viewer = struct {
 
     pub const Pane = struct {
         terminal: Terminal,
+        /// false until this pane's initial capture-pane + pane_state sync
+        /// has been applied. live %output is ignored untill then.
+        initialized: bool = false,
 
         pub fn deinit(self: *Pane, alloc: Allocator) void {
             self.terminal.deinit(alloc);
@@ -1029,6 +1032,7 @@ pub const Viewer = struct {
                     t.tabstops.set(col_cell);
                 }
             }
+            pane.initialized = true;
         }
     }
 
@@ -1107,6 +1111,7 @@ pub const Viewer = struct {
             return;
         };
         const pane: *Pane = entry.value_ptr;
+        if (!pane.initialized) return;
         const t: *Terminal = &pane.terminal;
 
         var stream = t.vtStream();
@@ -1753,6 +1758,41 @@ test "initial flow" {
         },
         .{
             .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_state for all panes
+            .contains_command = "list-panes",
+        },
+        // Output for a pane should be ignored until pane_state
+        // marks it initialized.
+        .{
+            .input = .{ .tmux = .{ .output = .{ .pane_id = 0, .data = "early output" } } },
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    try testing.expect(!pane.initialized);
+                    const screen: *Screen = pane.terminal.screens.active;
+                    const str = try screen.dumpStringAlloc(
+                        testing.allocator,
+                        .{ .active = .{} },
+                    );
+                    defer testing.allocator.free(str);
+                    try testing.expect(!std.mem.containsAtLeast(u8, str, 1, "early output"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\%0;0;0;1;block;default;0;0;0;0;0;1;0;0;0;0;0;0;0;0;0;0;1;0;19;8,16
+                \\%1;0;0;1;block;default;0;0;0;0;0;1;0;0;0;0;0;0;0;0;0;0;1;0;22;8,16
+                ,
+            } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expect(v.panes.getEntry(0).?.value_ptr.initialized);
+                    try testing.expect(v.panes.getEntry(1).?.value_ptr.initialized);
+                }
+            }).check,
         },
         .{
             .input = .{ .tmux = .{ .output = .{ .pane_id = 0, .data = "new output" } } },
