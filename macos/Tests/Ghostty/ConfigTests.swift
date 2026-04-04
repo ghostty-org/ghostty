@@ -106,6 +106,21 @@ struct ConfigTests {
         #expect(config.macosTitlebarStyle == expected)
     }
 
+    @Test func macosTitlebarTitleAlignmentDefaultsToLeft() throws {
+        let config = try TemporaryConfig("")
+        #expect(config.windowTitleAlignment == .left)
+    }
+
+    @Test(arguments: [
+        ("left", Ghostty.Config.MacOSTitlebarTitleAlignment.left),
+        ("center", Ghostty.Config.MacOSTitlebarTitleAlignment.center),
+        ("right", Ghostty.Config.MacOSTitlebarTitleAlignment.right),
+    ])
+    func macosTitlebarTitleAlignmentValues(raw: String, expected: Ghostty.Config.MacOSTitlebarTitleAlignment) throws {
+        let config = try TemporaryConfig("macos-titlebar-title-alignment = \(raw)")
+        #expect(config.windowTitleAlignment == expected)
+    }
+
     @Test func resizeOverlayDefaultsToAfterFirst() throws {
         let config = try TemporaryConfig("")
         #expect(config.resizeOverlay == .after_first)

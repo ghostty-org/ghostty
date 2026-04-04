@@ -219,6 +219,11 @@ class TerminalWindow: NSWindow {
             tabBarDidDisappear()
         }
         viewModel.isMainWindow = true
+
+        // Re-sync the title text field in case the titlebar was recreated since
+        // we last set up the KVO observation (e.g. after exiting fullscreen).
+        tab.attributedTitle = attributedTitle
+        syncTitleTextField()
     }
 
     override func resignMain() {
@@ -402,6 +407,8 @@ class TerminalWindow: NSWindow {
             /// Check ``titlebarFont`` down below
             /// to see why we need to check `hasMoreThanOneTabs` here
             titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
+            cachedNeededWidth = nil
+            syncTitleTextField()
         }
     }
 
@@ -418,6 +425,139 @@ class TerminalWindow: NSWindow {
             /// This behaviour is the opposite of what happens in the title bar’s text field, which is quite odd...
             titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
             tab.attributedTitle = attributedTitle
+            cachedNeededWidth = nil
+            syncTitleTextField()
+        }
+    }
+
+    // The configured horizontal alignment for the window title.
+    var windowTitleAlignment: Ghostty.Config.MacOSTitlebarTitleAlignment = .center {
+        didSet {
+            syncTitleTextField()
+        }
+    }
+
+    // Tracks which text field we're currently observing so we can detect when
+    // NSTitlebarView replaces it and set up a new observation.
+    private weak var observedTitleTextField: NSTextField?
+    private var titleTextFieldFrameObservation: NSKeyValueObservation?
+
+    // Guards against infinite recursion: our frame correction triggers the KVO
+    // observer, which would re-enter applyTitleTextFieldFrame endlessly.
+    private var isApplyingTitleFrame = false
+
+    // Cached width needed to display the current title in the current font.
+    // Reset to nil whenever title or titlebarFont changes (see their didSet
+    // observers) so it is recomputed exactly once on the next layout call
+    // rather than on every resize-driven KVO/setFrame callback.
+    private var cachedNeededWidth: CGFloat?
+
+    /// Ensures a KVO observation is live on the current title text field and
+    /// immediately applies the correct frame.
+    ///
+    /// NSTitlebarView re-lays out its subviews asynchronously in response to title
+    /// changes and window resizes, resetting the text field to system-font metrics.
+    /// By observing `frame` with KVO we react to every such reset synchronously
+    /// so the corrected frame is what gets rendered and no flash is visible.
+    private func syncTitleTextField() {
+        guard titlebarFont != nil || windowTitleAlignment != .center else {
+            titleTextFieldFrameObservation?.invalidate()
+            titleTextFieldFrameObservation = nil
+            observedTitleTextField = nil
+            cachedNeededWidth = nil
+            return
+        }
+        guard let tf = titlebarTextField else { return }
+
+        // Re-observe if the text field instance has changed.
+        if tf !== observedTitleTextField {
+            titleTextFieldFrameObservation?.invalidate()
+            titleTextFieldFrameObservation = tf.observe(\.frame, options: [.new]) { [weak self] _, _ in
+                guard let self, !self.isApplyingTitleFrame else { return }
+                self.applyTitleTextFieldFrame()
+            }
+            observedTitleTextField = tf
+        }
+
+        applyTitleTextFieldFrame()
+    }
+
+    private func applyTitleTextFieldFrame() {
+        // Use the cached reference instead of traversing the view hierarchy on
+        // every call; this function fires at up to 120 Hz during window resize.
+        guard let tf = observedTitleTextField, let superview = tf.superview else { return }
+
+        let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
+
+        // Compute the required width at most once per title/font change.
+        // cachedNeededWidth is invalidated in title.didSet and titlebarFont.didSet.
+        let neededWidth: CGFloat
+
+        if let cached = cachedNeededWidth {
+            neededWidth = cached
+        } else {
+            let w = ceil((title as NSString).size(withAttributes: [.font: font]).width) + 8
+            cachedNeededWidth = w
+            neededWidth = w
+        }
+
+        let availableWidth = superview.bounds.width
+        let fieldWidth = min(neededWidth, availableWidth)
+
+        let leadingInset = titlebarLeadingInset(in: superview)
+        let trailingInset = titlebarTrailingInset(in: superview)
+
+        let originX: CGFloat
+
+        switch windowTitleAlignment {
+        case .center:
+            originX = (availableWidth - fieldWidth) / 2
+        case .left:
+            originX = leadingInset
+        case .right:
+            originX = availableWidth - fieldWidth - trailingInset
+        }
+
+        let oldFrame = tf.frame
+        let newFrame = NSRect(x: originX, y: oldFrame.origin.y, width: fieldWidth, height: oldFrame.height)
+
+        guard newFrame != oldFrame else { return }
+
+        isApplyingTitleFrame = true
+        tf.frame = newFrame
+        isApplyingTitleFrame = false
+    }
+
+    /// Returns the safe leading inset (left side) for the title text field within
+    /// the given NSTitlebarView, clearing the traffic light buttons.
+    private func titlebarLeadingInset(in titlebarView: NSView) -> CGFloat {
+        let maxX = titlebarView.subviews
+            .filter { $0 is NSButton && $0.frame.midX < titlebarView.bounds.width / 2 }
+            .map { $0.frame.maxX }
+            .max()
+        return (maxX ?? 0) + 8
+    }
+
+    /// Returns the safe trailing inset (right side) for the title text field within
+    /// the given NSTitlebarView, clearing any right-side accessory buttons.
+    private func titlebarTrailingInset(in titlebarView: NSView) -> CGFloat {
+        let width = titlebarView.bounds.width
+        let minX = titlebarView.subviews
+            .filter { $0 is NSButton && $0.frame.midX > width / 2 }
+            .map { $0.frame.minX }
+            .min()
+        return (minX.map { width - $0 } ?? 0) + 8
+    }
+
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool) {
+        super.setFrame(frameRect, display: displayFlag)
+
+        // Belt-and-suspenders for resize: KVO handles the text field frame reset
+        // inside NSTitlebarView's layout pass, but a deferred call ensures we also
+        // catch any layout that fires after the KVO observation window.
+        guard titlebarFont != nil || windowTitleAlignment != .center else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.applyTitleTextFieldFrame()
         }
     }
 

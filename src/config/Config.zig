@@ -3238,6 +3238,21 @@ keybind: Keybinds = .{},
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
+/// The horizontal alignment of the title text in the macOS titlebar.
+///
+/// This option only applies to macOS and is ignored on other platforms.
+///
+/// Valid values are:
+///
+///   * `left` - Align the title to the left side of the titlebar.
+///   * `center` - Align the title to the center of the titlebar.
+///   * `right` - Align the title to the right side of the titlebar.
+///
+/// The default value is `left` to match macOS 26 behavior.
+///
+/// Changing this option at runtime will apply to all currently open windows.
+@"macos-titlebar-title-alignment": MacTitlebarTitleAlignment = .left,
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app
@@ -8955,6 +8970,13 @@ pub const MacTitlebarStyle = enum {
 pub const MacTitlebarProxyIcon = enum {
     visible,
     hidden,
+};
+
+/// See macos-titlebar-title-alignment
+pub const MacTitlebarTitleAlignment = enum {
+    left,
+    center,
+    right,
 };
 
 /// See macos-hidden

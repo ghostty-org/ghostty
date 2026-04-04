@@ -593,6 +593,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window.titlebarFont = nil
         }
 
+        // Set the title alignment for the window and tab titles.
+        window.windowTitleAlignment = surfaceConfig.windowTitleAlignment
+
         // Call this last in case it uses any of the properties above.
         window.syncAppearance(surfaceConfig)
         terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: window.preferredBackgroundColor)

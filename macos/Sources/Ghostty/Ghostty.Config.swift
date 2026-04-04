@@ -347,6 +347,16 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        var windowTitleAlignment: MacOSTitlebarTitleAlignment {
+            let defaultValue = MacOSTitlebarTitleAlignment.default
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "macos-titlebar-title-alignment"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return MacOSTitlebarTitleAlignment(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
         var macosWindowButtons: MacOSWindowButtons {
             let defaultValue = MacOSWindowButtons.visible
             guard let config = self.config else { return defaultValue }
@@ -922,5 +932,10 @@ extension Ghostty.Config {
     enum MacOSTitlebarStyle: String {
         static let `default` = MacOSTitlebarStyle.transparent
         case native, transparent, tabs, hidden
+    }
+
+    enum MacOSTitlebarTitleAlignment: String {
+        static let `default` = MacOSTitlebarTitleAlignment.left
+        case left, center, right
     }
 }
