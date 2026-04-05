@@ -316,11 +316,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         tree: SplitTree<Ghostty.SurfaceView>,
         position: NSPoint? = nil,
         confirmUndo: Bool = true,
-        inheritBackgroundOpacityFrom parentController: TerminalController? = nil
+        inheritBackgroundOpacity: Bool? = nil
     ) -> TerminalController {
         let c = TerminalController.init(ghostty, withSurfaceTree: tree)
-        if let parentController {
-            c.isBackgroundOpaque = parentController.isBackgroundOpaque
+        if let inheritBackgroundOpacity {
+            c.isBackgroundOpaque = inheritBackgroundOpacity
         }
 
         // Calculate the target frame based on the tree's view bounds
@@ -369,7 +369,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     _ = TerminalController.newWindow(
                         ghostty,
                         tree: tree,
-                        inheritBackgroundOpacityFrom: parentController
+                        inheritBackgroundOpacity: inheritBackgroundOpacity
                     )
                 }
             }
@@ -501,30 +501,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         return controller
-    }
-
-    override func toggleBackgroundOpacity() {
-        // Do nothing if config is already fully opaque
-        guard ghostty.config.backgroundOpacity < 1 else { return }
-
-        // Do nothing if in fullscreen (transparency doesn't apply in fullscreen)
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
-
-        let newValue = !isBackgroundOpaque
-        let controllers: [TerminalController]
-
-        if let tabGroup = window.tabGroup {
-            controllers = tabGroup.windows.compactMap {
-                $0.windowController as? TerminalController
-            }
-        } else {
-            controllers = [self]
-        }
-
-        for controller in controllers {
-            controller.isBackgroundOpaque = newValue
-            controller.syncAppearance()
-        }
     }
 
     // MARK: - Methods
