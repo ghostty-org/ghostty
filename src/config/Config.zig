@@ -2404,8 +2404,8 @@ keybind: Keybinds = .{},
 /// The value `clipboard` will always copy text to the selection clipboard
 /// as well as the system clipboard.
 ///
-/// Middle-click paste will always use the selection clipboard. Middle-click
-/// paste is always enabled even if this is `false`.
+/// Middle-click paste behavior can be configured with `middle-click-paste`,
+/// including disabling it entirely.
 ///
 /// The default value is true on Linux and macOS.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
@@ -2413,6 +2413,18 @@ keybind: Keybinds = .{},
     .macos => .true,
     else => .false,
 },
+
+/// The clipboard to use when pasting with the middle mouse button.
+///
+/// Valid values:
+///   * `selection` - Paste from the selection clipboard. Falls back to
+///     the system clipboard if the selection clipboard is not supported by
+///     the platform.
+///   * `clipboard` - Paste from the system clipboard.
+///   * `false` - Disable middle-click paste entirely.
+///
+/// The default value is `selection`.
+@"middle-click-paste": MiddleClickPaste = .selection,
 
 /// The action to take when the user right-clicks on the terminal surface.
 ///
@@ -8598,6 +8610,19 @@ pub const CopyOnSelect = enum {
 
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
+    clipboard,
+};
+
+/// Options for middle-click paste clipboard selection.
+pub const MiddleClickPaste = enum {
+    /// Disables middle-click paste entirely.
+    false,
+
+    /// Paste from the selection clipboard. Falls back to the system clipboard
+    /// if the selection clipboard is not supported by the platform.
+    selection,
+
+    /// Paste from the system clipboard.
     clipboard,
 };
 

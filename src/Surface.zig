@@ -310,6 +310,7 @@ const DerivedConfig = struct {
     clipboard_paste_bracketed_safe: bool,
     clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
     copy_on_select: configpkg.CopyOnSelect,
+    middle_click_paste: configpkg.MiddleClickPaste,
     right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
@@ -388,6 +389,7 @@ const DerivedConfig = struct {
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
             .copy_on_select = config.@"copy-on-select",
+            .middle_click_paste = config.@"middle-click-paste",
             .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
@@ -4008,11 +4010,17 @@ pub fn mouseButtonCallback(
     }
 
     // Middle-click pastes from our selection clipboard
-    if (button == .middle and action == .press) {
-        const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
-            .selection
-        else
-            .standard;
+    if (button == .middle and action == .press and
+        self.config.middle_click_paste != .false)
+    {
+        const clipboard: apprt.Clipboard = switch (self.config.middle_click_paste) {
+            .false => unreachable,
+            .selection => if (self.rt_surface.supportsClipboard(.selection))
+                .selection
+            else
+                .standard,
+            .clipboard => .standard,
+        };
         _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
     }
 
