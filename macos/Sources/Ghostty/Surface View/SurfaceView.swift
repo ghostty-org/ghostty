@@ -621,8 +621,10 @@ extension Ghostty {
         }
 
         func updateOSView(_ scrollView: SurfaceScrollView, context: Context) {
-            // Nothing to do: SwiftUI automatically updates the frame size, and
-            // SurfaceScrollView handles the rest in response to that
+            // Trigger layout to ensure PTY dimensions are synchronized after
+            // structural changes (e.g., closing a split).
+            // See: https://github.com/ghostty-org/ghostty/issues/7546
+            scrollView.needsLayout = true
         }
         #else
         func makeOSView(context: Context) -> SurfaceView {
