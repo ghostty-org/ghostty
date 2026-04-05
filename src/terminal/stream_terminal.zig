@@ -76,6 +76,16 @@ pub const Handler = struct {
         /// is 256 bytes; longer strings will be silently ignored.
         xtversion: ?*const fn (*Handler) []const u8,
 
+        /// Called when an OSC 5522 (kitty clipboard protocol) sequence
+        /// is received. The metadata and payload slices are only valid
+        /// during the call. Implementers should use the OSC readOption
+        /// helpers to parse the metadata.
+        kitty_clipboard: ?*const fn (
+            *Handler,
+            metadata: []const u8,
+            payload: ?[]const u8,
+        ) void,
+
         /// No effects means that the stream effectively becomes readonly
         /// that only affects pure terminal state and ignores all side
         /// effects beyond that.
@@ -84,6 +94,7 @@ pub const Handler = struct {
             .color_scheme = null,
             .device_attributes = null,
             .enquiry = null,
+            .kitty_clipboard = null,
             .size = null,
             .title_changed = null,
             .write_pty = null,
@@ -255,6 +266,10 @@ pub const Handler = struct {
             .apc_end,
             .apc_put,
             => {},
+
+            .kitty_clipboard => if (self.effects.kitty_clipboard) |f| {
+                f(self, value.metadata, value.payload);
+            },
 
             // Have no terminal-modifying effect
             .report_pwd,
@@ -2068,4 +2083,127 @@ test "device attributes: custom response" {
 
     s.nextSlice("\x1B[>c");
     try testing.expectEqualStrings("\x1b[>41;100;0c", S.written.?);
+}
+
+test "kitty_clipboard effects callback" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    // Without callback: OSC 5522 is silently ignored
+    {
+        var s: Stream = .initAlloc(testing.allocator, .init(&t));
+        defer s.deinit();
+        s.nextSlice("\x1b]5522;type=read:mime=dGV4dC9wbGFpbg==\x1b\\");
+    }
+
+    t.fullReset();
+
+    // With callback: metadata and payload are delivered
+    {
+        const S = struct {
+            var last_metadata: ?[]const u8 = null;
+            var last_payload: ?[]const u8 = null;
+
+            fn kittyClipboard(
+                _: *Handler,
+                metadata: []const u8,
+                payload: ?[]const u8,
+            ) void {
+                if (last_metadata) |m| testing.allocator.free(m);
+                if (last_payload) |p| testing.allocator.free(p);
+                last_metadata = testing.allocator.dupe(u8, metadata) catch @panic("OOM");
+                last_payload = if (payload) |p|
+                    testing.allocator.dupe(u8, p) catch @panic("OOM")
+                else
+                    null;
+            }
+        };
+        S.last_metadata = null;
+        S.last_payload = null;
+        defer {
+            if (S.last_metadata) |m| testing.allocator.free(m);
+            if (S.last_payload) |p| testing.allocator.free(p);
+        }
+
+        var handler: Handler = .init(&t);
+        handler.effects.kitty_clipboard = &S.kittyClipboard;
+
+        var s: Stream = .initAlloc(testing.allocator, handler);
+        defer s.deinit();
+
+        // Read request (no payload)
+        s.nextSlice("\x1b]5522;type=read:mime=dGV4dC9wbGFpbg==:password=c2VjcmV0\x1b\\");
+        try testing.expectEqualStrings(
+            "type=read:mime=dGV4dC9wbGFpbg==:password=c2VjcmV0",
+            S.last_metadata.?,
+        );
+        try testing.expect(S.last_payload == null);
+
+        // Write with payload
+        s.nextSlice("\x1b]5522;type=wdata:mime=aW1hZ2UvcG5n;SGVsbG8=\x1b\\");
+        try testing.expectEqualStrings("type=wdata:mime=aW1hZ2UvcG5n", S.last_metadata.?);
+        try testing.expectEqualStrings("SGVsbG8=", S.last_payload.?);
+    }
+}
+
+test "kitty_clipboard mode 5522 set and reset" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Default: off
+    try testing.expect(!t.modes.get(.kitty_clipboard_protocol));
+
+    // DECSET 5522
+    s.nextSlice("\x1b[?5522h");
+    try testing.expect(t.modes.get(.kitty_clipboard_protocol));
+
+    // DECRST 5522
+    s.nextSlice("\x1b[?5522l");
+    try testing.expect(!t.modes.get(.kitty_clipboard_protocol));
+
+    // Full reset clears it
+    s.nextSlice("\x1b[?5522h");
+    try testing.expect(t.modes.get(.kitty_clipboard_protocol));
+    t.fullReset();
+    try testing.expect(!t.modes.get(.kitty_clipboard_protocol));
+}
+
+test "kitty_clipboard effects callback receives multiple sequences in order" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    // An app may send several OSC 5522 in one write — each must dispatch.
+    // If the callback only fires for the last one (parser state bug) or
+    // metadata slices alias each other across calls, this catches it.
+    const S = struct {
+        var calls: std.ArrayList([]const u8) = .empty;
+        fn cb(_: *Handler, metadata: []const u8, _: ?[]const u8) void {
+            calls.append(testing.allocator, testing.allocator.dupe(u8, metadata) catch @panic("OOM")) catch @panic("OOM");
+        }
+    };
+    S.calls = .empty;
+    defer {
+        for (S.calls.items) |m| testing.allocator.free(m);
+        S.calls.deinit(testing.allocator);
+    }
+
+    var handler: Handler = .init(&t);
+    handler.effects.kitty_clipboard = &S.cb;
+
+    var s: Stream = .initAlloc(testing.allocator, handler);
+    defer s.deinit();
+
+    s.nextSlice(
+        "\x1b]5522;type=read:mime=AAA\x1b\\" ++
+            "\x1b]5522;type=read:mime=BBB\x1b\\" ++
+            "\x1b]5522;type=read:mime=CCC\x1b\\",
+    );
+
+    try testing.expectEqual(@as(usize, 3), S.calls.items.len);
+    try testing.expectEqualStrings("type=read:mime=AAA", S.calls.items[0]);
+    try testing.expectEqualStrings("type=read:mime=BBB", S.calls.items[1]);
+    try testing.expectEqualStrings("type=read:mime=CCC", S.calls.items[2]);
 }

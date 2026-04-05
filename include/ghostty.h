@@ -82,6 +82,8 @@ typedef enum {
   GHOSTTY_CLIPBOARD_REQUEST_PASTE,
   GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ,
   GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE,
+  GHOSTTY_CLIPBOARD_REQUEST_KITTY_MIME_LIST,
+  GHOSTTY_CLIPBOARD_REQUEST_KITTY_MIME_READ,
 } ghostty_clipboard_request_e;
 
 typedef enum {
@@ -1153,6 +1155,8 @@ GHOSTTY_API void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
                                                                const char*,
                                                                void*,
                                                                bool);
+GHOSTTY_API ghostty_clipboard_request_e ghostty_clipboard_request_type(void*);
+GHOSTTY_API const char* ghostty_clipboard_request_mime(void*);
 GHOSTTY_API bool ghostty_surface_has_selection(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_read_selection(ghostty_surface_t, ghostty_text_s*);
 GHOSTTY_API bool ghostty_surface_read_text(ghostty_surface_t,

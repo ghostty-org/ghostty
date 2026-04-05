@@ -37,6 +37,13 @@ pub const Message = union(enum) {
         req: WriteReq,
     },
 
+    /// Handle a kitty clipboard protocol read request (OSC 5522).
+    /// The metadata is allocated and must be freed by the receiver.
+    kitty_clipboard_read: struct {
+        alloc: std.mem.Allocator,
+        metadata: []const u8,
+    },
+
     /// Change the configuration to the given configuration. The pointer is
     /// not valid after receiving this message so any config must be used
     /// and derived immediately.

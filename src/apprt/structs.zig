@@ -67,6 +67,8 @@ pub const ClipboardRequestType = enum(u8) {
     paste,
     osc_52_read,
     osc_52_write,
+    kitty_mime_list,
+    kitty_mime_read,
 };
 
 /// Clipboard request. This is used to request clipboard contents and must
@@ -80,6 +82,81 @@ pub const ClipboardRequest = union(ClipboardRequestType) {
 
     /// A request to write clipboard contents via OSC 52.
     osc_52_write: Clipboard,
+
+    /// A request to list available MIME types on the clipboard for the
+    /// kitty clipboard protocol (OSC 5522, mode 5522). The apprt should
+    /// complete this request with a newline-separated list of MIME types.
+    kitty_mime_list: Clipboard,
+
+    /// A request to read a specific MIME type from the clipboard for the
+    /// kitty clipboard protocol. The apprt should complete this request
+    /// with the base64-encoded data for the requested MIME type.
+    kitty_mime_read: KittyMimeRead,
+
+    pub const KittyMimeRead = struct {
+        pub const mime_max_len = 256;
+
+        clipboard: Clipboard,
+        /// The requested MIME type, null-terminated.
+        mime: [mime_max_len:0]u8,
+
+        pub fn init(clipboard: Clipboard, mime: []const u8) KittyMimeRead {
+            var result: KittyMimeRead = .{
+                .clipboard = clipboard,
+                .mime = [_:0]u8{0} ** mime_max_len,
+            };
+            const len = @min(mime.len, mime_max_len);
+            @memcpy(result.mime[0..len], mime[0..len]);
+            return result;
+        }
+
+        test init {
+            const testing = @import("std").testing;
+            const mem = @import("std").mem;
+
+            // Basic MIME type
+            {
+                const r = KittyMimeRead.init(.standard, "text/plain");
+                try testing.expectEqual(Clipboard.standard, r.clipboard);
+                try testing.expectEqualStrings("text/plain", mem.sliceTo(&r.mime, 0));
+            }
+
+            // Image MIME type
+            {
+                const r = KittyMimeRead.init(.standard, "image/png");
+                try testing.expectEqualStrings("image/png", mem.sliceTo(&r.mime, 0));
+            }
+
+            // Empty MIME
+            {
+                const r = KittyMimeRead.init(.standard, "");
+                try testing.expectEqualStrings("", mem.sliceTo(&r.mime, 0));
+            }
+
+            // Exactly at the limit (boundary)
+            {
+                const long = "a" ** mime_max_len;
+                const r = KittyMimeRead.init(.standard, long);
+                try testing.expectEqualStrings(long, mem.sliceTo(&r.mime, 0));
+                try testing.expectEqual(@as(u8, 0), r.mime[mime_max_len]);
+            }
+
+            // Over the limit (truncation)
+            {
+                const overlong = "x" ** (mime_max_len + 50);
+                const r = KittyMimeRead.init(.standard, overlong);
+                try testing.expectEqual(@as(usize, mime_max_len), mem.sliceTo(&r.mime, 0).len);
+                try testing.expectEqual(@as(u8, 0), r.mime[mime_max_len]);
+            }
+
+            // Real Office MIME types fit
+            {
+                const xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                const r = KittyMimeRead.init(.standard, xlsx);
+                try testing.expectEqualStrings(xlsx, mem.sliceTo(&r.mime, 0));
+            }
+        }
+    };
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
