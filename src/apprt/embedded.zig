@@ -414,6 +414,7 @@ pub const Surface = struct {
     size: apprt.SurfaceSize,
     cursor_pos: apprt.CursorPos,
     inspector: ?*Inspector = null,
+    parent_surface_id: u64 = 0,
 
     /// The current title of the surface. The embedded apprt saves this so
     /// that getTitle works without the implementer needing to save it.
@@ -460,6 +461,10 @@ pub const Surface = struct {
 
         /// Context for the new surface
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// The surface ID of the parent surface that this surface was
+        /// created from (e.g. via a split or tab). Zero means no parent.
+        parent_surface_id: u64 = 0,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -474,6 +479,7 @@ pub const Surface = struct {
             },
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
+            .parent_surface_id = opts.parent_surface_id,
         };
 
         // Add ourselves to the list of surfaces on the app.
@@ -945,6 +951,7 @@ pub const Surface = struct {
             .font_size = font_size,
             .working_directory = working_directory,
             .context = context,
+            .parent_surface_id = self.core_surface.id,
         };
     }
 
@@ -974,6 +981,17 @@ pub const Surface = struct {
             // the desktop then we didn't set our LANGUAGE var so we
             // don't need to remove it.
             if (internal_os.launchedFromDesktop()) env.remove("LANGUAGE");
+        }
+
+        // If this surface was created from a parent (split, tab), expose
+        // the parent's surface ID so child processes can find their
+        // sibling surfaces.
+        if (self.parent_surface_id != 0) {
+            var buf: [18]u8 = undefined;
+            try env.put(
+                "GHOSTTY_SURFACE_PARENT_ID",
+                std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.parent_surface_id}) catch unreachable,
+            );
         }
 
         return env;

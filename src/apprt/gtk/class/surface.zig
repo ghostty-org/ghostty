@@ -692,6 +692,10 @@ pub const Surface = extern struct {
         /// The context for this surface (window, tab, or split)
         context: apprt.surface.NewSurfaceContext = .window,
 
+        /// The surface ID of the parent surface that this surface was
+        /// created from (e.g. via a split or tab). Zero means no parent.
+        parent_surface_id: u64 = 0,
+
         /// Whether primary paste (middle-click paste) is enabled.
         gtk_enable_primary_paste: bool = true,
 
@@ -766,6 +770,10 @@ pub const Surface = extern struct {
 
         // Store the context so initSurface can use it
         priv.context = context;
+
+        // Store the parent surface ID so we can expose it as an
+        // environment variable to the child process.
+        priv.parent_surface_id = parent.id;
 
         // Setup our font size
         const font_size_ptr = glib.ext.create(font.face.DesiredSize);
@@ -1607,6 +1615,18 @@ pub const Surface = extern struct {
             if (window.isQuickTerminal()) {
                 try env.put("GHOSTTY_QUICK_TERMINAL", "1");
             }
+        }
+
+        // If this surface was created from a parent (split, tab), expose
+        // the parent's surface ID so child processes can find their
+        // sibling surfaces.
+        const parent_id = self.private().parent_surface_id;
+        if (parent_id != 0) {
+            var buf: [18]u8 = undefined;
+            try env.put(
+                "GHOSTTY_SURFACE_PARENT_ID",
+                std.fmt.bufPrint(&buf, "0x{x:0>16}", .{parent_id}) catch unreachable,
+            );
         }
 
         return env;
