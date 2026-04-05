@@ -278,6 +278,7 @@ pub const Fontconfig = struct {
             .set = res.fs,
             .fonts = res.fs.fonts(),
             .variations = desc.variations,
+            .requested_family = desc.family,
             .i = 0,
         };
     }
@@ -298,12 +299,53 @@ pub const Fontconfig = struct {
         set: *fontconfig.FontSet,
         fonts: []*fontconfig.Pattern,
         variations: []const Variation,
+        requested_family: ?[:0]const u8 = null,
         i: usize,
 
         pub fn deinit(self: *DiscoverIterator) void {
             self.set.destroy();
             self.pattern.destroy();
             self.* = undefined;
+        }
+
+        /// Check if the discovered font matches the requested family.
+        /// This is needed because fontconfig may return a font with a
+        /// different family when spacing=mono is added to the pattern.
+        pub fn familyMatches(self: *DiscoverIterator, face: *const DeferredFace) bool {
+            if (self.requested_family == null) return true;
+
+            const fc = face.fc orelse return false;
+            const pattern = fc.pattern;
+            const requested = self.requested_family.?;
+
+            // Fontconfig patterns can have multiple family names (e.g.,
+            // localized names). We check all of them for a match.
+            var i: u32 = 0;
+            while (pattern.get(.family, i)) |family_result| {
+                const family = family_result.string;
+
+                // Exact match
+                if (std.mem.eql(u8, requested, family)) {
+                    return true;
+                }
+
+                // Prefix match: requested family is a prefix of the returned family.
+                // This handles cases like "Monaspace Argon" matching "Monaspace Argon Var"
+                // (variable fonts often have "Var" appended to the family name).
+                if (std.mem.startsWith(u8, family, requested)) {
+                    return true;
+                }
+
+                // Also check reverse: returned family is a prefix of requested.
+                // This handles cases where fontconfig returns a shorter family name.
+                if (std.mem.startsWith(u8, requested, family)) {
+                    return true;
+                }
+
+                i += 1;
+            } else |_| {}
+
+            return false;
         }
 
         pub fn next(self: *DiscoverIterator) fontconfig.Error!?DeferredFace {
@@ -371,6 +413,7 @@ pub const CoreText = struct {
             .alloc = alloc,
             .list = zig_list,
             .variations = desc.variations,
+            .requested_family = desc.family,
             .i = 0,
         };
     }
@@ -408,6 +451,7 @@ pub const CoreText = struct {
                 .alloc = alloc,
                 .list = list,
                 .variations = desc.variations,
+                .requested_family = desc.family,
                 .i = 0,
             };
         }
@@ -432,6 +476,7 @@ pub const CoreText = struct {
                 .alloc = alloc,
                 .list = list,
                 .variations = desc.variations,
+                .requested_family = desc.family,
                 .i = 0,
             };
         }
@@ -827,6 +872,7 @@ pub const CoreText = struct {
         alloc: Allocator,
         list: []const *macos.text.FontDescriptor,
         variations: []const Variation,
+        requested_family: ?[:0]const u8 = null,
         i: usize,
 
         pub fn deinit(self: *DiscoverIterator) void {
@@ -835,6 +881,44 @@ pub const CoreText = struct {
             }
             self.alloc.free(self.list);
             self.* = undefined;
+        }
+
+        /// Check if the discovered font matches the requested family.
+        /// This is needed because fontconfig may return a font with a
+        /// different family when spacing=mono is added to the pattern.
+        /// For CoreText, we check the family name of the font.
+        pub fn familyMatches(self: *DiscoverIterator, face: *const DeferredFace) bool {
+            if (self.requested_family == null) return true;
+
+            const ct = face.ct orelse return false;
+            const font = ct.font;
+            const requested = self.requested_family.?;
+
+            // Get the family name from the font
+            const family_name = font.copyFamilyName();
+            defer family_name.release();
+
+            // Get the family string
+            const family_str = family_name.cstringPtr(.utf8) orelse return false;
+
+            // Exact match
+            if (std.mem.eql(u8, requested, family_str)) {
+                return true;
+            }
+
+            // Prefix match: requested family is a prefix of the returned family.
+            // This handles cases like "Monaspace Argon" matching "Monaspace Argon Var"
+            // (variable fonts often have "Var" appended to the family name).
+            if (std.mem.startsWith(u8, family_str, requested)) {
+                return true;
+            }
+
+            // Also check reverse: returned family is a prefix of requested.
+            if (std.mem.startsWith(u8, requested, family_str)) {
+                return true;
+            }
+
+            return false;
         }
 
         pub fn next(self: *DiscoverIterator) !?DeferredFace {

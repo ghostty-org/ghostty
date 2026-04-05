@@ -191,10 +191,41 @@ fn collection(
         inline for (@typeInfo(Style).@"enum".fields) |field| {
             const style = @field(Style, field.name);
             for (key.descriptorsForStyle(style)) |desc| {
+                var found = false;
+
                 {
                     var disco_it = try disco.discover(self.alloc, desc);
                     defer disco_it.deinit();
-                    if (try disco_it.next()) |face| {
+
+                    // Iterate through results until we find one with matching family.
+                    // This is needed because fontconfig may return fonts with
+                    // different families when spacing=mono is in the pattern.
+                    while (try disco_it.next()) |face| {
+                        // Check if the returned font family matches what we requested.
+                        // If not, continue to the next result in the sorted list.
+                        if (!disco_it.familyMatches(&face)) {
+                            if (face.fc) |fc| {
+                                if (fc.pattern.get(.family, 0)) |family_result| {
+                                    log.warn("font {s} family mismatch: requested {s}, got {s}", .{
+                                        field.name,
+                                        desc.family.?,
+                                        family_result.string,
+                                    });
+                                } else |_| {
+                                    log.warn("font {s} family mismatch: requested {s}, got (unknown)", .{
+                                        field.name,
+                                        desc.family.?,
+                                    });
+                                }
+                            } else {
+                                log.warn("font {s} family mismatch: requested {s}, got (unknown)", .{
+                                    field.name,
+                                    desc.family.?,
+                                });
+                            }
+                            continue;
+                        }
+
                         log.info("font {s}: {s}", .{
                             field.name,
                             try face.name(&name_buf),
@@ -207,9 +238,13 @@ fn collection(
                             .size_adjustment = .none,
                         });
 
-                        continue;
+                        found = true;
+                        break; // Found matching font, exit the while loop
                     }
                 }
+
+                // If we found a font, continue to the next descriptor
+                if (found) continue;
 
                 // If there are variation configurations and we didn't find
                 // the font, then we retry the discovery with all stylistic
@@ -225,7 +260,12 @@ fn collection(
                         break :desc copy;
                     });
                     defer disco_it.deinit();
-                    if (try disco_it.next()) |face| {
+
+                    while (try disco_it.next()) |face| {
+                        if (!disco_it.familyMatches(&face)) {
+                            continue;
+                        }
+
                         log.info("font {s}: {s}", .{
                             field.name,
                             try face.name(&name_buf),
@@ -238,8 +278,11 @@ fn collection(
                             .size_adjustment = .none,
                         });
 
-                        continue;
+                        found = true;
+                        break;
                     }
+
+                    if (found) continue;
                 }
 
                 log.warn("font-family {s} not found: {s}", .{
