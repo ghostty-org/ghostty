@@ -751,12 +751,17 @@ extension Ghostty.Config {
 
     /// Background blur configuration that maps from the C API values.
     /// Positive values represent blur radius, special negative values
-    /// represent macOS-specific glass effects.
+    /// represent macOS-specific glass or material effects.
     enum BackgroundBlur: Equatable {
         case disabled
         case radius(Int)
         case macosGlassRegular
         case macosGlassClear
+        case macosMaterialRegular
+        case macosMaterialThick
+        case macosMaterialThin
+        case macosMaterialUltraThin
+        case macosMaterialUltraThick
 
         init(fromCValue value: Int16) {
             switch value {
@@ -774,6 +779,16 @@ extension Ghostty.Config {
                 } else {
                     self = .disabled
                 }
+            case -3:
+                self = .macosMaterialRegular
+            case -4:
+                self = .macosMaterialThick
+            case -5:
+                self = .macosMaterialThin
+            case -6:
+                self = .macosMaterialUltraThin
+            case -7:
+                self = .macosMaterialUltraThick
             default:
                 self = .radius(Int(value))
             }
@@ -798,6 +813,25 @@ extension Ghostty.Config {
             }
         }
 
+        /// Returns true if this is one of the SwiftUI material styles.
+        var isMaterialStyle: Bool {
+            switch self {
+            case .macosMaterialRegular,
+                    .macosMaterialThick,
+                    .macosMaterialThin,
+                    .macosMaterialUltraThin,
+                    .macosMaterialUltraThick:
+                return true
+            default:
+                return false
+            }
+        }
+
+        /// Returns true if this uses a platform-provided macOS background effect.
+        var isSpecialStyle: Bool {
+            isGlassStyle || isMaterialStyle
+        }
+
         /// Returns the blur radius if applicable, nil for glass effects.
         var radius: Int? {
             switch self {
@@ -805,7 +839,13 @@ extension Ghostty.Config {
                 return nil
             case .radius(let r):
                 return r
-            case .macosGlassRegular, .macosGlassClear:
+            case .macosGlassRegular,
+                    .macosGlassClear,
+                    .macosMaterialRegular,
+                    .macosMaterialThick,
+                    .macosMaterialThin,
+                    .macosMaterialUltraThin,
+                    .macosMaterialUltraThick:
                 return nil
             }
         }

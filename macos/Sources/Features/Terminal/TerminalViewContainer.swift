@@ -90,6 +90,114 @@ extension BaseTerminalController {
     }
 }
 
+enum TerminalMaterialStyle: Equatable {
+    case regular
+    case thick
+    case thin
+    case ultraThin
+    case ultraThick
+
+    var shapeStyle: AnyShapeStyle {
+        switch self {
+        case .regular:
+            return AnyShapeStyle(.regularMaterial)
+        case .thick:
+            return AnyShapeStyle(.thickMaterial)
+        case .thin:
+            return AnyShapeStyle(.thinMaterial)
+        case .ultraThin:
+            return AnyShapeStyle(.ultraThinMaterial)
+        case .ultraThick:
+            return AnyShapeStyle(.ultraThickMaterial)
+        }
+    }
+}
+
+private class TerminalMaterialView: NSView {
+    private struct MaterialBackground: View {
+        let style: TerminalMaterialStyle
+        let cornerRadius: CGFloat
+
+        var body: some View {
+            Rectangle()
+                .fill(style.shapeStyle)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+    }
+
+    private let hostingView: NSHostingView<MaterialBackground>
+    private let tintOverlay: NSView
+
+    init() {
+        self.hostingView = NSHostingView(rootView: .init(style: .regular, cornerRadius: 0))
+        self.tintOverlay = NSView()
+        super.init(frame: .zero)
+
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: topAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+
+        tintOverlay.translatesAutoresizingMaskIntoConstraints = false
+        tintOverlay.wantsLayer = true
+        addSubview(tintOverlay)
+        NSLayoutConstraint.activate([
+            tintOverlay.topAnchor.constraint(equalTo: topAnchor),
+            tintOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tintOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+            tintOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        style: TerminalMaterialStyle,
+        backgroundColor: NSColor,
+        backgroundOpacity: Double,
+        cornerRadius: CGFloat?,
+        isKeyWindow: Bool
+    ) {
+        let radius = cornerRadius ?? 0
+        hostingView.rootView = .init(style: style, cornerRadius: radius)
+
+        wantsLayer = true
+        layer?.cornerRadius = radius
+        layer?.masksToBounds = true
+
+        tintOverlay.layer?.backgroundColor = backgroundColor.withAlphaComponent(backgroundOpacity).cgColor
+        updateKeyStatus(isKeyWindow, backgroundColor: backgroundColor)
+    }
+
+    func updateKeyStatus(_ isKeyWindow: Bool, backgroundColor: NSColor) {
+        let tint = tintProperties(for: backgroundColor)
+        if isKeyWindow {
+            // Keep material visible while focused; use overlay only for unfocused tinting.
+            tintOverlay.alphaValue = 0
+        } else {
+            tintOverlay.layer?.backgroundColor = tint.color.cgColor
+            tintOverlay.alphaValue = max(tint.opacity, 0.35)
+        }
+    }
+
+    private func tintProperties(for color: NSColor) -> (color: NSColor, opacity: CGFloat) {
+        let isLight = color.isLightColor
+        let vibrant = color.adjustingSaturation(by: 1.2)
+        let overlayOpacity: CGFloat = isLight ? 0.35 : 0.85
+        return (vibrant, overlayOpacity)
+    }
+}
+
 // MARK: Glass
 
 /// An `NSView` that contains a liquid glass background effect and
@@ -203,24 +311,64 @@ extension TerminalViewContainer {
     }
 #endif // compiler(>=6.2)
 
+    @available(macOS 12.0, *)
+    private func addMaterialEffectViewIfNeeded() -> TerminalMaterialView {
+        if let existed = glassEffectView as? TerminalMaterialView {
+            return existed
+        }
+
+        glassEffectView?.removeFromSuperview()
+        let effectView = TerminalMaterialView()
+        addSubview(effectView, positioned: .below, relativeTo: terminalView)
+        NSLayoutConstraint.activate([
+            effectView.topAnchor.constraint(equalTo: topAnchor),
+            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        glassEffectView = effectView
+        return effectView
+    }
+
     private func updateGlassEffectIfNeeded() {
 #if compiler(>=6.2)
-        guard #available(macOS 26.0, *), let derivedConfig else {
+        guard let derivedConfig else {
             glassEffectView?.removeFromSuperview()
             glassEffectView = nil
             return
         }
-        guard let effectView = addGlassEffectViewIfNeeded() else {
-            return
-        }
 
-        effectView.configure(
-            style: derivedConfig.style.official,
-            backgroundColor: derivedConfig.backgroundColor,
-            backgroundOpacity: derivedConfig.backgroundOpacity,
-            cornerRadius: derivedConfig.cornerRadius,
-            isKeyWindow: window?.isKeyWindow ?? true
-        )
+        switch derivedConfig.style {
+        case .glass(let style):
+            guard #available(macOS 26.0, *), let effectView = addGlassEffectViewIfNeeded() else {
+                glassEffectView?.removeFromSuperview()
+                glassEffectView = nil
+                return
+            }
+
+            effectView.configure(
+                style: style.official,
+                backgroundColor: derivedConfig.backgroundColor,
+                backgroundOpacity: derivedConfig.backgroundOpacity,
+                cornerRadius: derivedConfig.cornerRadius,
+                isKeyWindow: window?.isKeyWindow ?? true
+            )
+
+        case .material(let style):
+            if #available(macOS 12.0, *) {
+                let effectView = addMaterialEffectViewIfNeeded()
+                effectView.configure(
+                    style: style,
+                    backgroundColor: derivedConfig.backgroundColor,
+                    backgroundOpacity: derivedConfig.backgroundOpacity,
+                    cornerRadius: derivedConfig.cornerRadius,
+                    isKeyWindow: window?.isKeyWindow ?? true
+                )
+            } else {
+                glassEffectView?.removeFromSuperview()
+                glassEffectView = nil
+            }
+        }
 #endif // compiler(>=6.2)
     }
 
@@ -244,6 +392,11 @@ extension TerminalViewContainer {
             let effectView = glassEffectView as? TerminalGlassView,
             let derivedConfig
         else {
+            if #available(macOS 12.0, *),
+               let materialView = glassEffectView as? TerminalMaterialView,
+               let derivedConfig {
+                materialView.updateKeyStatus(isKeyWindow, backgroundColor: derivedConfig.backgroundColor)
+            }
             return
         }
         effectView.updateKeyStatus(isKeyWindow, backgroundColor: derivedConfig.backgroundColor)
@@ -251,7 +404,12 @@ extension TerminalViewContainer {
     }
 
     struct DerivedConfig: Equatable {
-        let style: BackportNSGlassStyle
+        enum Style: Equatable {
+            case glass(BackportNSGlassStyle)
+            case material(TerminalMaterialStyle)
+        }
+
+        let style: Style
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let cornerRadius: CGFloat?
@@ -259,9 +417,24 @@ extension TerminalViewContainer {
         init?(config: Ghostty.Config, preferredBackgroundColor: NSColor?, cornerRadius: CGFloat?) {
             switch config.backgroundBlur {
             case .macosGlassRegular:
-                style = .regular
+                style = .glass(.regular)
             case .macosGlassClear:
-                style = .clear
+                style = .glass(.clear)
+            case .macosMaterialRegular:
+                guard #available(macOS 12.0, *) else { return nil }
+                style = .material(.regular)
+            case .macosMaterialThick:
+                guard #available(macOS 12.0, *) else { return nil }
+                style = .material(.thick)
+            case .macosMaterialThin:
+                guard #available(macOS 12.0, *) else { return nil }
+                style = .material(.thin)
+            case .macosMaterialUltraThin:
+                guard #available(macOS 12.0, *) else { return nil }
+                style = .material(.ultraThin)
+            case .macosMaterialUltraThick:
+                guard #available(macOS 12.0, *) else { return nil }
+                style = .material(.ultraThick)
             default:
                 return nil
             }

@@ -89,15 +89,21 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         if let titlebarView = titlebarContainer?.firstDescendant(withClassName: "NSTitlebarView") {
             titlebarView.wantsLayer = true
 
-            // For glass background styles, use a transparent titlebar to let the glass effect show through
-            // Only apply this for transparent and tabs titlebar styles
-            let isGlassStyle = derivedConfig.backgroundBlur.isGlassStyle
+            // For glass styles, use a transparent titlebar to let the effect show through.
+            // For material styles, force an opaque titlebar color to keep title area solid.
+            // Only apply this behavior for transparent and tabs titlebar styles.
+            let isGlassStyle = surfaceConfig.backgroundBlur.isGlassStyle
+            let isMaterialStyle = surfaceConfig.backgroundBlur.isMaterialStyle
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
             derivedConfig.macosTitlebarStyle == .tabs
 
-            titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
-                ? NSColor.clear.cgColor
-                : preferredBackgroundColor?.cgColor
+            titlebarView.layer?.backgroundColor = if isTransparentTitlebar && isGlassStyle {
+                NSColor.clear.cgColor
+            } else if isTransparentTitlebar && isMaterialStyle {
+                preferredBackgroundColor?.withAlphaComponent(1).cgColor
+            } else {
+                preferredBackgroundColor?.cgColor
+            }
         }
 
         // In all cases, we have to hide the background view since this has multiple subviews
@@ -111,7 +117,12 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
         // Setup the titlebar background color to match ours
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+        let titlebarColor = if surfaceConfig.backgroundBlur.isMaterialStyle {
+            preferredBackgroundColor?.withAlphaComponent(1)
+        } else {
+            preferredBackgroundColor
+        }
+        titlebarContainer.layer?.backgroundColor = titlebarColor?.cgColor
 
         // See the docs for the function that sets this to true on why
         effectViewIsHidden = false

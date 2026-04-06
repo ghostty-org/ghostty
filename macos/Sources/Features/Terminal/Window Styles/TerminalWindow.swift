@@ -483,7 +483,7 @@ class TerminalWindow: NSWindow {
         let forceOpaque = terminalController?.isBackgroundOpaque ?? false
         if !styleMask.contains(.fullScreen) &&
             !forceOpaque &&
-            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle) {
+            (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isSpecialStyle) {
             isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -491,8 +491,8 @@ class TerminalWindow: NSWindow {
             // Terminal.app more easily.
             backgroundColor = .white.withAlphaComponent(0.001)
 
-            // We don't need to set blur when using glass
-            if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
+            // We don't need to set blur when using platform effect styles.
+            if !surfaceConfig.backgroundBlur.isSpecialStyle, let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
