@@ -1557,6 +1557,20 @@ pub const Surface = extern struct {
         return priv.size;
     }
 
+    /// Notify the core surface of this widget's position within the window.
+    /// This enables custom shaders to compute window-global coordinates.
+    ///
+    /// TODO: Use gtk_widget_compute_point or gtk_widget_compute_bounds to
+    /// determine the exact position of this surface within the window.
+    /// For now, we report (0,0) offset which means shaders fall back to
+    /// per-surface coordinates (same as before this feature).
+    fn updateSurfacePosition(self: *Self, surface: *CoreSurface) void {
+        _ = self;
+        surface.surfacePositionCallback(0, 0, 0, 0) catch |err| {
+            log.warn("error in surface position callback err={}", .{err});
+        };
+    }
+
     pub fn getCursorPos(self: *Self) apprt.CursorPos {
         return self.private().cursor_pos;
     }
@@ -3315,6 +3329,10 @@ pub const Surface = extern struct {
                 surface.sizeCallback(new_size) catch |err| {
                     log.warn("error in size callback err={}", .{err});
                 };
+
+                // Update surface position within the window for custom shaders.
+                self.updateSurfacePosition(surface);
+
                 // Setup our resize overlay if configured
                 self.resizeOverlaySchedule();
             }

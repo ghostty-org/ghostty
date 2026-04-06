@@ -112,6 +112,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// The size of everything.
         size: renderer.Size,
 
+        /// Position of this surface within the window, in pixels.
+        /// Set by the apprt when the surface is repositioned (e.g. splits).
+        surface_offset: [2]u32 = .{ 0, 0 },
+
+        /// Total window size in pixels. When 0, defaults to surface size.
+        window_size: [2]u32 = .{ 0, 0 },
+
         /// True if the window is focused
         focused: bool,
 
@@ -769,6 +776,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_text = @splat(0),
                     .selection_background_color = @splat(0),
                     .selection_foreground_color = @splat(0),
+                    .surface_offset = .{ 0, 0, 0, 0 },
+                    .window_resolution = .{ 0, 0, 1, 0 },
                 },
                 .bg_image_buffer = undefined,
 
@@ -1915,6 +1924,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
+        /// Update the position of this surface within its parent window.
+        /// This is used by custom shaders to compute window-global coordinates.
+        pub fn setSurfacePosition(
+            self: *Self,
+            offset_x: u32,
+            offset_y: u32,
+            window_width: u32,
+            window_height: u32,
+        ) void {
+            self.draw_mutex.lock();
+            defer self.draw_mutex.unlock();
+            self.surface_offset = .{ offset_x, offset_y };
+            self.window_size = .{ window_width, window_height };
+        }
+
         /// Resize the screen.
         pub fn setScreenSize(
             self: *Self,
@@ -2133,6 +2157,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             uniforms.channel_resolution[0] = .{
                 @floatFromInt(screen.width),
                 @floatFromInt(screen.height),
+                1,
+                0,
+            };
+
+            // Surface position within the window. Defaults to (0,0) offset
+            // and surface resolution as window resolution when the apprt
+            // does not provide position information.
+            uniforms.surface_offset = .{
+                @floatFromInt(self.surface_offset[0]),
+                @floatFromInt(self.surface_offset[1]),
+                0,
+                0,
+            };
+            const win_w = self.window_size[0];
+            const win_h = self.window_size[1];
+            uniforms.window_resolution = .{
+                if (win_w > 0) @floatFromInt(win_w) else @floatFromInt(screen.width),
+                if (win_h > 0) @floatFromInt(win_h) else @floatFromInt(screen.height),
                 1,
                 0,
             };

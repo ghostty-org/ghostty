@@ -810,6 +810,24 @@ pub const Surface = struct {
         };
     }
 
+    pub fn updateSurfacePosition(
+        self: *Surface,
+        offset_x: u32,
+        offset_y: u32,
+        window_width: u32,
+        window_height: u32,
+    ) void {
+        self.core_surface.surfacePositionCallback(
+            offset_x,
+            offset_y,
+            window_width,
+            window_height,
+        ) catch |err| {
+            log.err("error in surface position callback err={}", .{err});
+            return;
+        };
+    }
+
     pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) void {
         self.core_surface.colorSchemeCallback(scheme) catch |err| {
             log.err("error setting color scheme err={}", .{err});
@@ -1694,6 +1712,18 @@ pub const CAPI = struct {
     /// to the pty and the renderer.
     export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
         surface.updateSize(w, h);
+    }
+
+    /// Update the position of a surface within its parent window.
+    /// Used for custom shaders that need window-global coordinates.
+    export fn ghostty_surface_set_position(
+        surface: *Surface,
+        offset_x: u32,
+        offset_y: u32,
+        window_width: u32,
+        window_height: u32,
+    ) void {
+        surface.updateSurfacePosition(offset_x, offset_y, window_width, window_height);
     }
 
     /// Return the size information a surface has.
