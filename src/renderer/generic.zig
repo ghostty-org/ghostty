@@ -1399,6 +1399,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (comptime builtin.os.tag == .macos) switch (self.config.background_blur) {
                     .@"macos-glass-regular",
                     .@"macos-glass-clear",
+                    .@"macos-material-regular",
+                    .@"macos-material-thick",
+                    .@"macos-material-thin",
+                    .@"macos-material-ultrathin",
+                    .@"macos-material-ultrathick",
                     => self.uniforms.bg_color[3] = 0,
 
                     else => {},

@@ -1032,6 +1032,13 @@ palette: Palette = .{},
 ///
 ///   * `macos-glass-regular` - Standard glass effect with some opacity
 ///   * `macos-glass-clear` - Highly transparent glass effect
+/// On macOS 12.0 and later, there are additional special values that
+/// can be set to use the native macOS material effects:
+///   * `macos-material-regular` - SwiftUI `regularMaterial`
+///   * `macos-material-thick` - SwiftUI `thickMaterial`
+///   * `macos-material-thin` - SwiftUI `thinMaterial`
+///   * `macos-material-ultrathin` - SwiftUI `ultraThinMaterial`
+///   * `macos-material-ultrathick` - SwiftUI `ultraThickMaterial`
 ///
 /// If the macOS values are set, then this implies `background-blur = true`
 /// on non-macOS platforms.
@@ -9624,6 +9631,11 @@ pub const BackgroundBlur = union(enum) {
     true,
     @"macos-glass-regular",
     @"macos-glass-clear",
+    @"macos-material-regular",
+    @"macos-material-thick",
+    @"macos-material-thin",
+    @"macos-material-ultrathin",
+    @"macos-material-ultrathick",
     radius: u8,
 
     pub fn parseCLI(self: *BackgroundBlur, input: ?[]const u8) !void {
@@ -9643,19 +9655,48 @@ pub const BackgroundBlur = union(enum) {
         if (std.meta.stringToEnum(
             std.meta.Tag(BackgroundBlur),
             input_,
-        )) |v| switch (v) {
-            inline else => |tag| tag: {
-                // We can only parse void types
-                const info = std.meta.fieldInfo(BackgroundBlur, tag);
-                if (info.type != void) break :tag;
-                self.* = @unionInit(
-                    BackgroundBlur,
-                    @tagName(tag),
-                    {},
-                );
-                return;
-            },
-        };
+        )) |v| {
+            switch (v) {
+                .false => {
+                    self.* = .false;
+                    return;
+                },
+                .true => {
+                    self.* = .true;
+                    return;
+                },
+                .@"macos-glass-regular" => {
+                    self.* = .@"macos-glass-regular";
+                    return;
+                },
+                .@"macos-glass-clear" => {
+                    self.* = .@"macos-glass-clear";
+                    return;
+                },
+                .@"macos-material-regular" => {
+                    self.* = .@"macos-material-regular";
+                    return;
+                },
+                .@"macos-material-thick" => {
+                    self.* = .@"macos-material-thick";
+                    return;
+                },
+                .@"macos-material-thin" => {
+                    self.* = .@"macos-material-thin";
+                    return;
+                },
+                .@"macos-material-ultrathin" => {
+                    self.* = .@"macos-material-ultrathin";
+                    return;
+                },
+                .@"macos-material-ultrathick" => {
+                    self.* = .@"macos-material-ultrathick";
+                    return;
+                },
+
+                .radius => {},
+            }
+        }
 
         self.* = .{ .radius = std.fmt.parseInt(
             u8,
@@ -9673,7 +9714,14 @@ pub const BackgroundBlur = union(enum) {
             // We treat these as true because they both imply some blur!
             // This has the effect of making the standard blur happen on
             // Linux.
-            .@"macos-glass-regular", .@"macos-glass-clear" => true,
+            .@"macos-glass-regular",
+            .@"macos-glass-clear",
+            .@"macos-material-regular",
+            .@"macos-material-thick",
+            .@"macos-material-thin",
+            .@"macos-material-ultrathin",
+            .@"macos-material-ultrathick",
+            => true,
         };
     }
 
@@ -9687,6 +9735,11 @@ pub const BackgroundBlur = union(enum) {
             // tagged union if we ever need to.
             .@"macos-glass-regular" => -1,
             .@"macos-glass-clear" => -2,
+            .@"macos-material-regular" => -3,
+            .@"macos-material-thick" => -4,
+            .@"macos-material-thin" => -5,
+            .@"macos-material-ultrathin" => -6,
+            .@"macos-material-ultrathick" => -7,
         };
     }
 
@@ -9700,6 +9753,11 @@ pub const BackgroundBlur = union(enum) {
             .radius => |v| try formatter.formatEntry(u8, v),
             .@"macos-glass-regular" => try formatter.formatEntry([]const u8, "macos-glass-regular"),
             .@"macos-glass-clear" => try formatter.formatEntry([]const u8, "macos-glass-clear"),
+            .@"macos-material-regular" => try formatter.formatEntry([]const u8, "macos-material-regular"),
+            .@"macos-material-thick" => try formatter.formatEntry([]const u8, "macos-material-thick"),
+            .@"macos-material-thin" => try formatter.formatEntry([]const u8, "macos-material-thin"),
+            .@"macos-material-ultrathin" => try formatter.formatEntry([]const u8, "macos-material-ultrathin"),
+            .@"macos-material-ultrathick" => try formatter.formatEntry([]const u8, "macos-material-ultrathick"),
         }
     }
 
@@ -9724,6 +9782,21 @@ pub const BackgroundBlur = union(enum) {
 
         try v.parseCLI("macos-glass-clear");
         try testing.expectEqual(.@"macos-glass-clear", v);
+
+        try v.parseCLI("macos-material-regular");
+        try testing.expectEqual(.@"macos-material-regular", v);
+
+        try v.parseCLI("macos-material-thick");
+        try testing.expectEqual(.@"macos-material-thick", v);
+
+        try v.parseCLI("macos-material-thin");
+        try testing.expectEqual(.@"macos-material-thin", v);
+
+        try v.parseCLI("macos-material-ultrathin");
+        try testing.expectEqual(.@"macos-material-ultrathin", v);
+
+        try v.parseCLI("macos-material-ultrathick");
+        try testing.expectEqual(.@"macos-material-ultrathick", v);
 
         try testing.expectError(error.InvalidValue, v.parseCLI(""));
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));
