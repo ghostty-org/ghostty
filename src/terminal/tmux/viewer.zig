@@ -256,7 +256,7 @@ pub const Viewer = struct {
     pub const Pane = struct {
         terminal: Terminal,
         /// false until this pane's initial capture-pane + pane_state sync
-        /// has been applied. live %output is ignored untill then.
+        /// has been applied. live %output is ignored until then.
         initialized: bool = false,
 
         pub fn deinit(self: *Pane, alloc: Allocator) void {
