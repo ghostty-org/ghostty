@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const homedir = @import("homedir.zig");
 const env_os = @import("env.zig");
+const windows_os = @import("windows.zig");
 
 pub const Options = struct {
     /// Subdirectories to join to the base. This avoids extra allocations
@@ -86,6 +87,22 @@ fn dir(
         }
 
         return try alloc.dupe(u8, env.value);
+    }
+
+    // On Windows, a stripped-down shell may not have LOCALAPPDATA set
+    // even though the known folder still exists.
+    if (builtin.os.tag == .windows) {
+        var windows_buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (try windows_os.knownFolderPathUtf8(&windows_os.FOLDERID_LocalAppData, &windows_buf)) |local_appdata| {
+            if (opts.subdir) |subdir| {
+                return try std.fs.path.join(alloc, &[_][]const u8{
+                    local_appdata,
+                    subdir,
+                });
+            }
+
+            return try alloc.dupe(u8, local_appdata);
+        }
     }
 
     // Get our home dir

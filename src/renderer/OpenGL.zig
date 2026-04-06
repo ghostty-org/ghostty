@@ -33,6 +33,17 @@ pub const swap_chain_count = 1;
 
 const log = std.log.scoped(.opengl);
 
+fn trace(comptime fmt: []const u8, args: anytype) void {
+    var buf: [512]u8 = undefined;
+    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    var file = std.fs.cwd().createFile("winghostty-win32.log", .{
+        .truncate = false,
+    }) catch return;
+    defer file.close();
+    file.seekFromEnd(0) catch return;
+    file.writeAll(line) catch {};
+}
+
 /// We require at least OpenGL 4.3
 pub const MIN_VERSION_MAJOR = 4;
 pub const MIN_VERSION_MINOR = 3;
@@ -45,6 +56,9 @@ blending: configpkg.Config.AlphaBlending,
 /// The most recently presented target, in case we need to present it again.
 last_target: ?Target = null,
 
+/// Runtime surface used for context ownership and size queries on Win32.
+rt_surface: *apprt.Surface,
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -52,6 +66,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
+        .rt_surface = opts.rt_surface,
     };
 }
 
@@ -160,14 +175,23 @@ fn prepareContext(getProcAddress: anytype) !void {
 
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    _ = surface;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
         // GTK uses global OpenGL context so we load from null.
         apprt.gtk,
         => try prepareContext(null),
+
+        apprt.win32 => {
+            trace("OpenGL.surfaceInit: win32 begin", .{});
+            log.info("OpenGL.surfaceInit win32 begin", .{});
+            try surface.makeGLContextCurrent();
+            trace("OpenGL.surfaceInit: current", .{});
+            log.info("OpenGL.surfaceInit win32 current", .{});
+            try prepareContext(&apprt.win32.getProcAddress);
+            trace("OpenGL.surfaceInit: prepared", .{});
+            log.info("OpenGL.surfaceInit win32 prepared", .{});
+        },
 
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
@@ -190,13 +214,17 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 /// thread for final main thread setup requirements.
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
+
+    switch (apprt.runtime) {
+        else => {},
+
+        apprt.win32 => surface.clearGLContextCurrent(),
+    }
 }
 
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
@@ -206,6 +234,12 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // tell, so we use the renderer thread to setup all the state
             // but then do the actual draws and texture syncs and all that
             // on the main thread. As such, we don't do anything here.
+        },
+
+        apprt.win32 => {
+            trace("OpenGL.threadEnter: begin", .{});
+            _ = surface;
+            trace("OpenGL.threadEnter: win32 app-thread draw mode", .{});
         },
 
         apprt.embedded => {
@@ -218,8 +252,6 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
 
 /// Callback called by renderer.Thread when it exits.
 pub fn threadExit(self: *const OpenGL) void {
-    _ = self;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -227,6 +259,8 @@ pub fn threadExit(self: *const OpenGL) void {
             // We don't need to do any unloading for GTK because we may
             // be sharing the global bindings with other windows.
         },
+
+        apprt.win32 => self.rt_surface.clearGLContextCurrent(),
 
         apprt.embedded => {
             // TODO: see threadEnter
@@ -277,13 +311,24 @@ pub fn initShaders(
 
 /// Get the current size of the runtime surface.
 pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
-    _ = self;
-    var viewport: [4]gl.c.GLint = undefined;
-    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
-    return .{
-        .width = @intCast(viewport[2]),
-        .height = @intCast(viewport[3]),
-    };
+    switch (apprt.runtime) {
+        apprt.win32 => {
+            const size = try self.rt_surface.getSize();
+            return .{
+                .width = @intCast(size.width),
+                .height = @intCast(size.height),
+            };
+        },
+
+        else => {
+            var viewport: [4]gl.c.GLint = undefined;
+            gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+            return .{
+                .width = @intCast(viewport[2]),
+                .height = @intCast(viewport[3]),
+            };
+        },
+    }
 }
 
 /// Initialize a new render target which can be presented by this API.
@@ -297,6 +342,11 @@ pub fn initTarget(self: *const OpenGL, width: usize, height: usize) !Target {
 
 /// Present the provided target.
 pub fn present(self: *OpenGL, target: Target) !void {
+    trace("OpenGL.present: begin", .{});
+    if (apprt.runtime == apprt.win32) {
+        try self.rt_surface.makeGLContextCurrent();
+    }
+
     // In order to present a target we blit it to the default framebuffer.
 
     // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise the
@@ -312,6 +362,11 @@ pub fn present(self: *OpenGL, target: Target) !void {
     const fbobind = try target.framebuffer.bind(.read);
     defer fbobind.unbind();
 
+    const dst_width: i32, const dst_height: i32 = if (apprt.runtime == apprt.win32) size: {
+        const size = try self.surfaceSize();
+        break :size .{ @intCast(size.width), @intCast(size.height) };
+    } else .{ @intCast(target.width), @intCast(target.height) };
+
     // Blit
     gl.glad.context.BlitFramebuffer.?(
         0,
@@ -320,14 +375,20 @@ pub fn present(self: *OpenGL, target: Target) !void {
         @intCast(target.height),
         0,
         0,
-        @intCast(target.width),
-        @intCast(target.height),
+        dst_width,
+        dst_height,
         gl.c.GL_COLOR_BUFFER_BIT,
         gl.c.GL_NEAREST,
     );
 
     // Keep track of this target in case we need to repeat it.
     self.last_target = target;
+
+    if (apprt.runtime == apprt.win32) {
+        try self.rt_surface.swapGLBuffers();
+    }
+
+    trace("OpenGL.present: end", .{});
 }
 
 /// Present the last presented target again.

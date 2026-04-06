@@ -10,6 +10,7 @@ const font = @import("main.zig");
 pub const Library = switch (options.backend) {
     // Freetype requires a state library
     .freetype,
+    .windows_freetype,
     .fontconfig_freetype,
     .coretext_freetype,
     => FreetypeLibrary,

@@ -1,3 +1,5 @@
+const build_config = @import("../build_config.zig");
+
 // The required comptime API for any apprt.
 pub const App = @import("gtk/App.zig");
 pub const Surface = @import("gtk/Surface.zig");
@@ -10,6 +12,8 @@ pub const pre_exec = @import("gtk/pre_exec.zig");
 pub const post_fork = @import("gtk/post_fork.zig");
 
 test {
+    if (build_config.app_runtime != .gtk) return error.SkipZigTest;
+
     @import("std").testing.refAllDecls(@This());
     _ = @import("gtk/ext.zig");
     _ = @import("gtk/key.zig");

@@ -259,7 +259,8 @@ fn startPosix(self: *Command, arena: Allocator) !void {
 
 fn startWindows(self: *Command, arena: Allocator) !void {
     const application_w = try std.unicode.utf8ToUtf16LeAllocZ(arena, self.path);
-    const cwd_w = if (self.cwd) |cwd| try std.unicode.utf8ToUtf16LeAllocZ(arena, cwd) else null;
+    const cwd = try safeWindowsCurrentDirectory(arena, self.path, self.cwd);
+    const cwd_w = if (cwd) |v| try std.unicode.utf8ToUtf16LeAllocZ(arena, v) else null;
     const command_line_w = if (self.args.len > 0) b: {
         const command_line = try windowsCreateCommandLine(arena, self.args);
         break :b try std.unicode.utf8ToUtf16LeAllocZ(arena, command_line);
@@ -358,6 +359,74 @@ fn startWindows(self: *Command, arena: Allocator) !void {
     ) == 0) return windows.unexpectedError(windows.kernel32.GetLastError());
 
     self.pid = process_information.hProcess;
+}
+
+fn safeWindowsCurrentDirectory(
+    arena: Allocator,
+    path: []const u8,
+    cwd: ?[]const u8,
+) !?[]const u8 {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const fallback_home = try windows.knownFolderPathUtf8(&windows.FOLDERID_Profile, &buf);
+    const resolved = safeWindowsCurrentDirectoryWithHome(path, cwd, fallback_home);
+
+    if (resolved) |v| {
+        if (cwd) |existing| {
+            if (mem.eql(u8, v, existing)) return existing;
+        }
+        return try arena.dupe(u8, v);
+    }
+
+    return null;
+}
+
+fn safeWindowsCurrentDirectoryWithHome(
+    path: []const u8,
+    cwd: ?[]const u8,
+    fallback_home: ?[]const u8,
+) ?[]const u8 {
+    const is_wsl = isWindowsWslExecutable(path);
+
+    if (cwd) |v| {
+        if (isWindowsDriveAbsolutePath(v)) return v;
+        if (isObviouslyInvalidWindowsCurrentDirectory(v)) return fallback_home orelse cwd;
+        if (!is_wsl) return cwd;
+    }
+
+    if (is_wsl) return fallback_home orelse cwd;
+    return cwd;
+}
+
+fn isWindowsWslExecutable(path: []const u8) bool {
+    const base = windowsPathBasename(path);
+    return std.ascii.eqlIgnoreCase(base, "wsl.exe") or
+        std.ascii.eqlIgnoreCase(base, "wsl");
+}
+
+fn isWindowsDriveAbsolutePath(path: []const u8) bool {
+    return path.len >= 3 and
+        std.ascii.isAlphabetic(path[0]) and
+        path[1] == ':' and
+        (path[2] == '\\' or path[2] == '/');
+}
+
+fn isObviouslyInvalidWindowsCurrentDirectory(path: []const u8) bool {
+    return path.len == 0 or
+        mem.eql(u8, path, "\\") or
+        mem.eql(u8, path, "\\\\") or
+        mem.eql(u8, path, "/") or
+        std.mem.startsWith(u8, path, "\\\\wsl.localhost\\") or
+        std.mem.startsWith(u8, path, "\\\\wsl$\\");
+}
+
+fn windowsPathBasename(path: []const u8) []const u8 {
+    var i: usize = path.len;
+    while (i > 0) : (i -= 1) {
+        const c = path[i - 1];
+        if (c == '\\' or c == '/') return path[i..];
+    }
+
+    return path;
 }
 
 fn setupFd(src: File.Handle, target: i32) !void {
@@ -568,6 +637,42 @@ test "createNullDelimitedEnvMap" {
             try testing.expect(false); // Environment variable not found
         }
     }
+}
+
+test "Command: safeWindowsCurrentDirectory uses home for wsl without cwd" {
+    const result = safeWindowsCurrentDirectoryWithHome(
+        "C:\\Windows\\System32\\wsl.exe",
+        null,
+        "C:\\Users\\amant",
+    );
+    try testing.expectEqualStrings("C:\\Users\\amant", result.?);
+}
+
+test "Command: safeWindowsCurrentDirectory uses home for invalid wsl cwd" {
+    const result = safeWindowsCurrentDirectoryWithHome(
+        "wsl.exe",
+        "\\\\",
+        "C:\\Users\\amant",
+    );
+    try testing.expectEqualStrings("C:\\Users\\amant", result.?);
+}
+
+test "Command: safeWindowsCurrentDirectory preserves drive cwd for wsl" {
+    const result = safeWindowsCurrentDirectoryWithHome(
+        "wsl.exe",
+        "C:\\Users\\amant\\Documents",
+        "C:\\Users\\amant",
+    );
+    try testing.expectEqualStrings("C:\\Users\\amant\\Documents", result.?);
+}
+
+test "Command: safeWindowsCurrentDirectory preserves cwd for non-wsl" {
+    const result = safeWindowsCurrentDirectoryWithHome(
+        "pwsh.exe",
+        "\\\\server\\share",
+        "C:\\Users\\amant",
+    );
+    try testing.expectEqualStrings("\\\\server\\share", result.?);
 }
 
 test "Command: os pre exec 1" {

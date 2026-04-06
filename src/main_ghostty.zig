@@ -15,6 +15,17 @@ const App = @import("App.zig");
 const Ghostty = @import("main_c.zig").Ghostty;
 const state = &@import("global.zig").state;
 
+fn trace(comptime fmt: []const u8, args: anytype) void {
+    var buf: [512]u8 = undefined;
+    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    var file = std.fs.cwd().createFile("winghostty-win32.log", .{
+        .truncate = false,
+    }) catch return;
+    defer file.close();
+    file.seekFromEnd(0) catch return;
+    file.writeAll(line) catch {};
+}
+
 /// The return type for main() depends on the build artifact. The lib build
 /// also calls "main" in order to run the CLI actions, but it calls it as
 /// an API and not an entrypoint.
@@ -24,11 +35,14 @@ const MainReturn = switch (build_config.artifact) {
 };
 
 pub fn main() !MainReturn {
+    trace("main: start", .{});
+
     // We first start by initializing our global state. This will setup
     // process-level state we need to run the terminal. The reason we use
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
     state.init() catch |err| {
+        trace("main: state.init failed err={}", .{err});
         var buffer: [1024]u8 = undefined;
         var stderr_writer = std.fs.File.stderr().writer(&buffer);
         const stderr = &stderr_writer.interface;
@@ -53,6 +67,7 @@ pub fn main() !MainReturn {
         try stderr.flush();
     };
     defer state.deinit();
+    trace("main: state.init ok", .{});
     const alloc = state.alloc;
 
     if (comptime builtin.mode == .Debug) {
@@ -96,19 +111,45 @@ pub fn main() !MainReturn {
     // Create our app state
     const app: *App = try App.create(alloc);
     defer app.destroy();
+    trace("main: app created", .{});
 
     // Create our runtime app
     var app_runtime: apprt.App = undefined;
     try app_runtime.init(app, .{});
     defer app_runtime.terminate();
+    trace("main: runtime init ok", .{});
 
     // Since - by definition - there are no surfaces when first started, the
     // quit timer may need to be started. The start timer will get cancelled if/
     // when the first surface is created.
     if (@hasDecl(apprt.App, "startQuitTimer")) app_runtime.startQuitTimer();
+    trace("main: entering runtime run", .{});
 
     // Run the GUI event loop
     try app_runtime.run();
+    trace("main: runtime run returned", .{});
+}
+
+pub export fn WinMain(
+    _: ?*anyopaque,
+    _: ?*anyopaque,
+    _: ?[*:0]u8,
+    _: c_int,
+) callconv(.winapi) c_int {
+    trace("WinMain: entered", .{});
+    if (comptime builtin.target.os.tag != .windows or build_config.app_runtime == .none) {
+        trace("WinMain: invalid build/runtime", .{});
+        return 1;
+    }
+
+    main() catch |err| {
+        trace("WinMain: main failed err={}", .{err});
+        std.log.err("WinMain failed error={}", .{err});
+        return 1;
+    };
+
+    trace("WinMain: success", .{});
+    return 0;
 }
 
 // The function std.log will call.

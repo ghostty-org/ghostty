@@ -21,6 +21,7 @@ const shell_integration = @import("shell_integration.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
+const windows_shell = configpkg.windows_shell;
 const SegmentedPool = @import("../datastruct/main.zig").SegmentedPool;
 const ptypkg = @import("../pty.zig");
 const Pty = ptypkg.Pty;
@@ -33,6 +34,26 @@ const log = std.log.scoped(.io_exec);
 
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;
+
+fn formatHexPreview(buf: []const u8, out: []u8) []const u8 {
+    const hex = "0123456789abcdef";
+    const len = @min(buf.len, out.len / 2);
+    for (buf[0..len], 0..) |byte, i| {
+        out[i * 2] = hex[byte >> 4];
+        out[i * 2 + 1] = hex[byte & 0x0F];
+    }
+
+    return out[0 .. len * 2];
+}
+
+fn formatAsciiPreview(buf: []const u8, out: []u8) []const u8 {
+    const len = @min(buf.len, out.len);
+    for (buf[0..len], 0..) |byte, i| {
+        out[i] = if (std.ascii.isPrint(byte) or byte == ' ') byte else '.';
+    }
+
+    return out[0..len];
+}
 
 /// If we build with flatpak support then we have to keep track of
 /// a potential execution on the host.
@@ -233,6 +254,7 @@ pub fn focusGained(
     focused: bool,
 ) !void {
     _ = self;
+    if (comptime builtin.os.tag == .windows) return;
 
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
@@ -322,12 +344,9 @@ fn termiosTimer(
 ) xev.CallbackAction {
     // log.debug("termios timer fired", .{});
 
-    // This should never happen because we guard starting our
-    // timer on windows but we want this assertion to fire if
-    // we ever do start the timer on windows.
-    // TODO: support on windows
     if (comptime builtin.os.tag == .windows) {
-        @panic("termios timer not implemented on Windows");
+        _ = r catch {};
+        return .disarm;
     }
 
     _ = r catch |err| switch (err) {
@@ -565,6 +584,7 @@ pub const Config = struct {
     shell_integration_features: configpkg.Config.ShellIntegrationFeatures = .{},
     cursor_blink: ?bool = null,
     working_directory: ?[]const u8 = null,
+    working_directory_home: bool = false,
     resources_dir: ?[]const u8,
     term: []const u8,
 
@@ -751,10 +771,10 @@ const Subprocess = struct {
         // Setup our shell integration, if we can.
         const shell_command: configpkg.Command = shell: {
             const default_shell_command: configpkg.Command =
-                cfg.command orelse .{ .shell = switch (builtin.os.tag) {
-                    .windows => "cmd.exe",
-                    else => "sh",
-                } };
+                cfg.command orelse switch (builtin.os.tag) {
+                    .windows => try windows_shell.defaultCommand(alloc),
+                    else => .{ .shell = "sh" },
+                };
 
             // Always set up shell features (GHOSTTY_SHELL_FEATURES). These are
             // used by both automatic and manual shell integrations.
@@ -805,6 +825,16 @@ const Subprocess = struct {
             break :shell integration.command;
         };
 
+        const launch_command: configpkg.Command = if (builtin.os.tag == .windows)
+            try windows_shell.prepareCommand(
+                alloc,
+                shell_command,
+                cfg.working_directory,
+                cfg.working_directory_home,
+            )
+        else
+            shell_command;
+
         // Add the environment variables that override any others.
         {
             var it = cfg.env_override.iterator();
@@ -817,7 +847,7 @@ const Subprocess = struct {
         // Build our args list
         const args: []const [:0]const u8 = execCommand(
             alloc,
-            shell_command,
+            launch_command,
             internal_os.passwd,
         ) catch |err| switch (err) {
             // If we fail to allocate space for the command we want to
@@ -840,12 +870,40 @@ const Subprocess = struct {
             error.SystemError => return err,
         };
 
-        // We have to copy the cwd because there is no guarantee that
-        // pointers in full_config remain valid.
-        const cwd: ?[:0]u8 = if (cfg.working_directory) |cwd|
+        // We separate the terminal-visible PWD from the Windows host cwd.
+        // For WSL launches, the shell may start in `~` or another WSL path
+        // via `wsl.exe --cd ...`, while CreateProcess still needs a valid
+        // Windows-local working directory.
+        const shell_pwd: ?[:0]u8 = if (builtin.os.tag == .windows) pwd: {
+            const resolved = try windows_shell.shellPwd(
+                alloc,
+                cfg.working_directory,
+                windows_shell.isWslCommand(launch_command),
+            );
+            if (resolved) |value| break :pwd try alloc.dupeZ(u8, value);
+            break :pwd null;
+        } else if (cfg.working_directory) |cwd|
             try alloc.dupeZ(u8, cwd)
         else
             null;
+        const cwd: ?[:0]u8 = if (builtin.os.tag == .windows) cwd: {
+            const resolved = try windows_shell.safeCurrentDirectory(
+                alloc,
+                cfg.working_directory,
+                cfg.working_directory_home,
+                windows_shell.isWslCommand(launch_command),
+            );
+            if (resolved) |value| break :cwd try alloc.dupeZ(u8, value);
+            break :cwd null;
+        } else shell_pwd;
+
+        if (builtin.os.tag == .windows) {
+            log.info("windows launch host_cwd={?s} shell_pwd={?s} is_wsl={}", .{
+                cwd,
+                shell_pwd,
+                windows_shell.isWslCommand(launch_command),
+            });
+        }
 
         // Propagate the current working directory (CWD) to the shell, enabling
         // the shell to display the current directory name rather than the
@@ -854,7 +912,7 @@ const Subprocess = struct {
         // https://bugs.kde.org/show_bug.cgi?id=242114
         // https://github.com/kovidgoyal/kitty/issues/1595
         // https://github.com/ghostty-org/ghostty/discussions/7769
-        if (cwd) |pwd| try env.put("PWD", pwd);
+        if (shell_pwd) |pwd| try env.put("PWD", pwd);
 
         return .{
             .arena = arena,
@@ -934,6 +992,12 @@ const Subprocess = struct {
         // This is important because our cwd can be set by the shell (OSC 7)
         // and we don't want to break new windows.
         const cwd: ?[:0]const u8 = if (self.cwd) |proposed| cwd: {
+            if (comptime builtin.os.tag == .windows) {
+                if (windows_shell.isWslArgv(self.args) and windows_shell.isWslPath(proposed)) {
+                    break :cwd null;
+                }
+            }
+
             if ((comptime build_config.flatpak) and internal_os.isFlatpak()) {
                 // Flatpak sandboxing prevents access to certain reserved paths
                 // regardless of configured permissions. Perform a test spawn
@@ -1368,6 +1432,7 @@ pub const ReadThread = struct {
         defer crash.sentry.thread_state = null;
 
         var buf: [1024]u8 = undefined;
+        var logged_chunks: u8 = 0;
         while (true) {
             while (true) {
                 var n: windows.DWORD = 0;
@@ -1382,6 +1447,19 @@ pub const ReadThread = struct {
                             unreachable;
                         },
                     }
+                }
+
+                if (logged_chunks < 8 and n > 0) {
+                    logged_chunks += 1;
+                    const len: usize = @intCast(@min(n, 128));
+                    var hex_buf: [256]u8 = undefined;
+                    var ascii_buf: [128]u8 = undefined;
+                    log.info("windows pty chunk idx={} len={} ascii={s} hex={s}", .{
+                        logged_chunks,
+                        n,
+                        formatAsciiPreview(buf[0..len], &ascii_buf),
+                        formatHexPreview(buf[0..len], &hex_buf),
+                    });
                 }
 
                 @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });

@@ -4,6 +4,7 @@ const Self = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const gl = @import("opengl");
+const apprt = @import("../../apprt.zig");
 
 const Renderer = @import("../generic.zig").Renderer(OpenGL);
 const OpenGL = @import("../OpenGL.zig");
@@ -54,18 +55,31 @@ pub inline fn renderPass(
 /// NOTE: For OpenGL, `sync` is ignored and we always block.
 pub fn complete(self: *const Self, sync: bool) void {
     _ = sync;
-    gl.finish();
+    const health: Health = health: {
+        if (apprt.runtime == apprt.win32) {
+            log.warn("opengl frame complete: win32 preview skipping gl.finish", .{});
+            break :health .healthy;
+        }
 
-    // If there are any GL errors, consider the frame unhealthy.
-    const health: Health = if (gl.errors.getError()) .healthy else |_| .unhealthy;
+        log.info("opengl frame complete: gl.finish begin", .{});
+        gl.finish();
+        log.info("opengl frame complete: gl.finish end", .{});
+
+        // If there are any GL errors, consider the frame unhealthy.
+        break :health if (gl.errors.getError()) .healthy else |_| .unhealthy;
+    };
+    log.info("opengl frame complete: health={}", .{health});
 
     // If the frame is healthy, present it.
     if (health == .healthy) {
+        log.info("opengl frame complete: present begin", .{});
         self.renderer.api.present(self.target.*) catch |err| {
             log.err("Failed to present render target: err={}", .{err});
         };
+        log.info("opengl frame complete: present end", .{});
     }
 
     // Report the health to the renderer.
+    log.info("opengl frame complete: frameCompleted", .{});
     self.renderer.frameCompleted(health);
 }

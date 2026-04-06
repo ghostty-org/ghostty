@@ -1463,6 +1463,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Retrieve the most up-to-date surface size from the Graphics API
             const surface_size = try self.api.surfaceSize();
+            if (apprt.runtime == apprt.win32) log.info(
+                "drawFrame surfaceSize width={} height={} sync={}",
+                .{ surface_size.width, surface_size.height, sync },
+            );
 
             // If either of our surface dimensions is zero
             // then drawing is absurd, so we just return.
@@ -1484,6 +1488,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // We still need to present the last target again, because the
                 // apprt may be swapping buffers and display an outdated frame
                 // if we don't draw something new.
+                if (apprt.runtime == apprt.win32) log.info("drawFrame presentLastTarget", .{});
                 try self.api.presentLastTarget();
                 return;
             }
@@ -1491,6 +1496,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Wait for a frame to be available.
             const frame = try self.swap_chain.nextFrame();
+            if (apprt.runtime == apprt.win32) log.info("drawFrame nextFrame acquired", .{});
             errdefer self.swap_chain.releaseFrame();
             // log.debug("drawing frame index={}", .{self.swap_chain.frame_index});
 
@@ -1499,6 +1505,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.reinitialize_shaders = false;
                 self.shaders.deinit(self.alloc);
                 try self.initShaders();
+                if (apprt.runtime == apprt.win32) log.info("drawFrame shaders reinitialized", .{});
             }
 
             // Our shaders should not be defunct at this point.
@@ -1529,6 +1536,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .height = surface_size.height,
                 };
                 self.updateScreenSizeUniforms();
+                if (apprt.runtime == apprt.win32) log.info(
+                    "drawFrame size_changed width={} height={}",
+                    .{ self.size.screen.width, self.size.screen.height },
+                );
             }
 
             // If this frame's target isn't the correct size, or the target
@@ -1544,6 +1555,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.size.screen.height,
                 );
                 frame.target_config_modified = self.target_config_modified;
+                if (apprt.runtime == apprt.win32) log.info(
+                    "drawFrame frame resized width={} height={}",
+                    .{ frame.target.width, frame.target.height },
+                );
             }
 
             // Upload images to the GPU as necessary.
@@ -1551,14 +1566,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Upload the background image to the GPU as necessary.
             try self.uploadBackgroundImage();
+            if (apprt.runtime == apprt.win32) log.info("drawFrame background image ready", .{});
 
             // Update per-frame custom shader uniforms.
             try self.updateCustomShaderUniformsForFrame();
+            if (apprt.runtime == apprt.win32) log.info("drawFrame custom uniforms ready", .{});
 
             // Setup our frame data
             try frame.uniforms.sync(&.{self.uniforms});
             try frame.cells_bg.sync(self.cells.bg_cells);
             const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows.lists);
+            if (apprt.runtime == apprt.win32) log.info(
+                "drawFrame cell buffers synced fg_count={}",
+                .{fg_count},
+            );
 
             // If our background image buffer has changed, sync it.
             if (frame.bg_image_buffer_modified != self.bg_image_buffer_modified) {
@@ -1575,6 +1596,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 defer self.font_grid.lock.unlockShared();
                 frame.grayscale_modified = self.font_grid.atlas_grayscale.modified.load(.monotonic);
                 try self.syncAtlasTexture(&self.font_grid.atlas_grayscale, &frame.grayscale);
+                if (apprt.runtime == apprt.win32) log.info("drawFrame grayscale atlas synced", .{});
             }
             texture: {
                 const modified = self.font_grid.atlas_color.modified.load(.monotonic);
@@ -1583,10 +1605,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 defer self.font_grid.lock.unlockShared();
                 frame.color_modified = self.font_grid.atlas_color.modified.load(.monotonic);
                 try self.syncAtlasTexture(&self.font_grid.atlas_color, &frame.color);
+                if (apprt.runtime == apprt.win32) log.info("drawFrame color atlas synced", .{});
             }
 
             // Get a frame context from the graphics API.
             var frame_ctx = try self.api.beginFrame(self, &frame.target);
+            if (apprt.runtime == apprt.win32) log.info("drawFrame beginFrame ok", .{});
             defer frame_ctx.complete(sync);
 
             {
@@ -1597,6 +1621,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .{ .target = frame.target },
                     .clear_color = .{ 0.0, 0.0, 0.0, 0.0 },
                 }});
+                if (apprt.runtime == apprt.win32) log.info("drawFrame renderPass begin", .{});
                 defer pass.complete();
 
                 // First we draw our background image, if we have one.
@@ -1687,6 +1712,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     &pass,
                     .overlay,
                 );
+                if (apprt.runtime == apprt.win32) log.info("drawFrame primary renderPass done", .{});
             }
 
             // If we have custom shaders, then we render them.
@@ -1717,6 +1743,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         },
                     });
                 }
+                if (apprt.runtime == apprt.win32) log.info("drawFrame post pipelines done", .{});
             }
         }
 

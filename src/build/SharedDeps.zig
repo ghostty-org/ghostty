@@ -595,6 +595,11 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
+            .win32 => {
+                step.linkSystemLibrary2("user32", dynamic_link_opts);
+                step.linkSystemLibrary2("gdi32", dynamic_link_opts);
+                step.linkSystemLibrary2("opengl32", dynamic_link_opts);
+            },
             .gtk => try self.addGtkNg(step),
         }
     }

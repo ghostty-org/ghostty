@@ -1437,6 +1437,7 @@ test "face metrics" {
         .px_per_em = 16.0,
         .cell_width = switch (options.backend) {
             .freetype,
+            .windows_freetype,
             .fontconfig_freetype,
             .coretext_freetype,
             => 8.0,
@@ -1457,6 +1458,7 @@ test "face metrics" {
         .ex_height = 7.3828125,
         .ascii_height = switch (options.backend) {
             .freetype,
+            .windows_freetype,
             .fontconfig_freetype,
             .coretext_freetype,
             => 18.0625,
@@ -1471,6 +1473,7 @@ test "face metrics" {
         .px_per_em = 16.0,
         .cell_width = switch (options.backend) {
             .freetype,
+            .windows_freetype,
             .fontconfig_freetype,
             .coretext_freetype,
             => 10.0,
@@ -1491,6 +1494,7 @@ test "face metrics" {
         .ex_height = 8.48,
         .ascii_height = switch (options.backend) {
             .freetype,
+            .windows_freetype,
             .fontconfig_freetype,
             .coretext_freetype,
             => 16.0,

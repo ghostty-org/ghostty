@@ -40,6 +40,15 @@ const ProcessInfo = @import("pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.surface);
 
+fn trace(comptime fmt: []const u8, args: anytype) void {
+    var buf: [512]u8 = undefined;
+    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    std.fs.cwd().writeFile(.{
+        .sub_path = "winghostty-win32.log",
+        .data = line,
+    }) catch {};
+}
+
 // The renderer implementation to use.
 const Renderer = rendererpkg.Renderer;
 
@@ -498,10 +507,12 @@ pub fn init(
 
     // Initialize our renderer with our initialized surface.
     try Renderer.surfaceInit(rt_surface);
+    trace("Surface.init: Renderer.surfaceInit ok", .{});
 
     // Determine our DPI configurations so we can properly configure
     // font points to pixels and handle other high-DPI scaling factors.
     const content_scale = try rt_surface.getContentScale();
+    trace("Surface.init: content_scale ok", .{});
     const x_dpi = content_scale.x * font.face.default_dpi;
     const y_dpi = content_scale.y * font.face.default_dpi;
     log.debug("xscale={} yscale={} xdpi={} ydpi={}", .{
@@ -524,6 +535,7 @@ pub fn init(
         &derived_config.font,
         font_size,
     );
+    trace("Surface.init: font_grid ok", .{});
 
     // Build our size struct which has all the sizes we need.
     const size: rendererpkg.Size = size: {
@@ -564,6 +576,7 @@ pub fn init(
         .thread = &self.renderer_thread,
     });
     errdefer renderer_impl.deinit();
+    trace("Surface.init: Renderer.init ok", .{});
 
     // The mutex used to protect our renderer state.
     const mutex = try alloc.create(std.Thread.Mutex);
@@ -580,10 +593,12 @@ pub fn init(
         app_mailbox,
     );
     errdefer render_thread.deinit();
+    trace("Surface.init: renderer thread init ok", .{});
 
     // Create the IO thread
     var io_thread = try termio.Thread.init(alloc);
     errdefer io_thread.deinit();
+    trace("Surface.init: io thread init ok", .{});
 
     self.* = .{
         .id = id: {
@@ -661,6 +676,7 @@ pub fn init(
             .shell_integration_features = config.@"shell-integration-features",
             .cursor_blink = config.@"cursor-style-blink",
             .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
+            .working_directory_home = if (config.@"working-directory") |wd| wd == .home else false,
             .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
             .rt_pre_exec_info = .init(config),
@@ -683,6 +699,7 @@ pub fn init(
             .renderer_mailbox = render_thread.mailbox,
             .surface_mailbox = .{ .surface = self, .app = app_mailbox },
         });
+        trace("Surface.init: termio init ok", .{});
     }
     // Outside the block, IO has now taken ownership of our temporary state
     // so we can just defer this and not the subcomponents.
@@ -713,10 +730,12 @@ pub fn init(
     // sizeCallback does retina-aware stuff we don't do here and don't want
     // to duplicate.
     try self.resize(self.size.screen);
+    trace("Surface.init: resize ok", .{});
 
     // Give the renderer one more opportunity to finalize any surface
     // setup on the main thread prior to spinning up the rendering thread.
     try renderer_impl.finalizeSurfaceInit(rt_surface);
+    trace("Surface.init: finalizeSurfaceInit ok", .{});
 
     // Start our renderer thread
     self.renderer_thr = try std.Thread.spawn(
@@ -724,6 +743,7 @@ pub fn init(
         rendererpkg.Thread.threadMain,
         .{&self.renderer_thread},
     );
+    trace("Surface.init: renderer thread spawned", .{});
     self.renderer_thr.setName("renderer") catch {};
 
     // Start our IO thread
@@ -732,6 +752,7 @@ pub fn init(
         termio.Thread.threadMain,
         .{ &self.io_thread, &self.io },
     );
+    trace("Surface.init: io thread spawned", .{});
     self.io_thr.setName("io") catch {};
 
     // Determine our initial window size if configured. We need to do this
@@ -5107,72 +5128,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             );
         },
 
-        .end_search => {
-            // We only return that this was performed if we actually
-            // stopped a search, but we also send the apprt end_search so
-            // that GUIs can clean up stale stuff.
-            const performed = self.search != null;
+        .end_search => return try self.endSearch(),
 
-            if (self.search) |*s| {
-                s.deinit();
-                self.search = null;
-            }
-
-            _ = try self.rt_app.performAction(
-                .{ .surface = self },
-                .end_search,
-                {},
-            );
-
-            return performed;
-        },
-
-        .search => |text| search: {
-            const s: *Search = if (self.search) |*s| s else init: {
-                // If we're stopping the search and we had no prior search,
-                // then there is nothing to do.
-                if (text.len == 0) return false;
-
-                // We need to assign directly to self.search because we need
-                // a stable pointer back to the thread state.
-                self.search = .{
-                    .state = try .init(self.alloc, .{
-                        .mutex = self.renderer_state.mutex,
-                        .terminal = self.renderer_state.terminal,
-                        .event_cb = &searchCallback,
-                        .event_userdata = self,
-                    }),
-                    .thread = undefined,
-                };
-                const s: *Search = &self.search.?;
-                errdefer s.state.deinit();
-
-                s.thread = try .spawn(
-                    .{},
-                    terminal.search.Thread.threadMain,
-                    .{&s.state},
-                );
-                s.thread.setName("search") catch {};
-
-                break :init s;
-            };
-
-            // Zero-length text means stop searching.
-            if (text.len == 0) {
-                s.deinit();
-                self.search = null;
-                break :search;
-            }
-
-            _ = s.state.mailbox.push(
-                .{ .change_needle = try .init(
-                    self.alloc,
-                    text,
-                ) },
-                .forever,
-            );
-            s.state.wakeup.notify() catch {};
-        },
+        .search => |text| return try self.setSearchText(text),
 
         .navigate_search => |nav| {
             const s: *Search = if (self.search) |*s| s else return false;
@@ -5821,6 +5779,74 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
     }
 
+    return true;
+}
+
+pub fn endSearch(self: *Surface) !bool {
+    // We only return that this was performed if we actually
+    // stopped a search, but we also send the apprt end_search so
+    // that GUIs can clean up stale stuff.
+    const performed = self.search != null;
+
+    if (self.search) |*s| {
+        s.deinit();
+        self.search = null;
+    }
+
+    _ = try self.rt_app.performAction(
+        .{ .surface = self },
+        .end_search,
+        {},
+    );
+
+    return performed;
+}
+
+pub fn setSearchText(self: *Surface, text: []const u8) !bool {
+    const s: *Search = if (self.search) |*s| s else init: {
+        // If we're stopping the search and we had no prior search,
+        // then there is nothing to do.
+        if (text.len == 0) return false;
+
+        // We need to assign directly to self.search because we need
+        // a stable pointer back to the thread state.
+        self.search = .{
+            .state = try .init(self.alloc, .{
+                .mutex = self.renderer_state.mutex,
+                .terminal = self.renderer_state.terminal,
+                .event_cb = &searchCallback,
+                .event_userdata = self,
+            }),
+            .thread = undefined,
+        };
+        const state: *Search = &self.search.?;
+        errdefer state.state.deinit();
+
+        state.thread = try .spawn(
+            .{},
+            terminal.search.Thread.threadMain,
+            .{&state.state},
+        );
+        state.thread.setName("search") catch {};
+
+        break :init state;
+    };
+
+    // Zero-length text means stop searching.
+    if (text.len == 0) {
+        s.deinit();
+        self.search = null;
+        return true;
+    }
+
+    _ = s.state.mailbox.push(
+        .{ .change_needle = try .init(
+            self.alloc,
+            text,
+        ) },
+        .forever,
+    );
+    s.state.wakeup.notify() catch {};
     return true;
 }
 

@@ -7,6 +7,10 @@ pub const Runtime = enum {
     /// This is only useful if you're only interested in the lib only (macOS).
     none,
 
+    /// Native Win32 runtime. This is currently bring-up only and is opt-in
+    /// until surface/window management is implemented.
+    win32,
+
     /// GTK4. Rich windowed application. This uses a full GObject-based
     /// approach to building the application.
     gtk,

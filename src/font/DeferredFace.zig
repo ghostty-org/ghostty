@@ -8,6 +8,7 @@ const DeferredFace = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const freetype = @import("freetype");
 const fontconfig = @import("fontconfig");
 const macos = @import("macos");
 const font = @import("main.zig");
@@ -21,6 +22,10 @@ const log = std.log.scoped(.deferred_face);
 /// Fontconfig
 fc: if (options.backend == .fontconfig_freetype) ?Fontconfig else void =
     if (options.backend == .fontconfig_freetype) null else {},
+
+/// Windows native discovery
+win: if (options.backend == .windows_freetype) ?Windows else void =
+    if (options.backend == .windows_freetype) null else {},
 
 /// CoreText
 ct: if (font.Discover == font.discovery.CoreText) ?CoreText else void =
@@ -67,6 +72,26 @@ pub const CoreText = struct {
     }
 };
 
+pub const Windows = struct {
+    alloc: Allocator,
+    path: [:0]const u8,
+    face_index: i32,
+    family_name: [:0]const u8,
+    style_name: [:0]const u8,
+    full_name: [:0]const u8,
+    variations: []const font.face.Variation,
+    color: bool,
+
+    pub fn deinit(self: *Windows) void {
+        self.alloc.free(self.path);
+        self.alloc.free(self.family_name);
+        self.alloc.free(self.style_name);
+        self.alloc.free(self.full_name);
+        self.alloc.free(self.variations);
+        self.* = undefined;
+    }
+};
+
 /// WebCanvas specific data. This is only present when building with canvas.
 pub const WebCanvas = struct {
     /// The allocator to use for fonts
@@ -86,6 +111,7 @@ pub const WebCanvas = struct {
 
 pub fn deinit(self: *DeferredFace) void {
     switch (options.backend) {
+        .windows_freetype => if (self.win) |*win| win.deinit(),
         .fontconfig_freetype => if (self.fc) |*fc| fc.deinit(),
         .freetype => {},
         .web_canvas => if (self.wc) |*wc| wc.deinit(),
@@ -102,6 +128,7 @@ pub fn deinit(self: *DeferredFace) void {
 pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
     switch (options.backend) {
         .freetype => {},
+        .windows_freetype => if (self.win) |win| return win.family_name,
 
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.family, 0)).string,
@@ -130,6 +157,7 @@ pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
 pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
     switch (options.backend) {
         .freetype => {},
+        .windows_freetype => if (self.win) |win| return win.full_name,
 
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.fullname, 0)).string,
@@ -163,6 +191,7 @@ pub fn load(
     opts: font.face.Options,
 ) !Face {
     return switch (options.backend) {
+        .windows_freetype => try self.loadWindows(lib, opts),
         .fontconfig_freetype => try self.loadFontconfig(lib, opts),
         .coretext, .coretext_harfbuzz, .coretext_noshape => try self.loadCoreText(lib, opts),
         .coretext_freetype => try self.loadCoreTextFreetype(lib, opts),
@@ -172,6 +201,19 @@ pub fn load(
         // proper configuration for one of the other deferred mechanisms.
         .freetype => unreachable,
     };
+}
+
+fn loadWindows(
+    self: *DeferredFace,
+    lib: Library,
+    opts: font.face.Options,
+) !Face {
+    const win = self.win.?;
+
+    var face = try Face.initFile(lib, win.path, win.face_index, opts);
+    errdefer face.deinit();
+    try face.setVariations(win.variations, opts);
+    return face;
 }
 
 fn loadFontconfig(
@@ -265,6 +307,24 @@ fn loadWebCanvas(
 /// the face is always expected to be loaded.
 pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
     switch (options.backend) {
+        .windows_freetype => {
+            if (self.win) |win| {
+                if (p) |desired| {
+                    const actual: Presentation = if (win.color) .emoji else .text;
+                    if (actual != desired) return false;
+                }
+
+                var lib = freetype.Library.init() catch return false;
+                defer lib.deinit();
+
+                const face = lib.initFace(win.path, win.face_index) catch return false;
+                defer face.deinit();
+
+                face.selectCharmap(.unicode) catch return false;
+                return face.getCharIndex(cp) != null;
+            }
+        },
+
         .fontconfig_freetype => {
             // If we are using fontconfig, use the fontconfig metadata to
             // avoid loading the face.

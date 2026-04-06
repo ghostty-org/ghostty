@@ -30,6 +30,46 @@ pub const SYNCHRONIZE = windows.SYNCHRONIZE;
 pub const WAIT_FAILED = windows.WAIT_FAILED;
 pub const FALSE = windows.FALSE;
 pub const TRUE = windows.TRUE;
+pub const FOLDERID_Profile = windows.GUID.parse("{5E6C858F-0E22-4760-9AFE-EA3317B67173}");
+pub const FOLDERID_LocalAppData = windows.FOLDERID_LocalAppData;
+
+pub const KnownFolderPathError = error{
+    BufferTooSmall,
+};
+
+extern "shell32" fn SHGetKnownFolderPath(
+    rfid: *const windows.KNOWNFOLDERID,
+    dwFlags: windows.DWORD,
+    hToken: ?windows.HANDLE,
+    ppszPath: *?windows.PWSTR,
+) callconv(.winapi) windows.HRESULT;
+extern "ole32" fn CoTaskMemFree(pv: ?*anyopaque) callconv(.winapi) void;
+
+pub fn knownFolderPathUtf8(
+    folder_id: *const windows.KNOWNFOLDERID,
+    buf: []u8,
+) KnownFolderPathError!?[]const u8 {
+    var path_w: ?windows.PWSTR = null;
+    const hr = SHGetKnownFolderPath(
+        folder_id,
+        windows.KF_FLAG_DONT_VERIFY,
+        null,
+        &path_w,
+    );
+    if (hr != windows.S_OK) return null;
+
+    const w = path_w orelse return null;
+    defer CoTaskMemFree(w);
+
+    const slice_w = std.mem.sliceTo(w, 0);
+    if (slice_w.len * 3 > buf.len) return error.BufferTooSmall;
+
+    const len = std.unicode.utf16LeToUtf8(buf, slice_w) catch {
+        return null;
+    };
+
+    return buf[0..len];
+}
 
 pub const exp = struct {
     pub const HPCON = windows.LPVOID;

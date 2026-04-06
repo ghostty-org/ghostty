@@ -37,6 +37,7 @@ const RepeatableReadableIO = @import("io.zig").RepeatableReadableIO;
 const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
+const windows_shell = @import("windows_shell.zig");
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
 const KeyRemapSet = @import("../input/key_mods.zig").RemapSet;
 pub const WindowPaddingBalance = @import("../renderer/size.zig").PaddingBalance;
@@ -4561,6 +4562,10 @@ pub fn finalize(self: *Config) !void {
                 // Flatpak always gets its shell from outside the sandbox
                 if (internal_os.isFlatpak()) break :shell_env;
 
+                // Windows shell resolution is handled explicitly below so that
+                // `command = null` consistently follows our WSL-first order.
+                if (builtin.os.tag == .windows) break :shell_env;
+
                 // If we were launched from the desktop, our SHELL env var
                 // will represent our SHELL at login time. We only want to
                 // read from SHELL if we're in a probable CLI environment.
@@ -4580,11 +4585,12 @@ pub fn finalize(self: *Config) !void {
             switch (builtin.os.tag) {
                 .windows => {
                     if (self.command == null) {
-                        log.warn("no default shell found, will default to using cmd", .{});
-                        self.command = .{ .shell = "cmd.exe" };
+                        const cmd = try windows_shell.defaultCommand(alloc);
+                        log.info("default shell src=windows-default value={}", .{cmd});
+                        self.command = cmd;
                     }
 
-                    if (wd == .home) {
+                    if (wd == .home and !windows_shell.isWslCommand(self.command.?)) {
                         var buf: [std.fs.max_path_bytes]u8 = undefined;
                         if (try internal_os.home(&buf)) |home| {
                             wd = .{ .path = try alloc.dupe(u8, home) };
@@ -4626,6 +4632,7 @@ pub fn finalize(self: *Config) !void {
     // Apprt-specific defaults
     switch (build_config.app_runtime) {
         .none => {},
+        .win32 => {},
         .gtk => {
             switch (self.@"gtk-single-instance") {
                 .true, .false => {},
@@ -9030,7 +9037,7 @@ pub const GtkTitlebarStyle = enum(c_int) {
             .{ .name = "GhosttyGtkTitlebarStyle" },
         ),
 
-        .none => void,
+        .none, .win32 => void,
     };
 };
 
@@ -9745,7 +9752,7 @@ pub const WindowDecoration = enum(c_int) {
             .{ .name = "GhosttyConfigWindowDecoration" },
         ),
 
-        .none => void,
+        .none, .win32 => void,
     };
 
     pub fn parseCLI(input_: ?[]const u8) !WindowDecoration {

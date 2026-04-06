@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const passwd = @import("passwd.zig");
+const win = @import("windows.zig");
 const posix = std.posix;
 const objc = @import("objc");
 
@@ -82,7 +83,7 @@ fn homeWindows(buf: []u8) !?[]const u8 {
         const fba = fba_instance.allocator();
         const drive = std.process.getEnvVarOwned(fba, "HOMEDRIVE") catch |err| switch (err) {
             error.OutOfMemory => return Error.BufferTooSmall,
-            error.InvalidWtf8, error.EnvironmentVariableNotFound => return null,
+            error.InvalidWtf8, error.EnvironmentVariableNotFound => break :blk 0,
         };
         // could shift the contents if this ever happens
         if (drive.ptr != buf.ptr) @panic("codebug");
@@ -95,14 +96,31 @@ fn homeWindows(buf: []u8) !?[]const u8 {
         const fba = fba_instance.allocator();
         const homepath = std.process.getEnvVarOwned(fba, "HOMEPATH") catch |err| switch (err) {
             error.OutOfMemory => return Error.BufferTooSmall,
-            error.InvalidWtf8, error.EnvironmentVariableNotFound => return null,
+            error.InvalidWtf8, error.EnvironmentVariableNotFound => break :blk 0,
         };
         // could shift the contents if this ever happens
         if (homepath.ptr != path_buf.ptr) @panic("codebug");
         break :blk homepath.len;
     };
 
-    return buf[0 .. drive_len + path_len];
+    if (drive_len > 0 and path_len > 0) {
+        return buf[0 .. drive_len + path_len];
+    }
+
+    const userprofile_len = blk: {
+        var fba_instance = std.heap.FixedBufferAllocator.init(buf);
+        const fba = fba_instance.allocator();
+        const userprofile = std.process.getEnvVarOwned(fba, "USERPROFILE") catch |err| switch (err) {
+            error.OutOfMemory => return Error.BufferTooSmall,
+            error.InvalidWtf8, error.EnvironmentVariableNotFound => break :blk 0,
+        };
+        if (userprofile.ptr != buf.ptr) @panic("codebug");
+        break :blk userprofile.len;
+    };
+
+    if (userprofile_len > 0) return buf[0..userprofile_len];
+
+    return try win.knownFolderPathUtf8(&win.FOLDERID_Profile, buf);
 }
 
 fn trimSpace(input: []const u8) []const u8 {

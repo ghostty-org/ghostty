@@ -10,6 +10,9 @@ const Target = @import("Target.zig");
 const Texture = @import("Texture.zig");
 const Pipeline = @import("Pipeline.zig");
 const Buffer = @import("buffer.zig").Buffer;
+const apprt = @import("../../apprt.zig");
+
+const log = std.log.scoped(.opengl);
 
 /// Options for beginning a render pass.
 pub const Options = struct {
@@ -61,6 +64,10 @@ pub fn begin(
 /// TODO: Errors are silently ignored in this function, maybe they shouldn't be?
 pub fn step(self: *Self, s: Step) void {
     if (s.draw.instance_count == 0) return;
+    if (apprt.runtime == apprt.win32) log.info(
+        "renderPass step begin step={} vertex_count={} instance_count={}",
+        .{ self.step_number, s.draw.vertex_count, s.draw.instance_count },
+    );
 
     const pbind = s.pipeline.program.use() catch return;
     defer pbind.unbind();

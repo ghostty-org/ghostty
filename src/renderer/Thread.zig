@@ -16,6 +16,15 @@ const App = @import("../App.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
+fn trace(comptime fmt: []const u8, args: anytype) void {
+    var buf: [512]u8 = undefined;
+    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    std.fs.cwd().writeFile(.{
+        .sub_path = "winghostty-win32.log",
+        .data = line,
+    }) catch {};
+}
+
 const DRAW_INTERVAL = 8; // 120 FPS
 const CURSOR_BLINK_INTERVAL = 600;
 
@@ -228,12 +237,14 @@ fn threadMain_(self: *Thread) !void {
     const has_loop = @hasDecl(rendererpkg.Renderer, "loopEnter");
     if (has_loop) try self.renderer.loopEnter(self);
     defer if (has_loop) self.renderer.loopExit();
+    trace("Renderer.Thread: loopEnter ok", .{});
 
     // Run our thread start/end callbacks. This is important because some
     // renderers have to do per-thread setup. For example, OpenGL has to set
     // some thread-local state since that is how it works.
     try self.renderer.threadEnter(self.surface);
     defer self.renderer.threadExit();
+    trace("Renderer.Thread: threadEnter ok", .{});
 
     // Start the async handlers
     self.wakeup.wait(&self.loop, &self.wakeup_c, Thread, self, wakeupCallback);
@@ -242,6 +253,7 @@ fn threadMain_(self: *Thread) !void {
 
     // Send an initial wakeup message so that we render right away.
     try self.wakeup.notify();
+    trace("Renderer.Thread: initial wakeup sent", .{});
 
     // Start blinking the cursor.
     self.cursor_h.run(
@@ -255,6 +267,7 @@ fn threadMain_(self: *Thread) !void {
 
     // Start the draw timer
     self.syncDrawTimer();
+    trace("Renderer.Thread: draw timer synced", .{});
 
     // Run
     log.debug("starting renderer thread", .{});
@@ -494,6 +507,14 @@ fn changeConfig(self: *Thread, config: *const DerivedConfig) !void {
 fn drawFrame(self: *Thread, now: bool) void {
     // If we're invisible, we do not draw.
     if (!self.flags.visible) return;
+
+    // The current Win32 apprt is still a non-presenting preview runtime.
+    // Skip scheduling app-thread redraws until the HWND/WGL present path
+    // is stable, otherwise we wake the app loop continuously for work that
+    // cannot complete.
+    if (@hasDecl(apprt.Surface, "supportsRender") and !self.surface.supportsRender()) {
+        return;
+    }
 
     // If the renderer is managing a vsync on its own, we only draw
     // when we're forced to via `now`.

@@ -9,6 +9,7 @@ pub const io = @import("config/io.zig");
 pub const string = @import("config/string.zig");
 pub const edit = @import("config/edit.zig");
 pub const url = @import("config/url.zig");
+pub const windows_shell = @import("config/windows_shell.zig");
 
 pub const ConditionalState = conditional.State;
 pub const FileFormatter = formatter_file.FileFormatter;

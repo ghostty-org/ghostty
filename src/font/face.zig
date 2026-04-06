@@ -11,6 +11,7 @@ pub const web_canvas = @import("face/web_canvas.zig");
 /// Face implementation for the compile options.
 pub const Face = switch (options.backend) {
     .freetype,
+    .windows_freetype,
     .fontconfig_freetype,
     .coretext_freetype,
     => freetype.Face,
@@ -64,7 +65,7 @@ pub const DesiredSize = struct {
             .{ .name = "GhosttyFontDesiredSize" },
         ),
 
-        .none => void,
+        .none, .win32 => void,
     };
 };
 
