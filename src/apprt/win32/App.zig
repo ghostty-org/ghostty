@@ -439,11 +439,10 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
             return 0;
         },
         WM_PAINT => {
+            // Validate the window to prevent continuous WM_PAINT messages.
+            // Actual rendering is done by the renderer thread via SwapBuffers.
             var ps: PAINTSTRUCT = std.mem.zeroes(PAINTSTRUCT);
             _ = BeginPaint(hwnd, &ps);
-            if (getApp(hwnd)) |app| {
-                app.surface.swapBuffers();
-            }
             _ = EndPaint(hwnd, &ps);
             return 0;
         },
