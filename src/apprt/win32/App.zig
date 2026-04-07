@@ -344,6 +344,13 @@ fn createWindow(self: *App) !void {
 
     _ = ShowWindow(self.hwnd.?, SW_SHOWNORMAL);
     _ = UpdateWindow(self.hwnd.?);
+
+    // Get the actual client area size (excludes title bar and borders)
+    var client_rect: RECT = std.mem.zeroes(RECT);
+    if (GetClientRect(self.hwnd.?, &client_rect) != 0) {
+        self.surface.width = @intCast(client_rect.right - client_rect.left);
+        self.surface.height = @intCast(client_rect.bottom - client_rect.top);
+    }
 }
 
 fn getApp(hwnd: HWND) ?*App {
