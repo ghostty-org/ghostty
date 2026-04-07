@@ -11,6 +11,7 @@ const Config = configpkg.Config;
 const CoreApp = @import("../../App.zig");
 const CoreSurface = @import("../../Surface.zig");
 const Surface = @import("Surface.zig");
+const renderer = @import("../../renderer.zig");
 
 const log = std.log.scoped(.win32);
 
@@ -29,6 +30,7 @@ const HBRUSH = ?*anyopaque;
 const HDC = ?*anyopaque;
 const HMENU = ?*anyopaque;
 const ATOM = u16;
+const LONG_PTR = isize;
 
 const POINT = extern struct {
     x: i32,
@@ -79,7 +81,11 @@ const WNDCLASSEXW = extern struct {
 
 // Win32 constants
 const WM_CLOSE = 0x0010;
+const WM_DESTROY = 0x0002;
 const WM_PAINT = 0x000F;
+const WM_SIZE = 0x0005;
+const WM_KEYDOWN = 0x0100;
+const WM_CHAR = 0x0102;
 const WM_USER = 0x0400;
 const WM_WAKEUP = WM_USER + 1;
 const CS_HREDRAW = 0x0002;
@@ -89,6 +95,7 @@ const WS_OVERLAPPEDWINDOW = 0x00CF0000;
 const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOWNORMAL = 1;
 const IDC_ARROW: ?[*:0]align(1) const u16 = @ptrFromInt(32512);
+const GWLP_USERDATA: c_int = -21;
 
 // Win32 API extern declarations
 extern "user32" fn RegisterClassExW(lpWndClass: *const WNDCLASSEXW) callconv(.winapi) ATOM;
@@ -105,6 +112,10 @@ extern "user32" fn PostQuitMessage(nExitCode: c_int) callconv(.winapi) void;
 extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.winapi) HDC;
 extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.winapi) BOOL;
 extern "user32" fn LoadCursorW(hInstance: ?HINSTANCE, lpCursorName: ?[*:0]align(1) const u16) callconv(.winapi) HCURSOR;
+extern "user32" fn SetWindowLongPtrW(hWnd: HWND, nIndex: c_int, dwNewLong: LONG_PTR) callconv(.winapi) LONG_PTR;
+extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: c_int) callconv(.winapi) LONG_PTR;
+extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BOOL;
+extern "user32" fn InvalidateRect(hWnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
 
 /// The core app instance.
@@ -121,6 +132,9 @@ running: bool = true,
 
 /// The main window handle.
 hwnd: ?HWND = null,
+
+/// The surface for the main window.
+surface: Surface = undefined,
 
 pub fn init(
     self: *App,
@@ -146,6 +160,12 @@ pub fn init(
 
     // Create the main window
     try self.createWindow();
+
+    // Initialize the surface with OpenGL
+    try self.surface.init(self.hwnd.?);
+
+    // Store self pointer in window for use in wndProc
+    _ = SetWindowLongPtrW(self.hwnd.?, GWLP_USERDATA, @bitCast(@intFromPtr(self)));
 }
 
 pub fn run(self: *App) !void {
@@ -169,6 +189,7 @@ pub fn run(self: *App) !void {
 }
 
 pub fn terminate(self: *App) void {
+    self.surface.deinit();
     if (self.hwnd) |hwnd| {
         _ = DestroyWindow(hwnd);
         self.hwnd = null;
@@ -215,7 +236,9 @@ pub fn performIpc(
     return false;
 }
 
-pub fn redrawInspector(_: *App, _: *Surface) void {}
+pub fn redrawInspector(_: *App, surface: *Surface) void {
+    surface.redrawInspector();
+}
 
 fn createWindow(self: *App) !void {
     const class_name = std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow");
@@ -267,21 +290,44 @@ fn createWindow(self: *App) !void {
     _ = UpdateWindow(self.hwnd.?);
 }
 
+fn getApp(hwnd: HWND) ?*App {
+    const ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    if (ptr == 0) return null;
+    return @ptrFromInt(@as(usize, @bitCast(ptr)));
+}
+
 fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.winapi) LRESULT {
     switch (msg) {
         WM_CLOSE => {
             PostQuitMessage(0);
             return 0;
         },
+        WM_SIZE => {
+            if (getApp(hwnd)) |app| {
+                const width: u32 = @intCast(lparam & 0xFFFF);
+                const height: u32 = @intCast((lparam >> 16) & 0xFFFF);
+                if (width > 0 and height > 0) {
+                    app.surface.width = width;
+                    app.surface.height = height;
+                }
+            }
+            return 0;
+        },
         WM_PAINT => {
             var ps: PAINTSTRUCT = std.mem.zeroes(PAINTSTRUCT);
             _ = BeginPaint(hwnd, &ps);
-            // TODO: render via OpenGL
+            if (getApp(hwnd)) |app| {
+                app.surface.swapBuffers();
+            }
             _ = EndPaint(hwnd, &ps);
             return 0;
         },
         WM_WAKEUP => {
-            // Wakeup from core app
+            if (getApp(hwnd)) |app| {
+                app.core_app.tick(app) catch |err| {
+                    log.err("core app tick failed: {}", .{err});
+                };
+            }
             return 0;
         },
         else => return DefWindowProcW(hwnd, msg, wparam, lparam),

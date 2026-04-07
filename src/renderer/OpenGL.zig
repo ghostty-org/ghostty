@@ -169,6 +169,11 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         apprt.gtk,
         => try prepareContext(null),
 
+        // Win32: WGL context is already current, load via null (GLAD
+        // uses opengl32.dll + wglGetProcAddress automatically).
+        apprt.win32,
+        => try prepareContext(null),
+
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
             // to compile for OpenGL targets but libghostty is strictly
@@ -208,6 +213,11 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // on the main thread. As such, we don't do anything here.
         },
 
+        apprt.win32 => {
+            // Win32: WGL context is managed per-window and is already
+            // current on the renderer thread. Nothing extra needed.
+        },
+
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
             // to compile for OpenGL targets but libghostty is strictly
@@ -226,6 +236,10 @@ pub fn threadExit(self: *const OpenGL) void {
         apprt.gtk => {
             // We don't need to do any unloading for GTK because we may
             // be sharing the global bindings with other windows.
+        },
+
+        apprt.win32 => {
+            // Win32: WGL context cleanup handled by the apprt surface.
         },
 
         apprt.embedded => {
