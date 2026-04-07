@@ -119,6 +119,8 @@ extern "user32" fn InvalidateRect(hWnd: ?HWND, lpRect: ?*const RECT, bErase: BOO
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
 extern "user32" fn GetKeyState(nVirtKey: c_int) callconv(.winapi) i16;
 extern "user32" fn SetWindowTextW(hWnd: HWND, lpString: [*:0]const u16) callconv(.winapi) BOOL;
+extern "user32" fn AdjustWindowRectEx(lpRect: *RECT, dwStyle: DWORD, bMenu: BOOL, dwExStyle: DWORD) callconv(.winapi) BOOL;
+extern "user32" fn SetWindowPos(hWnd: HWND, hWndInsertAfter: ?HWND, x: i32, y: i32, cx: i32, cy: i32, uFlags: UINT) callconv(.winapi) BOOL;
 extern "user32" fn GetDpiForWindow(hWnd: HWND) callconv(.winapi) UINT;
 extern "user32" fn SetProcessDpiAwarenessContext(value: isize) callconv(.winapi) BOOL;
 const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
@@ -304,6 +306,30 @@ fn initCoreSurface(self: *App) !void {
 
     self.surface.core_surface = core_surface;
     log.info("core surface initialized successfully", .{});
+
+    // Resize window to match configured grid size using actual font metrics.
+    // Like GTK, only resize when both window-width and window-height are set.
+    self.applyConfiguredWindowSize();
+}
+
+fn applyConfiguredWindowSize(self: *App) void {
+    const cfg_w = self.config.@"window-width";
+    const cfg_h = self.config.@"window-height";
+    if (cfg_w == 0 or cfg_h == 0) return;
+    const hwnd = self.hwnd orelse return;
+    const core = self.surface.core_surface orelse return;
+
+    const cell_width = core.size.cell.width;
+    const cell_height = core.size.cell.height;
+    if (cell_width == 0 or cell_height == 0) return;
+
+    const w: i32 = @intCast(@max(10, cfg_w) * cell_width);
+    const h: i32 = @intCast(@max(4, cfg_h) * cell_height);
+
+    // AdjustWindowRect to account for title bar and borders
+    var rect: RECT = .{ .left = 0, .top = 0, .right = w, .bottom = h };
+    _ = AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, 0, 0);
+    _ = SetWindowPos(hwnd, null, 0, 0, rect.right - rect.left, rect.bottom - rect.top, 0x0002 | 0x0004); // SWP_NOMOVE | SWP_NOZORDER
 }
 
 fn createWindow(self: *App) !void {
@@ -332,20 +358,6 @@ fn createWindow(self: *App) !void {
 
     const title = std.unicode.utf8ToUtf16LeStringLiteral("Ghostty");
 
-    // Calculate initial window size from config (grid cells) or use defaults
-    var init_width: i32 = 800;
-    var init_height: i32 = 600;
-    const cfg_w = self.config.@"window-width";
-    const cfg_h = self.config.@"window-height";
-    if (cfg_w > 0 and cfg_h > 0) {
-        // Estimate cell size from font size (approximate before font init)
-        const font_size = self.config.@"font-size";
-        const cell_w: i32 = @intFromFloat(font_size * 0.6);
-        const cell_h: i32 = @intFromFloat(font_size * 1.2);
-        init_width = @as(i32, @intCast(@max(10, cfg_w))) * cell_w;
-        init_height = @as(i32, @intCast(@max(4, cfg_h))) * cell_h;
-    }
-
     self.hwnd = CreateWindowExW(
         0,
         class_name,
@@ -353,8 +365,8 @@ fn createWindow(self: *App) !void {
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        init_width,
-        init_height,
+        800,
+        600,
         null,
         null,
         hinstance,
