@@ -594,6 +594,16 @@ fn drawCallback(
         return .disarm;
     };
 
+    // On Windows IOCP, async wakeup may be delayed, so we also
+    // update frame data on the draw timer to reduce input latency.
+    if (comptime @hasDecl(apprt.runtime.Surface, "swapBuffers")) {
+        t.drainMailbox() catch {};
+        t.renderer.updateFrame(
+            t.state,
+            t.flags.cursor_blink_visible,
+        ) catch {};
+    }
+
     // Draw
     t.drawFrame(false);
 
