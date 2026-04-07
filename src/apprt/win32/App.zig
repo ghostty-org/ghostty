@@ -632,9 +632,12 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
                         };
                         _ = ImmSetCompositionWindow(ctx, &cf);
 
-                        // Set IME font to match terminal cell size
+                        // Set IME font to match terminal font size (points → pixels)
+                        const dpi = GetDpiForWindow(hwnd);
+                        const dpi_f: f32 = if (dpi > 0) @floatFromInt(dpi) else 96.0;
+                        const font_px: i32 = @intFromFloat(app.config.@"font-size" * dpi_f / 72.0);
                         var lf: LOGFONTW = std.mem.zeroes(LOGFONTW);
-                        lf.lfHeight = -@as(i32, @intCast(core.size.cell.height));
+                        lf.lfHeight = -font_px;
                         lf.lfWidth = 0;
                         lf.lfCharSet = 1; // DEFAULT_CHARSET
                         _ = ImmSetCompositionFontW(ctx, &lf);
