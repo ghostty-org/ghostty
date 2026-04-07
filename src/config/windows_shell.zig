@@ -17,6 +17,28 @@ pub const DefaultShell = enum {
     cmd,
 };
 
+pub const ProfileKind = enum {
+    wsl_default,
+    wsl_distro,
+    pwsh,
+    powershell,
+    git_bash,
+    cmd,
+};
+
+pub const Profile = struct {
+    kind: ProfileKind,
+    key: []const u8,
+    label: []const u8,
+    command: Command,
+
+    pub fn deinit(self: *Profile, alloc: Allocator) void {
+        alloc.free(self.key);
+        alloc.free(self.label);
+        self.command.deinit(alloc);
+    }
+};
+
 /// Determine the default shell order for Windows:
 /// WSL -> pwsh -> powershell -> cmd.
 pub fn defaultShell(alloc: Allocator) !DefaultShell {
@@ -41,6 +63,30 @@ pub fn defaultCommandNoWsl(alloc: Allocator) !Command {
 /// than PowerShell while the native Windows runtime is still under bring-up.
 pub fn previewCommand(alloc: Allocator) !Command {
     return try previewCommandWithLookup(alloc, lookupExecutable);
+}
+
+pub fn listProfiles(alloc: Allocator) ![]Profile {
+    const order_hint = detectProfileOrderHint(alloc);
+    defer if (order_hint) |value| alloc.free(value);
+
+    return try listProfilesWithLookupAndProbeAndWslListAndOrder(
+        alloc,
+        lookupExecutable,
+        probeWslExecutableCached,
+        listWslDistros,
+        order_hint,
+    );
+}
+
+pub fn profileOrderHint(alloc: Allocator) ?[:0]const u8 {
+    const raw = detectProfileOrderHint(alloc) orelse return null;
+    defer alloc.free(raw);
+    return alloc.dupeZ(u8, raw) catch null;
+}
+
+pub fn deinitProfiles(alloc: Allocator, profiles: []Profile) void {
+    for (profiles) |*profile| profile.deinit(alloc);
+    alloc.free(profiles);
 }
 
 /// Prepare a command for Windows spawning. Today this only special-cases WSL
@@ -319,6 +365,202 @@ fn defaultCommandNoWslWithLookup(
     return try directCommand(alloc, &.{"cmd.exe"});
 }
 
+fn listProfilesWithLookupAndProbeAndWslList(
+    alloc: Allocator,
+    lookup: anytype,
+    probe: anytype,
+    list_wsl: anytype,
+) ![]Profile {
+    return try listProfilesWithLookupAndProbeAndWslListAndOrder(
+        alloc,
+        lookup,
+        probe,
+        list_wsl,
+        null,
+    );
+}
+
+fn listProfilesWithLookupAndProbeAndWslListAndOrder(
+    alloc: Allocator,
+    lookup: anytype,
+    probe: anytype,
+    list_wsl: anytype,
+    order_hint: ?[]const u8,
+) ![]Profile {
+    var profiles: std.ArrayList(Profile) = .empty;
+    errdefer {
+        for (profiles.items) |*profile| profile.deinit(alloc);
+        profiles.deinit(alloc);
+    }
+
+    if (try lookup(alloc, "wsl.exe")) |path| {
+        defer alloc.free(path);
+
+        if (try probe(alloc, path)) {
+            try appendProfile(
+                alloc,
+                &profiles,
+                .wsl_default,
+                "wsl-default",
+                "WSL (Default)",
+                &.{ path, "~" },
+            );
+
+            const distros = try list_wsl(alloc, path);
+            defer deinitOwnedStringList(alloc, distros);
+
+            for (distros) |distro| {
+                const key = try std.fmt.allocPrint(alloc, "wsl:{s}", .{distro});
+                defer alloc.free(key);
+                const label = try std.fmt.allocPrint(alloc, "WSL: {s}", .{distro});
+                defer alloc.free(label);
+                try appendProfile(
+                    alloc,
+                    &profiles,
+                    .wsl_distro,
+                    key,
+                    label,
+                    &.{ path, "-d", distro, "~" },
+                );
+            }
+        }
+    }
+
+    try appendProfileIfFound(alloc, &profiles, lookup, .pwsh, "pwsh.exe", "PowerShell");
+    try appendProfileIfFound(alloc, &profiles, lookup, .powershell, "powershell.exe", "Windows PowerShell");
+
+    if (try lookupGitBash(alloc, lookup)) |path| {
+        defer alloc.free(path);
+        try appendProfile(
+            alloc,
+            &profiles,
+            .git_bash,
+            "git-bash",
+            "Git Bash",
+            &.{ path, "--login", "-i" },
+        );
+    }
+
+    try appendProfileIfFound(alloc, &profiles, lookup, .cmd, "cmd.exe", "Command Prompt");
+
+    if (order_hint) |hint| applyProfileOrderHint(profiles.items, hint);
+
+    return try profiles.toOwnedSlice(alloc);
+}
+
+fn appendProfileIfFound(
+    alloc: Allocator,
+    profiles: *std.ArrayList(Profile),
+    lookup: anytype,
+    kind: ProfileKind,
+    exe: []const u8,
+    label: []const u8,
+) !void {
+    if (try lookup(alloc, exe)) |path| {
+        defer alloc.free(path);
+        try appendProfile(alloc, profiles, kind, exe, label, &.{path});
+    }
+}
+
+fn appendProfile(
+    alloc: Allocator,
+    profiles: *std.ArrayList(Profile),
+    kind: ProfileKind,
+    key: []const u8,
+    label: []const u8,
+    argv: []const []const u8,
+) !void {
+    try profiles.append(alloc, .{
+        .kind = kind,
+        .key = try alloc.dupe(u8, key),
+        .label = try alloc.dupe(u8, label),
+        .command = try directCommand(alloc, argv),
+    });
+}
+
+fn detectProfileOrderHint(alloc: Allocator) ?[]u8 {
+    const raw = std.process.getEnvVarOwned(alloc, "WINGHOSTTY_WIN32_PROFILE_ORDER") catch
+        return null;
+    errdefer alloc.free(raw);
+
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) {
+        alloc.free(raw);
+        return null;
+    }
+
+    if (trimmed.ptr == raw.ptr and trimmed.len == raw.len) return raw;
+
+    const copy = alloc.dupe(u8, trimmed) catch return null;
+    alloc.free(raw);
+    return copy;
+}
+
+fn applyProfileOrderHint(profiles: []Profile, order_hint: []const u8) void {
+    if (profiles.len <= 1 or order_hint.len == 0) return;
+
+    var i: usize = 1;
+    while (i < profiles.len) : (i += 1) {
+        var j = i;
+        while (j > 0 and shouldProfileSortBefore(order_hint, profiles[j], profiles[j - 1])) : (j -= 1) {
+            std.mem.swap(Profile, &profiles[j], &profiles[j - 1]);
+        }
+    }
+}
+
+fn shouldProfileSortBefore(order_hint: []const u8, lhs: Profile, rhs: Profile) bool {
+    const lhs_rank = profileOrderRank(order_hint, lhs);
+    const rhs_rank = profileOrderRank(order_hint, rhs);
+    if (lhs_rank != rhs_rank) return lhs_rank < rhs_rank;
+    return false;
+}
+
+fn profileOrderRank(order_hint: []const u8, profile: Profile) usize {
+    var index: usize = 0;
+    var it = std.mem.splitAny(u8, order_hint, ",;");
+    while (it.next()) |raw_token| {
+        const token = std.mem.trim(u8, raw_token, " \t\r\n");
+        if (token.len == 0) continue;
+        if (profileOrderTokenMatches(token, profile)) return index;
+        index += 1;
+    }
+    return std.math.maxInt(usize);
+}
+
+fn profileOrderTokenMatches(token: []const u8, profile: Profile) bool {
+    if (std.ascii.eqlIgnoreCase(token, profile.key)) return true;
+    if (std.ascii.eqlIgnoreCase(token, profile.label)) return true;
+    if (profile.kind == .wsl_distro) {
+        if (profile.key.len > 4 and std.ascii.eqlIgnoreCase(profile.key[0..4], "wsl:")) {
+            if (std.ascii.eqlIgnoreCase(token, profile.key[4..])) return true;
+        }
+        if (profile.label.len > 5 and std.ascii.eqlIgnoreCase(profile.label[0..5], "WSL: ")) {
+            if (std.ascii.eqlIgnoreCase(token, profile.label[5..])) return true;
+        }
+    }
+
+    return switch (profile.kind) {
+        .wsl_default => std.ascii.eqlIgnoreCase(token, "wsl") or
+            std.ascii.eqlIgnoreCase(token, "wsl-default") or
+            std.ascii.eqlIgnoreCase(token, "default-wsl"),
+        .wsl_distro => std.ascii.eqlIgnoreCase(token, "wsl-distro") or
+            std.ascii.eqlIgnoreCase(token, "distro") or
+            std.ascii.eqlIgnoreCase(token, "wsl"),
+        .pwsh => std.ascii.eqlIgnoreCase(token, "pwsh") or
+            std.ascii.eqlIgnoreCase(token, "powershell-7") or
+            std.ascii.eqlIgnoreCase(token, "powershell-core"),
+        .powershell => std.ascii.eqlIgnoreCase(token, "powershell") or
+            std.ascii.eqlIgnoreCase(token, "windows-powershell") or
+            std.ascii.eqlIgnoreCase(token, "ps"),
+        .git_bash => std.ascii.eqlIgnoreCase(token, "git-bash") or
+            std.ascii.eqlIgnoreCase(token, "gitbash") or
+            std.ascii.eqlIgnoreCase(token, "git"),
+        .cmd => std.ascii.eqlIgnoreCase(token, "cmd") or
+            std.ascii.eqlIgnoreCase(token, "cmd.exe") or
+            std.ascii.eqlIgnoreCase(token, "command-prompt"),
+    };
+}
+
 fn previewCommandWithLookup(
     alloc: Allocator,
     lookup: anytype,
@@ -507,6 +749,67 @@ fn directCommand(alloc: Allocator, argv: []const []const u8) !Command {
 
 fn lookupExecutable(alloc: Allocator, exe: []const u8) !?[]u8 {
     return try internal_os.path.expand(alloc, exe);
+}
+
+fn lookupGitBash(alloc: Allocator, lookup: anytype) !?[]u8 {
+    if (try lookup(alloc, "bash.exe")) |path| return path;
+
+    if (try lookup(alloc, "git.exe")) |git_path| {
+        defer alloc.free(git_path);
+
+        const git_dir = std.fs.path.dirname(git_path) orelse return null;
+        const root = std.fs.path.dirname(git_dir) orelse return null;
+        const candidate = try std.fs.path.join(alloc, &.{ root, "bin", "bash.exe" });
+        errdefer alloc.free(candidate);
+
+        std.fs.accessAbsolute(candidate, .{}) catch return null;
+        return candidate;
+    }
+
+    return null;
+}
+
+fn listWslDistros(alloc: Allocator, exe_path: []const u8) ![][]u8 {
+    var child = std.process.Child.init(&.{ exe_path, "-l", "-q" }, alloc);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+    child.create_no_window = true;
+
+    try child.spawn();
+    errdefer {
+        _ = child.kill() catch {};
+    }
+
+    const stdout = child.stdout orelse {
+        _ = child.kill() catch {};
+        return error.Unexpected;
+    };
+
+    const output = try stdout.readToEndAlloc(alloc, 64 * 1024);
+    defer alloc.free(output);
+
+    _ = try child.wait();
+
+    var result: std.ArrayList([]u8) = .empty;
+    errdefer {
+        deinitOwnedStringList(alloc, result.items);
+        result.deinit(alloc);
+    }
+
+    var it = std.mem.splitAny(u8, output, "\r\n");
+    while (it.next()) |line_raw| {
+        const line = std.mem.trim(u8, line_raw, " \t\r\n");
+        if (line.len == 0) continue;
+        try result.append(alloc, try alloc.dupe(u8, line));
+    }
+
+    return try result.toOwnedSlice(alloc);
+}
+
+fn deinitOwnedStringList(alloc: Allocator, values: []const []u8) void {
+    for (values) |value| alloc.free(value);
+    alloc.free(values);
 }
 
 fn defaultWindowsHome(alloc: Allocator) !?[]const u8 {
@@ -716,6 +1019,141 @@ test "defaultCommandNoWslWithLookup skips wsl and prefers pwsh" {
     try testing.expect(command == .direct);
     try testing.expectEqual(@as(usize, 1), command.direct.len);
     try testing.expectEqualStrings("C:\\Program Files\\PowerShell\\7\\pwsh.exe", command.direct[0]);
+}
+
+test "lookupGitBash infers Git Bash from git.exe" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const path = (try lookupGitBash(alloc, struct {
+        fn lookup(a: Allocator, exe: []const u8) !?[]u8 {
+            if (std.mem.eql(u8, exe, "bash.exe")) return null;
+            if (std.mem.eql(u8, exe, "git.exe")) return try a.dupe(u8, "C:\\Program Files\\Git\\cmd\\git.exe");
+            return null;
+        }
+    }.lookup)).?;
+    defer alloc.free(path);
+
+    try testing.expectEqualStrings("C:\\Program Files\\Git\\bin\\bash.exe", path);
+}
+
+test "listProfilesWithLookupAndProbeAndWslList enumerates windows profiles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const profiles = try listProfilesWithLookupAndProbeAndWslList(alloc, struct {
+        fn lookup(a: Allocator, exe: []const u8) !?[]u8 {
+            if (std.mem.eql(u8, exe, "wsl.exe")) return try a.dupe(u8, "C:\\Windows\\System32\\wsl.exe");
+            if (std.mem.eql(u8, exe, "pwsh.exe")) return try a.dupe(u8, "C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+            if (std.mem.eql(u8, exe, "powershell.exe")) return try a.dupe(u8, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+            if (std.mem.eql(u8, exe, "bash.exe")) return try a.dupe(u8, "C:\\Program Files\\Git\\bin\\bash.exe");
+            if (std.mem.eql(u8, exe, "cmd.exe")) return try a.dupe(u8, "C:\\Windows\\System32\\cmd.exe");
+            return null;
+        }
+    }.lookup, struct {
+        fn probe(_: Allocator, exe: []const u8) !bool {
+            try testing.expectEqualStrings("C:\\Windows\\System32\\wsl.exe", exe);
+            return true;
+        }
+    }.probe, struct {
+        fn list(alloc_: Allocator, exe: []const u8) ![][]u8 {
+            try testing.expectEqualStrings("C:\\Windows\\System32\\wsl.exe", exe);
+            var values: std.ArrayList([]u8) = .empty;
+            try values.append(alloc_, try alloc_.dupe(u8, "Ubuntu"));
+            try values.append(alloc_, try alloc_.dupe(u8, "Debian"));
+            return try values.toOwnedSlice(alloc_);
+        }
+    }.list);
+    defer deinitProfiles(alloc, profiles);
+
+    try testing.expectEqual(@as(usize, 7), profiles.len);
+    try testing.expectEqual(ProfileKind.wsl_default, profiles[0].kind);
+    try testing.expectEqualStrings("WSL (Default)", profiles[0].label);
+    try testing.expectEqual(@as(usize, 2), profiles[0].command.direct.len);
+    try testing.expectEqualStrings("~", profiles[0].command.direct[1]);
+
+    try testing.expectEqual(ProfileKind.wsl_distro, profiles[1].kind);
+    try testing.expectEqualStrings("WSL: Ubuntu", profiles[1].label);
+    try testing.expectEqual(@as(usize, 4), profiles[1].command.direct.len);
+    try testing.expectEqualStrings("-d", profiles[1].command.direct[1]);
+    try testing.expectEqualStrings("Ubuntu", profiles[1].command.direct[2]);
+
+    try testing.expectEqual(ProfileKind.wsl_distro, profiles[2].kind);
+    try testing.expectEqualStrings("WSL: Debian", profiles[2].label);
+    try testing.expectEqual(ProfileKind.pwsh, profiles[3].kind);
+    try testing.expectEqual(ProfileKind.powershell, profiles[4].kind);
+    try testing.expectEqual(ProfileKind.git_bash, profiles[5].kind);
+    try testing.expectEqual(ProfileKind.cmd, profiles[6].kind);
+}
+
+test "profileOrderTokenMatches supports Windows profile aliases" {
+    const testing = std.testing;
+
+    try testing.expect(profileOrderTokenMatches("pwsh", .{
+        .kind = .pwsh,
+        .key = "pwsh.exe",
+        .label = "PowerShell",
+        .command = .{ .direct = &.{"pwsh.exe"} },
+    }));
+    try testing.expect(profileOrderTokenMatches("git", .{
+        .kind = .git_bash,
+        .key = "git-bash",
+        .label = "Git Bash",
+        .command = .{ .direct = &.{"bash.exe"} },
+    }));
+    try testing.expect(profileOrderTokenMatches("windows-powershell", .{
+        .kind = .powershell,
+        .key = "powershell.exe",
+        .label = "Windows PowerShell",
+        .command = .{ .direct = &.{"powershell.exe"} },
+    }));
+    try testing.expect(profileOrderTokenMatches("Ubuntu", .{
+        .kind = .wsl_distro,
+        .key = "Ubuntu",
+        .label = "WSL: Ubuntu",
+        .command = .{ .direct = &.{ "wsl.exe", "-d", "Ubuntu", "~" } },
+    }));
+    try testing.expect(!profileOrderTokenMatches("cmd", .{
+        .kind = .pwsh,
+        .key = "pwsh.exe",
+        .label = "PowerShell",
+        .command = .{ .direct = &.{"pwsh.exe"} },
+    }));
+}
+
+test "listProfilesWithLookupAndProbeAndWslListAndOrder reorders windows profiles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const profiles = try listProfilesWithLookupAndProbeAndWslListAndOrder(alloc, struct {
+        fn lookup(a: Allocator, exe: []const u8) !?[]u8 {
+            if (std.mem.eql(u8, exe, "wsl.exe")) return try a.dupe(u8, "C:\\Windows\\System32\\wsl.exe");
+            if (std.mem.eql(u8, exe, "pwsh.exe")) return try a.dupe(u8, "C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+            if (std.mem.eql(u8, exe, "powershell.exe")) return try a.dupe(u8, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+            if (std.mem.eql(u8, exe, "bash.exe")) return try a.dupe(u8, "C:\\Program Files\\Git\\bin\\bash.exe");
+            if (std.mem.eql(u8, exe, "cmd.exe")) return try a.dupe(u8, "C:\\Windows\\System32\\cmd.exe");
+            return null;
+        }
+    }.lookup, struct {
+        fn probe(_: Allocator, _: []const u8) !bool {
+            return true;
+        }
+    }.probe, struct {
+        fn list(alloc_: Allocator, _: []const u8) ![][]u8 {
+            var values: std.ArrayList([]u8) = .empty;
+            try values.append(alloc_, try alloc_.dupe(u8, "Ubuntu"));
+            try values.append(alloc_, try alloc_.dupe(u8, "Debian"));
+            return try values.toOwnedSlice(alloc_);
+        }
+    }.list, "git,pwsh,Ubuntu,cmd");
+    defer deinitProfiles(alloc, profiles);
+
+    try testing.expectEqual(@as(usize, 7), profiles.len);
+    try testing.expectEqual(ProfileKind.git_bash, profiles[0].kind);
+    try testing.expectEqual(ProfileKind.pwsh, profiles[1].kind);
+    try testing.expectEqualStrings("WSL: Ubuntu", profiles[2].label);
+    try testing.expectEqual(ProfileKind.cmd, profiles[3].kind);
+    try testing.expectEqual(ProfileKind.wsl_default, profiles[4].kind);
 }
 
 test "previewCommandWithLookup prefers cmd over powershell" {
