@@ -215,6 +215,7 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         // reload GL function pointers.
         surface.makeContextCurrent();
         try prepareContext(null);
+        surface.disableVSync();
     }
     // GTK and embedded don't need thread-specific GL setup.
 }

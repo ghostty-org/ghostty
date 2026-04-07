@@ -64,6 +64,7 @@ extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) HGLRC;
 extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
 extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
+extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 
 // Clipboard API
 const UINT = u32;
@@ -173,6 +174,14 @@ fn initOpenGL(self: *Self) !void {
     }
     glViewport(0, 0, @intCast(self.width), @intCast(self.height));
 
+    // Disable VSync for lower input latency. WGL swap interval of 0
+    // means SwapBuffers returns immediately.
+    const wglSwapIntervalEXT: ?*const fn (i32) callconv(.winapi) i32 = @ptrCast(wglGetProcAddress("wglSwapIntervalEXT"));
+    if (wglSwapIntervalEXT) |setInterval| {
+        _ = setInterval(0);
+        log.info("VSync disabled via wglSwapIntervalEXT", .{});
+    }
+
     log.info("WGL OpenGL context created, client area {}x{}", .{ self.width, self.height });
 }
 
@@ -182,6 +191,14 @@ extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BO
 pub fn swapBuffers(self: *Self) void {
     if (self.hdc != null) {
         _ = SwapBuffers(self.hdc);
+    }
+}
+
+/// Disable VSync via WGL extension for lower input latency.
+pub fn disableVSync(_: *Self) void {
+    const func: ?*const fn (i32) callconv(.winapi) i32 = @ptrCast(wglGetProcAddress("wglSwapIntervalEXT"));
+    if (func) |setInterval| {
+        _ = setInterval(0);
     }
 }
 
