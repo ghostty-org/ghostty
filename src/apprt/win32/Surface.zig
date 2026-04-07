@@ -165,8 +165,19 @@ fn initOpenGL(self: *Self) !void {
         return error.Win32Error;
     }
 
-    log.info("WGL OpenGL context created successfully", .{});
+    // Set initial viewport to client area
+    var client_rect: RECT = std.mem.zeroes(RECT);
+    if (GetClientRect(self.hwnd, &client_rect) != 0) {
+        self.width = @intCast(client_rect.right - client_rect.left);
+        self.height = @intCast(client_rect.bottom - client_rect.top);
+    }
+    glViewport(0, 0, @intCast(self.width), @intCast(self.height));
+
+    log.info("WGL OpenGL context created, client area {}x{}", .{ self.width, self.height });
 }
+
+const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BOOL;
 
 pub fn swapBuffers(self: *Self) void {
     if (self.hdc != null) {
