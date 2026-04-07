@@ -471,9 +471,10 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
             if (getApp(hwnd)) |app| {
                 if (app.surface.core_surface) |core| {
                     const mods = getModifiers();
-                    // Ctrl+letter generates control characters (0x01-0x1A).
-                    // Let these through as UTF-8 so the terminal handles them.
                     const codepoint: u21 = @intCast(wparam);
+                    // Skip control characters — they are already handled
+                    // via WM_KEYDOWN (backspace, tab, enter, escape, Ctrl+letter).
+                    if (codepoint < 0x20 or codepoint == 0x7f) return 0;
                     var utf8_buf: [4]u8 = undefined;
                     const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch 0;
                     if (len > 0) {
