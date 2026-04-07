@@ -382,6 +382,19 @@ fn getModifiers() @import("../../input.zig").Mods {
 
 fn mapVirtualKey(vk: WPARAM) @import("../../input.zig").Key {
     return switch (vk) {
+        // Letters A-Z (VK_A .. VK_Z)
+        0x41 => .key_a, 0x42 => .key_b, 0x43 => .key_c, 0x44 => .key_d,
+        0x45 => .key_e, 0x46 => .key_f, 0x47 => .key_g, 0x48 => .key_h,
+        0x49 => .key_i, 0x4A => .key_j, 0x4B => .key_k, 0x4C => .key_l,
+        0x4D => .key_m, 0x4E => .key_n, 0x4F => .key_o, 0x50 => .key_p,
+        0x51 => .key_q, 0x52 => .key_r, 0x53 => .key_s, 0x54 => .key_t,
+        0x55 => .key_u, 0x56 => .key_v, 0x57 => .key_w, 0x58 => .key_x,
+        0x59 => .key_y, 0x5A => .key_z,
+        // Digits 0-9
+        0x30 => .digit_0, 0x31 => .digit_1, 0x32 => .digit_2, 0x33 => .digit_3,
+        0x34 => .digit_4, 0x35 => .digit_5, 0x36 => .digit_6, 0x37 => .digit_7,
+        0x38 => .digit_8, 0x39 => .digit_9,
+        // Special keys
         0x08 => .backspace, // VK_BACK
         0x09 => .tab, // VK_TAB
         0x0D => .enter, // VK_RETURN
@@ -397,18 +410,26 @@ fn mapVirtualKey(vk: WPARAM) @import("../../input.zig").Key {
         0x21 => .page_up, // VK_PRIOR
         0x22 => .page_down, // VK_NEXT
         0x2D => .insert, // VK_INSERT
-        0x70 => .f1,
-        0x71 => .f2,
-        0x72 => .f3,
-        0x73 => .f4,
-        0x74 => .f5,
-        0x75 => .f6,
-        0x76 => .f7,
-        0x77 => .f8,
-        0x78 => .f9,
-        0x79 => .f10,
-        0x7A => .f11,
-        0x7B => .f12,
+        // Modifier keys
+        0x10 => .shift_left, // VK_SHIFT
+        0x11 => .control_left, // VK_CONTROL
+        0x12 => .alt_left, // VK_MENU
+        // Punctuation
+        0xBD => .minus, // VK_OEM_MINUS
+        0xBB => .equal, // VK_OEM_PLUS (= key)
+        0xDB => .bracket_left, // VK_OEM_4
+        0xDD => .bracket_right, // VK_OEM_6
+        0xDC => .backslash, // VK_OEM_5
+        0xBA => .semicolon, // VK_OEM_1
+        0xDE => .quote, // VK_OEM_7
+        0xBC => .comma, // VK_OEM_COMMA
+        0xBE => .period, // VK_OEM_PERIOD
+        0xBF => .slash, // VK_OEM_2
+        // 0xC0 => grave/backtick not in Key enum
+        // Function keys
+        0x70 => .f1, 0x71 => .f2, 0x72 => .f3, 0x73 => .f4,
+        0x74 => .f5, 0x75 => .f6, 0x76 => .f7, 0x77 => .f8,
+        0x78 => .f9, 0x79 => .f10, 0x7A => .f11, 0x7B => .f12,
         else => .unidentified,
     };
 }
