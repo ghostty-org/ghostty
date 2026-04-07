@@ -1,12 +1,11 @@
-///! ghostty-snap: Reconnectable terminal demo
-///!
-///! Demonstrates reconnectable terminal technology using Ghostty's VT emulator.
+///! ghostty-snap: Reconnectable terminal prototype
 ///!
 ///! Usage:
-///!   ghostty-snap server [-- command]    Start a server with a shell/command
-///!   ghostty-snap attach [host:port]     Attach to a running server interactively
-///!   ghostty-snap capture [-- command]   Run command, snapshot on Ctrl-\ (SIGQUIT)
-///!   ghostty-snap restore [file]         Replay a snapshot file to stdout
+///!   ghostty-snap server [--name NAME] [-- command]   Start a named server session
+///!   ghostty-snap attach [name | host:port]            Attach to a session interactively
+///!   ghostty-snap list                                 List active sessions
+///!   ghostty-snap capture [-- command]                 Snapshot on Ctrl-\ or exit
+///!   ghostty-snap restore [file]                       Replay snapshot to stdout
 const std = @import("std");
 const posix = std.posix;
 
@@ -33,6 +32,91 @@ fn stderrFmt(comptime fmt_str: []const u8, fmt_args: anytype) void {
     writeStderr(msg);
 }
 
+// ─── framing protocol ────────────────────────────────────────────────────────
+//
+// Wire format: [type: u8] [length: u24 big-endian] [payload: length bytes]
+// 4-byte header + payload. Max message: 16MB.
+
+const MsgType = enum(u8) {
+    // Server → Client
+    pty_data = 0x01,
+    snapshot = 0x02,
+    scrollback = 0x03,
+
+    // Client → Server
+    input = 0x81,
+    resize = 0x82,
+
+    _,
+};
+
+fn writeFrame(fd: posix.fd_t, msg_type: MsgType, payload: []const u8) bool {
+    const len: u32 = @intCast(payload.len);
+    const header = [4]u8{
+        @intFromEnum(msg_type),
+        @truncate(len >> 16),
+        @truncate((len >> 8) & 0xff),
+        @truncate(len & 0xff),
+    };
+
+    // Write header + payload. Single write for small messages.
+    if (payload.len <= 4092) {
+        var combined: [4096]u8 = undefined;
+        @memcpy(combined[0..4], &header);
+        @memcpy(combined[4..][0..payload.len], payload);
+        _ = posix.write(fd, combined[0 .. 4 + payload.len]) catch return false;
+    } else {
+        _ = posix.write(fd, &header) catch return false;
+        _ = posix.write(fd, payload) catch return false;
+    }
+    return true;
+}
+
+/// Incremental frame reader. Accumulates bytes and yields complete messages.
+const FrameReader = struct {
+    buf: [65536]u8 = undefined,
+    len: usize = 0,
+
+    const Frame = struct {
+        msg_type: MsgType,
+        payload: []const u8,
+    };
+
+    /// Add raw bytes and return the next complete frame, if any.
+    /// Caller must process one frame at a time (call repeatedly until null).
+    fn feed(self: *FrameReader, data: []const u8) void {
+        const space = self.buf.len - self.len;
+        const to_copy = @min(data.len, space);
+        @memcpy(self.buf[self.len..][0..to_copy], data[0..to_copy]);
+        self.len += to_copy;
+    }
+
+    fn next(self: *FrameReader) ?Frame {
+        if (self.len < 4) return null;
+        const msg_len: usize = (@as(usize, self.buf[1]) << 16) |
+            (@as(usize, self.buf[2]) << 8) |
+            @as(usize, self.buf[3]);
+        const total = 4 + msg_len;
+        if (self.len < total) return null;
+
+        const frame = Frame{
+            .msg_type = @enumFromInt(self.buf[0]),
+            .payload = self.buf[4..total],
+        };
+
+        // Shift remaining data
+        const remaining = self.len - total;
+        if (remaining > 0) {
+            std.mem.copyForwards(u8, self.buf[0..remaining], self.buf[total..self.len]);
+        }
+        self.len = remaining;
+
+        return frame;
+    }
+};
+
+// ─── main ─────────────────────────────────────────────────────────────────────
+
 pub fn main() !void {
     const alloc = std.heap.c_allocator;
 
@@ -42,13 +126,14 @@ pub fn main() !void {
     _ = args.next();
     const subcmd = args.next() orelse {
         writeStderr(
-            \\ghostty-snap: Reconnectable terminal demo
+            \\ghostty-snap: Reconnectable terminal prototype
             \\
             \\Usage:
-            \\  ghostty-snap server [-- cmd]     Start server with shell/command
-            \\  ghostty-snap attach [host:port]  Attach interactively (default: localhost:7681)
-            \\  ghostty-snap capture [-- cmd]    Snapshot on Ctrl-\ or exit
-            \\  ghostty-snap restore [file]      Replay snapshot to stdout
+            \\  ghostty-snap server [--name N] [-- cmd]   Start a named session
+            \\  ghostty-snap attach [name | host:port]    Attach interactively
+            \\  ghostty-snap list                         List active sessions
+            \\  ghostty-snap capture [-- cmd]             Snapshot on Ctrl-\ or exit
+            \\  ghostty-snap restore [file]               Replay snapshot to stdout
             \\
         );
         return;
@@ -58,16 +143,18 @@ pub fn main() !void {
         try runServer(alloc, &args);
     } else if (std.mem.eql(u8, subcmd, "attach")) {
         try runAttach(alloc, &args);
+    } else if (std.mem.eql(u8, subcmd, "list")) {
+        try runList();
     } else if (std.mem.eql(u8, subcmd, "capture")) {
         try runCapture(alloc, &args);
     } else if (std.mem.eql(u8, subcmd, "restore")) {
         try runRestore(alloc, &args);
     } else {
-        writeStderr("Unknown subcommand. Use: server, attach, capture, restore\n");
+        writeStderr("Unknown subcommand. Use: server, attach, list, capture, restore\n");
     }
 }
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+// ─── common helpers ───────────────────────────────────────────────────────────
 
 fn collectCommandArgs(alloc: std.mem.Allocator, args: *std.process.ArgIterator) ![]const []const u8 {
     var cmd_args: std.ArrayList([]const u8) = .empty;
@@ -80,9 +167,7 @@ fn collectCommandArgs(alloc: std.mem.Allocator, args: *std.process.ArgIterator) 
         }
         try cmd_args.append(alloc, arg);
     }
-    if (cmd_args.items.len > 0) {
-        return try alloc.dupe([]const u8, cmd_args.items);
-    }
+    if (cmd_args.items.len > 0) return try alloc.dupe([]const u8, cmd_args.items);
     const shell = std.posix.getenv("SHELL") orelse "/bin/sh";
     const result = try alloc.alloc([]const u8, 1);
     result[0] = shell;
@@ -135,95 +220,12 @@ fn restoreTermios(orig: posix.termios) void {
     posix.tcsetattr(STDIN, .FLUSH, orig) catch {};
 }
 
-fn allocNullTerminatedArgv(
-    alloc: std.mem.Allocator,
-    args: []const []const u8,
-) ![*:null]const ?[*:0]const u8 {
+fn allocNullTerminatedArgv(alloc: std.mem.Allocator, args: []const []const u8) ![*:null]const ?[*:0]const u8 {
     const argv_buf = try alloc.alloc(?[*:0]const u8, args.len + 1);
-    for (args, 0..) |arg, i| {
-        argv_buf[i] = try alloc.dupeZ(u8, arg);
-    }
+    for (args, 0..) |arg, i| argv_buf[i] = try alloc.dupeZ(u8, arg);
     argv_buf[args.len] = null;
     return @ptrCast(argv_buf.ptr);
 }
-
-/// Pending output buffer for the client connection.
-/// When a snapshot is queued, raw pty bytes are suppressed until the
-/// buffer drains completely. This guarantees snapshots arrive intact.
-const OutputBuffer = struct {
-    data: ?[]u8 = null,
-    offset: usize = 0,
-
-    /// Queue a snapshot frame. Replaces any previously queued data
-    /// (the newer snapshot supersedes the older one).
-    fn queueSnapshot(self: *OutputBuffer, terminal: *Terminal) ?usize {
-        return self.queueSnapshotOpts(terminal, false);
-    }
-
-    fn queueSnapshotInitial(self: *OutputBuffer, terminal: *Terminal) ?usize {
-        return self.queueSnapshotOpts(terminal, true);
-    }
-
-    fn queueSnapshotOpts(self: *OutputBuffer, terminal: *Terminal, initial: bool) ?usize {
-        const snap = generateSnapshot(terminal, false) orelse return null;
-        defer std.heap.c_allocator.free(snap);
-
-        // Non-initial snapshots clear scrollback — the dropped raw data
-        // means scrollback is no longer accurate.
-        const header = if (initial) "\x1b[?2026h\x1b[H" else "\x1b[?2026h\x1b[3J\x1b[H";
-        const footer = "\x1b[?2026l";
-        const frame_len = header.len + snap.len + footer.len;
-
-        if (self.data) |old| std.heap.c_allocator.free(old);
-
-        const frame = std.heap.c_allocator.alloc(u8, frame_len) catch return null;
-        @memcpy(frame[0..header.len], header);
-        @memcpy(frame[header.len..][0..snap.len], snap);
-        @memcpy(frame[header.len + snap.len ..][0..footer.len], footer);
-
-        self.data = frame;
-        self.offset = 0;
-        return snap.len;
-    }
-
-    /// Try to drain pending data to the fd. Returns true if all data
-    /// was sent (or there was nothing to send). Returns false on error.
-    fn drain(self: *OutputBuffer, fd: posix.fd_t) bool {
-        const data = self.data orelse return true;
-        const remaining = data[self.offset..];
-        if (remaining.len == 0) {
-            std.heap.c_allocator.free(data);
-            self.data = null;
-            return true;
-        }
-
-        const n = posix.write(fd, remaining) catch |err| {
-            if (err == error.WouldBlock) return false;
-            // Real error — drop the buffer
-            std.heap.c_allocator.free(data);
-            self.data = null;
-            return false;
-        };
-
-        self.offset += n;
-        if (self.offset >= data.len) {
-            std.heap.c_allocator.free(data);
-            self.data = null;
-            return true;
-        }
-        return false;
-    }
-
-    /// True when there's pending snapshot data — raw pty bytes must wait.
-    fn hasPending(self: *const OutputBuffer) bool {
-        return self.data != null;
-    }
-
-    fn deinit(self: *OutputBuffer) void {
-        if (self.data) |d| std.heap.c_allocator.free(d);
-        self.data = null;
-    }
-};
 
 fn generateSnapshot(terminal: *Terminal, include_palette: bool) ?[]const u8 {
     var builder: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
@@ -244,6 +246,44 @@ fn generateSnapshot(terminal: *Terminal, include_palette: bool) ?[]const u8 {
     return builder.writer.buffered();
 }
 
+fn generateScrollback(terminal: *Terminal) ?[]const u8 {
+    const screen = terminal.screens.active;
+    const pages = &screen.pages;
+
+    // Get the screen top (includes scrollback) and active top
+    const screen_tl = pages.getTopLeft(.screen);
+    const active_tl = pages.getTopLeft(.active);
+
+    // If they're the same, there's no scrollback
+    if (screen_tl.node == active_tl.node and screen_tl.y == active_tl.y) return null;
+
+    var builder: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+
+    // Format scrollback rows (everything from screen top to just before active area)
+    var screen_fmt: terminalpkg.formatter.ScreenFormatter = .init(screen, .vt);
+    screen_fmt.content = .{
+        .selection = terminalpkg.Selection.init(
+            screen_tl,
+            // End just before the active area
+            active_tl,
+            false,
+        ),
+    };
+    screen_fmt.extra = .styles; // Include SGR styling but not cursor/modes
+
+    screen_fmt.format(&builder.writer) catch {
+        builder.deinit();
+        return null;
+    };
+
+    const data = builder.writer.buffered();
+    if (data.len == 0) {
+        std.heap.c_allocator.free(data);
+        return null;
+    }
+    return data;
+}
+
 fn saveSnapshot(terminal: *Terminal, path: []const u8) !void {
     const data = generateSnapshot(terminal, true) orelse return error.SnapshotFailed;
     defer std.heap.c_allocator.free(data);
@@ -252,18 +292,170 @@ fn saveSnapshot(terminal: *Terminal, path: []const u8) !void {
     try file.writeAll(data);
 }
 
-// ─── attach (interactive client) ──────────────────────────────────────────────
+// ─── session management ───────────────────────────────────────────────────────
+
+const SESSION_DIR = "/tmp/ghostty-snap-sessions";
+
+fn writeSessionFile(name: []const u8, port: u16) void {
+    std.fs.cwd().makePath(SESSION_DIR) catch return;
+    var path_buf: [256]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, SESSION_DIR ++ "/{s}.session", .{name}) catch return;
+    const file = std.fs.cwd().createFile(path, .{}) catch return;
+    defer file.close();
+    var write_buf: [64]u8 = undefined;
+    const content = std.fmt.bufPrint(&write_buf, "{d}\n", .{port}) catch return;
+    file.writeAll(content) catch {};
+}
+
+fn removeSessionFile(name: []const u8) void {
+    var path_buf: [256]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, SESSION_DIR ++ "/{s}.session", .{name}) catch return;
+    std.fs.cwd().deleteFile(path) catch {};
+}
+
+fn readSessionPort(name: []const u8) ?u16 {
+    var path_buf: [256]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, SESSION_DIR ++ "/{s}.session", .{name}) catch return null;
+    const file = std.fs.cwd().openFile(path, .{}) catch return null;
+    defer file.close();
+    var buf: [32]u8 = undefined;
+    const n = file.readAll(&buf) catch return null;
+    const trimmed = std.mem.trimRight(u8, buf[0..n], &.{ '\n', '\r', ' ' });
+    return std.fmt.parseInt(u16, trimmed, 10) catch null;
+}
+
+fn runList() !void {
+    var dir = std.fs.cwd().openDir(SESSION_DIR, .{ .iterate = true }) catch {
+        writeStderr("No active sessions.\n");
+        return;
+    };
+    defer dir.close();
+
+    var found = false;
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (std.mem.endsWith(u8, entry.name, ".session")) {
+            const name = entry.name[0 .. entry.name.len - ".session".len];
+            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const path = std.fmt.bufPrint(&path_buf, SESSION_DIR ++ "/{s}", .{entry.name}) catch continue;
+            const file = std.fs.cwd().openFile(path, .{}) catch continue;
+            defer file.close();
+            var buf: [32]u8 = undefined;
+            const n = file.readAll(&buf) catch continue;
+            const port_str = std.mem.trimRight(u8, buf[0..n], &.{ '\n', '\r', ' ' });
+            stderrFmt("  {s}  (port {s})\n", .{ name, port_str });
+            found = true;
+        }
+    }
+    if (!found) writeStderr("No active sessions.\n");
+}
+
+// ─── OutputBuffer ─────────────────────────────────────────────────────────────
+
+const OutputBuffer = struct {
+    data: ?[]u8 = null,
+    offset: usize = 0,
+
+    fn queueSnapshot(self: *OutputBuffer, terminal: *Terminal) ?usize {
+        return self.queueSnapshotOpts(terminal, false);
+    }
+
+    fn queueSnapshotInitial(self: *OutputBuffer, terminal: *Terminal) ?usize {
+        return self.queueSnapshotOpts(terminal, true);
+    }
+
+    fn queueSnapshotOpts(self: *OutputBuffer, terminal: *Terminal, initial: bool) ?usize {
+        const snap = generateSnapshot(terminal, false) orelse return null;
+        defer std.heap.c_allocator.free(snap);
+
+        const header = if (initial) "\x1b[?2026h\x1b[H" else "\x1b[?2026h\x1b[3J\x1b[H";
+        const footer = "\x1b[?2026l";
+        const vt_frame_len = header.len + snap.len + footer.len;
+
+        // Build VT frame
+        const vt_frame = std.heap.c_allocator.alloc(u8, vt_frame_len) catch return null;
+        defer std.heap.c_allocator.free(vt_frame);
+        @memcpy(vt_frame[0..header.len], header);
+        @memcpy(vt_frame[header.len..][0..snap.len], snap);
+        @memcpy(vt_frame[header.len + snap.len ..][0..footer.len], footer);
+
+        // Wrap in protocol frame
+        self.queueRaw(.snapshot, vt_frame);
+        return snap.len;
+    }
+
+    fn queueRaw(self: *OutputBuffer, msg_type: MsgType, payload: []const u8) void {
+        const len: u32 = @intCast(payload.len);
+        const frame_header = [4]u8{
+            @intFromEnum(msg_type),
+            @truncate(len >> 16),
+            @truncate((len >> 8) & 0xff),
+            @truncate(len & 0xff),
+        };
+
+        if (self.data) |old| std.heap.c_allocator.free(old);
+        const frame = std.heap.c_allocator.alloc(u8, 4 + payload.len) catch return;
+        @memcpy(frame[0..4], &frame_header);
+        @memcpy(frame[4..], payload);
+        self.data = frame;
+        self.offset = 0;
+    }
+
+    fn drain(self: *OutputBuffer, fd: posix.fd_t) bool {
+        const data = self.data orelse return true;
+        const remaining = data[self.offset..];
+        if (remaining.len == 0) {
+            std.heap.c_allocator.free(data);
+            self.data = null;
+            return true;
+        }
+        const n = posix.write(fd, remaining) catch |err| {
+            if (err == error.WouldBlock) return false;
+            std.heap.c_allocator.free(data);
+            self.data = null;
+            return false;
+        };
+        self.offset += n;
+        if (self.offset >= data.len) {
+            std.heap.c_allocator.free(data);
+            self.data = null;
+            return true;
+        }
+        return false;
+    }
+
+    fn hasPending(self: *const OutputBuffer) bool {
+        return self.data != null;
+    }
+
+    fn deinit(self: *OutputBuffer) void {
+        if (self.data) |d| std.heap.c_allocator.free(d);
+        self.data = null;
+    }
+};
+
+// ─── attach ───────────────────────────────────────────────────────────────────
+
+var g_resize_requested: bool = false;
 
 fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     const target = args.next() orelse "127.0.0.1:7681";
 
+    // Resolve target: could be a session name or host:port
     var host: []const u8 = "127.0.0.1";
     var port: u16 = 7681;
+
     if (std.mem.lastIndexOfScalar(u8, target, ':')) |colon| {
+        // Looks like host:port
         host = target[0..colon];
         port = std.fmt.parseInt(u16, target[colon + 1 ..], 10) catch 7681;
+        if (std.mem.eql(u8, host, "localhost")) host = "127.0.0.1";
+    } else {
+        // Try as session name
+        if (readSessionPort(target)) |p| {
+            port = p;
+        }
     }
-    if (std.mem.eql(u8, host, "localhost")) host = "127.0.0.1";
 
     stderrFmt("[attach] Connecting to {s}:{d}...\n", .{ host, port });
 
@@ -275,52 +467,69 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     defer posix.close(sock);
     try posix.connect(sock, &addr.any, addr.getOsSockLen());
 
-    // Send our terminal size so the server can resize the pty
+    // Send initial resize frame with our terminal size
     const ws = getWinsize() orelse pty_pkg.winsize{
         .ws_row = 24, .ws_col = 80, .ws_xpixel = 0, .ws_ypixel = 0,
     };
-    const size_msg = [4]u8{
-        @truncate(ws.ws_col >> 8), @truncate(ws.ws_col & 0xff),
-        @truncate(ws.ws_row >> 8), @truncate(ws.ws_row & 0xff),
-    };
-    _ = posix.write(sock, &size_msg) catch {};
+    sendResize(sock, ws.ws_col, ws.ws_row);
 
-    // Enter raw mode and take over the terminal
+    // Install SIGWINCH handler for resize during session
+    var sa: posix.Sigaction = .{
+        .handler = .{ .handler = sigwinchHandler },
+        .mask = posix.sigemptyset(),
+        .flags = 0,
+    };
+    posix.sigaction(posix.SIG.WINCH, &sa, null);
+
     const orig = setupRawMode() catch {
         writeStderr("[attach] Warning: could not set raw mode\n");
         return;
     };
-    // Clear the local screen — the server snapshot will redraw everything
-    _ = posix.write(STDOUT, "\x1b[H\x1b[2J") catch {};
 
     stderrFmt("[attach] Connected. Press Ctrl-] to detach.\n", .{});
 
     defer {
         restoreTermios(orig);
-        // Reset terminal state on detach
         _ = posix.write(STDOUT, "\x1b[H\x1b[2J\x1b[0m") catch {};
         writeStderr("[attach] Detached.\n");
     }
 
     var buf: [4096]u8 = undefined;
+    var frame_reader: FrameReader = .{};
 
     while (true) {
+        // Check for resize
+        if (g_resize_requested) {
+            g_resize_requested = false;
+            if (getWinsize()) |new_ws| {
+                sendResize(sock, new_ws.ws_col, new_ws.ws_row);
+            }
+        }
+
         var fds = [_]posix.pollfd{
             .{ .fd = sock, .events = posix.POLL.IN, .revents = 0 },
             .{ .fd = STDIN, .events = posix.POLL.IN, .revents = 0 },
         };
 
-        const ready = posix.poll(&fds, 500) catch break;
+        const ready = posix.poll(&fds, 100) catch break;
         if (ready == 0) continue;
 
-        // Data from server → stdout
+        // Data from server → parse frames → stdout
         if (fds[0].revents & posix.POLL.IN != 0) {
             const n = posix.read(sock, &buf) catch break;
             if (n == 0) {
                 writeStderr("\r\n[attach] Server disconnected.\r\n");
                 break;
             }
-            _ = posix.write(STDOUT, buf[0..n]) catch {};
+            frame_reader.feed(buf[0..n]);
+            while (frame_reader.next()) |frame| {
+                switch (frame.msg_type) {
+                    .pty_data, .snapshot, .scrollback => {
+                        _ = posix.write(STDOUT, frame.payload) catch {};
+                    },
+                    else => {},
+                }
+            }
         }
 
         if (fds[0].revents & (posix.POLL.HUP | posix.POLL.ERR) != 0) {
@@ -332,47 +541,74 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         if (fds[1].revents & posix.POLL.IN != 0) {
             const n = posix.read(STDIN, &buf) catch break;
             if (n == 0) break;
-
-            // Check for Ctrl-] (0x1d) to detach
             for (buf[0..n]) |byte| {
-                if (byte == 0x1d) return;
+                if (byte == 0x1d) return; // Ctrl-]
             }
-
-            _ = posix.write(sock, buf[0..n]) catch break;
+            _ = writeFrame(sock, .input, buf[0..n]);
         }
     }
 }
 
+fn sendResize(fd: posix.fd_t, cols: u16, rows: u16) void {
+    const payload = [4]u8{
+        @truncate(cols >> 8), @truncate(cols & 0xff),
+        @truncate(rows >> 8), @truncate(rows & 0xff),
+    };
+    _ = writeFrame(fd, .resize, &payload);
+}
+
+fn sigwinchHandler(_: c_int) callconv(.c) void {
+    g_resize_requested = true;
+}
+
 // ─── server ───────────────────────────────────────────────────────────────────
-//
-// Architecture: TCP_NOTSENT_LOWAT backpressure
-//
-// We set TCP_NOTSENT_LOWAT on the client socket to a small value (e.g. 16KB).
-// This means POLLOUT only fires when unsent data in the kernel drops below
-// that threshold. The server polls for POLLOUT alongside POLLIN:
-//
-// - When POLLOUT is set: the pipe is clear. Write raw pty bytes (low latency).
-// - When POLLOUT is NOT set: the client is behind. Feed pty through the
-//   terminal emulator but DON'T send raw bytes (drop them).
-// - When state was dropped and POLLOUT fires again: send a fresh snapshot
-//   of the current state. The client jumps from stale to current instantly.
-//
-// Input (client→server) is ALWAYS forwarded immediately to the pty.
-// This is why Ctrl-C works within one RTT even during output spew.
 
 const TCP_NOTSENT_LOWAT: u32 = 25;
 
 fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
-    const port: u16 = 7681;
+    var port: u16 = 7681;
 
-    const ws = getWinsize() orelse pty_pkg.winsize{
-        .ws_row = 24,
-        .ws_col = 80,
-        .ws_xpixel = 0,
-        .ws_ypixel = 0,
+    // Parse --name flag
+    var session_name: ?[]const u8 = null;
+    var cmd_args: std.ArrayList([]const u8) = .empty;
+    defer cmd_args.deinit(alloc);
+    var saw_dashdash = false;
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--") and !saw_dashdash) {
+            saw_dashdash = true;
+            continue;
+        }
+        if (!saw_dashdash and std.mem.eql(u8, arg, "--name")) {
+            session_name = args.next();
+            continue;
+        }
+        if (!saw_dashdash and std.mem.startsWith(u8, arg, "--port=")) {
+            port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch 7681;
+            continue;
+        }
+        try cmd_args.append(alloc, arg);
+    }
+
+    const argv: []const []const u8 = if (cmd_args.items.len > 0)
+        cmd_args.items
+    else blk: {
+        const shell = std.posix.getenv("SHELL") orelse "/bin/sh";
+        const result = try alloc.alloc([]const u8, 1);
+        result[0] = shell;
+        break :blk result;
     };
 
-    const argv = try collectCommandArgs(alloc, args);
+    // Generate session name from PID if not specified
+    var name_buf: [32]u8 = undefined;
+    const name = session_name orelse blk: {
+        const n = std.fmt.bufPrint(&name_buf, "s{d}", .{std.os.linux.getpid()}) catch "default";
+        break :blk n;
+    };
+
+    const ws = getWinsize() orelse pty_pkg.winsize{
+        .ws_row = 24, .ws_col = 80, .ws_xpixel = 0, .ws_ypixel = 0,
+    };
 
     var p = try Pty.open(ws);
     defer p.deinit();
@@ -394,8 +630,12 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     try posix.bind(server_fd, &addr.any, addr.getOsSockLen());
     try posix.listen(server_fd, 5);
 
-    stderrFmt("[server] Listening on 0.0.0.0:{d}\n", .{port});
-    stderrFmt("[server] Attach with: ghostty-snap attach localhost:{d}\n", .{port});
+    // Write session file
+    writeSessionFile(name, port);
+    defer removeSessionFile(name);
+
+    stderrFmt("[server] Session '{s}' on port {d}\n", .{ name, port });
+    stderrFmt("[server] Attach with: ghostty-snap attach {s}\n", .{name});
 
     var stream = terminal.vtStream();
     defer stream.deinit();
@@ -404,12 +644,14 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     var client_fd: ?posix.fd_t = null;
     var out_buf: OutputBuffer = .{};
     defer out_buf.deinit();
+    var client_reader: FrameReader = .{};
     var buf: [4096]u8 = undefined;
     var child_alive = true;
     var total_pty_bytes: u64 = 0;
     var snapshots_sent: u64 = 0;
     var drops: u64 = 0;
-    var state_dirty = false; // new pty data arrived since last snapshot
+    _ = &drops;
+    var state_dirty = false;
 
     while (child_alive) {
         var poll_fds_buf: [3]posix.pollfd = undefined;
@@ -432,27 +674,24 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             continue;
         }
 
-        // ── Client socket handling ──
+        // ── Client socket ──
         if (n_fds > 2 and client_fd != null) {
-            // Try to drain pending output buffer when socket is writable
+            // Drain output buffer
             if (poll_fds_buf[2].revents & posix.POLL.OUT != 0) {
                 if (client_fd) |cfd| {
                     if (out_buf.drain(cfd)) {
-                        // Buffer fully drained.
                         if (state_dirty) {
-                            // More pty data arrived while draining — queue fresh snapshot
                             if (out_buf.queueSnapshot(&terminal)) |len| {
                                 snapshots_sent += 1;
                                 stderrFmt("[server] Refresh snapshot: {d} bytes\n", .{len});
                             }
                             state_dirty = false;
                         }
-                        // else: no new data, resume raw streaming
                     }
                 }
             }
 
-            // Client input → forward to pty (ALWAYS)
+            // Client input (framed)
             if (poll_fds_buf[2].revents & posix.POLL.IN != 0) {
                 if (client_fd) |cfd| {
                     const n = posix.read(cfd, &buf) catch {
@@ -468,7 +707,29 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                         client_fd = null;
                         out_buf.deinit();
                     } else {
-                        _ = posix.write(master_fd, buf[0..n]) catch {};
+                        client_reader.feed(buf[0..n]);
+                        while (client_reader.next()) |frame| {
+                            switch (frame.msg_type) {
+                                .input => {
+                                    _ = posix.write(master_fd, frame.payload) catch {};
+                                },
+                                .resize => {
+                                    if (frame.payload.len == 4) {
+                                        const new_cols: u16 = (@as(u16, frame.payload[0]) << 8) | frame.payload[1];
+                                        const new_rows: u16 = (@as(u16, frame.payload[2]) << 8) | frame.payload[3];
+                                        if (new_cols > 0 and new_rows > 0 and new_cols < 500 and new_rows < 200) {
+                                            stderrFmt("[server] Resize: {d}x{d}\n", .{ new_cols, new_rows });
+                                            p.setSize(.{
+                                                .ws_col = new_cols, .ws_row = new_rows,
+                                                .ws_xpixel = 0, .ws_ypixel = 0,
+                                            }) catch {};
+                                            terminal.resize(alloc, new_cols, new_rows) catch {};
+                                        }
+                                    }
+                                },
+                                else => {},
+                            }
+                        }
                     }
                 }
             }
@@ -483,7 +744,7 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             }
         }
 
-        // ── Pty output → terminal emulator (always) + client (conditionally) ──
+        // ── Pty output ──
         if (poll_fds_buf[0].revents & posix.POLL.IN != 0) {
             const n = posix.read(master_fd, &buf) catch {
                 child_alive = false;
@@ -499,28 +760,15 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 
             if (client_fd) |cfd| {
                 if (out_buf.hasPending()) {
-                    // Snapshot is still draining — don't send raw bytes.
-                    // Mark dirty so we queue a fresh snapshot after this one drains.
                     state_dirty = true;
                 } else {
-                    // No pending snapshot — try to send raw bytes directly
-                    const written = posix.write(cfd, buf[0..n]) catch |err| blk: {
-                        if (err == error.WouldBlock) break :blk @as(usize, 0);
+                    // Send as framed PTY_DATA
+                    if (!writeFrame(cfd, .pty_data, buf[0..n])) {
                         writeStderr("[server] Client write error, disconnecting\n");
                         posix.close(cfd);
                         client_fd = null;
                         out_buf.deinit();
                         continue;
-                    };
-
-                    if (written < n) {
-                        drops += 1;
-                        stderrFmt("[server] Short write, queueing snapshot (drop #{d})\n", .{drops});
-                        if (out_buf.queueSnapshot(&terminal)) |len| {
-                            snapshots_sent += 1;
-                            stderrFmt("[server] Snapshot queued: {d} bytes\n", .{len});
-                        }
-                        state_dirty = false;
                     }
                 }
             }
@@ -538,38 +786,26 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             }
             client_fd = new_fd;
             out_buf.deinit();
+            client_reader = .{};
+            state_dirty = false;
 
             posix.setsockopt(new_fd, posix.SOL.SOCKET, posix.SO.SNDBUF,
                 &std.mem.toBytes(@as(c_int, 4096))) catch {};
             posix.setsockopt(new_fd, posix.IPPROTO.TCP, TCP_NOTSENT_LOWAT,
-                &std.mem.toBytes(@as(c_int, 2048))) catch |err| {
-                stderrFmt("[server] Warning: TCP_NOTSENT_LOWAT failed: {}\n", .{err});
-            };
-
-            // Read client terminal size
-            var size_buf: [4]u8 = undefined;
-            if (posix.read(new_fd, &size_buf)) |n| {
-                if (n == 4) {
-                    const new_cols: u16 = (@as(u16, size_buf[0]) << 8) | size_buf[1];
-                    const new_rows: u16 = (@as(u16, size_buf[2]) << 8) | size_buf[3];
-                    if (new_cols > 0 and new_rows > 0 and new_cols < 500 and new_rows < 200) {
-                        stderrFmt("[server] Client size: {d}x{d}\n", .{ new_cols, new_rows });
-                        p.setSize(.{
-                            .ws_col = new_cols, .ws_row = new_rows,
-                            .ws_xpixel = 0, .ws_ypixel = 0,
-                        }) catch {};
-                        terminal.resize(alloc, new_cols, new_rows) catch {};
-                    }
-                }
-            } else |_| {}
+                &std.mem.toBytes(@as(c_int, 2048))) catch {};
 
             writeStderr("[server] Client connected\n");
 
-            // Queue initial snapshot (no scrollback clear)
+            // Send scrollback first (if any), then snapshot
+            if (generateScrollback(&terminal)) |sb_data| {
+                defer std.heap.c_allocator.free(sb_data);
+                _ = writeFrame(new_fd, .scrollback, sb_data);
+                stderrFmt("[server] Scrollback: {d} bytes\n", .{sb_data.len});
+            }
+
             if (out_buf.queueSnapshotInitial(&terminal)) |len| {
                 snapshots_sent += 1;
                 stderrFmt("[server] Initial snapshot: {d} bytes\n", .{len});
-                // Try to drain immediately
                 if (client_fd) |cfd| _ = out_buf.drain(cfd);
             }
         }
@@ -591,7 +827,6 @@ fn runCapture(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     const ws = getWinsize() orelse pty_pkg.winsize{
         .ws_row = 24, .ws_col = 80, .ws_xpixel = 0, .ws_ypixel = 0,
     };
-
     const argv = try collectCommandArgs(alloc, args);
     var p = try Pty.open(ws);
     defer p.deinit();
@@ -652,11 +887,8 @@ fn runCapture(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         }
     }
 
-    // Drain remaining pty output
     while (true) {
-        var drain_fds = [_]posix.pollfd{
-            .{ .fd = master_fd, .events = posix.POLL.IN, .revents = 0 },
-        };
+        var drain_fds = [_]posix.pollfd{.{ .fd = master_fd, .events = posix.POLL.IN, .revents = 0 }};
         if ((posix.poll(&drain_fds, 50) catch break) == 0) break;
         if (drain_fds[0].revents & posix.POLL.IN != 0) {
             const n = posix.read(master_fd, &buf) catch break;
