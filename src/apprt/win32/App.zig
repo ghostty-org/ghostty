@@ -550,16 +550,19 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
         0x010D => { // WM_IME_STARTCOMPOSITION
             if (getApp(hwnd)) |app| {
                 if (app.surface.core_surface) |core| {
-                    const pos = core.imePoint();
+                    // Get cursor position in raw pixels (no DPI scaling)
+                    core.renderer_state.mutex.lock();
+                    const cursor = core.renderer_state.terminal.screens.active.cursor;
+                    core.renderer_state.mutex.unlock();
+                    const x: i32 = @intCast(cursor.x * core.size.cell.width + core.size.padding.left);
+                    const y: i32 = @intCast(cursor.y * core.size.cell.height + core.size.padding.top);
+
                     const himc = ImmGetContext(hwnd);
                     if (himc) |ctx| {
                         defer _ = ImmReleaseContext(hwnd, ctx);
                         var cf = COMPOSITIONFORM{
                             .dwStyle = 0x0002, // CFS_POINT
-                            .ptCurrentPos = .{
-                                .x = @intFromFloat(pos.x),
-                                .y = @intFromFloat(pos.y),
-                            },
+                            .ptCurrentPos = .{ .x = x, .y = y },
                             .rcArea = std.mem.zeroes(RECT),
                         };
                         _ = ImmSetCompositionWindow(ctx, &cf);
