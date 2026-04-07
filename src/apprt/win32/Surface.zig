@@ -65,6 +65,19 @@ extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) HGLRC;
 extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
 extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
 
+// Clipboard API
+const UINT = u32;
+const HANDLE = ?*anyopaque;
+extern "user32" fn OpenClipboard(hWndNewOwner: ?HWND) callconv(.winapi) BOOL;
+extern "user32" fn CloseClipboard() callconv(.winapi) BOOL;
+extern "user32" fn EmptyClipboard() callconv(.winapi) BOOL;
+extern "user32" fn GetClipboardData(uFormat: UINT) callconv(.winapi) HANDLE;
+extern "user32" fn SetClipboardData(uFormat: UINT, hMem: HANDLE) callconv(.winapi) HANDLE;
+extern "kernel32" fn GlobalAlloc(uFlags: UINT, dwBytes: usize) callconv(.winapi) HANDLE;
+extern "kernel32" fn GlobalFree(hMem: HANDLE) callconv(.winapi) HANDLE;
+extern "kernel32" fn GlobalLock(hMem: HANDLE) callconv(.winapi) ?*anyopaque;
+extern "kernel32" fn GlobalUnlock(hMem: HANDLE) callconv(.winapi) BOOL;
+
 /// The window this surface belongs to.
 hwnd: HWND,
 
@@ -211,21 +224,70 @@ pub fn supportsClipboard(_: *Self, clipboard: apprt.Clipboard) bool {
 }
 
 pub fn clipboardRequest(
-    _: *Self,
+    self: *Self,
     _: apprt.Clipboard,
-    _: apprt.ClipboardRequest,
+    req: apprt.ClipboardRequest,
 ) !bool {
-    // TODO: implement clipboard read
-    return false;
+    const surface = self.core_surface orelse return false;
+
+    // Try to read text from the Win32 clipboard synchronously
+    if (OpenClipboard(self.hwnd) == 0) return false;
+    defer _ = CloseClipboard();
+
+    const CF_UNICODETEXT: UINT = 13;
+    const handle = GetClipboardData(CF_UNICODETEXT);
+    if (handle == null) return false;
+
+    const ptr: ?[*:0]const u16 = @ptrCast(@alignCast(GlobalLock(handle)));
+    if (ptr == null) return false;
+    defer _ = GlobalUnlock(handle);
+
+    // Convert UTF-16 to UTF-8
+    const alloc = if (self.app) |app| app.alloc else std.heap.page_allocator;
+    const utf8 = std.unicode.utf16LeToUtf8AllocZ(alloc, std.mem.span(ptr.?)) catch return false;
+    defer alloc.free(utf8);
+
+    try surface.completeClipboardRequest(req, utf8, true);
+    return true;
 }
 
 pub fn setClipboard(
-    _: *Self,
+    self: *Self,
     _: apprt.Clipboard,
-    _: []const apprt.ClipboardContent,
+    contents: []const apprt.ClipboardContent,
     _: bool,
 ) !void {
-    // TODO: implement clipboard write
+    if (contents.len == 0) return;
+
+    const text = contents[0].data;
+    const alloc = if (self.app) |app| app.alloc else std.heap.page_allocator;
+
+    // Convert UTF-8 to UTF-16
+    const utf16 = try std.unicode.utf8ToUtf16LeAllocZ(alloc, text);
+    defer alloc.free(utf16);
+
+    const byte_len = (utf16.len + 1) * 2; // include null terminator
+    const GMEM_MOVEABLE: UINT = 0x0002;
+    const hmem = GlobalAlloc(GMEM_MOVEABLE, byte_len);
+    if (hmem == null) return;
+
+    const dst: ?[*]u16 = @ptrCast(@alignCast(GlobalLock(hmem)));
+    if (dst == null) {
+        _ = GlobalFree(hmem);
+        return;
+    }
+    @memcpy(dst.?[0..utf16.len], utf16);
+    dst.?[utf16.len] = 0;
+    _ = GlobalUnlock(hmem);
+
+    if (OpenClipboard(self.hwnd) == 0) {
+        _ = GlobalFree(hmem);
+        return;
+    }
+    _ = EmptyClipboard();
+    const CF_UNICODETEXT: UINT = 13;
+    _ = SetClipboardData(CF_UNICODETEXT, hmem);
+    _ = CloseClipboard();
 }
 
 pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {

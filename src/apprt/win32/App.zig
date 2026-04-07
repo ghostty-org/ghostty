@@ -117,6 +117,7 @@ extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: c_int) callconv(.winapi
 extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BOOL;
 extern "user32" fn InvalidateRect(hWnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
+extern "user32" fn GetKeyState(nVirtKey: c_int) callconv(.winapi) i16;
 
 /// The core app instance.
 core_app: *CoreApp,
@@ -337,6 +338,17 @@ fn getApp(hwnd: HWND) ?*App {
     return @ptrFromInt(@as(usize, @bitCast(ptr)));
 }
 
+fn getModifiers() @import("../../input.zig").Mods {
+    const input = @import("../../input.zig");
+    var mods: input.Mods = .{};
+    // High bit of GetKeyState return value indicates key is down
+    if (GetKeyState(0x10) < 0) mods.shift = true; // VK_SHIFT
+    if (GetKeyState(0x11) < 0) mods.ctrl = true; // VK_CONTROL
+    if (GetKeyState(0x12) < 0) mods.alt = true; // VK_MENU
+    if (GetKeyState(0x5B) < 0 or GetKeyState(0x5C) < 0) mods.super = true; // VK_LWIN/VK_RWIN
+    return mods;
+}
+
 fn mapVirtualKey(vk: WPARAM) @import("../../input.zig").Key {
     return switch (vk) {
         0x08 => .backspace, // VK_BACK
@@ -407,6 +419,9 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
         WM_CHAR => {
             if (getApp(hwnd)) |app| {
                 if (app.surface.core_surface) |core| {
+                    const mods = getModifiers();
+                    // Ctrl+letter generates control characters (0x01-0x1A).
+                    // Let these through as UTF-8 so the terminal handles them.
                     const codepoint: u21 = @intCast(wparam);
                     var utf8_buf: [4]u8 = undefined;
                     const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch 0;
@@ -414,6 +429,7 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
                         const input = @import("../../input.zig");
                         const event = input.KeyEvent{
                             .action = .press,
+                            .mods = mods,
                             .utf8 = utf8_buf[0..len],
                         };
                         _ = core.keyCallback(event) catch |err| {
@@ -424,21 +440,22 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
             }
             return 0;
         },
-        WM_KEYDOWN => {
+        WM_KEYDOWN, 0x0104 => { // WM_KEYDOWN, WM_SYSKEYDOWN
             if (getApp(hwnd)) |app| {
                 if (app.surface.core_surface) |core| {
+                    const mods = getModifiers();
                     const key = mapVirtualKey(wparam);
                     if (key != .unidentified) {
                         const input = @import("../../input.zig");
                         const event = input.KeyEvent{
                             .action = .press,
                             .key = key,
+                            .mods = mods,
                         };
                         const effect = core.keyCallback(event) catch |err| {
                             log.err("key callback error: {}", .{err});
                             return 0;
                         };
-                        // If the key was consumed, don't pass to TranslateMessage
                         if (effect == .consumed or effect == .closed) return 0;
                     }
                 }
