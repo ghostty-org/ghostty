@@ -228,9 +228,9 @@ pub fn setClipboard(
     // TODO: implement clipboard write
 }
 
-pub fn defaultTermioEnv(_: *Self) !std.process.EnvMap {
-    // Return an empty env map; the shell will inherit the process env.
-    return std.process.EnvMap.init(std.heap.page_allocator);
+pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
+    const alloc = if (self.app) |app| app.alloc else std.heap.page_allocator;
+    return try @import("../../os/main.zig").getEnvMap(alloc);
 }
 
 pub fn redrawInspector(_: *Self) void {}

@@ -237,6 +237,9 @@ pub fn focusGained(
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
 
+    // Windows doesn't have termios, so skip the timer entirely.
+    if (comptime builtin.os.tag == .windows) return;
+
     if (!focused) {
         // Flag the timer to end on the next iteration. This is
         // a lot cheaper than doing full timer cancellation.
