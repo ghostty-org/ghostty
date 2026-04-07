@@ -343,6 +343,11 @@ pub const TerminalFormatter = struct {
         // Extra terminal state to emit after the screen contents so that
         // it doesn't impact the emitted contents.
         if (self.opts.emit == .vt) {
+            // Save cursor position before emitting extras that move it
+            // (tabstop setup uses CHA+HTS which clobbers cursor column).
+            const need_cursor_save = self.extra.tabstops or self.extra.scrolling_region;
+            if (need_cursor_save) try writer.print("\x1b[s", .{}); // DECSC (save cursor via CSI s)
+
             // Emit scrolling region using DECSTBM and DECSLRM
             if (self.extra.scrolling_region) {
                 const region = &self.terminal.scrolling_region;
@@ -389,6 +394,9 @@ pub const TerminalFormatter = struct {
                 const pwd = self.terminal.pwd.items;
                 if (pwd.len > 0) try writer.print("\x1b]7;{s}\x1b\\", .{pwd});
             }
+
+            // Restore cursor position after extras that moved it
+            if (need_cursor_save) try writer.print("\x1b[u", .{}); // DECRC (restore cursor via CSI u)
 
             // If we have a pin_map, add the bytes we wrote to map.
             if (self.pin_map) |*m| {
@@ -6276,4 +6284,147 @@ test "Page HTML hyperlink point map maps closing to previous cell" {
     for (closing_idx..closing_idx + "</a>".len) |i| {
         try testing.expectEqual(expected_coord, point_map.items[i]);
     }
+}
+
+test "TerminalFormatter vt full round-trip" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    // Create Terminal A with complex state exercising many features
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // -- Palette modifications --
+    s.nextSlice("\x1b]4;0;rgb:12/34/56\x1b\\"); // palette index 0
+    s.nextSlice("\x1b]4;9;rgb:ff/00/88\x1b\\"); // palette index 9
+    s.nextSlice("\x1b]4;200;rgb:aa/bb/cc\x1b\\"); // palette index 200
+
+    // -- Modes: enable non-default modes --
+    s.nextSlice("\x1b[?2004h"); // bracketed paste
+    s.nextSlice("\x1b[?1000h"); // mouse event normal
+    s.nextSlice("\x1b[?1004h"); // focus event
+    s.nextSlice("\x1b[?7l"); // disable wraparound (default is true)
+
+    // -- Keyboard: modifyOtherKeys mode 2 --
+    s.nextSlice("\x1b[>4;2m");
+
+    // -- Tabstops: clear all, set custom --
+    s.nextSlice("\x1b[3g"); // clear all
+    s.nextSlice("\x1b[5G\x1bH"); // set tab at column 5
+    s.nextSlice("\x1b[20G\x1bH"); // set tab at column 20
+    s.nextSlice("\x1b[50G\x1bH"); // set tab at column 50
+
+    // -- Scrolling region: non-default --
+    s.nextSlice("\x1b[5;20r"); // top=5, bottom=20
+
+    // -- PWD via OSC 7 --
+    s.nextSlice("\x1b]7;file://myhost/home/user/project\x1b\\");
+
+    // -- Charset: set G0 to DEC Special Graphics --
+    s.nextSlice("\x1b(0"); // G0 = DEC Special
+
+    // -- Now write styled content --
+    // Move to top-left first
+    s.nextSlice("\x1b[H");
+
+    // Bold red text
+    s.nextSlice("\x1b[1;31mHello, ");
+    // Italic 256-color text
+    s.nextSlice("\x1b[3;38;5;208mWorld");
+    // Reset, truecolor background
+    s.nextSlice("\x1b[0m\x1b[48;2;30;60;90m Ghostty ");
+    // Underline with underline color
+    s.nextSlice("\x1b[4;58;2;255;128;0munderlined\x1b[0m");
+
+    // Move cursor to specific position
+    s.nextSlice("\x1b[10;25H");
+    // Write some text at that position
+    s.nextSlice("cursor here");
+
+    // Move to line 3 and write a wide character (CJK)
+    s.nextSlice("\x1b[3;1H");
+    s.nextSlice("\xe4\xb8\x96\xe7\x95\x8c"); // 世界 (2 wide chars)
+
+    // -- Serialize Terminal A with .extra = .all --
+    var formatter: TerminalFormatter = .init(&t, .vt);
+    formatter.extra = .all;
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // -- Create Terminal B and restore from serialized output --
+    var t2 = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t2.deinit(alloc);
+
+    var s2 = t2.vtStream();
+    defer s2.deinit();
+
+    s2.nextSlice(output);
+
+    // === Assert ALL state matches ===
+
+    // -- Screen content --
+    const str1 = try t.plainString(alloc);
+    defer alloc.free(str1);
+    const str2 = try t2.plainString(alloc);
+    defer alloc.free(str2);
+    try testing.expectEqualStrings(str1, str2);
+
+    // -- Cursor position --
+    try testing.expectEqual(t.screens.active.cursor.x, t2.screens.active.cursor.x);
+    try testing.expectEqual(t.screens.active.cursor.y, t2.screens.active.cursor.y);
+
+    // -- Palette (spot check modified entries) --
+    try testing.expectEqual(t.colors.palette.current[0], t2.colors.palette.current[0]);
+    try testing.expectEqual(t.colors.palette.current[9], t2.colors.palette.current[9]);
+    try testing.expectEqual(t.colors.palette.current[200], t2.colors.palette.current[200]);
+    // Also check an unmodified entry is still default
+    try testing.expectEqual(t.colors.palette.current[100], t2.colors.palette.current[100]);
+
+    // -- Modes --
+    try testing.expectEqual(t.modes.get(.bracketed_paste), t2.modes.get(.bracketed_paste));
+    try testing.expectEqual(t.modes.get(.mouse_event_normal), t2.modes.get(.mouse_event_normal));
+    try testing.expectEqual(t.modes.get(.focus_event), t2.modes.get(.focus_event));
+    try testing.expectEqual(t.modes.get(.wraparound), t2.modes.get(.wraparound));
+    try testing.expect(t2.modes.get(.bracketed_paste));
+    try testing.expect(t2.modes.get(.mouse_event_normal));
+    try testing.expect(!t2.modes.get(.wraparound));
+
+    // -- Scrolling region --
+    try testing.expectEqual(t.scrolling_region.top, t2.scrolling_region.top);
+    try testing.expectEqual(t.scrolling_region.bottom, t2.scrolling_region.bottom);
+
+    // -- Tabstops --
+    try testing.expectEqual(t.tabstops.get(4), t2.tabstops.get(4)); // col 5 (0-indexed)
+    try testing.expectEqual(t.tabstops.get(19), t2.tabstops.get(19)); // col 20
+    try testing.expectEqual(t.tabstops.get(49), t2.tabstops.get(49)); // col 50
+    try testing.expect(t2.tabstops.get(4));
+    try testing.expect(t2.tabstops.get(19));
+    try testing.expect(!t2.tabstops.get(7)); // default tab at 8 should be cleared
+
+    // -- PWD --
+    try testing.expectEqualStrings(t.pwd.items, t2.pwd.items);
+    try testing.expect(t2.pwd.items.len > 0);
+
+    // -- Keyboard --
+    try testing.expectEqual(t.flags.modify_other_keys_2, t2.flags.modify_other_keys_2);
+    try testing.expect(t2.flags.modify_other_keys_2);
+
+    // -- Charset --
+    try testing.expectEqual(
+        t.screens.active.charset.charsets.get(.G0),
+        t2.screens.active.charset.charsets.get(.G0),
+    );
 }

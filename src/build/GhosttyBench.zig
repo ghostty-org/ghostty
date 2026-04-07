@@ -46,6 +46,21 @@ pub fn init(
         try steps.append(b.allocator, exe);
     }
 
+    // Terminal state snapshot demo tool.
+    {
+        const exe = b.addExecutable(.{
+            .name = "ghostty-snap",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main_snap.zig"),
+                .target = deps.config.target,
+                .optimize = .Debug,
+            }),
+        });
+        exe.linkLibC();
+        _ = try deps.add(exe);
+        try steps.append(b.allocator, exe);
+    }
+
     return .{ .steps = steps.items };
 }
 
