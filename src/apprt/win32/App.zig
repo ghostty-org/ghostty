@@ -337,6 +337,39 @@ fn getApp(hwnd: HWND) ?*App {
     return @ptrFromInt(@as(usize, @bitCast(ptr)));
 }
 
+fn mapVirtualKey(vk: WPARAM) @import("../../input.zig").Key {
+    return switch (vk) {
+        0x08 => .backspace, // VK_BACK
+        0x09 => .tab, // VK_TAB
+        0x0D => .enter, // VK_RETURN
+        0x1B => .escape, // VK_ESCAPE
+        0x20 => .space, // VK_SPACE
+        0x25 => .arrow_left, // VK_LEFT
+        0x26 => .arrow_up, // VK_UP
+        0x27 => .arrow_right, // VK_RIGHT
+        0x28 => .arrow_down, // VK_DOWN
+        0x2E => .delete, // VK_DELETE
+        0x24 => .home, // VK_HOME
+        0x23 => .end, // VK_END
+        0x21 => .page_up, // VK_PRIOR
+        0x22 => .page_down, // VK_NEXT
+        0x2D => .insert, // VK_INSERT
+        0x70 => .f1,
+        0x71 => .f2,
+        0x72 => .f3,
+        0x73 => .f4,
+        0x74 => .f5,
+        0x75 => .f6,
+        0x76 => .f7,
+        0x77 => .f8,
+        0x78 => .f9,
+        0x79 => .f10,
+        0x7A => .f11,
+        0x7B => .f12,
+        else => .unidentified,
+    };
+}
+
 fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.winapi) LRESULT {
     switch (msg) {
         WM_CLOSE => {
@@ -362,6 +395,48 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
             }
             _ = EndPaint(hwnd, &ps);
             return 0;
+        },
+        WM_CHAR => {
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const codepoint: u21 = @intCast(wparam);
+                    var utf8_buf: [4]u8 = undefined;
+                    const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch 0;
+                    if (len > 0) {
+                        const input = @import("../../input.zig");
+                        const event = input.KeyEvent{
+                            .action = .press,
+                            .utf8 = utf8_buf[0..len],
+                        };
+                        _ = core.keyCallback(event) catch |err| {
+                            log.err("key callback error: {}", .{err});
+                        };
+                    }
+                }
+            }
+            return 0;
+        },
+        WM_KEYDOWN => {
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const key = mapVirtualKey(wparam);
+                    if (key != .unidentified) {
+                        const input = @import("../../input.zig");
+                        const event = input.KeyEvent{
+                            .action = .press,
+                            .key = key,
+                        };
+                        const effect = core.keyCallback(event) catch |err| {
+                            log.err("key callback error: {}", .{err});
+                            return 0;
+                        };
+                        // If the key was consumed, don't pass to TranslateMessage
+                        if (effect == .consumed or effect == .closed) return 0;
+                    }
+                }
+            }
+            // Fall through to DefWindowProc so TranslateMessage generates WM_CHAR
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         WM_WAKEUP => {
             if (getApp(hwnd)) |app| {
