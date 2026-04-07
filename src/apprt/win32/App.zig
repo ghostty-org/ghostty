@@ -134,6 +134,24 @@ const COMPOSITIONFORM = extern struct {
 extern "imm32" fn ImmGetContext(hWnd: HWND) callconv(.winapi) ?*anyopaque;
 extern "imm32" fn ImmReleaseContext(hWnd: HWND, hIMC: ?*anyopaque) callconv(.winapi) BOOL;
 extern "imm32" fn ImmSetCompositionWindow(hIMC: ?*anyopaque, lpCompForm: *COMPOSITIONFORM) callconv(.winapi) BOOL;
+extern "imm32" fn ImmSetCompositionFontW(hIMC: ?*anyopaque, lplf: *LOGFONTW) callconv(.winapi) BOOL;
+
+const LOGFONTW = extern struct {
+    lfHeight: i32,
+    lfWidth: i32,
+    lfEscapement: i32 = 0,
+    lfOrientation: i32 = 0,
+    lfWeight: i32 = 0,
+    lfItalic: u8 = 0,
+    lfUnderline: u8 = 0,
+    lfStrikeOut: u8 = 0,
+    lfCharSet: u8 = 0,
+    lfOutPrecision: u8 = 0,
+    lfClipPrecision: u8 = 0,
+    lfQuality: u8 = 0,
+    lfPitchAndFamily: u8 = 0,
+    lfFaceName: [32]u16 = [_]u16{0} ** 32,
+};
 extern "user32" fn SetCapture(hWnd: HWND) callconv(.winapi) ?HWND;
 extern "user32" fn ReleaseCapture() callconv(.winapi) BOOL;
 
@@ -613,6 +631,13 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
                             .rcArea = std.mem.zeroes(RECT),
                         };
                         _ = ImmSetCompositionWindow(ctx, &cf);
+
+                        // Set IME font to match terminal cell size
+                        var lf: LOGFONTW = std.mem.zeroes(LOGFONTW);
+                        lf.lfHeight = -@as(i32, @intCast(core.size.cell.height));
+                        lf.lfWidth = 0;
+                        lf.lfCharSet = 1; // DEFAULT_CHARSET
+                        _ = ImmSetCompositionFontW(ctx, &lf);
                     }
                 }
             }
