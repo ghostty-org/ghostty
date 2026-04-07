@@ -484,6 +484,9 @@ extension Ghostty {
             setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
             // Store this size so we can reuse it when backing properties change
             contentSize = size
+
+            // Update position within window for custom shaders
+            updateSurfacePosition()
         }
 
         private func setSurfaceSize(width: UInt32, height: UInt32) {
@@ -500,6 +503,29 @@ extension Ghostty {
                 // thread. This caused a crash on macOS <= 14.
                 self.surfaceSize = size
             }
+        }
+
+        /// Update the position of this surface within its parent window.
+        /// This allows custom shaders to compute window-global coordinates
+        /// so effects like gradients or vignettes span across splits.
+        private func updateSurfacePosition() {
+            guard let surface = self.surface else { return }
+            guard let window = self.window else { return }
+
+            // Get the surface view's bounds in window coordinates.
+            // AppKit window coordinates have origin at bottom-left.
+            let boundsInWindow = self.convert(self.bounds, to: nil)
+            let windowContentSize = window.contentLayoutRect.size
+            let scale = window.backingScaleFactor
+
+            // Convert to backing pixels (Retina) and flip Y axis
+            // (AppKit uses bottom-left origin, shaders expect top-left)
+            let offsetX = UInt32(max(0, boundsInWindow.origin.x * scale))
+            let offsetY = UInt32(max(0, (windowContentSize.height - boundsInWindow.origin.y - boundsInWindow.size.height) * scale))
+            let windowWidth = UInt32(windowContentSize.width * scale)
+            let windowHeight = UInt32(windowContentSize.height * scale)
+
+            ghostty_surface_set_position(surface, offsetX, offsetY, windowWidth, windowHeight)
         }
 
         func setCursorShape(_ shape: ghostty_action_mouse_shape_e) {
@@ -884,6 +910,9 @@ extension Ghostty {
             // When our scale factor changes, so does our fb size so we send that too
             let scaledSize = self.convertToBacking(contentSize)
             setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
+
+            // Scale change also affects surface position in backing pixels
+            updateSurfacePosition()
         }
 
         override func mouseDown(with event: NSEvent) {

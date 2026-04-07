@@ -3286,6 +3286,10 @@ pub fn surfacePositionCallback(
     window_width: u32,
     window_height: u32,
 ) !void {
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
     _ = self.renderer_thread.mailbox.push(.{
         .surface_position = .{
             .offset_x = offset_x,
