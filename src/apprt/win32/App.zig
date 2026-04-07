@@ -332,6 +332,20 @@ fn createWindow(self: *App) !void {
 
     const title = std.unicode.utf8ToUtf16LeStringLiteral("Ghostty");
 
+    // Calculate initial window size from config (grid cells) or use defaults
+    var init_width: i32 = 800;
+    var init_height: i32 = 600;
+    const cfg_w = self.config.@"window-width";
+    const cfg_h = self.config.@"window-height";
+    if (cfg_w > 0 and cfg_h > 0) {
+        // Estimate cell size from font size (approximate before font init)
+        const font_size = self.config.@"font-size";
+        const cell_w: i32 = @intFromFloat(font_size * 0.6);
+        const cell_h: i32 = @intFromFloat(font_size * 1.2);
+        init_width = @as(i32, @intCast(@max(10, cfg_w))) * cell_w;
+        init_height = @as(i32, @intCast(@max(4, cfg_h))) * cell_h;
+    }
+
     self.hwnd = CreateWindowExW(
         0,
         class_name,
@@ -339,8 +353,8 @@ fn createWindow(self: *App) !void {
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        800,
-        600,
+        init_width,
+        init_height,
         null,
         null,
         hinstance,
