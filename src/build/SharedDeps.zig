@@ -601,7 +601,6 @@ pub fn add(
                 step.linkSystemLibrary2("gdi32", .{});
                 step.linkSystemLibrary2("opengl32", .{});
                 step.linkSystemLibrary2("imm32", .{});
-                step.linkSystemLibrary2("winmm", .{});
             },
         }
     }

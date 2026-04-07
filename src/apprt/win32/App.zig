@@ -122,8 +122,6 @@ extern "user32" fn SetWindowTextW(hWnd: HWND, lpString: [*:0]const u16) callconv
 extern "user32" fn GetDpiForWindow(hWnd: HWND) callconv(.winapi) UINT;
 extern "user32" fn SetProcessDpiAwarenessContext(value: isize) callconv(.winapi) BOOL;
 const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
-extern "winmm" fn timeBeginPeriod(uPeriod: UINT) callconv(.winapi) UINT;
-extern "winmm" fn timeEndPeriod(uPeriod: UINT) callconv(.winapi) UINT;
 
 const COMPOSITIONFORM = extern struct {
     dwStyle: DWORD,
@@ -180,9 +178,6 @@ pub fn init(
     // Enable Per-Monitor DPI awareness
     _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    // Raise timer resolution to 1ms for responsive rendering
-    _ = timeBeginPeriod(1);
-
     // Create the main window
     try self.createWindow();
 
@@ -217,7 +212,6 @@ pub fn run(self: *App) !void {
 }
 
 pub fn terminate(self: *App) void {
-    _ = timeEndPeriod(1);
     self.surface.deinit();
     if (self.hwnd) |hwnd| {
         _ = DestroyWindow(hwnd);

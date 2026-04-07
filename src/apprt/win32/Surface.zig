@@ -174,14 +174,6 @@ fn initOpenGL(self: *Self) !void {
     }
     glViewport(0, 0, @intCast(self.width), @intCast(self.height));
 
-    // Disable VSync for lower input latency. WGL swap interval of 0
-    // means SwapBuffers returns immediately.
-    const wglSwapIntervalEXT: ?*const fn (i32) callconv(.winapi) i32 = @ptrCast(wglGetProcAddress("wglSwapIntervalEXT"));
-    if (wglSwapIntervalEXT) |setInterval| {
-        _ = setInterval(0);
-        log.info("VSync disabled via wglSwapIntervalEXT", .{});
-    }
-
     log.info("WGL OpenGL context created, client area {}x{}", .{ self.width, self.height });
 }
 
