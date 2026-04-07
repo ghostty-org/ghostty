@@ -166,6 +166,9 @@ pub fn init(
 
     // Store self pointer in window for use in wndProc
     _ = SetWindowLongPtrW(self.hwnd.?, GWLP_USERDATA, @bitCast(@intFromPtr(self)));
+
+    // Initialize the core surface (terminal emulation + rendering)
+    try self.initCoreSurface();
 }
 
 pub fn run(self: *App) !void {
@@ -238,6 +241,44 @@ pub fn performIpc(
 
 pub fn redrawInspector(_: *App, surface: *Surface) void {
     surface.redrawInspector();
+}
+
+fn initCoreSurface(self: *App) !void {
+    const alloc = self.alloc;
+
+    // Set the app pointer on the surface
+    self.surface.app = self;
+
+    // Create the core surface
+    const core_surface = try alloc.create(CoreSurface);
+    errdefer alloc.destroy(core_surface);
+
+    // Register with the core app
+    try self.core_app.addSurface(&self.surface);
+    errdefer self.core_app.deleteSurface(&self.surface);
+
+    // Create a surface config
+    var config = try apprt.surface.newConfig(
+        self.core_app,
+        self.config,
+        .window,
+    );
+    defer config.deinit();
+
+    // Initialize the core surface
+    core_surface.init(
+        alloc,
+        &config,
+        self.core_app,
+        self,
+        &self.surface,
+    ) catch |err| {
+        log.err("failed to initialize core surface: {}", .{err});
+        return err;
+    };
+
+    self.surface.core_surface = core_surface;
+    log.info("core surface initialized successfully", .{});
 }
 
 fn createWindow(self: *App) !void {
