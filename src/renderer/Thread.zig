@@ -294,6 +294,11 @@ fn setQosClass(self: *const Thread) void {
 
 fn syncDrawTimer(self: *Thread) void {
     skip: {
+        // On Win32, always keep the draw timer active because the IOCP
+        // async wakeup may have latency. The draw timer polls for new
+        // frame data at regular intervals.
+        if (comptime @hasDecl(apprt.runtime.Surface, "swapBuffers")) break :skip;
+
         // If our renderer supports animations and has them, then we
         // can apply draw timer based on custom shader animation configuration.
         if (@hasDecl(rendererpkg.Renderer, "hasAnimations") and
