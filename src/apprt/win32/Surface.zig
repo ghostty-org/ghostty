@@ -68,6 +68,9 @@ extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BO
 /// The window this surface belongs to.
 hwnd: HWND,
 
+/// Pointer back to the App.
+app: ?*App = null,
+
 /// GDI device context.
 hdc: HDC = null,
 
@@ -81,8 +84,14 @@ core_surface: ?*CoreSurface = null,
 width: u32 = 800,
 height: u32 = 600,
 
+const App = @import("App.zig");
+
 pub fn core(self: *Self) *CoreSurface {
     return self.core_surface.?;
+}
+
+pub fn rtApp(self: *Self) *App {
+    return self.app.?;
 }
 
 pub fn init(self: *Self, hwnd: HWND) !void {
@@ -150,6 +159,24 @@ pub fn swapBuffers(self: *Self) void {
     if (self.hdc != null) {
         _ = SwapBuffers(self.hdc);
     }
+}
+
+/// Make the WGL context current on the calling thread.
+pub fn makeContextCurrent(self: *Self) void {
+    if (self.hdc != null and self.hglrc != null) {
+        _ = wglMakeCurrent(self.hdc, self.hglrc);
+    }
+}
+
+/// Release the WGL context from the calling thread.
+pub fn releaseContext() void {
+    _ = wglMakeCurrent(null, null);
+}
+
+/// Release context from the main thread before handing off to renderer thread.
+pub fn releaseMainThreadContext(self: *Self) void {
+    _ = self;
+    _ = wglMakeCurrent(null, null);
 }
 
 // --- Interface methods required by CoreSurface ---
