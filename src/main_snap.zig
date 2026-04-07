@@ -759,7 +759,7 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             if (poll_fds_buf[2].revents & posix.POLL.OUT != 0) {
                 if (client_fd) |cfd| {
                     if (out_buf.drain(cfd)) {
-                        if (state_dirty) {
+                        if (state_dirty and terminal.screens.active_key != .alternate) {
                             if (out_buf.queueSnapshot(&terminal)) |len| {
                                 snapshots_sent += 1;
                                 stderrFmt("[server] Refresh snapshot: {d} bytes\n", .{len});
@@ -840,26 +840,31 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 
             if (client_fd) |cfd| {
                 if (out_buf.hasPending()) {
-                    state_dirty = true;
+                    // Don't queue snapshots while in alt screen — full-screen
+                    // programs (vi, tmux) manage their own screen state.
+                    // Snapshots would conflict with the program's drawing.
+                    if (terminal.screens.active_key != .alternate) {
+                        state_dirty = true;
+                    }
                 } else {
                     // Send as framed PTY_DATA. On short write, the
                     // remainder goes into out_buf to preserve frame alignment.
                     switch (writeFrame(cfd, .pty_data, buf[0..n], &out_buf)) {
                         .ok => {},
                         .partial => {
-                            // Frame remainder is in out_buf. Mark dirty so
-                            // a snapshot is queued after the remainder drains.
-                            state_dirty = true;
+                            state_dirty = terminal.screens.active_key != .alternate;
                             drops += 1;
                         },
                         .would_block => {
-                            // Couldn't write at all — queue snapshot directly
                             drops += 1;
-                            if (out_buf.queueSnapshot(&terminal)) |slen| {
-                                snapshots_sent += 1;
-                                stderrFmt("[server] Blocked, snapshot {d}B\n", .{slen});
+                            // Only snapshot if NOT in alt screen
+                            if (terminal.screens.active_key != .alternate) {
+                                if (out_buf.queueSnapshot(&terminal)) |slen| {
+                                    snapshots_sent += 1;
+                                    stderrFmt("[server] Blocked, snapshot {d}B\n", .{slen});
+                                }
+                                state_dirty = false;
                             }
-                            state_dirty = false;
                         },
                         .err => {
                             writeStderr("[server] Client write error, disconnecting\n");
