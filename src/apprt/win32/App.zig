@@ -350,6 +350,14 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
                 if (width > 0 and height > 0) {
                     app.surface.width = width;
                     app.surface.height = height;
+                    if (app.surface.core_surface) |core| {
+                        core.sizeCallback(.{
+                            .width = width,
+                            .height = height,
+                        }) catch |err| {
+                            log.err("size callback error: {}", .{err});
+                        };
+                    }
                 }
             }
             return 0;
