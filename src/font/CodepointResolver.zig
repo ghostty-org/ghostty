@@ -12,6 +12,7 @@
 const CodepointResolver = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const uucode = @import("uucode");
 const font = @import("main.zig");
@@ -218,6 +219,14 @@ pub fn getIndex(
         }
     }
 
+    // On Windows without font discovery, try loading system fonts directly
+    // as a fallback for missing codepoints (e.g. CJK characters).
+    if (comptime builtin.os.tag == .windows and font.Discover == void) {
+        if (style == .regular) {
+            if (self.windowsFontFallback(alloc, cp, p_mode)) |idx| return idx;
+        }
+    }
+
     // If this is regular with any matching presentation, then we are done
     // there is nothing more we can do. Otherwise we fall through and do
     // an any presentation search.
@@ -225,6 +234,67 @@ pub fn getIndex(
 
     // For non-regular fonts, we fall back to regular with any presentation
     return self.collection.getIndex(cp, .regular, .{ .any = {} });
+}
+
+/// Windows-only: try loading system fonts directly as a fallback when
+/// font discovery is not available. This checks common system font files
+/// that are likely to contain CJK and other extended Unicode glyphs.
+fn windowsFontFallback(
+    self: *CodepointResolver,
+    alloc: Allocator,
+    cp: u32,
+    p_mode: Collection.PresentationMode,
+) ?Collection.Index {
+    if (comptime builtin.os.tag != .windows) return null;
+
+    // List of Windows system fonts to try for fallback, in priority order.
+    // These cover CJK, Arabic, Hebrew, Thai, and other scripts.
+    const fallback_fonts = [_][:0]const u8{
+        "C:\\Windows\\Fonts\\msgothic.ttc", // MS Gothic (Japanese)
+        "C:\\Windows\\Fonts\\meiryo.ttc", // Meiryo (Japanese)
+        "C:\\Windows\\Fonts\\YuGothM.ttc", // Yu Gothic (Japanese)
+        "C:\\Windows\\Fonts\\msyh.ttc", // Microsoft YaHei (Chinese)
+        "C:\\Windows\\Fonts\\simsun.ttc", // SimSun (Chinese)
+        "C:\\Windows\\Fonts\\malgun.ttf", // Malgun Gothic (Korean)
+        "C:\\Windows\\Fonts\\seguiemj.ttf", // Segoe UI Emoji
+        "C:\\Windows\\Fonts\\segoeui.ttf", // Segoe UI
+        "C:\\Windows\\Fonts\\arial.ttf", // Arial
+        "C:\\Windows\\Fonts\\arialuni.ttf", // Arial Unicode MS
+    };
+
+    const load_opts = self.collection.load_options orelse return null;
+
+    for (fallback_fonts) |font_path| {
+        // Try to load the font face
+        var face = Face.initFile(
+            load_opts.library,
+            font_path,
+            0,
+            load_opts.faceOptions(),
+        ) catch continue;
+
+        // Check if this face has the codepoint we need
+        const entry: Collection.Entry = .{
+            .face = .{ .loaded = face },
+            .fallback = true,
+        };
+        if (!entry.hasCodepoint(cp, p_mode)) {
+            face.deinit();
+            continue;
+        }
+
+        log.info("found codepoint 0x{X} in Windows fallback font: {s}", .{ cp, font_path });
+        return self.collection.add(alloc, face, .{
+            .style = .regular,
+            .fallback = true,
+            .size_adjustment = font.default_fallback_adjustment,
+        }) catch {
+            face.deinit();
+            return null;
+        };
+    }
+
+    return null;
 }
 
 /// Checks if the codepoint is in the map of codepoint overrides,
