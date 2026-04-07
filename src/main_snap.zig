@@ -50,7 +50,10 @@ const MsgType = enum(u8) {
     _,
 };
 
-fn writeFrame(fd: posix.fd_t, msg_type: MsgType, payload: []const u8) bool {
+/// Write a framed message. Returns the number of payload bytes that were
+/// actually sent. A return < payload.len means a short write occurred
+/// (backpressure). Returns null on error.
+fn writeFrame(fd: posix.fd_t, msg_type: MsgType, payload: []const u8) ?usize {
     const len: u32 = @intCast(payload.len);
     const header = [4]u8{
         @intFromEnum(msg_type),
@@ -59,17 +62,30 @@ fn writeFrame(fd: posix.fd_t, msg_type: MsgType, payload: []const u8) bool {
         @truncate(len & 0xff),
     };
 
-    // Write header + payload. Single write for small messages.
-    if (payload.len <= 4092) {
-        var combined: [4096]u8 = undefined;
+    const total = 4 + payload.len;
+
+    if (payload.len <= 8188) {
+        var combined: [8192]u8 = undefined;
         @memcpy(combined[0..4], &header);
         @memcpy(combined[4..][0..payload.len], payload);
-        _ = posix.write(fd, combined[0 .. 4 + payload.len]) catch return false;
+        const written = posix.write(fd, combined[0..total]) catch |err| {
+            if (err == error.WouldBlock) return 0;
+            return null;
+        };
+        if (written < 4) return 0; // couldn't even write header
+        return written - 4; // payload bytes written
     } else {
-        _ = posix.write(fd, &header) catch return false;
-        _ = posix.write(fd, payload) catch return false;
+        const frame = std.heap.c_allocator.alloc(u8, total) catch return null;
+        defer std.heap.c_allocator.free(frame);
+        @memcpy(frame[0..4], &header);
+        @memcpy(frame[4..], payload);
+        const written = posix.write(fd, frame) catch |err| {
+            if (err == error.WouldBlock) return 0;
+            return null;
+        };
+        if (written < 4) return 0;
+        return written - 4;
     }
-    return true;
 }
 
 /// Incremental frame reader. Accumulates bytes and yields complete messages.
@@ -368,7 +384,9 @@ const OutputBuffer = struct {
         const snap = generateSnapshot(terminal, false) orelse return null;
         defer std.heap.c_allocator.free(snap);
 
-        const header = if (initial) "\x1b[?2026h\x1b[H" else "\x1b[?2026h\x1b[3J\x1b[H";
+        // Initial: clear screen so stale local content is gone.
+        // Catch-up: clear scrollback (stale) but no screen clear (overwrite in place).
+        const header = if (initial) "\x1b[?2026h\x1b[H\x1b[2J" else "\x1b[?2026h\x1b[3J\x1b[H";
         const footer = "\x1b[?2026l";
         const vt_frame_len = header.len + snap.len + footer.len;
 
@@ -544,7 +562,7 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             for (buf[0..n]) |byte| {
                 if (byte == 0x1d) return; // Ctrl-]
             }
-            _ = writeFrame(sock, .input, buf[0..n]);
+            _ = writeFrame(sock, .input, buf[0..n]) orelse break;
         }
     }
 }
@@ -554,7 +572,7 @@ fn sendResize(fd: posix.fd_t, cols: u16, rows: u16) void {
         @truncate(cols >> 8), @truncate(cols & 0xff),
         @truncate(rows >> 8), @truncate(rows & 0xff),
     };
-    _ = writeFrame(fd, .resize, &payload);
+    _ = writeFrame(fd, .resize, &payload) orelse {};
 }
 
 fn sigwinchHandler(_: c_int) callconv(.c) void {
@@ -763,12 +781,22 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                     state_dirty = true;
                 } else {
                     // Send as framed PTY_DATA
-                    if (!writeFrame(cfd, .pty_data, buf[0..n])) {
+                    const written = writeFrame(cfd, .pty_data, buf[0..n]) orelse {
                         writeStderr("[server] Client write error, disconnecting\n");
                         posix.close(cfd);
                         client_fd = null;
                         out_buf.deinit();
                         continue;
+                    };
+                    if (written < n) {
+                        // Short write — frame is corrupted on the wire.
+                        // Queue a snapshot to resync the client.
+                        drops += 1;
+                        if (out_buf.queueSnapshot(&terminal)) |slen| {
+                            snapshots_sent += 1;
+                            stderrFmt("[server] Short write ({d}/{d}), snapshot {d}B\n", .{ written, n, slen });
+                        }
+                        state_dirty = false;
                     }
                 }
             }
@@ -799,7 +827,7 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             // Send scrollback first (if any), then snapshot
             if (generateScrollback(&terminal)) |sb_data| {
                 defer std.heap.c_allocator.free(sb_data);
-                _ = writeFrame(new_fd, .scrollback, sb_data);
+                _ = writeFrame(new_fd, .scrollback, sb_data) orelse {};
                 stderrFmt("[server] Scrollback: {d} bytes\n", .{sb_data.len});
             }
 
