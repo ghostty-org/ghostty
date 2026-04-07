@@ -122,6 +122,16 @@ extern "user32" fn SetWindowTextW(hWnd: HWND, lpString: [*:0]const u16) callconv
 extern "user32" fn GetDpiForWindow(hWnd: HWND) callconv(.winapi) UINT;
 extern "user32" fn SetProcessDpiAwarenessContext(value: isize) callconv(.winapi) BOOL;
 const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
+
+const COMPOSITIONFORM = extern struct {
+    dwStyle: DWORD,
+    ptCurrentPos: POINT,
+    rcArea: RECT,
+};
+
+extern "imm32" fn ImmGetContext(hWnd: HWND) callconv(.winapi) ?*anyopaque;
+extern "imm32" fn ImmReleaseContext(hWnd: HWND, hIMC: ?*anyopaque) callconv(.winapi) BOOL;
+extern "imm32" fn ImmSetCompositionWindow(hIMC: ?*anyopaque, lpCompForm: *COMPOSITIONFORM) callconv(.winapi) BOOL;
 extern "user32" fn SetCapture(hWnd: HWND) callconv(.winapi) ?HWND;
 extern "user32" fn ReleaseCapture() callconv(.winapi) BOOL;
 
@@ -536,6 +546,27 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
                 }
             }
             return 0;
+        },
+        0x010D => { // WM_IME_STARTCOMPOSITION
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const pos = core.imePoint();
+                    const himc = ImmGetContext(hwnd);
+                    if (himc) |ctx| {
+                        defer _ = ImmReleaseContext(hwnd, ctx);
+                        var cf = COMPOSITIONFORM{
+                            .dwStyle = 0x0002, // CFS_POINT
+                            .ptCurrentPos = .{
+                                .x = @intFromFloat(pos.x),
+                                .y = @intFromFloat(pos.y),
+                            },
+                            .rcArea = std.mem.zeroes(RECT),
+                        };
+                        _ = ImmSetCompositionWindow(ctx, &cf);
+                    }
+                }
+            }
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         0x0007, 0x0008 => { // WM_SETFOCUS, WM_KILLFOCUS
             if (getApp(hwnd)) |app| {
