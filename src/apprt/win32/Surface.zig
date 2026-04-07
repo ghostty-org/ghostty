@@ -174,6 +174,14 @@ pub fn swapBuffers(self: *Self) void {
     }
 }
 
+/// Update the OpenGL viewport to match the current window size.
+/// Called from the renderer thread before each frame.
+pub fn updateViewport(self: *Self) void {
+    glViewport(0, 0, @intCast(self.width), @intCast(self.height));
+}
+
+extern "opengl32" fn glViewport(x: i32, y: i32, width: i32, height: i32) callconv(.winapi) void;
+
 /// Make the WGL context current on the calling thread.
 pub fn makeContextCurrent(self: *Self) void {
     if (self.hdc != null and self.hglrc != null) {

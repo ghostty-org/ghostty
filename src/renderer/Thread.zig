@@ -505,6 +505,12 @@ fn drawFrame(self: *Thread, now: bool) void {
             .{ .instant = {} },
         );
     } else {
+        // On Win32, update the GL viewport before drawing since there's
+        // no toolkit managing it for us.
+        if (comptime @hasDecl(apprt.runtime.Surface, "updateViewport")) {
+            self.surface.updateViewport();
+        }
+
         self.renderer.drawFrame(false) catch |err|
             log.warn("error drawing err={}", .{err});
 
