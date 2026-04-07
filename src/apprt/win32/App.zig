@@ -118,6 +118,8 @@ extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BO
 extern "user32" fn InvalidateRect(hWnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
 extern "user32" fn GetKeyState(nVirtKey: c_int) callconv(.winapi) i16;
+extern "user32" fn SetCapture(hWnd: HWND) callconv(.winapi) ?HWND;
+extern "user32" fn ReleaseCapture() callconv(.winapi) BOOL;
 
 /// The core app instance.
 core_app: *CoreApp,
@@ -462,6 +464,59 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
             }
             // Fall through to DefWindowProc so TranslateMessage generates WM_CHAR
             return DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+        0x0200 => { // WM_MOUSEMOVE
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const x: f32 = @floatFromInt(@as(i16, @truncate(lparam & 0xFFFF)));
+                    const y: f32 = @floatFromInt(@as(i16, @truncate((lparam >> 16) & 0xFFFF)));
+                    core.cursorPosCallback(.{ .x = x, .y = y }, getModifiers()) catch {};
+                }
+            }
+            return 0;
+        },
+        0x0201, 0x0204, 0x0207 => { // WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const input = @import("../../input.zig");
+                    const button: input.MouseButton = switch (msg) {
+                        0x0201 => .left,
+                        0x0204 => .right,
+                        0x0207 => .middle,
+                        else => .unknown,
+                    };
+                    _ = core.mouseButtonCallback(.press, button, getModifiers()) catch false;
+                    _ = SetCapture(hwnd);
+                }
+            }
+            return 0;
+        },
+        0x0202, 0x0205, 0x0208 => { // WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const input = @import("../../input.zig");
+                    const button: input.MouseButton = switch (msg) {
+                        0x0202 => .left,
+                        0x0205 => .right,
+                        0x0208 => .middle,
+                        else => .unknown,
+                    };
+                    _ = core.mouseButtonCallback(.release, button, getModifiers()) catch false;
+                    _ = ReleaseCapture();
+                }
+            }
+            return 0;
+        },
+        0x020A => { // WM_MOUSEWHEEL
+            if (getApp(hwnd)) |app| {
+                if (app.surface.core_surface) |core| {
+                    const delta: i16 = @truncate(@as(isize, @bitCast(wparam)) >> 16);
+                    const yoff: f64 = @as(f64, @floatFromInt(delta)) / 120.0;
+                    const input = @import("../../input.zig");
+                    core.scrollCallback(0, yoff, input.ScrollMods{}) catch {};
+                }
+            }
+            return 0;
         },
         WM_WAKEUP => {
             if (getApp(hwnd)) |app| {
