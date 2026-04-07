@@ -168,8 +168,7 @@ pub export fn ghostty_string_free(str: String) void {
 // but not MSVC. No upstream issue tracks this exact gap as of 2026-03-26.
 // Closest: Codeberg ziglang/zig #30936 (reimplement crt0 code).
 // Remove this DllMain when Zig handles MSVC DLL CRT init natively.
-pub const DllMain = if (builtin.os.tag == .windows and
-    builtin.abi == .msvc) struct {
+pub const DllMain = if (builtin.os.tag != .windows) void else if (builtin.abi == .msvc) struct {
     const BOOL = std.os.windows.BOOL;
     const HINSTANCE = std.os.windows.HINSTANCE;
     const DWORD = std.os.windows.DWORD;
@@ -200,7 +199,19 @@ pub const DllMain = if (builtin.os.tag == .windows and
             else => return TRUE,
         }
     }
-}.handler else void;
+}.handler else struct {
+    // GNU ABI: provide a no-op DllMain so Zig's start.zig doesn't
+    // try to call a type instead of a function.
+    const BOOL = std.os.windows.BOOL;
+    const HINSTANCE = std.os.windows.HINSTANCE;
+    const DWORD = std.os.windows.DWORD;
+    const LPVOID = std.os.windows.LPVOID;
+    const TRUE = std.os.windows.TRUE;
+
+    pub fn handler(_: HINSTANCE, _: DWORD, _: LPVOID) callconv(.winapi) BOOL {
+        return TRUE;
+    }
+}.handler;
 
 test "ghostty_string_s empty string" {
     const testing = std.testing;
