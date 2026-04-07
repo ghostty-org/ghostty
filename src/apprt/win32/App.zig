@@ -118,6 +118,10 @@ extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BO
 extern "user32" fn InvalidateRect(hWnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
 extern "user32" fn GetKeyState(nVirtKey: c_int) callconv(.winapi) i16;
+extern "user32" fn SetWindowTextW(hWnd: HWND, lpString: [*:0]const u16) callconv(.winapi) BOOL;
+extern "user32" fn GetDpiForWindow(hWnd: HWND) callconv(.winapi) UINT;
+extern "user32" fn SetProcessDpiAwarenessContext(value: isize) callconv(.winapi) BOOL;
+const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
 extern "user32" fn SetCapture(hWnd: HWND) callconv(.winapi) ?HWND;
 extern "user32" fn ReleaseCapture() callconv(.winapi) BOOL;
 
@@ -160,6 +164,9 @@ pub fn init(
         .config = config_ptr,
         .alloc = alloc,
     };
+
+    // Enable Per-Monitor DPI awareness
+    _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // Create the main window
     try self.createWindow();
@@ -216,17 +223,22 @@ pub fn performAction(
     comptime action: apprt.Action.Key,
     value: apprt.Action.Value(action),
 ) !bool {
-    _ = self;
     _ = target;
-    _ = value;
 
     switch (action) {
         .quit => {
             PostQuitMessage(0);
             return true;
         },
+        .set_title => {
+            if (self.hwnd) |hwnd| {
+                const utf16 = std.unicode.utf8ToUtf16LeAllocZ(self.alloc, value.title) catch return false;
+                defer self.alloc.free(utf16);
+                _ = SetWindowTextW(hwnd, utf16.ptr);
+            }
+            return true;
+        },
         .new_window => {
-            // TODO: implement multiple windows
             return false;
         },
         else => return false,
@@ -514,6 +526,16 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
                     const yoff: f64 = @as(f64, @floatFromInt(delta)) / 120.0;
                     const input = @import("../../input.zig");
                     core.scrollCallback(0, yoff, input.ScrollMods{}) catch {};
+                }
+            }
+            return 0;
+        },
+        0x0007, 0x0008 => { // WM_SETFOCUS, WM_KILLFOCUS
+            if (getApp(hwnd)) |app| {
+                const focused = msg == 0x0007;
+                app.core_app.focusEvent(focused);
+                if (app.surface.core_surface) |core| {
+                    core.focusCallback(focused) catch {};
                 }
             }
             return 0;

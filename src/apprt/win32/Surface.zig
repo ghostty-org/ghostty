@@ -194,10 +194,14 @@ pub fn releaseMainThreadContext(self: *Self) void {
 
 // --- Interface methods required by CoreSurface ---
 
-pub fn getContentScale(_: *const Self) !apprt.ContentScale {
-    // TODO: query DPI from the monitor
-    return .{ .x = 1.0, .y = 1.0 };
+pub fn getContentScale(self: *const Self) !apprt.ContentScale {
+    const dpi = GetDpiForWindow(self.hwnd);
+    if (dpi == 0) return .{ .x = 1.0, .y = 1.0 };
+    const scale: f32 = @as(f32, @floatFromInt(dpi)) / 96.0;
+    return .{ .x = scale, .y = scale };
 }
+
+extern "user32" fn GetDpiForWindow(hWnd: HWND) callconv(.winapi) u32;
 
 pub fn getSize(self: *const Self) !apprt.SurfaceSize {
     return .{
