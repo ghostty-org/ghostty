@@ -113,6 +113,7 @@ fn writeFrame(fd: posix.fd_t, msg_type: MsgType, payload: []const u8, out_buf: ?
 const FrameReader = struct {
     buf: [65536]u8 = undefined,
     len: usize = 0,
+    consumed: usize = 0,
 
     const Frame = struct {
         msg_type: MsgType,
@@ -128,6 +129,9 @@ const FrameReader = struct {
         self.len += to_copy;
     }
 
+    /// Returns the next complete frame. The payload slice is valid ONLY
+    /// until the next call to feed() or next(). Caller must consume
+    /// (e.g. write to STDOUT) before calling next() again.
     fn next(self: *FrameReader) ?Frame {
         if (self.len < 4) return null;
         const msg_len: usize = (@as(usize, self.buf[1]) << 16) |
@@ -136,19 +140,52 @@ const FrameReader = struct {
         const total = 4 + msg_len;
         if (self.len < total) return null;
 
-        const frame = Frame{
-            .msg_type = @enumFromInt(self.buf[0]),
+        const msg_type: MsgType = @enumFromInt(self.buf[0]);
+
+        // Shift remaining data FIRST, then return the payload.
+        // We must be careful: copyForwards copies left-to-right,
+        // so if remaining data starts at buf[total], copying to buf[0]
+        // won't overwrite the payload at buf[4..total] AS LONG AS
+        // total > remaining. But if total <= remaining, there IS overlap.
+        //
+        // To avoid this entirely: shift the payload to the END of the
+        // buffer (after the remaining data), then shift remaining down.
+        // Actually, simplest correct approach: DON'T shift. Instead,
+        // track an offset into the buffer and only compact on feed().
+        //
+        // For now: return payload pointing BEFORE the shift region.
+        // The payload at buf[4..total] is NOT touched by copyForwards
+        // because copyForwards copies from buf[total..] to buf[0..],
+        // and the destination buf[0..remaining] only overlaps the
+        // payload if remaining >= 4 (i.e. the copy writes past byte 3).
+        //
+        // If remaining < 4: no overlap, payload is safe.
+        // If remaining >= 4: the copy overwrites buf[4..] which IS the payload.
+        //
+        // Fix: compact AFTER the caller is done with the payload.
+        // We defer the compaction to the next call.
+
+        // Instead: just don't shift. Track consumed offset.
+        // This is simpler and avoids the overlap entirely.
+        self.consumed = total;
+
+        return .{
+            .msg_type = msg_type,
             .payload = self.buf[4..total],
         };
+    }
 
-        // Shift remaining data
+    /// Must be called after consuming a frame returned by next().
+    /// Shifts the buffer to remove the consumed frame.
+    fn advance(self: *FrameReader) void {
+        const total = self.consumed;
+        if (total == 0) return;
         const remaining = self.len - total;
         if (remaining > 0) {
             std.mem.copyForwards(u8, self.buf[0..remaining], self.buf[total..self.len]);
         }
         self.len = remaining;
-
-        return frame;
+        self.consumed = 0;
     }
 };
 
@@ -568,6 +605,9 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                     },
                     else => {},
                 }
+                // Advance AFTER consuming the payload — the payload slice
+                // points into the buffer and advance() shifts the buffer.
+                frame_reader.advance();
             }
         }
 
@@ -768,6 +808,7 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                                 },
                                 else => {},
                             }
+                            client_reader.advance();
                         }
                     }
                 }
