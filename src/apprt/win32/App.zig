@@ -313,9 +313,9 @@ fn initCoreSurface(self: *App) !void {
 }
 
 fn applyConfiguredWindowSize(self: *App) void {
-    const cfg_w = self.config.@"window-width";
-    const cfg_h = self.config.@"window-height";
-    if (cfg_w == 0 or cfg_h == 0) return;
+    // Default to 80x24 when not configured
+    const cfg_w = if (self.config.@"window-width" > 0) self.config.@"window-width" else 80;
+    const cfg_h = if (self.config.@"window-height" > 0) self.config.@"window-height" else 24;
     const hwnd = self.hwnd orelse return;
     const core = self.surface.core_surface orelse return;
 
