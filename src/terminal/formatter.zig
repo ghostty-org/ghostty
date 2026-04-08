@@ -18,6 +18,118 @@ const Pin = PageList.Pin;
 const Row = @import("page.zig").Row;
 const Selection = @import("Selection.zig");
 const Style = @import("style.zig").Style;
+const build_options = @import("terminal_options");
+const encoder = std.base64.standard.Encoder;
+const ImageStorage = if (build_options.kitty_graphics) kitty.graphics.ImageStorage else void;
+
+const KittyGfxState = struct {
+    alloc: Allocator,
+    terminal: *const Terminal,
+    images: if (build_options.kitty_graphics) *const ImageStorage else void,
+    // Track which images have already been loaded
+    seen_images: std.AutoArrayHashMapUnmanaged(u32, void),
+    // Track how many rows we should skip since we already created
+    // newlines for them
+    skip_rows: u32 = 0,
+
+    fn init(alloc: Allocator, terminal: *const Terminal, images: if (build_options.kitty_graphics) *const ImageStorage else void) KittyGfxState {
+        return .{
+            .images = images,
+            .seen_images = .{},
+            .alloc = alloc,
+            .terminal = terminal,
+        };
+    }
+
+    fn deinit(self: *KittyGfxState) void {
+        self.seen_images.deinit(self.alloc);
+    }
+
+    fn format(self: *KittyGfxState, writer: *std.Io.Writer, page: *const Page, y: size.CellCountInt, blank_rows: *usize) std.Io.Writer.Error!void {
+        if (comptime !build_options.kitty_graphics) return;
+        var p_iter = self.images.placements.iterator();
+        while (p_iter.next()) |p_entry| {
+            const key = p_entry.key_ptr.*;
+            const placement = p_entry.value_ptr.*;
+
+            // Only handle pin-based placements on this specific node+row.
+            const pin = switch (placement.location) {
+                .pin => |p| p,
+                .virtual => continue,
+            };
+            if (&pin.node.data != page or pin.y != y) continue;
+
+            // Transmit image data if not already sent.
+            if (!self.seen_images.contains(key.image_id)) {
+                if (self.images.imageById(key.image_id)) |img| {
+                    const encoded_size = encoder.calcSize(img.data.len);
+                    const encoded_buf = self.alloc.alloc(u8, encoded_size) catch {
+                        return error.WriteFailed;
+                    };
+                    defer self.alloc.free(encoded_buf);
+
+                    _ = encoder.encode(encoded_buf, img.data);
+
+                    const chunk_size = 4096;
+                    var start: usize = 0;
+                    while (start < encoded_buf.len) {
+                        const end = @min(start + chunk_size, encoded_buf.len);
+                        const is_last = end == encoded_buf.len;
+                        const more_flag: u32 = if (is_last) 0 else 1;
+
+                        const seq = std.fmt.allocPrint(
+                            self.alloc,
+                            "\x1b_Ga=t,q=1,f={d},s={d},v={d},i={d},m={d};{s}\x1b\\",
+                            .{
+                                kitty.graphics.Transmission.protocolValue(img.format),
+                                img.width,
+                                img.height,
+                                img.id,
+                                more_flag,
+                                encoded_buf[start..end],
+                            },
+                        ) catch return error.WriteFailed;
+                        defer self.alloc.free(seq);
+                        try writer.writeAll(seq);
+                        start = end;
+                    }
+                }
+                self.seen_images.put(self.alloc, key.image_id, {}) catch {
+                    return error.WriteFailed;
+                };
+            }
+
+            // Flush any accumulated blank rows before emitting image
+            // placements so that newlines from previous content rows
+            // appear before the image data in the output stream.
+            if (blank_rows.* > 0) {
+                for (0..blank_rows.*) |_| try writer.writeAll("\r\n");
+                blank_rows.* = 0;
+            }
+
+            // Move cursor to the placement's column, emit placement,
+            // then return cursor to column 1.
+            try writer.print("\x1b[{d}G", .{pin.x + 1});
+            const p_seq = std.fmt.allocPrint(
+                self.alloc,
+                "\x1b_Ga=p,q=1,C=1,i={d},c={d},r={d},X={d},Y={d}\x1b\\",
+                .{ key.image_id, placement.columns, placement.rows, placement.x_offset, placement.y_offset },
+            ) catch return error.WriteFailed;
+            defer self.alloc.free(p_seq);
+            try writer.writeAll(p_seq);
+            try writer.print("\x1b[1G", .{});
+
+            if (self.images.imageById(key.image_id)) |image| {
+                const grid = placement.gridSize(image, self.terminal);
+                // Create newlines for the entire image height
+                for (0..grid.rows) |_| try writer.writeAll("\r\n");
+                // Skip grid.rows - 1 because the placement row itself is
+                // already being consumed by the current loop iteration.
+                self.skip_rows += grid.rows -| 1;
+            }
+        }
+    }
+};
 
 /// Formats available.
 pub const Format = lib.Enum(lib.target, &.{
@@ -335,6 +447,7 @@ pub const TerminalFormatter = struct {
         }
 
         var screen_formatter: ScreenFormatter = .init(self.terminal.screens.active, self.opts);
+        screen_formatter.terminal = self.terminal;
         screen_formatter.content = self.content;
         screen_formatter.extra = self.extra.screen;
         screen_formatter.pin_map = self.pin_map;
@@ -425,6 +538,9 @@ pub const ScreenFormatter = struct {
     /// The screen to format.
     screen: *const Screen,
 
+    /// The terminal, needed for kitty graphics grid size calculations.
+    terminal: ?*const Terminal = null,
+
     /// The common options
     opts: Options,
 
@@ -476,6 +592,9 @@ pub const ScreenFormatter = struct {
         /// Emit Kitty keyboard protocol state using CSI > u and CSI = sequences.
         kitty_keyboard: bool,
 
+        /// Emit Kitty graphics protocol state
+        kitty_graphics: bool,
+
         /// Emit character set designations and invocations.
         /// This includes G0-G3 designations (ESC ( ) * +) and GL/GR invocations.
         charsets: bool,
@@ -486,6 +605,7 @@ pub const ScreenFormatter = struct {
             .style = false,
             .hyperlink = false,
             .protection = false,
+            .kitty_graphics = false,
             .kitty_keyboard = false,
             .charsets = false,
         };
@@ -496,6 +616,7 @@ pub const ScreenFormatter = struct {
             .style = true,
             .hyperlink = true,
             .protection = false,
+            .kitty_graphics = false,
             .kitty_keyboard = false,
             .charsets = false,
         };
@@ -507,6 +628,7 @@ pub const ScreenFormatter = struct {
             .style = true,
             .hyperlink = true,
             .protection = true,
+            .kitty_graphics = true,
             .kitty_keyboard = true,
             .charsets = true,
         };
@@ -535,6 +657,20 @@ pub const ScreenFormatter = struct {
         self: ScreenFormatter,
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
+        // Setup kitty graphics state if needed. This is passed down to
+        // the page formatters so placements are emitted inline during
+        // content row iteration.
+        // Currently we only support emitting kitty graphics for the vt
+        // format.
+        const need_kitty_gfx = self.opts.emit == .vt and
+            self.extra.kitty_graphics and
+            comptime build_options.kitty_graphics;
+        var kitty_gfx_state: ?KittyGfxState = if (need_kitty_gfx)
+            KittyGfxState.init(self.screen.alloc, self.terminal.?, &self.screen.kitty_images)
+        else
+            null;
+        defer if (kitty_gfx_state) |*s| s.deinit();
+
         switch (self.content) {
             .none => {},
 
@@ -542,6 +678,7 @@ pub const ScreenFormatter = struct {
                 // Emit our pagelist contents according to our selection.
                 var list_formatter: PageListFormatter = .init(&self.screen.pages, self.opts);
                 list_formatter.pin_map = self.pin_map;
+                list_formatter.kitty_gfx_state = if (kitty_gfx_state) |*s| s else null;
                 if (selection_) |sel| {
                     list_formatter.top_left = sel.topLeft(self.screen);
                     list_formatter.bottom_right = sel.bottomRight(self.screen);
@@ -716,6 +853,8 @@ pub const PageListFormatter = struct {
     /// Warning: there is a significant performance hit to track this
     pin_map: ?PinMap,
 
+    kitty_gfx_state: ?*KittyGfxState,
+
     pub fn init(
         list: *const PageList,
         opts: Options,
@@ -727,6 +866,7 @@ pub const PageListFormatter = struct {
             .bottom_right = null,
             .rectangle = false,
             .pin_map = null,
+            .kitty_gfx_state = null,
         };
     }
 
@@ -752,6 +892,7 @@ pub const PageListFormatter = struct {
             formatter.end_y = chunk.end - 1;
             formatter.trailing_state = page_state;
             formatter.rectangle = self.rectangle;
+            formatter.kitty_gfx_state = self.kitty_gfx_state;
 
             // For rectangle selection, apply start_x and end_x to all chunks
             if (self.rectangle) {
@@ -841,6 +982,8 @@ pub const PageFormatter = struct {
     /// accounting works properly.
     trailing_state: ?TrailingState,
 
+    kitty_gfx_state: ?*KittyGfxState,
+
     /// Trailing state. This is used to ensure that rows wrapped across
     /// multiple pages are unwrapped properly, as well as other accounting
     /// we may do in the future.
@@ -864,6 +1007,7 @@ pub const PageFormatter = struct {
             .rectangle = false,
             .point_map = null,
             .trailing_state = null,
+            .kitty_gfx_state = null,
         };
     }
 
@@ -1040,10 +1184,23 @@ pub const PageFormatter = struct {
                 break :cells_subset .{ subset, row_start_x };
             };
 
+            // Emit kitty images if they are present on this page+row.
+            if (self.kitty_gfx_state) |kitty_gfx| {
+                try kitty_gfx.format(writer, self.page, y, &blank_rows);
+            }
+
             // If this row is blank, accumulate to avoid a bunch of extra
             // work later. If it isn't blank, make sure we dump all our
-            // blanks.
+            // blanks. If kitty graphics just emitted a placement, skip
+            // the blank rows that the image occupies since the receiving
+            // terminal will advance the cursor for the image.
             if (!Cell.hasTextAny(cells_subset)) {
+                if (self.kitty_gfx_state) |kitty_gfx| {
+                    if (kitty_gfx.skip_rows > 0) {
+                        kitty_gfx.skip_rows -= 1;
+                        continue;
+                    }
+                }
                 blank_rows += 1;
                 continue;
             }
@@ -4871,6 +5028,166 @@ test "Screen vt with kitty keyboard" {
     for (0..output.len) |i| {
         try testing.expectEqual(node, pin_map.items[i].node);
     }
+}
+
+test "Screen vt with kitty graphics" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    s.nextSlice("\x1b[H");
+    // 2x2 red block
+    s.nextSlice("\x1b_Ga=T,f=24,s=2,v=2;/wAA/wAA/wAA/wAA\x1b\\");
+    std.debug.print("Images after nextSlice: {}\n", .{t.screens.active.kitty_images.images.count()});
+
+    var pin_map: std.ArrayList(Pin) = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: ScreenFormatter = .init(t.screens.active, .vt);
+    formatter.terminal = &t;
+    formatter.extra.kitty_graphics = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Create a second terminal and apply the output
+    var t2 = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t2.deinit(alloc);
+
+    var s2 = t2.vtStream();
+    defer s2.deinit();
+
+    s2.nextSlice(output);
+
+    try testing.expectEqual(t.screens.active.kitty_images.images.count(), 1);
+    try testing.expectEqual(t2.screens.active.kitty_images.images.count(), 1);
+    var iter = t.screens.active.kitty_images.images.iterator();
+    const orig_img = iter.next().?.value_ptr.*;
+    var iter2 = t2.screens.active.kitty_images.images.iterator();
+    const rest_img = iter2.next().?.value_ptr.*;
+
+    try testing.expectEqual(orig_img.width, rest_img.width);
+    try testing.expectEqual(orig_img.height, rest_img.height);
+    try testing.expectEqual(orig_img.format, rest_img.format);
+    try testing.expectEqualSlices(u8, orig_img.data, rest_img.data);
+}
+
+test "Screen vt with kitty graphics spacing" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+    // Set pixel dimensions so gridSize can calculate rows when c/r aren't set.
+    t.width_px = 80 * 10;
+    t.height_px = 24 * 20;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Move to top, transmit+display first image (2x2 red block, 3 rows tall)
+    s.nextSlice("\x1b[H");
+    s.nextSlice("\x1b_Ga=T,f=24,s=2,v=2,c=10,r=3,i=1;/wAA/wAA/wAA/wAA\x1b\\");
+
+    // Write text between images.
+    s.nextSlice("hello between images\r\n");
+
+    // Transmit+display second image (2x2 blue block, 2 rows tall)
+    s.nextSlice("\x1b_Ga=T,f=24,s=2,v=2,c=10,r=2,i=2;AAD/AAD/AAD/AAD/\x1b\\");
+
+    // Verify source terminal state.
+    try testing.expectEqual(@as(u32, 2), t.screens.active.kitty_images.images.count());
+    try testing.expectEqual(@as(u32, 2), t.screens.active.kitty_images.placements.count());
+
+    // Verify the text landed at the expected position in the source terminal.
+    // Image 1 is 3 rows (r=3) at row 0, cursor advances to row 2 col 10
+    // (setCursorPos is 1-indexed: row=3, col=11 → 0-indexed: row=2, col=10).
+    {
+        const c = t.screens.active.pages.getCell(.{ .active = .{ .x = 10, .y = 2 } }).?;
+        try testing.expectEqual(@as(u21, 'h'), c.cell.codepoint());
+    }
+
+    // Format and replay into a second terminal.
+    var formatter: ScreenFormatter = .init(t.screens.active, .vt);
+    formatter.terminal = &t;
+    formatter.extra.kitty_graphics = true;
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    var t2 = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t2.deinit(alloc);
+    t2.width_px = 80 * 10;
+    t2.height_px = 24 * 20;
+
+    var s2 = t2.vtStream();
+    defer s2.deinit();
+
+    s2.nextSlice(output);
+
+    // Both images should be restored.
+    try testing.expectEqual(@as(u32, 2), t2.screens.active.kitty_images.images.count());
+    try testing.expectEqual(@as(u32, 2), t2.screens.active.kitty_images.placements.count());
+
+    // The formatter emits \r\n for image spacing instead of cursor
+    // positioning, so the text lands at row 3 (after 3 newlines for
+    // image 1) rather than row 2 as in the source. The important thing
+    // is correct relative spacing: image, text, image.
+    {
+        const c = t2.screens.active.pages.getCell(.{ .active = .{ .x = 10, .y = 3 } }).?;
+        try testing.expectEqual(@as(u21, 'h'), c.cell.codepoint());
+    }
+
+    // Row 2 should be blank (part of image 1's 3-row span).
+    {
+        const c = t2.screens.active.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
+        try testing.expect(!c.cell.hasText());
+    }
+
+    // Verify the second image placement exists and is below the text.
+    // Text is on row 3 with \r\n after it, so image 2 should be on row 4.
+    var found_img2 = false;
+    var p_iter = t2.screens.active.kitty_images.placements.iterator();
+    while (p_iter.next()) |entry| {
+        if (entry.key_ptr.image_id == 2) {
+            const placement = entry.value_ptr.*;
+            const pin = switch (placement.location) {
+                .pin => |p| p,
+                .virtual => continue,
+            };
+            try testing.expectEqual(@as(usize, 4), pin.y);
+            found_img2 = true;
+        }
+    }
+    try testing.expect(found_img2);
 }
 
 test "Screen vt with charsets" {
