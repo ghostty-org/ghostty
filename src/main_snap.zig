@@ -601,12 +601,15 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             while (frame_reader.next()) |frame| {
                 switch (frame.msg_type) {
                     .pty_data, .snapshot, .scrollback => {
-                        _ = posix.write(STDOUT, frame.payload) catch {};
+                        // Write all bytes to stdout, retrying on short writes.
+                        var remaining = frame.payload;
+                        while (remaining.len > 0) {
+                            const w = posix.write(STDOUT, remaining) catch break;
+                            remaining = remaining[w..];
+                        }
                     },
                     else => {},
                 }
-                // Advance AFTER consuming the payload — the payload slice
-                // points into the buffer and advance() shifts the buffer.
                 frame_reader.advance();
             }
         }
