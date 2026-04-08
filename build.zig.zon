@@ -43,9 +43,9 @@
             .hash = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9",
         },
         .itijah = .{
-            // DiaaEddin/itijah v0.1.8
-            .url = "https://github.com/DiaaEddin/itijah/archive/refs/tags/v0.1.8.tar.gz",
-            .hash = "itijah-0.1.8-keFZYUxOAwA1hVxPuikQIE-IXXg3yoNixfmzk8qVCrdN",
+            // DiaaEddin/itijah v0.2.0
+            .url = "https://github.com/DiaaEddin/itijah/archive/refs/tags/v0.2.0.tar.gz",
+            .hash = "itijah-0.2.0-keFZYcWLAwCOBysWA5aBhNsHhB6AtldnB4sajzJwPAtm",
             .lazy = true,
         },
         .zig_wayland = .{
