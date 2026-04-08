@@ -15,6 +15,7 @@ pub const std_options: std.Options = .{
 
 const terminalpkg = @import("terminal/main.zig");
 const Terminal = terminalpkg.Terminal;
+const SyncState = terminalpkg.sync.SyncState;
 const pty_pkg = @import("pty.zig");
 const Pty = pty_pkg.Pty;
 
@@ -40,8 +41,12 @@ fn stderrFmt(comptime fmt_str: []const u8, fmt_args: anytype) void {
 const MsgType = enum(u8) {
     // Server → Client
     pty_data = 0x01,
-    snapshot = 0x02,
-    scrollback = 0x03,
+    snapshot = 0x02, // VT snapshot (legacy, used for initial connect)
+    scrollback = 0x03, // VT scrollback (legacy)
+    viewport_full = 0x06, // Binary full viewport
+    viewport_delta = 0x05, // Binary dirty rows only
+    scrollback_chunk = 0x07, // Binary scrollback chunk
+    sync_styles = 0x08, // New style definitions
 
     // Client → Server
     input = 0x81,
@@ -601,12 +606,29 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
             while (frame_reader.next()) |frame| {
                 switch (frame.msg_type) {
                     .pty_data, .snapshot, .scrollback => {
-                        // Write all bytes to stdout, retrying on short writes.
+                        // VT data — write directly to stdout
                         var remaining = frame.payload;
                         while (remaining.len > 0) {
                             const w = posix.write(STDOUT, remaining) catch break;
                             remaining = remaining[w..];
                         }
+                    },
+                    .viewport_full, .viewport_delta => {
+                        // Binary viewport data — log for now.
+                        // A native Ghostty client would apply this directly.
+                        // The VT attach client falls back to VT snapshots.
+                        stderrFmt("[attach] Binary viewport: {d} bytes (type={d})\n", .{
+                            frame.payload.len,
+                            @intFromEnum(frame.msg_type),
+                        });
+                    },
+                    .scrollback_chunk => {
+                        // Binary scrollback chunk — log for now.
+                        stderrFmt("[attach] Scrollback chunk: {d} bytes\n", .{frame.payload.len});
+                    },
+                    .sync_styles => {
+                        // Style definitions — cache for rendering.
+                        stderrFmt("[attach] Style definitions: {d} bytes\n", .{frame.payload.len});
                     },
                     else => {},
                 }
@@ -727,6 +749,8 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     var out_buf: OutputBuffer = .{};
     defer out_buf.deinit();
     var client_reader: FrameReader = .{};
+    var sync_state: SyncState = SyncState.init(alloc);
+    defer sync_state.deinit();
     var buf: [4096]u8 = undefined;
     var child_alive = true;
     var total_pty_bytes: u64 = 0;
@@ -753,6 +777,22 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                 child_alive = false;
                 break;
             }
+            // Idle: send scrollback chunks if client connected and no pending data
+            if (client_fd != null and !out_buf.hasPending() and !state_dirty) {
+                if (client_fd) |cfd| {
+                    var sb_builder: std.Io.Writer.Allocating = .init(alloc);
+                    if (sync_state.nextScrollbackChunk(terminal.screens.active, 50, &sb_builder.writer) catch null) |count| {
+                        const sb_data = sb_builder.writer.buffered();
+                        if (sb_data.len > 0) {
+                            _ = writeFrame(cfd, .scrollback_chunk, sb_data, &out_buf);
+                            stderrFmt("[server] Scrollback chunk: {d} rows, {d} bytes\n", .{ count, sb_data.len });
+                        }
+                        std.heap.c_allocator.free(sb_data);
+                    } else {
+                        sb_builder.deinit();
+                    }
+                }
+            }
             continue;
         }
 
@@ -763,9 +803,36 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                 if (client_fd) |cfd| {
                     if (out_buf.drain(cfd)) {
                         if (state_dirty and terminal.screens.active_key != .alternate) {
-                            if (out_buf.queueSnapshot(&terminal)) |len| {
-                                snapshots_sent += 1;
-                                stderrFmt("[server] Refresh snapshot: {d} bytes\n", .{len});
+                            // Use binary delta when possible, fall back to VT snapshot
+                            const delta = sync_state.computeDelta(&terminal);
+                            switch (delta.kind) {
+                                .none => {},
+                                .partial => {
+                                    // Serialize only dirty rows
+                                    var builder: std.Io.Writer.Allocating = .init(alloc);
+                                    sync_state.serializeDelta(&terminal, delta, &builder.writer) catch {};
+                                    const data = builder.writer.buffered();
+                                    if (data.len > 0) {
+                                        out_buf.queueRaw(.viewport_delta, data);
+                                        sync_state.markSynced(&terminal);
+                                        snapshots_sent += 1;
+                                        stderrFmt("[server] Delta: {d} bytes\n", .{data.len});
+                                    }
+                                    std.heap.c_allocator.free(data);
+                                },
+                                .full => {
+                                    // Full binary viewport
+                                    var builder: std.Io.Writer.Allocating = .init(alloc);
+                                    sync_state.serializeFull(&terminal, &builder.writer) catch {};
+                                    const data = builder.writer.buffered();
+                                    if (data.len > 0) {
+                                        out_buf.queueRaw(.viewport_full, data);
+                                        sync_state.markSynced(&terminal);
+                                        snapshots_sent += 1;
+                                        stderrFmt("[server] Full sync: {d} bytes\n", .{data.len});
+                                    }
+                                    std.heap.c_allocator.free(data);
+                                },
                             }
                             state_dirty = false;
                         }
@@ -903,18 +970,26 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 
             writeStderr("[server] Client connected\n");
 
-            // Send scrollback first (if any), then snapshot
+            // Reset sync state for new client
+            sync_state.deinit();
+            sync_state = SyncState.init(alloc);
+
+            // Send VT scrollback first (if any)
             if (generateScrollback(&terminal)) |sb_data| {
                 defer std.heap.c_allocator.free(sb_data);
                 _ = writeFrame(new_fd, .scrollback, sb_data, null);
                 stderrFmt("[server] Scrollback: {d} bytes\n", .{sb_data.len});
             }
 
+            // Send VT snapshot for initial display
             if (out_buf.queueSnapshotInitial(&terminal)) |len| {
                 snapshots_sent += 1;
-                stderrFmt("[server] Initial snapshot: {d} bytes\n", .{len});
+                stderrFmt("[server] Initial VT snapshot: {d} bytes\n", .{len});
                 if (client_fd) |cfd| _ = out_buf.drain(cfd);
             }
+
+            // Initialize sync state so future deltas are computed correctly
+            sync_state.markSynced(&terminal);
         }
     }
 
