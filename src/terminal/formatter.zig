@@ -107,11 +107,12 @@ const KittyGfxState = if (build_options.kitty_graphics) struct {
             }
 
             // Move cursor to the placement's column, emit placement,
-            // then return cursor to column 1.
+            // then return cursor to column 1 so subsequent cell content
+            // aligns correctly.
             try writer.print("\x1b[{d}G", .{pin.x + 1});
             const p_seq = std.fmt.allocPrint(
                 self.alloc,
-                "\x1b_Ga=p,q=1,C=1,i={d},c={d},r={d},X={d},Y={d}\x1b\\",
+                "\x1b_Ga=p,q=1,i={d},c={d},r={d},X={d},Y={d}\x1b\\",
                 .{ key.image_id, placement.columns, placement.rows, placement.x_offset, placement.y_offset },
             ) catch return error.WriteFailed;
             defer self.alloc.free(p_seq);
@@ -120,8 +121,6 @@ const KittyGfxState = if (build_options.kitty_graphics) struct {
 
             if (self.images.imageById(key.image_id)) |image| {
                 const grid = placement.gridSize(image, self.terminal);
-                // Create newlines for the entire image height
-                for (0..grid.rows) |_| try writer.writeAll("\r\n");
                 // Skip grid.rows - 1 because the placement row itself is
                 // already being consumed by the current loop iteration.
                 self.skip_rows += grid.rows -| 1;
@@ -5156,23 +5155,16 @@ test "Screen vt with kitty graphics spacing" {
     try testing.expectEqual(@as(u32, 2), t2.screens.active.kitty_images.images.count());
     try testing.expectEqual(@as(u32, 2), t2.screens.active.kitty_images.placements.count());
 
-    // The formatter emits \r\n for image spacing instead of cursor
-    // positioning, so the text lands at row 3 (after 3 newlines for
-    // image 1) rather than row 2 as in the source. The important thing
-    // is correct relative spacing: image, text, image.
+    // With C=0 (default cursor movement), the terminal advances the
+    // cursor automatically after image placement, matching the source
+    // terminal's behavior. Text lands at row 2, same as the source.
     {
-        const c = t2.screens.active.pages.getCell(.{ .active = .{ .x = 10, .y = 3 } }).?;
+        const c = t2.screens.active.pages.getCell(.{ .active = .{ .x = 10, .y = 2 } }).?;
         try testing.expectEqual(@as(u21, 'h'), c.cell.codepoint());
     }
 
-    // Row 2 should be blank (part of image 1's 3-row span).
-    {
-        const c = t2.screens.active.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
-        try testing.expect(!c.cell.hasText());
-    }
-
     // Verify the second image placement exists and is below the text.
-    // Text is on row 3 with \r\n after it, so image 2 should be on row 4.
+    // Text is on row 2 with \r\n after it, so image 2 should be on row 3.
     var found_img2 = false;
     var p_iter = t2.screens.active.kitty_images.placements.iterator();
     while (p_iter.next()) |entry| {
@@ -5182,7 +5174,7 @@ test "Screen vt with kitty graphics spacing" {
                 .pin => |p| p,
                 .virtual => continue,
             };
-            try testing.expectEqual(@as(usize, 4), pin.y);
+            try testing.expectEqual(@as(usize, 3), pin.y);
             found_img2 = true;
         }
     }
