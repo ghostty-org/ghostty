@@ -2771,6 +2771,50 @@ test "shape LTR neutral RTL splits and sets direction" {
     try testing.expect(runs[1].offset > 0);
 }
 
+test "shape hebrew RTL" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .julia_mono);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("שלום עולם");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+        try testing.expect(run.rtl);
+        try testing.expectEqual(@as(u16, 9), run.cells);
+
+        const cells = try shaper.shape(run);
+        try testing.expect(cells.len > 1);
+
+        var x: u16 = cells[0].x;
+        try testing.expect(x < run.cells);
+        for (cells[1..]) |cell| {
+            try testing.expect(cell.x < run.cells);
+            try testing.expect(cell.x >= x);
+            x = cell.x;
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
 test "shape arabic with tashkeel at EOL" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3152,6 +3196,7 @@ const TestFont = enum {
     geist_mono,
     inconsolata,
     jetbrains_mono,
+    julia_mono,
     monaspace_neon,
     nerd_font,
 };
@@ -3170,6 +3215,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .inconsolata => font.embedded.inconsolata,
         .geist_mono => font.embedded.geist_mono,
         .jetbrains_mono => font.embedded.jetbrains_mono,
+        .julia_mono => font.embedded.julia_mono,
         .monaspace_neon => font.embedded.monaspace_neon,
         .nerd_font => font.embedded.test_nerd_font,
     };
