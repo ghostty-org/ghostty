@@ -22,6 +22,7 @@ pub const parse_table = @import("parse_table.zig");
 pub const search = @import("search.zig");
 pub const sgr = @import("sgr.zig");
 pub const size = @import("size.zig");
+pub const sync = @import("sync.zig");
 pub const size_report = @import("size_report.zig");
 pub const sys = @import("sys.zig");
 pub const tmux = if (options.tmux_control_mode) @import("tmux.zig") else struct {};
