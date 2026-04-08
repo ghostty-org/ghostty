@@ -22,17 +22,17 @@ const build_options = @import("terminal_options");
 const encoder = std.base64.standard.Encoder;
 const ImageStorage = if (build_options.kitty_graphics) kitty.graphics.ImageStorage else void;
 
-const KittyGfxState = struct {
+const KittyGfxState = if (build_options.kitty_graphics) struct {
     alloc: Allocator,
     terminal: *const Terminal,
-    images: if (build_options.kitty_graphics) *const ImageStorage else void,
+    images: *const ImageStorage,
     // Track which images have already been loaded
     seen_images: std.AutoArrayHashMapUnmanaged(u32, void),
     // Track how many rows we should skip since we already created
     // newlines for them
     skip_rows: u32 = 0,
 
-    fn init(alloc: Allocator, terminal: *const Terminal, images: if (build_options.kitty_graphics) *const ImageStorage else void) KittyGfxState {
+    fn init(alloc: Allocator, terminal: *const Terminal, images: *const ImageStorage) KittyGfxState {
         return .{
             .images = images,
             .seen_images = .{},
@@ -46,7 +46,6 @@ const KittyGfxState = struct {
     }
 
     fn format(self: *KittyGfxState, writer: *std.Io.Writer, page: *const Page, y: size.CellCountInt, blank_rows: *usize) std.Io.Writer.Error!void {
-        if (comptime !build_options.kitty_graphics) return;
         var p_iter = self.images.placements.iterator();
         while (p_iter.next()) |p_entry| {
             const key = p_entry.key_ptr.*;
@@ -129,7 +128,7 @@ const KittyGfxState = struct {
             }
         }
     }
-};
+} else void;
 
 /// Formats available.
 pub const Format = lib.Enum(lib.target, &.{
