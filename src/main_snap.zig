@@ -613,22 +613,9 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                             remaining = remaining[w..];
                         }
                     },
-                    .viewport_full, .viewport_delta => {
-                        // Binary viewport data — log for now.
-                        // A native Ghostty client would apply this directly.
-                        // The VT attach client falls back to VT snapshots.
-                        stderrFmt("[attach] Binary viewport: {d} bytes (type={d})\n", .{
-                            frame.payload.len,
-                            @intFromEnum(frame.msg_type),
-                        });
-                    },
-                    .scrollback_chunk => {
-                        // Binary scrollback chunk — log for now.
-                        stderrFmt("[attach] Scrollback chunk: {d} bytes\n", .{frame.payload.len});
-                    },
-                    .sync_styles => {
-                        // Style definitions — cache for rendering.
-                        stderrFmt("[attach] Style definitions: {d} bytes\n", .{frame.payload.len});
+                    .viewport_full, .viewport_delta, .scrollback_chunk, .sync_styles => {
+                        // Binary data for future native Ghostty client.
+                        // VT attach client ignores these — it uses VT snapshots.
                     },
                     else => {},
                 }
@@ -803,36 +790,12 @@ fn runServer(alloc: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                 if (client_fd) |cfd| {
                     if (out_buf.drain(cfd)) {
                         if (state_dirty and terminal.screens.active_key != .alternate) {
-                            // Use binary delta when possible, fall back to VT snapshot
-                            const delta = sync_state.computeDelta(&terminal);
-                            switch (delta.kind) {
-                                .none => {},
-                                .partial => {
-                                    // Serialize only dirty rows
-                                    var builder: std.Io.Writer.Allocating = .init(alloc);
-                                    sync_state.serializeDelta(&terminal, delta, &builder.writer) catch {};
-                                    const data = builder.writer.buffered();
-                                    if (data.len > 0) {
-                                        out_buf.queueRaw(.viewport_delta, data);
-                                        sync_state.markSynced(&terminal);
-                                        snapshots_sent += 1;
-                                        stderrFmt("[server] Delta: {d} bytes\n", .{data.len});
-                                    }
-                                    std.heap.c_allocator.free(data);
-                                },
-                                .full => {
-                                    // Full binary viewport
-                                    var builder: std.Io.Writer.Allocating = .init(alloc);
-                                    sync_state.serializeFull(&terminal, &builder.writer) catch {};
-                                    const data = builder.writer.buffered();
-                                    if (data.len > 0) {
-                                        out_buf.queueRaw(.viewport_full, data);
-                                        sync_state.markSynced(&terminal);
-                                        snapshots_sent += 1;
-                                        stderrFmt("[server] Full sync: {d} bytes\n", .{data.len});
-                                    }
-                                    std.heap.c_allocator.free(data);
-                                },
+                            // Send VT snapshot for display (VT attach client)
+                            if (out_buf.queueSnapshot(&terminal)) |len| {
+                                snapshots_sent += 1;
+                                // Also update sync state for tracking
+                                sync_state.markSynced(&terminal);
+                                stderrFmt("[server] Refresh snapshot: {d} bytes\n", .{len});
                             }
                             state_dirty = false;
                         }
