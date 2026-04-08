@@ -613,9 +613,16 @@ fn runAttach(_: std.mem.Allocator, args: *std.process.ArgIterator) !void {
                             remaining = remaining[w..];
                         }
                     },
-                    .viewport_full, .viewport_delta, .scrollback_chunk, .sync_styles => {
+                    .scrollback_chunk => {
+                        // Log scrollback progress so the user can see backfill working
+                        if (frame.payload.len >= 10) {
+                            const total = std.mem.readInt(u32, frame.payload[0..4], .big);
+                            const offset = std.mem.readInt(u32, frame.payload[4..8], .big);
+                            stderrFmt("\r[attach] Scrollback: {d}/{d} rows\r", .{ offset, total });
+                        }
+                    },
+                    .viewport_full, .viewport_delta, .sync_styles => {
                         // Binary data for future native Ghostty client.
-                        // VT attach client ignores these — it uses VT snapshots.
                     },
                     else => {},
                 }
