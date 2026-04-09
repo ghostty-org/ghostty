@@ -892,6 +892,22 @@ palette: Palette = .{},
 ///   * `false`
 @"cursor-style-blink": ?bool = null,
 
+/// The style of the cursor when the terminal is not focused. If this is
+/// not set, the cursor will be a hollow block when unfocused.
+///
+/// This does not affect the cursor style when the cursor is explicitly
+/// hidden by the running program (e.g. via `DECTCEM`), nor does it affect
+/// preedit or password input cursor styles.
+///
+/// Valid values are:
+///
+///   * ` ` (blank, the default, uses hollow block)
+///   * `block`
+///   * `bar`
+///   * `underline`
+///   * `block_hollow`
+@"cursor-style-unfocused": ?terminal.CursorStyle = null,
+
 /// The color of the text under the cursor. If this is not set, a default will
 /// be chosen.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.

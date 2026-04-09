@@ -29,6 +29,7 @@ pub const StyleOptions = struct {
     preedit: bool = false,
     focused: bool = false,
     blink_visible: bool = false,
+    unfocused_style: ?Style = null,
 };
 
 /// Returns the cursor style to use for the current render state or null
@@ -55,9 +56,9 @@ pub fn style(
     // If the cursor is explicitly not visible by terminal mode, we don't render.
     if (!state.cursor.visible) return null;
 
-    // If we're not focused, our cursor is always visible so that
-    // we can show the hollow box.
-    if (!opts.focused) return .block_hollow;
+    // If we're not focused, our cursor is always visible. Use the
+    // configured unfocused style or default to hollow box.
+    if (!opts.focused) return opts.unfocused_style orelse .block_hollow;
 
     // If the cursor is blinking and our blink state is not visible,
     // then we don't show the cursor.
@@ -103,6 +104,50 @@ test "cursor: blinking disabled" {
     try testing.expect(style(&state, .{ .focused = true, .blink_visible = false }) == .bar);
     try testing.expect(style(&state, .{ .focused = false, .blink_visible = true }) == .block_hollow);
     try testing.expect(style(&state, .{ .focused = false, .blink_visible = false }) == .block_hollow);
+}
+
+test "cursor: unfocused custom style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var term: terminal.Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    defer term.deinit(alloc);
+
+    term.screens.active.cursor.cursor_style = .block;
+    term.modes.set(.cursor_blinking, false);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
+
+    // Unfocused with custom style uses that style
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .bar }) == .bar);
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .underline }) == .underline);
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .block }) == .block);
+
+    // Unfocused without custom style defaults to block_hollow
+    try testing.expect(style(&state, .{ .focused = false }) == .block_hollow);
+
+    // Focused ignores unfocused_style entirely
+    try testing.expect(style(&state, .{ .focused = true, .blink_visible = true, .unfocused_style = .bar }) == .block);
+
+    // Preedit overrides unfocused_style
+    try testing.expect(style(&state, .{ .preedit = true, .focused = false, .unfocused_style = .bar }) == .block);
+}
+
+test "cursor: unfocused custom style hidden cursor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var term = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
+    defer term.deinit(alloc);
+
+    term.modes.set(.cursor_visible, false);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
+
+    // Hidden cursor returns null even with unfocused_style set
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .bar }) == null);
 }
 
 test "cursor: explicitly not visible" {
