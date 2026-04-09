@@ -15,6 +15,7 @@ pub const Shell = enum {
     elvish,
     fish,
     nushell,
+    pwsh,
     zsh,
 };
 
@@ -59,6 +60,13 @@ pub fn setup(
         ),
 
         .nushell => try setupNushell(
+            alloc_arena,
+            command,
+            resource_dir,
+            env,
+        ),
+
+        .pwsh => try setupPwsh(
             alloc_arena,
             command,
             resource_dir,
@@ -161,6 +169,7 @@ fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
     if (std.mem.eql(u8, "fish", exe)) return .fish;
     if (std.mem.eql(u8, "nu", exe)) return .nushell;
     if (std.mem.eql(u8, "zsh", exe)) return .zsh;
+    if (std.mem.eql(u8, "pwsh", exe) || std.mem.eql(u8, "powershell", exe)) return .pwsh;
 
     return null;
 }
@@ -175,6 +184,8 @@ test detectShell {
     try testing.expectEqual(.fish, try detectShell(alloc, .{ .shell = "fish" }));
     try testing.expectEqual(.nushell, try detectShell(alloc, .{ .shell = "nu" }));
     try testing.expectEqual(.zsh, try detectShell(alloc, .{ .shell = "zsh" }));
+    try testing.expectEqual(.pwsh, try detectShell(alloc, .{ .shell = "pwsh" }));
+    try testing.expectEqual(.pwsh, try detectShell(alloc, .{ .shell = "powershell.exe" }));
 
     if (comptime builtin.target.os.tag.isDarwin()) {
         try testing.expect(try detectShell(alloc, .{ .shell = "/bin/bash" }) == null);
@@ -883,6 +894,16 @@ test "nushell: missing resources" {
 
     try testing.expect(try setupNushell(alloc, .{ .shell = "nu" }, resources_dir, &env) == null);
     try testing.expectEqual(0, env.count());
+}
+
+fn setupPwsh(
+    _: Allocator,
+    _: config.Command,
+    _: []const u8,
+    _: *EnvMap,
+) !?config.Command {
+    // TODO: Don't load profile and instead load shell integrations that load their profile unless -NoProfile was passed.
+    return undefined;
 }
 
 /// Setup the zsh automatic shell integration. This works by setting

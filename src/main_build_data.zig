@@ -14,6 +14,7 @@ pub const Action = enum {
     // Shell completions
     bash,
     fish,
+    pwsh,
     zsh,
 
     // Editor syntax files
@@ -39,6 +40,7 @@ pub fn main() !void {
     switch (action) {
         .bash => try writer.writeAll(@import("extra/bash.zig").completions),
         .fish => try writer.writeAll(@import("extra/fish.zig").completions),
+        .pwsh => try writer.writeAll(@import("extra/pwsh.zig").module),
         .zsh => try writer.writeAll(@import("extra/zsh.zig").completions),
         .sublime => try writer.writeAll(@import("extra/sublime.zig").syntax),
         .@"vim-syntax" => try writer.writeAll(@import("extra/vim.zig").syntax),
